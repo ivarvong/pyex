@@ -3,6 +3,8 @@ defmodule PyexTest do
 
   alias Pyex.Error
 
+  @network [dangerously_allow_full_internet_access: true]
+
   describe "end-to-end: two functions doing math" do
     test "define add and multiply, compose them" do
       result =
@@ -78,17 +80,20 @@ defmodule PyexTest do
       port = bypass.port
 
       result =
-        Pyex.run!("""
-        import requests
-        import json
+        Pyex.run!(
+          """
+          import requests
+          import json
 
-        response = requests.get("http://localhost:#{port}/api/items")
-        data = json.loads(response.text)
-        total = 0
-        for item in data:
-            total = total + item["value"]
-        total
-        """)
+          response = requests.get("http://localhost:#{port}/api/items")
+          data = json.loads(response.text)
+          total = 0
+          for item in data:
+              total = total + item["value"]
+          total
+          """,
+          network: @network
+        )
 
       assert result == 42
     end
@@ -110,18 +115,21 @@ defmodule PyexTest do
       port = bypass.port
 
       result =
-        Pyex.run!("""
-        import requests
-        import json
+        Pyex.run!(
+          """
+          import requests
+          import json
 
-        response = requests.get("http://localhost:#{port}/api/scores")
-        items = json.loads(response.text)
-        count = 0
-        for item in items:
-            if item["score"] > 80:
-                count = count + 1
-        count
-        """)
+          response = requests.get("http://localhost:#{port}/api/scores")
+          items = json.loads(response.text)
+          count = 0
+          for item in items:
+              if item["score"] > 80:
+                  count = count + 1
+          count
+          """,
+          network: @network
+        )
 
       assert result == 2
     end
@@ -273,7 +281,8 @@ defmodule PyexTest do
           environ: %{
             "API_KEY" => "sk-test-key-123",
             "API_URL" => "http://localhost:#{port}"
-          }
+          },
+          network: @network
         )
 
       request = %{method: "GET", path: "/analyze", query: %{"ticker" => "AAPL"}}
@@ -309,54 +318,57 @@ defmodule PyexTest do
       port = bypass.port
 
       result =
-        Pyex.run!("""
-        import requests
-        from pydantic import BaseModel, Field
+        Pyex.run!(
+          """
+          import requests
+          from pydantic import BaseModel, Field
 
-        class Metar(BaseModel):
-            id: str
-            station_id: str
-            metar_type: str
-            raw_text: str
-            observed_at: str
-            flight_category: str
-            temperature_c: float
-            dewpoint_c: float
-            wind_speed_kt: int
-            wind_direction_degrees: int
-            wind_gust_kt: Optional[int] = None
-            visibility_sm: float
-            altimeter_inhg: float
-            sea_level_pressure_mb: float
-            elevation_m: float
-            latitude: float
-            longitude: float
-            density_altitude_ft: int
-            cloud_layers: list
-            wx_string: Optional[str] = None
-            observation_age_min: float
+          class Metar(BaseModel):
+              id: str
+              station_id: str
+              metar_type: str
+              raw_text: str
+              observed_at: str
+              flight_category: str
+              temperature_c: float
+              dewpoint_c: float
+              wind_speed_kt: int
+              wind_direction_degrees: int
+              wind_gust_kt: Optional[int] = None
+              visibility_sm: float
+              altimeter_inhg: float
+              sea_level_pressure_mb: float
+              elevation_m: float
+              latitude: float
+              longitude: float
+              density_altitude_ft: int
+              cloud_layers: list
+              wx_string: Optional[str] = None
+              observation_age_min: float
 
-        resp = requests.get("http://localhost:#{port}/v1/metars/KJFK")
-        data = resp.json()
-        metar = Metar.model_validate(data)
+          resp = requests.get("http://localhost:#{port}/v1/metars/KJFK")
+          data = resp.json()
+          metar = Metar.model_validate(data)
 
-        [
-            metar.station_id,
-            metar.flight_category,
-            metar.temperature_c,
-            metar.dewpoint_c,
-            metar.wind_speed_kt,
-            metar.wind_direction_degrees,
-            metar.wind_gust_kt,
-            metar.visibility_sm,
-            metar.altimeter_inhg,
-            metar.latitude,
-            metar.longitude,
-            metar.wx_string,
-            len(metar.cloud_layers),
-            metar.density_altitude_ft,
-        ]
-        """)
+          [
+              metar.station_id,
+              metar.flight_category,
+              metar.temperature_c,
+              metar.dewpoint_c,
+              metar.wind_speed_kt,
+              metar.wind_direction_degrees,
+              metar.wind_gust_kt,
+              metar.visibility_sm,
+              metar.altimeter_inhg,
+              metar.latitude,
+              metar.longitude,
+              metar.wx_string,
+              len(metar.cloud_layers),
+              metar.density_altitude_ft,
+          ]
+          """,
+          network: @network
+        )
 
       assert [
                "KJFK",
@@ -386,32 +398,35 @@ defmodule PyexTest do
       port = bypass.port
 
       result =
-        Pyex.run!("""
-        import requests
-        from pydantic import BaseModel
+        Pyex.run!(
+          """
+          import requests
+          from pydantic import BaseModel
 
-        class Metar(BaseModel):
-            station_id: str
-            temperature_c: float
-            dewpoint_c: float
-            wind_speed_kt: int
-            wind_gust_kt: Optional[int] = None
-            altimeter_inhg: float
-            density_altitude_ft: int
+          class Metar(BaseModel):
+              station_id: str
+              temperature_c: float
+              dewpoint_c: float
+              wind_speed_kt: int
+              wind_gust_kt: Optional[int] = None
+              altimeter_inhg: float
+              density_altitude_ft: int
 
-        resp = requests.get("http://localhost:#{port}/v1/metars/KJFK")
-        metar = Metar.model_validate(resp.json())
+          resp = requests.get("http://localhost:#{port}/v1/metars/KJFK")
+          metar = Metar.model_validate(resp.json())
 
-        spread = metar.temperature_c - metar.dewpoint_c
-        effective_wind = metar.wind_gust_kt if metar.wind_gust_kt is not None else metar.wind_speed_kt
-        below_sea = metar.density_altitude_ft < 0
+          spread = metar.temperature_c - metar.dewpoint_c
+          effective_wind = metar.wind_gust_kt if metar.wind_gust_kt is not None else metar.wind_speed_kt
+          below_sea = metar.density_altitude_ft < 0
 
-        d = metar.model_dump()
-        d["spread"] = round(spread, 1)
-        d["effective_wind"] = effective_wind
-        d["below_sea_level"] = below_sea
-        [d["station_id"], d["spread"], d["effective_wind"], d["below_sea_level"], d["density_altitude_ft"]]
-        """)
+          d = metar.model_dump()
+          d["spread"] = round(spread, 1)
+          d["effective_wind"] = effective_wind
+          d["below_sea_level"] = below_sea
+          [d["station_id"], d["spread"], d["effective_wind"], d["below_sea_level"], d["density_altitude_ft"]]
+          """,
+          network: @network
+        )
 
       assert result == ["KJFK", 12.7, 12, true, -2349]
     end
@@ -428,28 +443,31 @@ defmodule PyexTest do
       port = bypass.port
 
       result =
-        Pyex.run!("""
-        import requests
-        from pydantic import BaseModel
+        Pyex.run!(
+          """
+          import requests
+          from pydantic import BaseModel
 
-        class Metar(BaseModel):
-            station_id: str
-            temperature_c: float
-            wind_speed_kt: int
+          class Metar(BaseModel):
+              station_id: str
+              temperature_c: float
+              wind_speed_kt: int
 
-        resp = requests.get("http://localhost:#{port}/v1/metars/KJFK")
+          resp = requests.get("http://localhost:#{port}/v1/metars/KJFK")
 
-        try:
-            metar = Metar.model_validate(resp.json())
-            "should not reach"
-        except Exception as e:
-            error = str(e)
+          try:
+              metar = Metar.model_validate(resp.json())
+              "should not reach"
+          except Exception as e:
+              error = str(e)
 
-        [
-            "temperature_c" in error,
-            "wind_speed_kt" in error,
-        ]
-        """)
+          [
+              "temperature_c" in error,
+              "wind_speed_kt" in error,
+          ]
+          """,
+          network: @network
+        )
 
       assert result == [true, true]
     end
@@ -486,32 +504,35 @@ defmodule PyexTest do
       port = bypass.port
 
       result =
-        Pyex.run!("""
-        import requests
-        from pydantic import BaseModel
+        Pyex.run!(
+          """
+          import requests
+          from pydantic import BaseModel
 
-        class StationWeather(BaseModel):
-            station_id: str
-            temperature_c: float
-            wind_speed_kt: int
-            flight_category: str
+          class StationWeather(BaseModel):
+              station_id: str
+              temperature_c: float
+              wind_speed_kt: int
+              flight_category: str
 
-        resp = requests.get("http://localhost:#{port}/v1/metars")
-        raw_list = resp.json()
-        stations = [StationWeather.model_validate(s) for s in raw_list]
+          resp = requests.get("http://localhost:#{port}/v1/metars")
+          raw_list = resp.json()
+          stations = [StationWeather.model_validate(s) for s in raw_list]
 
-        vfr = [s for s in stations if s.flight_category == "VFR"]
-        coldest = min(stations, key=lambda s: s.temperature_c)
-        windiest = max(stations, key=lambda s: s.wind_speed_kt)
-        avg_temp = sum([s.temperature_c for s in stations]) / len(stations)
+          vfr = [s for s in stations if s.flight_category == "VFR"]
+          coldest = min(stations, key=lambda s: s.temperature_c)
+          windiest = max(stations, key=lambda s: s.wind_speed_kt)
+          avg_temp = sum([s.temperature_c for s in stations]) / len(stations)
 
-        [
-            len(vfr),
-            coldest.station_id,
-            windiest.station_id,
-            round(avg_temp, 1),
-        ]
-        """)
+          [
+              len(vfr),
+              coldest.station_id,
+              windiest.station_id,
+              round(avg_temp, 1),
+          ]
+          """,
+          network: @network
+        )
 
       assert result == [2, "KORD", "KORD", 1.7]
     end

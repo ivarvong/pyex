@@ -90,24 +90,30 @@ defmodule Pyex.Stdlib.Requests do
 
     {:io_call,
      fn env, ctx ->
-       result =
-         Tracer.with_span "http.request",
-                          %{attributes: %{"http.method" => method_str, "http.url" => url}} do
-           case Req.request(req_opts) do
-             {:ok, resp} ->
-               response = build_response(resp)
-               Tracer.set_attribute("http.status_code", resp.status)
-               Tracer.set_attribute("http.response_body_size", byte_size(response["text"]))
-               response
+       case Pyex.Ctx.check_network_access(ctx, method_str, url) do
+         {:denied, reason} ->
+           {{:exception, reason}, env, ctx}
 
-             {:error, reason} ->
-               Tracer.set_attribute("error", true)
-               Tracer.set_attribute("error.message", inspect(reason))
-               {:exception, "requests.#{method} failed: #{inspect(reason)}"}
-           end
-         end
+         :ok ->
+           result =
+             Tracer.with_span "http.request",
+                              %{attributes: %{"http.method" => method_str, "http.url" => url}} do
+               case Req.request(req_opts) do
+                 {:ok, resp} ->
+                   response = build_response(resp)
+                   Tracer.set_attribute("http.status_code", resp.status)
+                   Tracer.set_attribute("http.response_body_size", byte_size(response["text"]))
+                   response
 
-       {result, env, ctx}
+                 {:error, reason} ->
+                   Tracer.set_attribute("error", true)
+                   Tracer.set_attribute("error.message", inspect(reason))
+                   {:exception, "requests.#{method} failed: #{inspect(reason)}"}
+               end
+             end
+
+           {result, env, ctx}
+       end
      end}
   end
 

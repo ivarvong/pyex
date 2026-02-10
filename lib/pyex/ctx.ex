@@ -46,6 +46,12 @@ defmodule Pyex.Ctx do
           call_us: %{optional(String.t()) => non_neg_integer()}
         }
 
+  @type network_config :: %{
+          allowed_url_prefixes: [String.t()],
+          allowed_methods: [String.t()],
+          dangerously_allow_full_internet_access: boolean()
+        }
+
   @type generator_mode :: :accumulate | :defer | :defer_inner | nil
 
   @type t :: %__MODULE__{
@@ -68,6 +74,7 @@ defmodule Pyex.Ctx do
           generator_acc: [term()] | nil,
           iterators: %{optional(non_neg_integer()) => [term()] | term()},
           next_iterator_id: non_neg_integer(),
+          network: network_config() | nil,
           exception_instance: term(),
           current_line: non_neg_integer() | nil
         }
@@ -91,6 +98,7 @@ defmodule Pyex.Ctx do
             generator_acc: nil,
             iterators: %{},
             next_iterator_id: 0,
+            network: nil,
             exception_instance: nil,
             current_line: nil
 
@@ -109,6 +117,14 @@ defmodule Pyex.Ctx do
   - `:profile` -- when `true`, collects per-line execution counts and
     per-function call counts with timing. Results are stored in the
     returned context's `profile` field. Default `false`.
+  - `:network` -- network access policy for the `requests` module.
+    A keyword list or map with:
+    - `:allowed_url_prefixes` -- list of URL prefixes that are permitted
+    - `:allowed_methods` -- list of HTTP methods allowed (default `["GET", "HEAD"]`)
+    - `:dangerously_allow_full_internet_access` -- `true` to allow all
+      URLs and methods (use with caution)
+
+    When `nil` (the default), all network access is denied.
   """
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
@@ -128,6 +144,8 @@ defmodule Pyex.Ctx do
         do: %{line_counts: %{}, call_counts: %{}, call_us: %{}},
         else: nil
 
+    network = normalize_network(Keyword.get(opts, :network))
+
     %__MODULE__{
       filesystem: fs,
       fs_module: mod,
@@ -136,7 +154,8 @@ defmodule Pyex.Ctx do
       timeout_ns: timeout_ns,
       compute_ns: 0,
       compute_started_at: System.monotonic_time(:nanosecond),
-      profile: profile
+      profile: profile,
+      network: network
     }
   end
 
@@ -155,6 +174,82 @@ defmodule Pyex.Ctx do
 
   defp resolve_module_value(map) when is_map(map) do
     map
+  end
+
+  @spec normalize_network(keyword() | map() | nil) :: network_config() | nil
+  defp normalize_network(nil), do: nil
+
+  defp normalize_network(opts) when is_list(opts) do
+    normalize_network(Map.new(opts))
+  end
+
+  defp normalize_network(opts) when is_map(opts) do
+    %{
+      allowed_url_prefixes: Map.get(opts, :allowed_url_prefixes, []) |> Enum.map(&to_string/1),
+      allowed_methods:
+        Map.get(opts, :allowed_methods, ["GET", "HEAD"])
+        |> Enum.map(&(&1 |> to_string() |> String.upcase())),
+      dangerously_allow_full_internet_access:
+        Map.get(opts, :dangerously_allow_full_internet_access, false) == true
+    }
+  end
+
+  @doc """
+  Checks whether a network request is allowed by the current policy.
+
+  Returns `:ok` if the request is permitted, or `{:denied, reason}` with
+  a descriptive error message when the request violates the policy.
+  """
+  @spec check_network_access(t(), String.t(), String.t()) :: :ok | {:denied, String.t()}
+  def check_network_access(%__MODULE__{network: nil}, _method, _url) do
+    {:denied,
+     "NetworkError: network access is disabled. " <>
+       "Configure the :network option to allow HTTP requests"}
+  end
+
+  def check_network_access(
+        %__MODULE__{network: %{dangerously_allow_full_internet_access: true}},
+        _method,
+        _url
+      ) do
+    :ok
+  end
+
+  def check_network_access(%__MODULE__{network: config}, method, url) do
+    method_upper = String.upcase(method)
+
+    with :ok <- check_method(config.allowed_methods, method_upper),
+         :ok <- check_url_prefix(config.allowed_url_prefixes, url) do
+      :ok
+    end
+  end
+
+  @spec check_method([String.t()], String.t()) :: :ok | {:denied, String.t()}
+  defp check_method(allowed, method) do
+    if method in allowed do
+      :ok
+    else
+      {:denied,
+       "NetworkError: HTTP method #{method} is not allowed. " <>
+         "Allowed methods: #{Enum.join(allowed, ", ")}"}
+    end
+  end
+
+  @spec check_url_prefix([String.t()], String.t()) :: :ok | {:denied, String.t()}
+  defp check_url_prefix([], _url) do
+    {:denied,
+     "NetworkError: no allowed URL prefixes configured. " <>
+       "Add URL prefixes to the :network :allowed_url_prefixes option"}
+  end
+
+  defp check_url_prefix(prefixes, url) do
+    if Enum.any?(prefixes, &String.starts_with?(url, &1)) do
+      :ok
+    else
+      {:denied,
+       "NetworkError: URL is not in the allowed prefixes. " <>
+         "Allowed prefixes: #{Enum.join(prefixes, ", ")}"}
+    end
   end
 
   @doc """
@@ -334,7 +429,8 @@ defmodule Pyex.Ctx do
       imported_modules: %{},
       timeout_ns: ctx.timeout_ns,
       compute_ns: 0,
-      compute_started_at: System.monotonic_time(:nanosecond)
+      compute_started_at: System.monotonic_time(:nanosecond),
+      network: ctx.network
     }
   end
 
