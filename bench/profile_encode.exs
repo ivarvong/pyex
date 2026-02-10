@@ -1,5 +1,5 @@
 source = ~S"""
-n = 5412072012
+n = 3141592653
 binary_str = bin(n)
 bits = binary_str[2:]
 byte_length = (len(bits) + 7) // 8
