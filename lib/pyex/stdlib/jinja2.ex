@@ -69,6 +69,12 @@ defmodule Pyex.Stdlib.Jinja2 do
     {:exception, "TypeError: Template() argument must be a string"}
   end
 
+  @doc """
+  Tokenizes a Jinja2 template string into a list of tokens.
+
+  Tokens are `{:text, string}`, `{:expr, string}`, `{:tag, string}`,
+  or `{:comment, string}`.
+  """
   @spec tokenize(String.t()) :: {:ok, [token()]} | {:error, String.t()}
   def tokenize(source) do
     tokenize(source, [])
@@ -130,6 +136,12 @@ defmodule Pyex.Stdlib.Jinja2 do
     end
   end
 
+  @doc """
+  Parses a list of Jinja2 tokens into a template node tree.
+
+  The tree contains `:text`, `:expr`, `:if`, `:for`, `:block`,
+  `:extends`, and `:include` nodes.
+  """
   @spec parse([token()]) :: {:ok, [tnode()]} | {:error, String.t()}
   def parse(tokens) do
     case parse_nodes(tokens, nil) do
@@ -346,6 +358,12 @@ defmodule Pyex.Stdlib.Jinja2 do
     end
   end
 
+  @doc """
+  Renders a compiled template tree with the given keyword arguments.
+
+  Returns the rendered string, or an `{:exception, message}` tuple
+  on render errors.
+  """
   @spec render([tnode()], %{optional(String.t()) => Interpreter.pyvalue()}) ::
           Interpreter.pyvalue()
   def render(tree, kwargs) do

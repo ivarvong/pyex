@@ -108,36 +108,26 @@ filesystem persists across calls, exactly like a real server.
 
 ## Streaming
 
-Generators yield chunks lazily. The interpreter doesn't buffer -- each `yield`
-produces a chunk that your Phoenix endpoint can send immediately:
+Generators yield chunks lazily. Each `yield` produces a value that can be
+consumed on demand -- nothing buffers:
 
 ```python
 from fastapi import StreamingResponse
 
-@app.get("/stream")
-def stream():
-    def gen():
+@app.get("/events")
+def events():
+    def generate():
         for i in range(100):
             yield f"data: {i}\n\n"
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(generate())
 ```
 
 ```elixir
-{:ok, resp, _app} = Lambda.handle_stream(app, %{method: "GET", path: "/stream"})
+{:ok, resp, _app} = Lambda.handle_stream(app, %{method: "GET", path: "/events"})
 
-# resp.chunks is a lazy Stream -- nothing runs until you consume it
+# resp.chunks is a lazy Stream -- nothing executes until consumed
 Enum.take(resp.chunks, 3)
 # => ["data: 0\n\n", "data: 1\n\n", "data: 2\n\n"]
-
-# Phoenix integration:
-conn = Plug.Conn.send_chunked(conn, resp.status)
-
-Enum.reduce_while(resp.chunks, conn, fn chunk, conn ->
-  case Plug.Conn.chunk(conn, chunk) do
-    {:ok, conn} -> {:cont, conn}
-    {:error, :closed} -> {:halt, conn}
-  end
-end)
 ```
 
 ## What Python Does It Support
@@ -169,7 +159,7 @@ F-strings. `try`/`except`/`finally`. `with` statements. Type annotations
 | `unittest` | TestCase with assertions |
 | `fastapi` | route registration, HTMLResponse, JSONResponse, StreamingResponse |
 | `pydantic` | BaseModel, Field validation, type coercion |
-| `requests` | get, post |
+| `requests` | get, post, put, patch, delete, head, options |
 | `sql` | parameterized queries against PostgreSQL |
 | `boto3` | S3 client |
 
@@ -235,6 +225,63 @@ Pyex.profile(ctx)
 
 Skip lexing and parsing on repeated execution. The AST is a plain Elixir
 term -- cache it in ETS, store it wherever.
+
+## How Fast Is It?
+
+This is a tree-walking interpreter -- pure computation is 12-70x slower
+than CPython. Whether that matters depends on the workload.
+
+All numbers below are measured on Apple M4 Max, OTP 28, CPython 3.14.
+
+### Cold execution
+
+When a customer's Python runs from scratch -- a webhook handler, a workflow
+step, a cron job -- you're paying startup cost. CPython's is ~16 ms per
+invocation unless you maintain a warm process pool. Pyex's is zero: it's a
+function call in your existing BEAM process.
+
+| Benchmark | CPython cold | Pyex cold |
+|-----------|-------------|-----------|
+| FizzBuzz (100 iterations) | 16.3 ms | 197 us (**83x faster**) |
+| Algorithms (~150 LOC: sieve, sort, fib, stats) | 16.8 ms | 2.3 ms (**7x faster**) |
+
+CPython cold = `python3 -c`. Pyex cold = `Pyex.run!` from source string.
+Both include full startup, compile, and execute. Pyex wins because there's
+no process to spawn. The heavier the program, the smaller the gap -- CPython's
+startup is fixed at ~16 ms while its execution is fast.
+
+### Warm execution
+
+When both interpreters are already running and you're measuring pure
+computation, CPython is faster:
+
+| Benchmark | CPython warm | Pyex warm | Ratio |
+|-----------|-------------|-----------|-------|
+| FizzBuzz (100 iterations) | 12 us | 151 us | **~12x** |
+| Algorithms (~150 LOC) | 27 us | 1.9 ms | **~70x** |
+
+CPython warm = in-process timing via `time.perf_counter_ns`.
+Pyex warm = `Pyex.run!` with pre-compiled AST (lex+parse skipped).
+The gap widens with heavier computation -- this is the inherent cost of
+tree-walking vs bytecode.
+
+### HTTP handlers
+
+For web workloads (the FastAPI/Lambda path), you boot the app once and handle
+many requests. Each request is a function call against already-initialized
+state -- there's no per-request startup cost on either side.
+
+| Benchmark | avg | p50 | p99 |
+|-----------|-----|-----|-----|
+| Cold boot (compile + execute routes) | 183 us | 175 us | 262 us |
+| GET /posts (Jinja2 template render) | 66 us | 63 us | 120 us |
+| GET /posts/:slug (markdown + Jinja2) | 90 us | 89 us | 147 us |
+
+At 66-90 us per request, the interpreter isn't the bottleneck -- your database
+and network calls are.
+
+*All numbers: 1000 iterations (100 for cold), wall clock.
+Run it yourself: `mix run bench/cpython_comparison.exs`*
 
 ## Architecture
 

@@ -1,12 +1,35 @@
 defmodule Pyex.Stdlib.SqlTest do
   use ExUnit.Case, async: false
 
+  @moduletag :postgres
+
   alias Pyex.Error
 
-  @db_url "postgres://ivar@localhost:5432/sr2_dev"
+  @db_url System.get_env("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/pyex_test")
+
+  defp connect_opts do
+    uri = URI.parse(@db_url)
+    userinfo = uri.userinfo || ""
+
+    {username, password} =
+      case String.split(userinfo, ":", parts: 2) do
+        [u, p] -> {u, p}
+        [u] -> {u, nil}
+        _ -> {"postgres", nil}
+      end
+
+    opts = [
+      hostname: uri.host || "localhost",
+      port: uri.port || 5432,
+      database: String.trim_leading(uri.path || "/pyex_test", "/"),
+      username: username
+    ]
+
+    if password, do: Keyword.put(opts, :password, password), else: opts
+  end
 
   setup do
-    opts = [hostname: "localhost", database: "sr2_dev", username: "ivar"]
+    opts = connect_opts()
     {:ok, conn} = Postgrex.start_link(opts)
 
     Postgrex.query!(conn, "DROP TABLE IF EXISTS pyex_test_items", [])
