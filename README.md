@@ -236,8 +236,9 @@ All numbers below are measured on Apple M4 Max, OTP 28, CPython 3.14.
 ### Cold execution
 
 When a customer's Python runs from scratch -- a webhook handler, a workflow
-step, a cron job -- you're paying startup cost. CPython's is ~16 ms
-(interpreter + import system). Pyex's is zero: it's a function call.
+step, a cron job -- you're paying startup cost. CPython's is ~16 ms per
+invocation unless you maintain a warm process pool. Pyex's is zero: it's a
+function call in your existing BEAM process.
 
 | Benchmark | CPython cold | Pyex cold |
 |-----------|-------------|-----------|
