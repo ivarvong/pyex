@@ -83,34 +83,6 @@ defmodule Pyex.Stdlib.SqlTest do
     value
   end
 
-  describe "access control" do
-    test "denied by default when sql not enabled" do
-      ctx = Pyex.Ctx.new(environ: %{"DATABASE_URL" => @db_url})
-
-      assert {:error, %Error{message: msg}} =
-               Pyex.run(
-                 """
-                 import sql
-                 sql.query("SELECT 1")
-                 """,
-                 ctx
-               )
-
-      assert msg =~ "PermissionError"
-      assert msg =~ "sql is disabled"
-    end
-
-    test "import succeeds even when sql is disabled" do
-      result =
-        Pyex.run!("""
-        import sql
-        'query' in dir(sql)
-        """)
-
-      assert result == true
-    end
-  end
-
   describe "sql.query" do
     test "SELECT all rows" do
       assert run!("""

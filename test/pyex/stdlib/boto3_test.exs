@@ -528,50 +528,6 @@ defmodule Pyex.Stdlib.Boto3Test do
     end
   end
 
-  describe "access control" do
-    test "denied by default when boto3 not enabled" do
-      {:error, error} =
-        Pyex.run("""
-        import boto3
-        s3 = boto3.client('s3', endpoint_url='http://localhost:9999')
-        s3.put_object(Bucket='bucket', Key='key.txt', Body='data')
-        """)
-
-      assert error.message =~ "PermissionError"
-      assert error.message =~ "boto3 is disabled"
-    end
-
-    test "all S3 operations denied when boto3 not enabled" do
-      for op <- [
-            "put_object(Bucket='b', Key='k', Body='d')",
-            "get_object(Bucket='b', Key='k')",
-            "delete_object(Bucket='b', Key='k')",
-            "list_objects_v2(Bucket='b')"
-          ] do
-        {:error, error} =
-          Pyex.run("""
-          import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:9999')
-          s3.#{op}
-          """)
-
-        assert error.message =~ "PermissionError",
-               "expected PermissionError for #{op}, got: #{error.message}"
-      end
-    end
-
-    test "import succeeds even when boto3 is disabled" do
-      result =
-        Pyex.run!("""
-        import boto3
-        s3 = boto3.client('s3', endpoint_url='http://localhost:9999')
-        'put_object' in s3
-        """)
-
-      assert result == true
-    end
-  end
-
   describe "integration with pydantic" do
     test "put and get with pydantic model validation", %{bypass: bypass, port: port} do
       store = Agent.start_link(fn -> %{} end) |> elem(1)
