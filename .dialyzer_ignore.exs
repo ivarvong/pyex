@@ -1,0 +1,15 @@
+[
+  # call_dunder wraps {:exception, _} as a return value inside {:ok, ...}
+  # which dialyzer sees as impossible since {:exception, _} is a signal, not a pyvalue.
+  # This is a deliberate design choice for distinguishing "not found" from "found but errored".
+  {"lib/pyex/interpreter.ex", :pattern_match},
+  # call_function returns {:mutate, ...} tuples at runtime that Dialyzer
+  # cannot track through the union type -- same issue as the main interpreter.
+  {"lib/pyex/interpreter/unittest.ex", :pattern_match},
+  # Dialyzer cannot narrow [pyvalue()] to [binary()] through the `when is_binary(text)` guard,
+  # so it concludes only the catch-all exception clause is reachable. False positive.
+  {"lib/pyex/stdlib/markdown.ex", :invalid_contract},
+  # unwrap_response and unwrap_stream_response return partial response maps (without telemetry).
+  # The telemetry field is added by the caller via Map.put, which Dialyzer cannot track.
+  {"lib/pyex/lambda.ex", :invalid_contract}
+]
