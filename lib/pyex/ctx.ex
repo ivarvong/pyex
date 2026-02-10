@@ -47,6 +47,7 @@ defmodule Pyex.Ctx do
         }
 
   @type network_config :: %{
+          allowed_hosts: [String.t()],
           allowed_url_prefixes: [String.t()],
           allowed_methods: [String.t()],
           dangerously_allow_full_internet_access: boolean()
@@ -119,12 +120,17 @@ defmodule Pyex.Ctx do
     returned context's `profile` field. Default `false`.
   - `:network` -- network access policy for the `requests` module.
     A keyword list or map with:
+    - `:allowed_hosts` -- list of hostnames that are permitted (exact match,
+      compared against `URI.parse(url).host`)
     - `:allowed_url_prefixes` -- list of URL prefixes that are permitted
+      (use trailing slash to prevent subdomain bypass)
     - `:allowed_methods` -- list of HTTP methods allowed (default `["GET", "HEAD"]`)
     - `:dangerously_allow_full_internet_access` -- `true` to allow all
       URLs and methods (use with caution)
 
-    When `nil` (the default), all network access is denied.
+    A request is allowed if its URL matches any `:allowed_hosts` entry
+    **or** any `:allowed_url_prefixes` entry. When `nil` (the default),
+    all network access is denied.
   """
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
@@ -185,6 +191,9 @@ defmodule Pyex.Ctx do
 
   defp normalize_network(opts) when is_map(opts) do
     %{
+      allowed_hosts:
+        Map.get(opts, :allowed_hosts, [])
+        |> Enum.map(&(&1 |> to_string() |> String.downcase())),
       allowed_url_prefixes: Map.get(opts, :allowed_url_prefixes, []) |> Enum.map(&to_string/1),
       allowed_methods:
         Map.get(opts, :allowed_methods, ["GET", "HEAD"])
@@ -219,7 +228,7 @@ defmodule Pyex.Ctx do
     method_upper = String.upcase(method)
 
     with :ok <- check_method(config.allowed_methods, method_upper),
-         :ok <- check_url_prefix(config.allowed_url_prefixes, url) do
+         :ok <- check_url_allowed(config.allowed_hosts, config.allowed_url_prefixes, url) do
       :ok
     end
   end
@@ -235,20 +244,47 @@ defmodule Pyex.Ctx do
     end
   end
 
-  @spec check_url_prefix([String.t()], String.t()) :: :ok | {:denied, String.t()}
-  defp check_url_prefix([], _url) do
+  @spec check_url_allowed([String.t()], [String.t()], String.t()) ::
+          :ok | {:denied, String.t()}
+  defp check_url_allowed([], [], _url) do
     {:denied,
-     "NetworkError: no allowed URL prefixes configured. " <>
-       "Add URL prefixes to the :network :allowed_url_prefixes option"}
+     "NetworkError: no allowed hosts or URL prefixes configured. " <>
+       "Add hosts to :allowed_hosts or URL prefixes to :allowed_url_prefixes"}
   end
 
-  defp check_url_prefix(prefixes, url) do
-    if Enum.any?(prefixes, &String.starts_with?(url, &1)) do
+  defp check_url_allowed(hosts, prefixes, url) do
+    host_match = hosts != [] and url_matches_host?(hosts, url)
+    prefix_match = prefixes != [] and Enum.any?(prefixes, &String.starts_with?(url, &1))
+
+    if host_match or prefix_match do
       :ok
     else
-      {:denied,
-       "NetworkError: URL is not in the allowed prefixes. " <>
-         "Allowed prefixes: #{Enum.join(prefixes, ", ")}"}
+      parts =
+        []
+        |> then(fn acc ->
+          if hosts != [], do: ["allowed hosts: #{Enum.join(hosts, ", ")}" | acc], else: acc
+        end)
+        |> then(fn acc ->
+          if prefixes != [],
+            do: ["allowed prefixes: #{Enum.join(prefixes, ", ")}" | acc],
+            else: acc
+        end)
+        |> Enum.reverse()
+        |> Enum.join("; ")
+
+      {:denied, "NetworkError: URL is not allowed. #{String.capitalize(parts)}"}
+    end
+  end
+
+  @spec url_matches_host?([String.t()], String.t()) :: boolean()
+  defp url_matches_host?(allowed_hosts, url) do
+    case URI.parse(url) do
+      %URI{host: host} when is_binary(host) ->
+        normalized = String.downcase(host)
+        Enum.any?(allowed_hosts, &(&1 == normalized))
+
+      _ ->
+        false
     end
   end
 

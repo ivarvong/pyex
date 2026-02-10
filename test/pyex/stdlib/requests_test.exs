@@ -405,7 +405,7 @@ defmodule Pyex.Stdlib.RequestsTest do
 
       port = bypass.port
 
-      assert_raise RuntimeError, ~r/NetworkError.*URL is not in the allowed prefixes/, fn ->
+      assert_raise RuntimeError, ~r/NetworkError.*URL is not allowed/, fn ->
         Pyex.run!(
           """
           import requests
@@ -536,14 +536,158 @@ defmodule Pyex.Stdlib.RequestsTest do
       assert result == 200
     end
 
-    test "empty allowed_url_prefixes denies all URLs" do
-      assert_raise RuntimeError, ~r/NetworkError.*no allowed URL prefixes/, fn ->
+    test "empty config denies all URLs" do
+      assert_raise RuntimeError, ~r/NetworkError.*no allowed hosts or URL prefixes/, fn ->
         Pyex.run!(
           """
           import requests
           requests.get("http://example.com")
           """,
-          network: [allowed_url_prefixes: []]
+          network: []
+        )
+      end
+    end
+  end
+
+  describe "network access control: allowed_hosts" do
+    test "allows request to matching host", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "GET", "/data", fn conn ->
+        Plug.Conn.resp(conn, 200, "ok")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!(
+          """
+          import requests
+          response = requests.get("http://localhost:#{port}/data")
+          response.status_code
+          """,
+          network: [allowed_hosts: ["localhost"]]
+        )
+
+      assert result == 200
+    end
+
+    test "denies request to non-matching host" do
+      assert_raise RuntimeError, ~r/NetworkError.*URL is not allowed/, fn ->
+        Pyex.run!(
+          """
+          import requests
+          requests.get("http://evil.com/data")
+          """,
+          network: [allowed_hosts: ["api.example.com"]]
+        )
+      end
+    end
+
+    test "rejects subdomains (exact match only)" do
+      assert_raise RuntimeError, ~r/NetworkError.*URL is not allowed/, fn ->
+        Pyex.run!(
+          """
+          import requests
+          requests.get("http://evil.api.example.com/data")
+          """,
+          network: [allowed_hosts: ["api.example.com"]]
+        )
+      end
+    end
+
+    test "host matching is case-insensitive" do
+      assert_raise RuntimeError, ~r/NetworkError.*URL is not allowed/, fn ->
+        Pyex.run!(
+          """
+          import requests
+          requests.get("http://evil.com/data")
+          """,
+          network: [allowed_hosts: ["API.EXAMPLE.COM"]]
+        )
+      end
+    end
+
+    test "multiple allowed hosts", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "GET", "/data", fn conn ->
+        Plug.Conn.resp(conn, 200, "ok")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!(
+          """
+          import requests
+          response = requests.get("http://localhost:#{port}/data")
+          response.status_code
+          """,
+          network: [allowed_hosts: ["api.example.com", "localhost"]]
+        )
+
+      assert result == 200
+    end
+
+    test "allowed_methods still applies with allowed_hosts", %{bypass: bypass} do
+      port = bypass.port
+
+      assert_raise RuntimeError, ~r/NetworkError.*HTTP method POST is not allowed/, fn ->
+        Pyex.run!(
+          """
+          import requests
+          requests.post("http://localhost:#{port}/data", json={})
+          """,
+          network: [allowed_hosts: ["localhost"]]
+        )
+      end
+    end
+
+    test "allowed_hosts and allowed_url_prefixes work together", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "GET", "/api/v1/data", fn conn ->
+        Plug.Conn.resp(conn, 200, "from prefix")
+      end)
+
+      Bypass.expect_once(bypass, "GET", "/other", fn conn ->
+        Plug.Conn.resp(conn, 200, "from host")
+      end)
+
+      port = bypass.port
+
+      opts = [
+        network: [
+          allowed_hosts: ["localhost"],
+          allowed_url_prefixes: ["http://localhost:#{port}/api/"]
+        ]
+      ]
+
+      r1 =
+        Pyex.run!(
+          """
+          import requests
+          requests.get("http://localhost:#{port}/api/v1/data").text
+          """,
+          opts
+        )
+
+      r2 =
+        Pyex.run!(
+          """
+          import requests
+          requests.get("http://localhost:#{port}/other").text
+          """,
+          opts
+        )
+
+      assert r1 == "from prefix"
+      assert r2 == "from host"
+    end
+
+    test "prevents api.example.com.evil.com subdomain attack" do
+      assert_raise RuntimeError, ~r/NetworkError.*URL is not allowed/, fn ->
+        Pyex.run!(
+          """
+          import requests
+          requests.get("https://api.example.com.evil.com/data")
+          """,
+          network: [allowed_hosts: ["api.example.com"]]
         )
       end
     end

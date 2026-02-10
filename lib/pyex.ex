@@ -72,9 +72,9 @@ defmodule Pyex do
   - `:environ` -- environment variables for `os.environ`
   - `:timeout_ms` -- compute time budget in milliseconds
   - `:network` -- network access policy for the `requests` module.
-    Accepts a keyword list with `:allowed_url_prefixes`,
-    `:allowed_methods` (default `["GET", "HEAD"]`), or
-    `:dangerously_allow_full_internet_access`. When omitted,
+    Accepts a keyword list with `:allowed_hosts` (exact hostname match),
+    `:allowed_url_prefixes`, `:allowed_methods` (default `["GET", "HEAD"]`),
+    or `:dangerously_allow_full_internet_access`. When omitted,
     all network access is denied.
 
   ## Examples
