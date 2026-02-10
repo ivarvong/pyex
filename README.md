@@ -108,36 +108,26 @@ filesystem persists across calls, exactly like a real server.
 
 ## Streaming
 
-Generators yield chunks lazily. The interpreter doesn't buffer -- each `yield`
-produces a chunk that your Phoenix endpoint can send immediately:
+Generators yield chunks lazily. Each `yield` produces a value that can be
+consumed on demand -- nothing buffers:
 
 ```python
 from fastapi import StreamingResponse
 
-@app.get("/stream")
-def stream():
-    def gen():
+@app.get("/events")
+def events():
+    def generate():
         for i in range(100):
             yield f"data: {i}\n\n"
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(generate())
 ```
 
 ```elixir
-{:ok, resp, _app} = Lambda.handle_stream(app, %{method: "GET", path: "/stream"})
+{:ok, resp, _app} = Lambda.handle_stream(app, %{method: "GET", path: "/events"})
 
-# resp.chunks is a lazy Stream -- nothing runs until you consume it
+# resp.chunks is a lazy Stream -- nothing executes until consumed
 Enum.take(resp.chunks, 3)
 # => ["data: 0\n\n", "data: 1\n\n", "data: 2\n\n"]
-
-# Phoenix integration:
-conn = Plug.Conn.send_chunked(conn, resp.status)
-
-Enum.reduce_while(resp.chunks, conn, fn chunk, conn ->
-  case Plug.Conn.chunk(conn, chunk) do
-    {:ok, conn} -> {:cont, conn}
-    {:error, :closed} -> {:halt, conn}
-  end
-end)
 ```
 
 ## What Python Does It Support
@@ -235,6 +225,37 @@ Pyex.profile(ctx)
 
 Skip lexing and parsing on repeated execution. The AST is a plain Elixir
 term -- cache it in ETS, store it wherever.
+
+## How Fast Is It?
+
+This is a tree-walking interpreter. Pure computation is 10-80x slower than
+CPython. But Pyex runs as a function call inside your BEAM process -- there's
+no process to spawn, no container to start, no VM to boot.
+
+In a Lambda/serverless context, that changes the math completely:
+
+| What you're measuring | CPython | Pyex |
+|-----------------------|---------|------|
+| Process cold start (`python3 -c "pass"`) | ~16 ms | 0 (function call) |
+| FizzBuzz (100 iterations) | 16.6 ms (cold) / 15 us (warm) | 190 us |
+| Lambda: cold boot a FastAPI app | N/A | 193 us |
+| Lambda: handle a request (Jinja2 + markdown) | N/A | 109 us |
+
+Measured on Apple M4 Max, OTP 28, CPython 3.14. 1000 iterations, wall clock:
+
+| Benchmark | avg | p50 | p99 |
+|-----------|-----|-----|-----|
+| FizzBuzz (end-to-end from source) | 190 us | 184 us | 255 us |
+| Algorithms (~150 LOC: sieve, merge sort, memoized fib, stats) | 2.4 ms | 2.4 ms | 2.8 ms |
+| FizzBuzz (pre-compiled AST, skip lex+parse) | 145 us | 135 us | 243 us |
+| Algorithms (pre-compiled AST) | 1.9 ms | 1.9 ms | 2.4 ms |
+| Lambda: cold boot (compile + execute routes) | 193 us | 187 us | 304 us |
+| Lambda: GET /posts (Jinja2 render) | 80 us | 75 us | 140 us |
+| Lambda: GET /posts/:slug (markdown + Jinja2) | 109 us | 106 us | 194 us |
+
+Pre-compiling the AST saves ~20-25% by skipping lex+parse on repeat calls.
+
+Run the benchmarks yourself: `mix run bench/readme_bench.exs`
 
 ## Architecture
 

@@ -19,6 +19,24 @@ jobs:
           - otp: "28.0"
             elixir: "1.19"
 
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pyex_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/pyex_test
+
     steps:
       - uses: actions/checkout@v4
 
@@ -51,7 +69,7 @@ jobs:
         run: mix compile --warnings-as-errors
 
       - name: Run tests
-        run: mix test
+        run: mix test --include postgres
 
   dialyzer:
     name: Dialyzer

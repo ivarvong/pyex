@@ -26,4 +26,3 @@ pyex-*.tar
 /tmp/
 
 .env
-/scripts/list_r2.py

@@ -3,7 +3,7 @@ defmodule Mix.Tasks.Pyex do
   @moduledoc """
   Runs a `.py` file through the Pyex interpreter.
 
-      mix pyex scripts/explore_sr2.py
+      mix pyex program.py
 
   Environment variables from the system are passed through
   to the script via `os.environ` and `sql` module access.
