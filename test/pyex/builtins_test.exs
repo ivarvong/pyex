@@ -849,4 +849,141 @@ defmodule Pyex.BuiltinsTest do
       assert Pyex.run!(code) == 6
     end
   end
+
+  describe "dir()" do
+    test "returns sorted method names for a string" do
+      result = Pyex.run!("dir('hello')")
+      assert is_list(result)
+      assert "upper" in result
+      assert "lower" in result
+      assert "split" in result
+      assert result == Enum.sort(result)
+    end
+
+    test "returns sorted method names for a list" do
+      result = Pyex.run!("dir([1, 2, 3])")
+      assert "append" in result
+      assert "sort" in result
+      assert "pop" in result
+    end
+
+    test "returns sorted method names for a dict" do
+      result = Pyex.run!("dir({'a': 1})")
+      assert "keys" in result
+      assert "values" in result
+      assert "items" in result
+    end
+
+    test "returns sorted method names for a set" do
+      result = Pyex.run!("dir({1, 2, 3})")
+      assert "add" in result
+      assert "union" in result
+      assert "intersection" in result
+    end
+
+    test "returns sorted method names for a tuple" do
+      result = Pyex.run!("dir((1, 2))")
+      assert "count" in result
+      assert "index" in result
+    end
+
+    test "returns sorted keys for a module" do
+      result = Pyex.run!("import json\ndir(json)")
+      assert "loads" in result
+      assert "dumps" in result
+    end
+
+    test "returns class and instance attributes" do
+      result =
+        Pyex.run!("""
+        class Dog:
+            species = "canine"
+            def __init__(self, name):
+                self.name = name
+            def bark(self):
+                return "woof"
+
+        d = Dog("Rex")
+        dir(d)
+        """)
+
+      assert "species" in result
+      assert "name" in result
+      assert "__init__" in result
+      assert "bark" in result
+    end
+
+    test "returns class attributes including inherited" do
+      result =
+        Pyex.run!("""
+        class Animal:
+            def breathe(self):
+                return True
+
+        class Dog(Animal):
+            def bark(self):
+                return "woof"
+
+        dir(Dog)
+        """)
+
+      assert "bark" in result
+      assert "breathe" in result
+    end
+
+    test "result is always sorted" do
+      result =
+        Pyex.run!("""
+        class Z:
+            z = 1
+            a = 2
+            m = 3
+        dir(Z)
+        """)
+
+      assert result == Enum.sort(result)
+    end
+  end
+
+  describe "vars()" do
+    test "returns instance attributes" do
+      result =
+        Pyex.run!("""
+        class Point:
+            def __init__(self, x, y):
+                self.x = x
+                self.y = y
+
+        p = Point(3, 4)
+        vars(p)
+        """)
+
+      assert result == %{"x" => 3, "y" => 4}
+    end
+
+    test "returns class attributes" do
+      result =
+        Pyex.run!("""
+        class Config:
+            debug = True
+            version = 2
+
+        vars(Config)
+        """)
+
+      assert result["debug"] == true
+      assert result["version"] == 2
+    end
+
+    test "returns dict keys for a dict" do
+      result = Pyex.run!("vars({'a': 1, 'b': 2})")
+      assert result == %{"a" => 1, "b" => 2}
+    end
+
+    test "raises TypeError for primitives" do
+      {:error, error} = Pyex.run("vars(42)")
+      assert error.message =~ "TypeError"
+      assert error.message =~ "__dict__"
+    end
+  end
 end
