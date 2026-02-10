@@ -116,6 +116,12 @@ defmodule Pyex.Stdlib.Boto3 do
   defp signing_req_opts(nil), do: []
   defp signing_req_opts(opts), do: [aws_sigv4: opts]
 
+  @denied_msg "PermissionError: boto3 is disabled. Configure the :boto3 option to enable S3 access"
+
+  @spec check_boto3(Pyex.Ctx.t()) :: :ok | {:denied, String.t()}
+  defp check_boto3(%{boto3: true}), do: :ok
+  defp check_boto3(_ctx), do: {:denied, @denied_msg}
+
   @spec s3_put_object(s3_config(), [Pyex.Interpreter.pyvalue()], %{
           optional(String.t()) => Pyex.Interpreter.pyvalue()
         }) :: s3_result()
@@ -146,20 +152,26 @@ defmodule Pyex.Stdlib.Boto3 do
 
         {:io_call,
          fn env, ctx ->
-           result =
-             case Req.put(url, req_opts) do
-               {:ok, %{status: status}} when status in [200, 201] ->
-                 %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
+           case check_boto3(ctx) do
+             {:denied, reason} ->
+               {{:exception, reason}, env, ctx}
 
-               {:ok, %{status: status, body: resp_body}} ->
-                 {:exception,
-                  "ClientError: S3 PutObject failed (#{status}): #{inspect(resp_body)}"}
+             :ok ->
+               result =
+                 case Req.put(url, req_opts) do
+                   {:ok, %{status: status}} when status in [200, 201] ->
+                     %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
 
-               {:error, reason} ->
-                 {:exception, "ClientError: #{inspect(reason)}"}
-             end
+                   {:ok, %{status: status, body: resp_body}} ->
+                     {:exception,
+                      "ClientError: S3 PutObject failed (#{status}): #{inspect(resp_body)}"}
 
-           {result, env, ctx}
+                   {:error, reason} ->
+                     {:exception, "ClientError: #{inspect(reason)}"}
+                 end
+
+               {result, env, ctx}
+           end
          end}
     end
   end
@@ -184,38 +196,44 @@ defmodule Pyex.Stdlib.Boto3 do
 
         {:io_call,
          fn env, ctx ->
-           result =
-             case Req.get(url, req_opts) do
-               {:ok, %{status: 200, body: body, headers: headers}} ->
-                 body_str = body
+           case check_boto3(ctx) do
+             {:denied, reason} ->
+               {{:exception, reason}, env, ctx}
 
-                 body_obj = %{
-                   "read" => {:builtin, fn [] -> body_str end},
-                   "__body_bytes__" => body_str
-                 }
+             :ok ->
+               result =
+                 case Req.get(url, req_opts) do
+                   {:ok, %{status: 200, body: body, headers: headers}} ->
+                     body_str = body
 
-                 content_type = extract_header(headers, "content-type")
+                     body_obj = %{
+                       "read" => {:builtin, fn [] -> body_str end},
+                       "__body_bytes__" => body_str
+                     }
 
-                 %{
-                   "Body" => body_obj,
-                   "ContentLength" => byte_size(body_str),
-                   "ContentType" => content_type,
-                   "ResponseMetadata" => %{"HTTPStatusCode" => 200}
-                 }
+                     content_type = extract_header(headers, "content-type")
 
-               {:ok, %{status: 404}} ->
-                 {:exception,
-                  "ClientError: An error occurred (NoSuchKey) when calling the GetObject operation: The specified key does not exist."}
+                     %{
+                       "Body" => body_obj,
+                       "ContentLength" => byte_size(body_str),
+                       "ContentType" => content_type,
+                       "ResponseMetadata" => %{"HTTPStatusCode" => 200}
+                     }
 
-               {:ok, %{status: status, body: resp_body}} ->
-                 {:exception,
-                  "ClientError: S3 GetObject failed (#{status}): #{inspect(resp_body)}"}
+                   {:ok, %{status: 404}} ->
+                     {:exception,
+                      "ClientError: An error occurred (NoSuchKey) when calling the GetObject operation: The specified key does not exist."}
 
-               {:error, reason} ->
-                 {:exception, "ClientError: #{inspect(reason)}"}
-             end
+                   {:ok, %{status: status, body: resp_body}} ->
+                     {:exception,
+                      "ClientError: S3 GetObject failed (#{status}): #{inspect(resp_body)}"}
 
-           {result, env, ctx}
+                   {:error, reason} ->
+                     {:exception, "ClientError: #{inspect(reason)}"}
+                 end
+
+               {result, env, ctx}
+           end
          end}
     end
   end
@@ -240,20 +258,26 @@ defmodule Pyex.Stdlib.Boto3 do
 
         {:io_call,
          fn env, ctx ->
-           result =
-             case Req.delete(url, req_opts) do
-               {:ok, %{status: status}} when status in [200, 204] ->
-                 %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
+           case check_boto3(ctx) do
+             {:denied, reason} ->
+               {{:exception, reason}, env, ctx}
 
-               {:ok, %{status: status, body: resp_body}} ->
-                 {:exception,
-                  "ClientError: S3 DeleteObject failed (#{status}): #{inspect(resp_body)}"}
+             :ok ->
+               result =
+                 case Req.delete(url, req_opts) do
+                   {:ok, %{status: status}} when status in [200, 204] ->
+                     %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
 
-               {:error, reason} ->
-                 {:exception, "ClientError: #{inspect(reason)}"}
-             end
+                   {:ok, %{status: status, body: resp_body}} ->
+                     {:exception,
+                      "ClientError: S3 DeleteObject failed (#{status}): #{inspect(resp_body)}"}
 
-           {result, env, ctx}
+                   {:error, reason} ->
+                     {:exception, "ClientError: #{inspect(reason)}"}
+                 end
+
+               {result, env, ctx}
+           end
          end}
     end
   end
@@ -274,27 +298,33 @@ defmodule Pyex.Stdlib.Boto3 do
 
       {:io_call,
        fn env, ctx ->
-         result =
-           case Req.get(url, req_opts) do
-             {:ok, %{status: 200, body: body}} ->
-               contents = parse_list_response(body, prefix)
+         case check_boto3(ctx) do
+           {:denied, reason} ->
+             {{:exception, reason}, env, ctx}
 
-               %{
-                 "Contents" => contents,
-                 "KeyCount" => length(contents),
-                 "Prefix" => prefix,
-                 "ResponseMetadata" => %{"HTTPStatusCode" => 200}
-               }
+           :ok ->
+             result =
+               case Req.get(url, req_opts) do
+                 {:ok, %{status: 200, body: body}} ->
+                   contents = parse_list_response(body, prefix)
 
-             {:ok, %{status: status, body: resp_body}} ->
-               {:exception,
-                "ClientError: S3 ListObjectsV2 failed (#{status}): #{inspect(resp_body)}"}
+                   %{
+                     "Contents" => contents,
+                     "KeyCount" => length(contents),
+                     "Prefix" => prefix,
+                     "ResponseMetadata" => %{"HTTPStatusCode" => 200}
+                   }
 
-             {:error, reason} ->
-               {:exception, "ClientError: #{inspect(reason)}"}
-           end
+                 {:ok, %{status: status, body: resp_body}} ->
+                   {:exception,
+                    "ClientError: S3 ListObjectsV2 failed (#{status}): #{inspect(resp_body)}"}
 
-         {result, env, ctx}
+                 {:error, reason} ->
+                   {:exception, "ClientError: #{inspect(reason)}"}
+               end
+
+             {result, env, ctx}
+         end
        end}
     end
   end

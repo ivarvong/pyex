@@ -86,7 +86,7 @@ defmodule Pyex.Stdlib.Requests do
     method_str = method |> Atom.to_string() |> String.upcase()
 
     req_opts =
-      [headers: headers, method: method, url: url] ++ body_opts(kwargs)
+      [headers: headers, method: method, url: url, redirect: false] ++ body_opts(kwargs)
 
     {:io_call,
      fn env, ctx ->

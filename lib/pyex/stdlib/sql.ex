@@ -28,18 +28,30 @@ defmodule Pyex.Stdlib.Sql do
     }
   end
 
+  @denied_msg "PermissionError: sql is disabled. Configure the :sql option to enable database access"
+
+  @spec check_sql(Pyex.Ctx.t()) :: :ok | {:denied, String.t()}
+  defp check_sql(%{sql: true}), do: :ok
+  defp check_sql(_ctx), do: {:denied, @denied_msg}
+
   @spec do_query([Pyex.Interpreter.pyvalue()]) ::
           {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
           | {:exception, String.t()}
   defp do_query([sql, params]) when is_binary(sql) and is_list(params) do
     {:io_call,
      fn env, ctx ->
-       case Map.fetch(ctx.environ, "DATABASE_URL") do
-         {:ok, url} when is_binary(url) ->
-           run_query(sql, params, url, env, ctx)
+       case check_sql(ctx) do
+         {:denied, reason} ->
+           {{:exception, reason}, env, ctx}
 
-         _ ->
-           {{:exception, "sql.query: DATABASE_URL not set in environ"}, env, ctx}
+         :ok ->
+           case Map.fetch(ctx.environ, "DATABASE_URL") do
+             {:ok, url} when is_binary(url) ->
+               run_query(sql, params, url, env, ctx)
+
+             _ ->
+               {{:exception, "sql.query: DATABASE_URL not set in environ"}, env, ctx}
+           end
        end
      end}
   end

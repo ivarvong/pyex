@@ -76,6 +76,8 @@ defmodule Pyex.Ctx do
           iterators: %{optional(non_neg_integer()) => [term()] | term()},
           next_iterator_id: non_neg_integer(),
           network: network_config() | nil,
+          boto3: boolean(),
+          sql: boolean(),
           exception_instance: term(),
           current_line: non_neg_integer() | nil
         }
@@ -100,6 +102,8 @@ defmodule Pyex.Ctx do
             iterators: %{},
             next_iterator_id: 0,
             network: nil,
+            boto3: false,
+            sql: false,
             exception_instance: nil,
             current_line: nil
 
@@ -131,6 +135,10 @@ defmodule Pyex.Ctx do
     A request is allowed if its URL matches any `:allowed_hosts` entry
     **or** any `:allowed_url_prefixes` entry. When `nil` (the default),
     all network access is denied.
+  - `:boto3` -- when `true`, enables the `boto3` module to make S3
+    API calls. Default `false` (all S3 operations raise).
+  - `:sql` -- when `true`, enables the `sql` module to execute
+    database queries. Default `false` (all queries raise).
   """
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
@@ -161,7 +169,9 @@ defmodule Pyex.Ctx do
       compute_ns: 0,
       compute_started_at: System.monotonic_time(:nanosecond),
       profile: profile,
-      network: network
+      network: network,
+      boto3: Keyword.get(opts, :boto3, false) == true,
+      sql: Keyword.get(opts, :sql, false) == true
     }
   end
 
@@ -466,7 +476,9 @@ defmodule Pyex.Ctx do
       timeout_ns: ctx.timeout_ns,
       compute_ns: 0,
       compute_started_at: System.monotonic_time(:nanosecond),
-      network: ctx.network
+      network: ctx.network,
+      boto3: ctx.boto3,
+      sql: ctx.sql
     }
   end
 

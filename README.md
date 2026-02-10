@@ -1,5 +1,9 @@
 # Pyex
 
+> **Experimental software.** This project was generated entirely by Claude
+> Opus 4.6 via [OpenCode](https://opencode.ai). It is under active development
+> and has not been audited for production use.
+
 A Python 3 interpreter written in Elixir.
 
 LLMs generate Python. This runs it as a function call inside your Elixir app --

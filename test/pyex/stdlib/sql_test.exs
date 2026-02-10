@@ -70,7 +70,7 @@ defmodule Pyex.Stdlib.SqlTest do
   end
 
   defp run(code) do
-    ctx = Pyex.Ctx.new(environ: %{"DATABASE_URL" => @db_url})
+    ctx = Pyex.Ctx.new(environ: %{"DATABASE_URL" => @db_url}, sql: true)
 
     case Pyex.run(code, ctx) do
       {:ok, value, ctx} -> {value, ctx}
@@ -81,6 +81,34 @@ defmodule Pyex.Stdlib.SqlTest do
   defp run!(code) do
     {value, _ctx} = run(code)
     value
+  end
+
+  describe "access control" do
+    test "denied by default when sql not enabled" do
+      ctx = Pyex.Ctx.new(environ: %{"DATABASE_URL" => @db_url})
+
+      assert {:error, %Error{message: msg}} =
+               Pyex.run(
+                 """
+                 import sql
+                 sql.query("SELECT 1")
+                 """,
+                 ctx
+               )
+
+      assert msg =~ "PermissionError"
+      assert msg =~ "sql is disabled"
+    end
+
+    test "import succeeds even when sql is disabled" do
+      result =
+        Pyex.run!("""
+        import sql
+        'query' in dir(sql)
+        """)
+
+      assert result == true
+    end
   end
 
   describe "sql.query" do
@@ -148,7 +176,7 @@ defmodule Pyex.Stdlib.SqlTest do
     end
 
     test "error on missing DATABASE_URL" do
-      ctx = Pyex.Ctx.new(environ: %{})
+      ctx = Pyex.Ctx.new(environ: %{}, sql: true)
 
       assert {:error, %Error{message: msg}} =
                Pyex.run(
@@ -163,7 +191,7 @@ defmodule Pyex.Stdlib.SqlTest do
     end
 
     test "error on bad SQL" do
-      ctx = Pyex.Ctx.new(environ: %{"DATABASE_URL" => @db_url})
+      ctx = Pyex.Ctx.new(environ: %{"DATABASE_URL" => @db_url}, sql: true)
 
       assert {:error, %Error{message: msg}} =
                Pyex.run(

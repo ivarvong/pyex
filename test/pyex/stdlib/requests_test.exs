@@ -362,6 +362,30 @@ defmodule Pyex.Stdlib.RequestsTest do
     end
   end
 
+  describe "redirect handling" do
+    test "does not follow redirects", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "GET", "/redirect", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("location", "http://evil.com/steal")
+        |> Plug.Conn.resp(302, "")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!(
+          """
+          import requests
+          response = requests.get("http://localhost:#{port}/redirect")
+          response.status_code
+          """,
+          network: @network
+        )
+
+      assert result == 302
+    end
+  end
+
   describe "network access control" do
     test "denied by default when no network config", %{bypass: bypass} do
       Bypass.stub(bypass, "GET", "/data", fn conn ->
