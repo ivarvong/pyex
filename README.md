@@ -159,7 +159,7 @@ F-strings. `try`/`except`/`finally`. `with` statements. Type annotations
 | `unittest` | TestCase with assertions |
 | `fastapi` | route registration, HTMLResponse, JSONResponse, StreamingResponse |
 | `pydantic` | BaseModel, Field validation, type coercion |
-| `requests` | get, post |
+| `requests` | get, post, put, patch, delete, head, options |
 | `sql` | parameterized queries against PostgreSQL |
 | `boto3` | S3 client |
 
@@ -228,34 +228,59 @@ term -- cache it in ETS, store it wherever.
 
 ## How Fast Is It?
 
-This is a tree-walking interpreter. Pure computation is 10-80x slower than
-CPython. But Pyex runs as a function call inside your BEAM process -- there's
-no process to spawn, no container to start, no VM to boot.
+This is a tree-walking interpreter -- pure computation is 12-70x slower
+than CPython. Whether that matters depends on the workload.
 
-In a Lambda/serverless context, that changes the math completely:
+All numbers below are measured on Apple M4 Max, OTP 28, CPython 3.14.
 
-| What you're measuring | CPython | Pyex |
-|-----------------------|---------|------|
-| Process cold start (`python3 -c "pass"`) | ~16 ms | 0 (function call) |
-| FizzBuzz (100 iterations) | 16.6 ms (cold) / 15 us (warm) | 190 us |
-| Lambda: cold boot a FastAPI app | N/A | 193 us |
-| Lambda: handle a request (Jinja2 + markdown) | N/A | 109 us |
+### Cold execution
 
-Measured on Apple M4 Max, OTP 28, CPython 3.14. 1000 iterations, wall clock:
+When a customer's Python runs from scratch -- a webhook handler, a workflow
+step, a cron job -- you're paying startup cost. CPython's is ~16 ms
+(interpreter + import system). Pyex's is zero: it's a function call.
+
+| Benchmark | CPython cold | Pyex cold |
+|-----------|-------------|-----------|
+| FizzBuzz (100 iterations) | 16.3 ms | 197 us (**83x faster**) |
+| Algorithms (~150 LOC: sieve, sort, fib, stats) | 16.8 ms | 2.3 ms (**7x faster**) |
+
+CPython cold = `python3 -c`. Pyex cold = `Pyex.run!` from source string.
+Both include full startup, compile, and execute. Pyex wins because there's
+no process to spawn. The heavier the program, the smaller the gap -- CPython's
+startup is fixed at ~16 ms while its execution is fast.
+
+### Warm execution
+
+When both interpreters are already running and you're measuring pure
+computation, CPython is faster:
+
+| Benchmark | CPython warm | Pyex warm | Ratio |
+|-----------|-------------|-----------|-------|
+| FizzBuzz (100 iterations) | 12 us | 151 us | **~12x** |
+| Algorithms (~150 LOC) | 27 us | 1.9 ms | **~70x** |
+
+CPython warm = in-process timing via `time.perf_counter_ns`.
+Pyex warm = `Pyex.run!` with pre-compiled AST (lex+parse skipped).
+The gap widens with heavier computation -- this is the inherent cost of
+tree-walking vs bytecode.
+
+### HTTP handlers
+
+For web workloads (the FastAPI/Lambda path), you boot the app once and handle
+many requests. Each request is a function call against already-initialized
+state -- there's no per-request startup cost on either side.
 
 | Benchmark | avg | p50 | p99 |
 |-----------|-----|-----|-----|
-| FizzBuzz (end-to-end from source) | 190 us | 184 us | 255 us |
-| Algorithms (~150 LOC: sieve, merge sort, memoized fib, stats) | 2.4 ms | 2.4 ms | 2.8 ms |
-| FizzBuzz (pre-compiled AST, skip lex+parse) | 145 us | 135 us | 243 us |
-| Algorithms (pre-compiled AST) | 1.9 ms | 1.9 ms | 2.4 ms |
-| Lambda: cold boot (compile + execute routes) | 193 us | 187 us | 304 us |
-| Lambda: GET /posts (Jinja2 render) | 80 us | 75 us | 140 us |
-| Lambda: GET /posts/:slug (markdown + Jinja2) | 109 us | 106 us | 194 us |
+| Cold boot (compile + execute routes) | 183 us | 175 us | 262 us |
+| GET /posts (Jinja2 template render) | 66 us | 63 us | 120 us |
+| GET /posts/:slug (markdown + Jinja2) | 90 us | 89 us | 147 us |
 
-Pre-compiling the AST saves ~20-25% by skipping lex+parse on repeat calls.
+At 66-90 us per request, the interpreter isn't the bottleneck -- your database
+and network calls are.
 
-Run the benchmarks yourself: `mix run bench/readme_bench.exs`
+*All numbers: 1000 iterations (100 for cold), wall clock.
+Run it yourself: `mix run bench/cpython_comparison.exs`*
 
 ## Architecture
 
