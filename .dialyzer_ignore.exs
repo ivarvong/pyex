@@ -11,5 +11,11 @@
   {"lib/pyex/stdlib/markdown.ex", :invalid_contract},
   # unwrap_response and unwrap_stream_response return partial response maps (without telemetry).
   # The telemetry field is added by the caller via Map.put, which Dialyzer cannot track.
-  {"lib/pyex/lambda.ex", :invalid_contract}
+  {"lib/pyex/lambda.ex", :invalid_contract},
+  # MapSet is an opaque type. Dialyzer complains when it appears in struct fields
+  # because it cannot see through the opaque boundary. The capabilities MapSet is
+  # used correctly via MapSet.member?/2 and MapSet.new/1 -- these are false positives.
+  {"lib/pyex/ctx.ex", :contract_with_opaque},
+  {"lib/pyex/interpreter.ex", :call_without_opaque},
+  {"lib/pyex/stdlib/jinja2.ex", :call_without_opaque}
 ]

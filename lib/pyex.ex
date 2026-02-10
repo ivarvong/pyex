@@ -76,10 +76,10 @@ defmodule Pyex do
     `:allowed_url_prefixes`, `:allowed_methods` (default `["GET", "HEAD"]`),
     or `:dangerously_allow_full_internet_access`. When omitted,
     all network access is denied.
-  - `:boto3` -- when `true`, enables the `boto3` module to make S3
-    API calls. Default `false` (all S3 operations raise `PermissionError`).
-  - `:sql` -- when `true`, enables the `sql` module to execute
-    database queries. Default `false` (all queries raise `PermissionError`).
+  - `:capabilities` -- list of enabled I/O capabilities (e.g.
+    `[:boto3, :sql]`). All capabilities are denied by default.
+  - `:boto3` -- shorthand for adding `:boto3` to capabilities.
+  - `:sql` -- shorthand for adding `:sql` to capabilities.
 
   ## Examples
 

@@ -116,12 +116,6 @@ defmodule Pyex.Stdlib.Boto3 do
   defp signing_req_opts(nil), do: []
   defp signing_req_opts(opts), do: [aws_sigv4: opts]
 
-  @denied_msg "PermissionError: boto3 is disabled. Configure the :boto3 option to enable S3 access"
-
-  @spec check_boto3(Pyex.Ctx.t()) :: :ok | {:denied, String.t()}
-  defp check_boto3(%{boto3: true}), do: :ok
-  defp check_boto3(_ctx), do: {:denied, @denied_msg}
-
   @spec s3_put_object(s3_config(), [Pyex.Interpreter.pyvalue()], %{
           optional(String.t()) => Pyex.Interpreter.pyvalue()
         }) :: s3_result()
@@ -150,29 +144,22 @@ defmodule Pyex.Stdlib.Boto3 do
         req_opts =
           [body: body_bytes, headers: headers] ++ signing_req_opts(config.signing_opts)
 
-        {:io_call,
-         fn env, ctx ->
-           case check_boto3(ctx) do
-             {:denied, reason} ->
-               {{:exception, reason}, env, ctx}
+        Pyex.Ctx.guarded_io_call(:boto3, fn env, ctx ->
+          result =
+            case Req.put(url, req_opts) do
+              {:ok, %{status: status}} when status in [200, 201] ->
+                %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
 
-             :ok ->
-               result =
-                 case Req.put(url, req_opts) do
-                   {:ok, %{status: status}} when status in [200, 201] ->
-                     %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
+              {:ok, %{status: status, body: resp_body}} ->
+                {:exception,
+                 "ClientError: S3 PutObject failed (#{status}): #{inspect(resp_body)}"}
 
-                   {:ok, %{status: status, body: resp_body}} ->
-                     {:exception,
-                      "ClientError: S3 PutObject failed (#{status}): #{inspect(resp_body)}"}
+              {:error, reason} ->
+                {:exception, "ClientError: #{inspect(reason)}"}
+            end
 
-                   {:error, reason} ->
-                     {:exception, "ClientError: #{inspect(reason)}"}
-                 end
-
-               {result, env, ctx}
-           end
-         end}
+          {result, env, ctx}
+        end)
     end
   end
 
@@ -194,47 +181,40 @@ defmodule Pyex.Stdlib.Boto3 do
         url = object_url(bucket, key, config.region, config.endpoint_url)
         req_opts = [decode_body: false] ++ signing_req_opts(config.signing_opts)
 
-        {:io_call,
-         fn env, ctx ->
-           case check_boto3(ctx) do
-             {:denied, reason} ->
-               {{:exception, reason}, env, ctx}
+        Pyex.Ctx.guarded_io_call(:boto3, fn env, ctx ->
+          result =
+            case Req.get(url, req_opts) do
+              {:ok, %{status: 200, body: body, headers: headers}} ->
+                body_str = body
 
-             :ok ->
-               result =
-                 case Req.get(url, req_opts) do
-                   {:ok, %{status: 200, body: body, headers: headers}} ->
-                     body_str = body
+                body_obj = %{
+                  "read" => {:builtin, fn [] -> body_str end},
+                  "__body_bytes__" => body_str
+                }
 
-                     body_obj = %{
-                       "read" => {:builtin, fn [] -> body_str end},
-                       "__body_bytes__" => body_str
-                     }
+                content_type = extract_header(headers, "content-type")
 
-                     content_type = extract_header(headers, "content-type")
+                %{
+                  "Body" => body_obj,
+                  "ContentLength" => byte_size(body_str),
+                  "ContentType" => content_type,
+                  "ResponseMetadata" => %{"HTTPStatusCode" => 200}
+                }
 
-                     %{
-                       "Body" => body_obj,
-                       "ContentLength" => byte_size(body_str),
-                       "ContentType" => content_type,
-                       "ResponseMetadata" => %{"HTTPStatusCode" => 200}
-                     }
+              {:ok, %{status: 404}} ->
+                {:exception,
+                 "ClientError: An error occurred (NoSuchKey) when calling the GetObject operation: The specified key does not exist."}
 
-                   {:ok, %{status: 404}} ->
-                     {:exception,
-                      "ClientError: An error occurred (NoSuchKey) when calling the GetObject operation: The specified key does not exist."}
+              {:ok, %{status: status, body: resp_body}} ->
+                {:exception,
+                 "ClientError: S3 GetObject failed (#{status}): #{inspect(resp_body)}"}
 
-                   {:ok, %{status: status, body: resp_body}} ->
-                     {:exception,
-                      "ClientError: S3 GetObject failed (#{status}): #{inspect(resp_body)}"}
+              {:error, reason} ->
+                {:exception, "ClientError: #{inspect(reason)}"}
+            end
 
-                   {:error, reason} ->
-                     {:exception, "ClientError: #{inspect(reason)}"}
-                 end
-
-               {result, env, ctx}
-           end
-         end}
+          {result, env, ctx}
+        end)
     end
   end
 
@@ -256,29 +236,22 @@ defmodule Pyex.Stdlib.Boto3 do
         url = object_url(bucket, key, config.region, config.endpoint_url)
         req_opts = signing_req_opts(config.signing_opts)
 
-        {:io_call,
-         fn env, ctx ->
-           case check_boto3(ctx) do
-             {:denied, reason} ->
-               {{:exception, reason}, env, ctx}
+        Pyex.Ctx.guarded_io_call(:boto3, fn env, ctx ->
+          result =
+            case Req.delete(url, req_opts) do
+              {:ok, %{status: status}} when status in [200, 204] ->
+                %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
 
-             :ok ->
-               result =
-                 case Req.delete(url, req_opts) do
-                   {:ok, %{status: status}} when status in [200, 204] ->
-                     %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
+              {:ok, %{status: status, body: resp_body}} ->
+                {:exception,
+                 "ClientError: S3 DeleteObject failed (#{status}): #{inspect(resp_body)}"}
 
-                   {:ok, %{status: status, body: resp_body}} ->
-                     {:exception,
-                      "ClientError: S3 DeleteObject failed (#{status}): #{inspect(resp_body)}"}
+              {:error, reason} ->
+                {:exception, "ClientError: #{inspect(reason)}"}
+            end
 
-                   {:error, reason} ->
-                     {:exception, "ClientError: #{inspect(reason)}"}
-                 end
-
-               {result, env, ctx}
-           end
-         end}
+          {result, env, ctx}
+        end)
     end
   end
 
@@ -296,36 +269,29 @@ defmodule Pyex.Stdlib.Boto3 do
       url = "#{base}?list-type=2&prefix=#{URI.encode(prefix)}"
       req_opts = signing_req_opts(config.signing_opts)
 
-      {:io_call,
-       fn env, ctx ->
-         case check_boto3(ctx) do
-           {:denied, reason} ->
-             {{:exception, reason}, env, ctx}
+      Pyex.Ctx.guarded_io_call(:boto3, fn env, ctx ->
+        result =
+          case Req.get(url, req_opts) do
+            {:ok, %{status: 200, body: body}} ->
+              contents = parse_list_response(body, prefix)
 
-           :ok ->
-             result =
-               case Req.get(url, req_opts) do
-                 {:ok, %{status: 200, body: body}} ->
-                   contents = parse_list_response(body, prefix)
+              %{
+                "Contents" => contents,
+                "KeyCount" => length(contents),
+                "Prefix" => prefix,
+                "ResponseMetadata" => %{"HTTPStatusCode" => 200}
+              }
 
-                   %{
-                     "Contents" => contents,
-                     "KeyCount" => length(contents),
-                     "Prefix" => prefix,
-                     "ResponseMetadata" => %{"HTTPStatusCode" => 200}
-                   }
+            {:ok, %{status: status, body: resp_body}} ->
+              {:exception,
+               "ClientError: S3 ListObjectsV2 failed (#{status}): #{inspect(resp_body)}"}
 
-                 {:ok, %{status: status, body: resp_body}} ->
-                   {:exception,
-                    "ClientError: S3 ListObjectsV2 failed (#{status}): #{inspect(resp_body)}"}
+            {:error, reason} ->
+              {:exception, "ClientError: #{inspect(reason)}"}
+          end
 
-                 {:error, reason} ->
-                   {:exception, "ClientError: #{inspect(reason)}"}
-               end
-
-             {result, env, ctx}
-         end
-       end}
+        {result, env, ctx}
+      end)
     end
   end
 

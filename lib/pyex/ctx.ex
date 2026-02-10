@@ -53,6 +53,8 @@ defmodule Pyex.Ctx do
           dangerously_allow_full_internet_access: boolean()
         }
 
+  @type capability :: :boto3 | :sql | atom()
+
   @type generator_mode :: :accumulate | :defer | :defer_inner | nil
 
   @type t :: %__MODULE__{
@@ -76,8 +78,7 @@ defmodule Pyex.Ctx do
           iterators: %{optional(non_neg_integer()) => [term()] | term()},
           next_iterator_id: non_neg_integer(),
           network: network_config() | nil,
-          boto3: boolean(),
-          sql: boolean(),
+          capabilities: MapSet.t(capability()),
           exception_instance: term(),
           current_line: non_neg_integer() | nil
         }
@@ -102,8 +103,7 @@ defmodule Pyex.Ctx do
             iterators: %{},
             next_iterator_id: 0,
             network: nil,
-            boto3: false,
-            sql: false,
+            capabilities: MapSet.new(),
             exception_instance: nil,
             current_line: nil
 
@@ -135,10 +135,11 @@ defmodule Pyex.Ctx do
     A request is allowed if its URL matches any `:allowed_hosts` entry
     **or** any `:allowed_url_prefixes` entry. When `nil` (the default),
     all network access is denied.
-  - `:boto3` -- when `true`, enables the `boto3` module to make S3
-    API calls. Default `false` (all S3 operations raise).
-  - `:sql` -- when `true`, enables the `sql` module to execute
-    database queries. Default `false` (all queries raise).
+  - `:capabilities` -- a list of atoms naming enabled I/O capabilities.
+    Known capabilities: `:boto3` (S3 operations), `:sql` (database
+    queries). All capabilities are denied by default.
+  - `:boto3` -- shorthand for adding `:boto3` to capabilities.
+  - `:sql` -- shorthand for adding `:sql` to capabilities.
   """
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
@@ -159,6 +160,7 @@ defmodule Pyex.Ctx do
         else: nil
 
     network = normalize_network(Keyword.get(opts, :network))
+    capabilities = normalize_capabilities(opts)
 
     %__MODULE__{
       filesystem: fs,
@@ -170,8 +172,7 @@ defmodule Pyex.Ctx do
       compute_started_at: System.monotonic_time(:nanosecond),
       profile: profile,
       network: network,
-      boto3: Keyword.get(opts, :boto3, false) == true,
-      sql: Keyword.get(opts, :sql, false) == true
+      capabilities: capabilities
     }
   end
 
@@ -190,6 +191,18 @@ defmodule Pyex.Ctx do
 
   defp resolve_module_value(map) when is_map(map) do
     map
+  end
+
+  @spec normalize_capabilities(keyword()) :: MapSet.t(capability())
+  defp normalize_capabilities(opts) do
+    explicit = Keyword.get(opts, :capabilities, [])
+
+    shorthand =
+      for key <- [:boto3, :sql],
+          Keyword.get(opts, key, false) == true,
+          do: key
+
+    MapSet.new(explicit ++ shorthand)
   end
 
   @spec normalize_network(keyword() | map() | nil) :: network_config() | nil
@@ -296,6 +309,43 @@ defmodule Pyex.Ctx do
       _ ->
         false
     end
+  end
+
+  @doc """
+  Checks whether a capability is enabled.
+
+  Returns `:ok` if the capability is in the context's `capabilities`
+  set, or `{:denied, reason}` with a `PermissionError` message.
+  """
+  @spec check_capability(t(), capability()) :: :ok | {:denied, String.t()}
+  def check_capability(%__MODULE__{capabilities: caps}, capability) do
+    if MapSet.member?(caps, capability) do
+      :ok
+    else
+      {:denied,
+       "PermissionError: #{capability} is disabled. " <>
+         "Configure the :#{capability} option to enable access"}
+    end
+  end
+
+  @doc """
+  Wraps an I/O callback with a capability check.
+
+  Returns an `{:io_call, fun}` tuple where `fun` first verifies
+  the capability is enabled before executing the callback. If
+  the capability is denied, returns an exception tuple without
+  calling the callback.
+  """
+  @spec guarded_io_call(capability(), (Pyex.Env.t(), t() -> {term(), Pyex.Env.t(), t()})) ::
+          {:io_call, (Pyex.Env.t(), t() -> {term(), Pyex.Env.t(), t()})}
+  def guarded_io_call(capability, fun) do
+    {:io_call,
+     fn env, ctx ->
+       case check_capability(ctx, capability) do
+         {:denied, reason} -> {{:exception, reason}, env, ctx}
+         :ok -> fun.(env, ctx)
+       end
+     end}
   end
 
   @doc """
@@ -477,8 +527,7 @@ defmodule Pyex.Ctx do
       compute_ns: 0,
       compute_started_at: System.monotonic_time(:nanosecond),
       network: ctx.network,
-      boto3: ctx.boto3,
-      sql: ctx.sql
+      capabilities: ctx.capabilities
     }
   end
 
