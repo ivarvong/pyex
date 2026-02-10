@@ -2,9 +2,11 @@ defmodule Pyex.Stdlib.Requests do
   @moduledoc """
   Python `requests` module backed by Req.
 
-  Provides `requests.get(url)` and `requests.post(url, json=data)`
-  which return an object with `.text`, `.status_code`, and `.ok`
-  attributes, matching the real `requests.Response` interface.
+  Provides `requests.get`, `requests.post`, `requests.put`,
+  `requests.patch`, `requests.delete`, `requests.head`, and
+  `requests.options` which return an object with `.text`,
+  `.status_code`, `.ok`, `.headers`, and `.json()` attributes,
+  matching the real `requests.Response` interface.
 
   All HTTP calls are instrumented with OpenTelemetry spans using
   the semantic conventions for HTTP clients. I/O time is excluded
@@ -23,7 +25,12 @@ defmodule Pyex.Stdlib.Requests do
   def module_value do
     %{
       "get" => {:builtin_kw, &do_get/2},
-      "post" => {:builtin_kw, &do_post/2}
+      "post" => {:builtin_kw, &do_post/2},
+      "put" => {:builtin_kw, &do_put/2},
+      "patch" => {:builtin_kw, &do_patch/2},
+      "delete" => {:builtin_kw, &do_delete/2},
+      "head" => {:builtin_kw, &do_head/2},
+      "options" => {:builtin_kw, &do_options/2}
     }
   end
 
@@ -31,15 +38,62 @@ defmodule Pyex.Stdlib.Requests do
           [Pyex.Interpreter.pyvalue()],
           %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
         ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
-  defp do_get([url], kwargs) when is_binary(url) do
+  defp do_get([url], kwargs) when is_binary(url), do: do_request(:get, url, kwargs)
+
+  @spec do_post(
+          [Pyex.Interpreter.pyvalue()],
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
+  defp do_post([url], kwargs) when is_binary(url), do: do_request(:post, url, kwargs)
+
+  @spec do_put(
+          [Pyex.Interpreter.pyvalue()],
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
+  defp do_put([url], kwargs) when is_binary(url), do: do_request(:put, url, kwargs)
+
+  @spec do_patch(
+          [Pyex.Interpreter.pyvalue()],
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
+  defp do_patch([url], kwargs) when is_binary(url), do: do_request(:patch, url, kwargs)
+
+  @spec do_delete(
+          [Pyex.Interpreter.pyvalue()],
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
+  defp do_delete([url], kwargs) when is_binary(url), do: do_request(:delete, url, kwargs)
+
+  @spec do_head(
+          [Pyex.Interpreter.pyvalue()],
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
+  defp do_head([url], kwargs) when is_binary(url), do: do_request(:head, url, kwargs)
+
+  @spec do_options(
+          [Pyex.Interpreter.pyvalue()],
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
+  defp do_options([url], kwargs) when is_binary(url), do: do_request(:options, url, kwargs)
+
+  @spec do_request(
+          atom(),
+          String.t(),
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
+  defp do_request(method, url, kwargs) do
     headers = build_headers(kwargs)
+    method_str = method |> Atom.to_string() |> String.upcase()
+
+    req_opts =
+      [headers: headers, method: method, url: url] ++ body_opts(kwargs)
 
     {:io_call,
      fn env, ctx ->
        result =
          Tracer.with_span "http.request",
-                          %{attributes: %{"http.method" => "GET", "http.url" => url}} do
-           case Req.get(url, headers: headers) do
+                          %{attributes: %{"http.method" => method_str, "http.url" => url}} do
+           case Req.request(req_opts) do
              {:ok, resp} ->
                response = build_response(resp)
                Tracer.set_attribute("http.status_code", resp.status)
@@ -49,7 +103,7 @@ defmodule Pyex.Stdlib.Requests do
              {:error, reason} ->
                Tracer.set_attribute("error", true)
                Tracer.set_attribute("error.message", inspect(reason))
-               {:exception, "requests.get failed: #{inspect(reason)}"}
+               {:exception, "requests.#{method} failed: #{inspect(reason)}"}
            end
          end
 
@@ -57,44 +111,16 @@ defmodule Pyex.Stdlib.Requests do
      end}
   end
 
-  @spec do_post(
-          [Pyex.Interpreter.pyvalue()],
-          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
-        ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
-  defp do_post([url], kwargs) when is_binary(url) do
-    headers = build_headers(kwargs)
+  @spec body_opts(%{optional(String.t()) => Pyex.Interpreter.pyvalue()}) :: keyword()
+  defp body_opts(kwargs) do
     json_data = Map.get(kwargs, "json")
     data = Map.get(kwargs, "data")
 
-    req_opts =
-      [headers: headers] ++
-        cond do
-          json_data != nil -> [json: to_jason_compatible(json_data)]
-          data != nil && is_binary(data) -> [body: data]
-          true -> []
-        end
-
-    {:io_call,
-     fn env, ctx ->
-       result =
-         Tracer.with_span "http.request",
-                          %{attributes: %{"http.method" => "POST", "http.url" => url}} do
-           case Req.post(url, req_opts) do
-             {:ok, resp} ->
-               response = build_response(resp)
-               Tracer.set_attribute("http.status_code", resp.status)
-               Tracer.set_attribute("http.response_body_size", byte_size(response["text"]))
-               response
-
-             {:error, reason} ->
-               Tracer.set_attribute("error", true)
-               Tracer.set_attribute("error.message", inspect(reason))
-               {:exception, "requests.post failed: #{inspect(reason)}"}
-           end
-         end
-
-       {result, env, ctx}
-     end}
+    cond do
+      json_data != nil -> [json: to_jason_compatible(json_data)]
+      data != nil && is_binary(data) -> [body: data]
+      true -> []
+    end
   end
 
   @spec build_response(Req.Response.t()) :: Pyex.Interpreter.pyvalue()

@@ -205,4 +205,113 @@ defmodule Pyex.Stdlib.RequestsTest do
       assert result == true
     end
   end
+
+  describe "requests.put" do
+    test "sends PUT with JSON body", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "PUT", "/api/item/1", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        payload = Jason.decode!(body)
+        assert payload == %{"name" => "updated"}
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, ~s({"id": 1, "name": "updated"}))
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!("""
+        import requests
+        response = requests.put("http://localhost:#{port}/api/item/1", json={"name": "updated"})
+        [response.status_code, response.json()["name"]]
+        """)
+
+      assert result == [200, "updated"]
+    end
+  end
+
+  describe "requests.patch" do
+    test "sends PATCH with JSON body", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "PATCH", "/api/item/1", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        payload = Jason.decode!(body)
+        assert payload == %{"name" => "patched"}
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, ~s({"id": 1, "name": "patched"}))
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!("""
+        import requests
+        response = requests.patch("http://localhost:#{port}/api/item/1", json={"name": "patched"})
+        [response.status_code, response.json()["name"]]
+        """)
+
+      assert result == [200, "patched"]
+    end
+  end
+
+  describe "requests.delete" do
+    test "sends DELETE and returns response", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "DELETE", "/api/item/1", fn conn ->
+        Plug.Conn.resp(conn, 204, "")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!("""
+        import requests
+        response = requests.delete("http://localhost:#{port}/api/item/1")
+        [response.status_code, response.ok]
+        """)
+
+      assert result == [204, true]
+    end
+  end
+
+  describe "requests.head" do
+    test "sends HEAD and returns status", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "HEAD", "/ping", fn conn ->
+        Plug.Conn.resp(conn, 200, "")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!("""
+        import requests
+        response = requests.head("http://localhost:#{port}/ping")
+        [response.status_code, response.ok]
+        """)
+
+      assert result == [200, true]
+    end
+  end
+
+  describe "requests.options" do
+    test "sends OPTIONS and returns response", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "OPTIONS", "/api", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_header("allow", "GET, POST, OPTIONS")
+        |> Plug.Conn.resp(200, "")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!("""
+        import requests
+        response = requests.options("http://localhost:#{port}/api")
+        [response.status_code, "allow" in response.headers]
+        """)
+
+      assert result == [200, true]
+    end
+  end
 end
