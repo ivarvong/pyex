@@ -9,6 +9,7 @@ defmodule Pyex.MixProject do
       app: :pyex,
       version: @version,
       elixir: "~> 1.19",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       dialyzer: [
@@ -24,6 +25,9 @@ defmodule Pyex.MixProject do
       package: package()
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   def application do
     [

@@ -1,928 +1,761 @@
 defmodule Pyex.MathOracleTest do
   @moduledoc """
-  Cross-checks LLM-style Python math code against an Explorer (Polars/Rust) oracle.
+  Property tests that cross-check Python math against an Explorer/Polars oracle.
 
-  Data is generated entirely in Elixir via StreamData and written as CSV
-  to the in-memory filesystem *before* Python ever runs. Python only reads
-  the CSV and computes statistics — it never generates or controls the data.
+  Data flows: Elixir generates random numbers, writes CSV to an in-memory
+  filesystem, Python reads the CSV and computes stats, Elixir asserts
+  against Polars. Three languages, three implementations, zero shared code.
 
-  The same raw integer lists are fed to Explorer (Polars, written in Rust)
-  to compute the oracle. The Elixir test then asserts every Python result
-  matches the Polars result.
-
-  Three independent implementations, three languages, zero shared code:
-  - Data generation: Elixir (StreamData)
-  - Stats computation #1: Python (Pyex interpreter)
-  - Stats computation #2: Rust (Polars via Explorer)
-  - Assertion: Elixir (ExUnit)
+  Each property tests one stat computed one way. When a test fails you
+  know exactly which algorithm on which number type disagreed with Polars.
   """
 
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias Explorer.Series
-  alias Pyex.Filesystem.Memory
+  alias Pyex.Test.MathOracle, as: Oracle
 
-  @runs 200
-  @timeout_ms 500
+  @int_runs 200
+  @float_runs 200
   @float_tol 1.0e-6
-  @verbose System.get_env("PYEX_BENCH") == "1"
 
-  # ---------------------------------------------------------------------------
-  # Integer property
-  # ---------------------------------------------------------------------------
+  # ---- generators ----
 
-  property "integer stats computed in Python match the Explorer/Polars oracle" do
-    Process.put(:timings, [])
-
-    check all(
-            row_count <- integer(1..60),
-            col_count <- integer(1..8),
-            max_runs: @runs
-          ) do
-      fieldnames = Enum.map(0..(col_count - 1), &"c#{&1}")
-
-      columns =
-        Enum.map(fieldnames, fn name ->
-          values = for _ <- 1..row_count, do: Enum.random(-1000..1000)
-          {name, values}
-        end)
-        |> Map.new()
-
-      csv = build_csv(fieldnames, columns, row_count)
-
-      fs = Memory.new()
-      {:ok, fs} = Memory.write(fs, "data.csv", csv, :write)
-      opts = [filesystem: fs, fs_module: Memory, timeout_ms: @timeout_ms]
-
-      source = python_source(fieldnames)
-
-      {us, {:ok, py_stats, _ctx}} = :timer.tc(fn -> run_pyex_isolated(source, opts) end)
-      Process.put(:timings, [{us, row_count, col_count} | Process.get(:timings)])
-
-      oracle = explorer_oracle(fieldnames, columns)
-      assert_all_stats(py_stats, oracle)
+  defp int_list do
+    gen all(
+          n <- integer(1..60),
+          xs <- list_of(integer(-1000..1000), length: n)
+        ) do
+      xs
     end
-
-    print_timing_summary(Process.get(:timings), "integer")
   end
 
-  # ---------------------------------------------------------------------------
-  # Float property
-  # ---------------------------------------------------------------------------
-
-  property "float stats computed in Python match the Explorer/Polars oracle" do
-    Process.put(:timings, [])
-
-    check all(
-            row_count <- integer(1..40),
-            col_count <- integer(1..6),
-            max_runs: @runs
-          ) do
-      fieldnames = Enum.map(0..(col_count - 1), &"c#{&1}")
-
-      columns =
-        Enum.map(fieldnames, fn name ->
-          values = for _ <- 1..row_count, do: random_float()
-          {name, values}
-        end)
-        |> Map.new()
-
-      csv = build_float_csv(fieldnames, columns, row_count)
-
-      fs = Memory.new()
-      {:ok, fs} = Memory.write(fs, "data.csv", csv, :write)
-      opts = [filesystem: fs, fs_module: Memory, timeout_ms: @timeout_ms]
-
-      source = python_float_source(fieldnames)
-
-      {us, {:ok, py_stats, _ctx}} = :timer.tc(fn -> run_pyex_isolated(source, opts) end)
-      Process.put(:timings, [{us, row_count, col_count} | Process.get(:timings)])
-
-      oracle = explorer_float_oracle(fieldnames, columns)
-      assert_all_float_stats(py_stats, oracle)
+  defp float_list do
+    gen all(n <- integer(1..40)) do
+      for _ <- 1..n, do: Oracle.random_float()
     end
-
-    print_timing_summary(Process.get(:timings), "float")
   end
 
-  defp random_float do
-    sign = if :rand.uniform() < 0.5, do: -1.0, else: 1.0
-    magnitude = Enum.random(0..3)
+  # ---- Python function library (shared across tests) ----
 
-    base =
-      case magnitude do
-        0 -> :rand.uniform() * 0.001
-        1 -> :rand.uniform() * 1.0
-        2 -> :rand.uniform() * 1000.0
-        3 -> :rand.uniform() * 1_000_000.0
+  @reduce """
+  def reduce(fn, xs, init):
+      acc = init
+      for x in xs:
+          acc = fn(acc, x)
+      return acc
+  """
+
+  # ---- integer stats ----
+
+  describe "integer sum" do
+    property "builtin sum() matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.int_preamble() <> "sum(xs)", opts)
+        assert py == Oracle.polars_int(:sum, xs), "sum(xs) for #{inspect(xs)}"
       end
+    end
 
-    sign * base
-  end
+    property "loop accumulator matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-  defp build_float_csv(fieldnames, columns, row_count) do
-    header = Enum.join(fieldnames, ",")
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              total = 0
+              for x in xs:
+                  total += x
+              total
+              """,
+            opts
+          )
 
-    rows =
-      Enum.map(0..(row_count - 1), fn i ->
-        Enum.map_join(fieldnames, ",", fn name ->
-          columns |> Map.fetch!(name) |> Enum.at(i) |> Float.to_string()
-        end)
-      end)
+        assert py == Oracle.polars_int(:sum, xs)
+      end
+    end
 
-    Enum.join([header | rows], "\r\n") <> "\r\n"
-  end
+    property "reduce with lambda matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-  defp explorer_float_oracle(fieldnames, columns) do
-    fieldnames
-    |> Enum.map(fn name ->
-      xs = Map.fetch!(columns, name)
-      s = Series.from_list(xs)
-      {name, explorer_float_stats_for_series(s)}
-    end)
-    |> Map.new()
-  end
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              @reduce <>
+              "reduce(lambda acc, x: acc + x, xs, 0)",
+            opts
+          )
 
-  defp explorer_float_stats_for_series(s) do
-    n = Series.count(s)
-    sorted = Series.sort(s) |> Series.to_list()
-    sorted_desc = Series.sort(s, direction: :desc) |> Series.to_list()
-
-    abs_s = Series.abs(s)
-    rank = Series.argsort(abs_s)
-    sorted_abs = Series.slice(s, rank) |> Series.to_list()
-
-    sample_var = if n > 1, do: Series.variance(s), else: 0.0
-    pop_var = if n > 1, do: sample_var * (n - 1) / n, else: 0.0
-
-    neg_mask = Series.less(s, 0.0)
-    neg = Series.mask(s, neg_mask)
-    small_mask = Series.less_equal(abs_s, 1.0)
-    small = Series.mask(s, small_mask)
-    large_mask = Series.greater(abs_s, 1000.0)
-    large = Series.mask(s, large_mask)
-
-    %{
-      "count" => n,
-      "sum" => Series.sum(s),
-      "min" => Series.min(s),
-      "max" => Series.max(s),
-      "mean" => Series.mean(s),
-      "median" => Series.median(s),
-      "variance_pop" => pop_var,
-      "stddev_pop" => :math.sqrt(pop_var),
-      "sorted" => sorted,
-      "sorted_reverse" => sorted_desc,
-      "sorted_abs" => sorted_abs,
-      "subsets" => %{
-        "neg" => explorer_float_subset_stats(neg),
-        "small" => explorer_float_subset_stats(small),
-        "large" => explorer_float_subset_stats(large)
-      }
-    }
-  end
-
-  defp explorer_float_subset_stats(series) do
-    n = Series.count(series)
-
-    if n == 0 do
-      %{
-        "count" => 0,
-        "sum" => 0.0,
-        "min" => nil,
-        "max" => nil,
-        "mean" => nil,
-        "median" => nil,
-        "variance_pop" => nil,
-        "stddev_pop" => nil,
-        "sorted" => [],
-        "sorted_reverse" => [],
-        "sorted_abs" => []
-      }
-    else
-      sorted = Series.sort(series) |> Series.to_list()
-      sorted_desc = Series.sort(series, direction: :desc) |> Series.to_list()
-
-      abs_s = Series.abs(series)
-      rank = Series.argsort(abs_s)
-      sorted_abs = Series.slice(series, rank) |> Series.to_list()
-
-      sample_var = if n > 1, do: Series.variance(series), else: 0.0
-      pop_var = if n > 1, do: sample_var * (n - 1) / n, else: 0.0
-
-      %{
-        "count" => n,
-        "sum" => Series.sum(series),
-        "min" => Series.min(series),
-        "max" => Series.max(series),
-        "mean" => Series.mean(series),
-        "median" => Series.median(series),
-        "variance_pop" => pop_var,
-        "stddev_pop" => :math.sqrt(pop_var),
-        "sorted" => sorted,
-        "sorted_reverse" => sorted_desc,
-        "sorted_abs" => sorted_abs
-      }
+        assert py == Oracle.polars_int(:sum, xs)
+      end
     end
   end
 
-  defp python_float_source(fieldnames) do
-    fields_str = Enum.map_join(fieldnames, ", ", &"\"#{&1}\"")
+  describe "integer min" do
+    property "builtin min() matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.int_preamble() <> "min(xs)", opts)
+        assert py == Oracle.polars_int(:min, xs)
+      end
+    end
 
-    """
-    import csv
+    property "loop scan matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-    def reduce(fn, xs, init):
-        acc = init
-        for x in xs:
-            acc = fn(acc, x)
-        return acc
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              m = xs[0]
+              for x in xs:
+                  if x < m:
+                      m = x
+              m
+              """,
+            opts
+          )
 
-    def sum_loop(xs):
-        total = 0.0
-        for x in xs:
-            total += x
-        return total
+        assert py == Oracle.polars_int(:min, xs)
+      end
+    end
 
-    def sum_reduce(xs):
-        return reduce(lambda acc, x: acc + x, xs, 0.0)
+    property "reduce with ternary lambda matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-    def min_loop(xs):
-        m = xs[0]
-        for x in xs:
-            if x < m:
-                m = x
-        return m
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              @reduce <>
+              "reduce(lambda m, x: x if x < m else m, xs[1:], xs[0])",
+            opts
+          )
 
-    def max_loop(xs):
-        m = xs[0]
-        for x in xs:
-            if x > m:
-                m = x
-        return m
-
-    def min_reduce(xs):
-        return reduce(lambda m, x: x if x < m else m, xs[1:], xs[0])
-
-    def max_reduce(xs):
-        return reduce(lambda m, x: x if x > m else m, xs[1:], xs[0])
-
-    def mean_loop(xs):
-        return sum_loop(xs) / len(xs)
-
-    def mean_reduce(xs):
-        return sum_reduce(xs) / len(xs)
-
-    def median_sorted(xs):
-        ys = sorted(xs)
-        n = len(ys)
-        mid = n // 2
-        if n % 2 == 1:
-            return ys[mid]
-        return (ys[mid - 1] + ys[mid]) / 2
-
-    def median_reverse(xs):
-        ys = sorted(xs, reverse=True)
-        n = len(ys)
-        mid = n // 2
-        if n % 2 == 1:
-            return ys[n - 1 - mid]
-        a = ys[n - 1 - (mid - 1)]
-        b = ys[n - 1 - mid]
-        return (a + b) / 2
-
-    def variance_two_pass(xs):
-        m = mean_loop(xs)
-        squares = list(map(lambda x: (x - m) * (x - m), xs))
-        return sum(squares) / len(xs)
-
-    def variance_reduce(xs):
-        m = mean_reduce(xs)
-        acc = reduce(lambda a, x: a + (x - m) * (x - m), xs, 0.0)
-        return acc / len(xs)
-
-    def variance_welford(xs):
-        n = 0
-        mean = 0.0
-        m2 = 0.0
-        for x in xs:
-            n += 1
-            dx = x - mean
-            mean += dx / n
-            m2 += dx * (x - mean)
-        return m2 / n
-
-    def stddev_pop(xs):
-        return variance_two_pass(xs) ** 0.5
-
-    def stats_for(xs):
-        if len(xs) == 0:
-            return {
-                "count": 0,
-                "sum": 0.0,
-                "min": None,
-                "max": None,
-                "mean": None,
-                "median": None,
-                "variance_pop": None,
-                "stddev_pop": None,
-                "sorted": [],
-                "sorted_reverse": [],
-                "sorted_abs": [],
-            }
-
-        return {
-            "count": len(xs),
-            "sum": sum(xs),
-            "min": min(xs),
-            "max": max(xs),
-            "mean": mean_loop(xs),
-            "median": median_sorted(xs),
-            "variance_pop": variance_two_pass(xs),
-            "stddev_pop": variance_two_pass(xs) ** 0.5,
-            "sorted": sorted(xs),
-            "sorted_reverse": sorted(xs, reverse=True),
-            "sorted_abs": sorted(xs, key=abs),
-        }
-
-    fieldnames = [#{fields_str}]
-
-    f = open("data.csv")
-    parsed = list(csv.DictReader(f))
-    f.close()
-
-    cols = {name: [] for name in fieldnames}
-    for _, row in enumerate(parsed):
-        for name in fieldnames:
-            cols[name].append(float(row[name]))
-
-    stats = {}
-    for name in fieldnames:
-        xs = cols[name]
-
-        sum_builtin = sum(xs)
-        sum_a = sum_loop(xs)
-        sum_b = sum_reduce(xs)
-
-        min_builtin = min(xs)
-        min_a = min_loop(xs)
-        min_b = min_reduce(xs)
-
-        max_builtin = max(xs)
-        max_a = max_loop(xs)
-        max_b = max_reduce(xs)
-
-        mean_a = mean_loop(xs)
-        mean_b = mean_reduce(xs)
-        mean_c = sum_builtin / len(xs)
-
-        med_a = median_sorted(xs)
-        med_b = median_reverse(xs)
-        med_c = median_sorted(sorted(xs, key=lambda x: x))
-
-        var_a = variance_two_pass(xs)
-        var_b = variance_reduce(xs)
-        var_c = variance_welford(xs)
-
-        std_a = var_a ** 0.5
-        std_b = stddev_pop(xs)
-
-        neg = list(filter(lambda x: x < 0, xs))
-        squares = list(map(lambda x: x * x, xs))
-
-        stats[name] = {
-            "count": len(xs),
-            "sum": sum_builtin,
-            "min": min_builtin,
-            "max": max_builtin,
-            "mean": mean_a,
-            "median": med_a,
-            "variance_pop": var_a,
-            "stddev_pop": std_a,
-            "sorted": sorted(xs),
-            "sorted_reverse": sorted(xs, reverse=True),
-            "sorted_abs": sorted(xs, key=abs),
-            "subsets": {
-                "neg": stats_for(list(filter(lambda x: x < 0, xs))),
-                "small": stats_for(list(filter(lambda x: abs(x) <= 1.0, xs))),
-                "large": stats_for([x for x in xs if abs(x) > 1000.0]),
-            },
-            "variants": {
-                "sum_loop": sum_a,
-                "sum_reduce": sum_b,
-                "min_loop": min_a,
-                "min_reduce": min_b,
-                "max_loop": max_a,
-                "max_reduce": max_b,
-                "mean_reduce": mean_b,
-                "mean_sum_div": mean_c,
-                "median_reverse": med_b,
-                "median_key_sorted": med_c,
-                "variance_reduce": var_b,
-                "variance_welford": var_c,
-                "stddev_via_two_pass": std_b,
-                "neg_count": len(neg),
-                "squares_sum": sum(squares),
-                "sorted": sorted(xs),
-                "sorted_reverse": sorted(xs, reverse=True),
-                "sorted_key": sorted(xs, key=lambda x: x),
-                "sorted_abs": sorted(xs, key=abs),
-            },
-        }
-
-    stats
-    """
-  end
-
-  defp run_pyex_isolated(source, opts) do
-    Task.async(fn -> Pyex.run(source, opts) end)
-    |> Task.await(@timeout_ms * 5)
-  end
-
-  # ---------------------------------------------------------------------------
-  # CSV generation (Elixir-side, no Python involvement)
-  # ---------------------------------------------------------------------------
-
-  defp build_csv(fieldnames, columns, row_count) do
-    header = Enum.join(fieldnames, ",")
-
-    rows =
-      Enum.map(0..(row_count - 1), fn i ->
-        Enum.map_join(fieldnames, ",", fn name ->
-          columns |> Map.fetch!(name) |> Enum.at(i) |> Integer.to_string()
-        end)
-      end)
-
-    Enum.join([header | rows], "\r\n") <> "\r\n"
-  end
-
-  # ---------------------------------------------------------------------------
-  # Explorer/Polars oracle (operates on raw Elixir data, not CSV)
-  # ---------------------------------------------------------------------------
-
-  defp explorer_oracle(fieldnames, columns) do
-    fieldnames
-    |> Enum.map(fn name ->
-      xs = Map.fetch!(columns, name)
-      s = Series.from_list(xs)
-      {name, explorer_stats_for_series(s, xs)}
-    end)
-    |> Map.new()
-  end
-
-  defp explorer_stats_for_series(s, _xs) do
-    n = Series.count(s)
-    sorted = Series.sort(s) |> Series.to_list()
-    sorted_desc = Series.sort(s, direction: :desc) |> Series.to_list()
-
-    abs_s = Series.abs(s)
-    rank = Series.argsort(abs_s)
-    sorted_abs = Series.slice(s, rank) |> Series.to_list()
-
-    sample_var = if n > 1, do: Series.variance(s), else: 0.0
-    pop_var = if n > 1, do: sample_var * (n - 1) / n, else: 0.0
-
-    neg_mask = Series.less(s, 0)
-    neg = Series.mask(s, neg_mask)
-    even_mask = Series.equal(Series.remainder(s, 2), 0)
-    even = Series.mask(s, even_mask)
-    smallabs_mask = Series.less_equal(abs_s, 10)
-    smallabs = Series.mask(s, smallabs_mask)
-
-    %{
-      "count" => n,
-      "sum" => Series.sum(s),
-      "min" => Series.min(s),
-      "max" => Series.max(s),
-      "mean" => Series.mean(s),
-      "median" => Series.median(s),
-      "variance_pop" => pop_var,
-      "stddev_pop" => :math.sqrt(pop_var),
-      "sorted" => sorted,
-      "sorted_reverse" => sorted_desc,
-      "sorted_abs" => sorted_abs,
-      "subsets" => %{
-        "neg" => explorer_subset_stats(neg),
-        "even" => explorer_subset_stats(even),
-        "smallabs" => explorer_subset_stats(smallabs)
-      }
-    }
-  end
-
-  defp explorer_subset_stats(series) do
-    n = Series.count(series)
-
-    if n == 0 do
-      %{
-        "count" => 0,
-        "sum" => 0,
-        "min" => nil,
-        "max" => nil,
-        "mean" => nil,
-        "median" => nil,
-        "variance_pop" => nil,
-        "stddev_pop" => nil,
-        "sorted" => [],
-        "sorted_reverse" => [],
-        "sorted_abs" => []
-      }
-    else
-      sorted = Series.sort(series) |> Series.to_list()
-      sorted_desc = Series.sort(series, direction: :desc) |> Series.to_list()
-
-      abs_s = Series.abs(series)
-      rank = Series.argsort(abs_s)
-      sorted_abs = Series.slice(series, rank) |> Series.to_list()
-
-      sample_var = if n > 1, do: Series.variance(series), else: 0.0
-      pop_var = if n > 1, do: sample_var * (n - 1) / n, else: 0.0
-
-      %{
-        "count" => n,
-        "sum" => Series.sum(series),
-        "min" => Series.min(series),
-        "max" => Series.max(series),
-        "mean" => Series.mean(series),
-        "median" => Series.median(series),
-        "variance_pop" => pop_var,
-        "stddev_pop" => :math.sqrt(pop_var),
-        "sorted" => sorted,
-        "sorted_reverse" => sorted_desc,
-        "sorted_abs" => sorted_abs
-      }
+        assert py == Oracle.polars_int(:min, xs)
+      end
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # Python source (reads CSV, never generates data)
-  # ---------------------------------------------------------------------------
+  describe "integer max" do
+    property "builtin max() matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.int_preamble() <> "max(xs)", opts)
+        assert py == Oracle.polars_int(:max, xs)
+      end
+    end
 
-  defp python_source(fieldnames) do
-    fields_str = Enum.map_join(fieldnames, ", ", &"\"#{&1}\"")
+    property "loop scan matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-    """
-    import csv
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              m = xs[0]
+              for x in xs:
+                  if x > m:
+                      m = x
+              m
+              """,
+            opts
+          )
 
-    def reduce(fn, xs, init):
-        acc = init
-        for x in xs:
-            acc = fn(acc, x)
-        return acc
+        assert py == Oracle.polars_int(:max, xs)
+      end
+    end
 
-    def sum_loop(xs):
-        total = 0
-        for x in xs:
-            total += x
-        return total
+    property "reduce with ternary lambda matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-    def sum_reduce(xs):
-        return reduce(lambda acc, x: acc + x, xs, 0)
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              @reduce <>
+              "reduce(lambda m, x: x if x > m else m, xs[1:], xs[0])",
+            opts
+          )
 
-    def min_loop(xs):
-        m = xs[0]
-        for x in xs:
-            if x < m:
-                m = x
-        return m
-
-    def max_loop(xs):
-        m = xs[0]
-        for x in xs:
-            if x > m:
-                m = x
-        return m
-
-    def min_reduce(xs):
-        return reduce(lambda m, x: x if x < m else m, xs[1:], xs[0])
-
-    def max_reduce(xs):
-        return reduce(lambda m, x: x if x > m else m, xs[1:], xs[0])
-
-    def mean_loop(xs):
-        return sum_loop(xs) / len(xs)
-
-    def mean_reduce(xs):
-        return sum_reduce(xs) / len(xs)
-
-    def median_sorted(xs):
-        ys = sorted(xs)
-        n = len(ys)
-        mid = n // 2
-        if n % 2 == 1:
-            return ys[mid]
-        return (ys[mid - 1] + ys[mid]) / 2
-
-    def median_reverse(xs):
-        ys = sorted(xs, reverse=True)
-        n = len(ys)
-        mid = n // 2
-        if n % 2 == 1:
-            return ys[n - 1 - mid]
-        a = ys[n - 1 - (mid - 1)]
-        b = ys[n - 1 - mid]
-        return (a + b) / 2
-
-    def variance_two_pass(xs):
-        m = mean_loop(xs)
-        squares = map(lambda x: (x - m) * (x - m), xs)
-        return sum(squares) / len(xs)
-
-    def variance_reduce(xs):
-        m = mean_reduce(xs)
-        acc = reduce(lambda a, x: a + (x - m) * (x - m), xs, 0.0)
-        return acc / len(xs)
-
-    def variance_welford(xs):
-        n = 0
-        mean = 0.0
-        m2 = 0.0
-        for x in xs:
-            n += 1
-            dx = x - mean
-            mean += dx / n
-            m2 += dx * (x - mean)
-        return m2 / n
-
-    def stddev_pop(xs):
-        return variance_two_pass(xs) ** 0.5
-
-    def stats_for(xs):
-        if len(xs) == 0:
-            return {
-                "count": 0,
-                "sum": 0,
-                "min": None,
-                "max": None,
-                "mean": None,
-                "median": None,
-                "variance_pop": None,
-                "stddev_pop": None,
-                "sorted": [],
-                "sorted_reverse": [],
-                "sorted_abs": [],
-            }
-
-        return {
-            "count": len(xs),
-            "sum": sum(xs),
-            "min": min(xs),
-            "max": max(xs),
-            "mean": mean_loop(xs),
-            "median": median_sorted(xs),
-            "variance_pop": variance_two_pass(xs),
-            "stddev_pop": variance_two_pass(xs) ** 0.5,
-            "sorted": sorted(xs),
-            "sorted_reverse": sorted(xs, reverse=True),
-            "sorted_abs": sorted(xs, key=abs),
-        }
-
-    fieldnames = [#{fields_str}]
-
-    f = open("data.csv")
-    parsed = list(csv.DictReader(f))
-    f.close()
-
-    cols = {name: [] for name in fieldnames}
-    for _, row in enumerate(parsed):
-        for name in fieldnames:
-            cols[name].append(int(row[name]))
-
-    stats = {}
-    for name in fieldnames:
-        xs = cols[name]
-
-        sum_builtin = sum(xs)
-        sum_a = sum_loop(xs)
-        sum_b = sum_reduce(xs)
-
-        min_builtin = min(xs)
-        min_a = min_loop(xs)
-        min_b = min_reduce(xs)
-
-        max_builtin = max(xs)
-        max_a = max_loop(xs)
-        max_b = max_reduce(xs)
-
-        mean_a = mean_loop(xs)
-        mean_b = mean_reduce(xs)
-        mean_c = sum_builtin / len(xs)
-
-        med_a = median_sorted(xs)
-        med_b = median_reverse(xs)
-        med_c = median_sorted(sorted(xs, key=lambda x: x))
-
-        var_a = variance_two_pass(xs)
-        var_b = variance_reduce(xs)
-        var_c = variance_welford(xs)
-
-        std_a = var_a ** 0.5
-        std_b = stddev_pop(xs)
-
-        neg = list(filter(lambda x: x < 0, xs))
-        squares = list(map(lambda x: x * x, xs))
-
-        stats[name] = {
-            "count": len(xs),
-            "sum": sum_builtin,
-            "min": min_builtin,
-            "max": max_builtin,
-            "mean": mean_a,
-            "median": med_a,
-            "variance_pop": var_a,
-            "stddev_pop": std_a,
-            "sorted": sorted(xs),
-            "sorted_reverse": sorted(xs, reverse=True),
-            "sorted_abs": sorted(xs, key=abs),
-            "subsets": {
-                "neg": stats_for(list(filter(lambda x: x < 0, xs))),
-                "even": stats_for(list(filter(lambda x: x % 2 == 0, xs))),
-                "smallabs": stats_for([x for x in xs if abs(x) <= 10]),
-            },
-            "variants": {
-                "sum_loop": sum_a,
-                "sum_reduce": sum_b,
-                "min_loop": min_a,
-                "min_reduce": min_b,
-                "max_loop": max_a,
-                "max_reduce": max_b,
-                "mean_reduce": mean_b,
-                "mean_sum_div": mean_c,
-                "median_reverse": med_b,
-                "median_key_sorted": med_c,
-                "variance_reduce": var_b,
-                "variance_welford": var_c,
-                "stddev_via_two_pass": std_b,
-                "neg_count": len(neg),
-                "squares_sum": sum(squares),
-                "sorted": sorted(xs),
-                "sorted_reverse": sorted(xs, reverse=True),
-                "sorted_key": sorted(xs, key=lambda x: x),
-                "sorted_abs": sorted(xs, key=abs),
-            },
-        }
-
-    stats
-    """
+        assert py == Oracle.polars_int(:max, xs)
+      end
+    end
   end
 
-  # ---------------------------------------------------------------------------
-  # Assertion helpers
-  # ---------------------------------------------------------------------------
+  describe "integer mean" do
+    property "sum/len matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.int_preamble() <> "sum(xs) / len(xs)", opts)
+        assert_close(py, Oracle.polars_int(:mean, xs))
+      end
+    end
 
-  defp assert_all_stats(py_stats, oracle)
-       when is_map(py_stats) and is_map(oracle) do
-    assert Map.keys(py_stats) |> Enum.sort() == Map.keys(oracle) |> Enum.sort()
+    property "loop-based mean matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-    Enum.each(oracle, fn {name, expected} ->
-      py = Map.fetch!(py_stats, name)
-      variants = Map.fetch!(py, "variants")
-      py_subsets = Map.fetch!(py, "subsets")
-      oracle_subsets = Map.fetch!(expected, "subsets")
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              total = 0
+              for x in xs:
+                  total += x
+              total / len(xs)
+              """,
+            opts
+          )
 
-      assert py["count"] == expected["count"]
-      assert py["sum"] == expected["sum"]
-      assert py["min"] == expected["min"]
-      assert py["max"] == expected["max"]
-
-      assert_close(py["mean"], expected["mean"])
-      assert_close(py["median"], expected["median"])
-      assert_close(py["variance_pop"], expected["variance_pop"])
-      assert_close(py["stddev_pop"], expected["stddev_pop"])
-
-      assert py["sorted"] == expected["sorted"]
-      assert py["sorted_reverse"] == expected["sorted_reverse"]
-      assert py["sorted_abs"] == expected["sorted_abs"]
-
-      assert variants["sum_loop"] == expected["sum"]
-      assert variants["sum_reduce"] == expected["sum"]
-      assert variants["min_loop"] == expected["min"]
-      assert variants["min_reduce"] == expected["min"]
-      assert variants["max_loop"] == expected["max"]
-      assert variants["max_reduce"] == expected["max"]
-
-      assert_close(variants["mean_reduce"], expected["mean"])
-      assert_close(variants["mean_sum_div"], expected["mean"])
-      assert_close(variants["median_reverse"], expected["median"])
-      assert_close(variants["median_key_sorted"], expected["median"])
-      assert_close(variants["variance_reduce"], expected["variance_pop"])
-      assert_close(variants["variance_welford"], expected["variance_pop"])
-      assert_close(variants["stddev_via_two_pass"], expected["stddev_pop"])
-
-      assert variants["sorted"] == expected["sorted"]
-      assert variants["sorted_reverse"] == expected["sorted_reverse"]
-      assert variants["sorted_key"] == expected["sorted"]
-      assert variants["sorted_abs"] == expected["sorted_abs"]
-
-      assert is_integer(variants["neg_count"])
-      assert variants["neg_count"] >= 0
-      assert variants["neg_count"] <= expected["count"]
-      assert is_integer(variants["squares_sum"])
-
-      Enum.each(["neg", "even", "smallabs"], fn subset_name ->
-        assert_subset_stats(
-          Map.fetch!(py_subsets, subset_name),
-          Map.fetch!(oracle_subsets, subset_name)
-        )
-      end)
-    end)
+        assert_close(py, Oracle.polars_int(:mean, xs))
+      end
+    end
   end
 
-  defp assert_subset_stats(py, expected) when is_map(py) and is_map(expected) do
-    assert py["count"] == expected["count"]
-    assert py["sum"] == expected["sum"]
-    assert py["min"] == expected["min"]
-    assert py["max"] == expected["max"]
+  describe "integer median" do
+    property "forward sorted median matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-    assert_close_or_nil(py["mean"], expected["mean"])
-    assert_close_or_nil(py["median"], expected["median"])
-    assert_close_or_nil(py["variance_pop"], expected["variance_pop"])
-    assert_close_or_nil(py["stddev_pop"], expected["stddev_pop"])
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              ys = sorted(xs)
+              n = len(ys)
+              mid = n // 2
+              if n % 2 == 1:
+                  result = ys[mid]
+              else:
+                  result = (ys[mid - 1] + ys[mid]) / 2
+              result
+              """,
+            opts
+          )
 
-    assert py["sorted"] == expected["sorted"]
-    assert py["sorted_reverse"] == expected["sorted_reverse"]
-    assert py["sorted_abs"] == expected["sorted_abs"]
+        assert_close(py, Oracle.polars_int(:median, xs))
+      end
+    end
+
+    property "reverse sorted median matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              ys = sorted(xs, reverse=True)
+              n = len(ys)
+              mid = n // 2
+              if n % 2 == 1:
+                  result = ys[n - 1 - mid]
+              else:
+                  a = ys[n - 1 - (mid - 1)]
+                  b = ys[n - 1 - mid]
+                  result = (a + b) / 2
+              result
+              """,
+            opts
+          )
+
+        assert_close(py, Oracle.polars_int(:median, xs))
+      end
+    end
   end
 
-  defp assert_all_float_stats(py_stats, oracle)
-       when is_map(py_stats) and is_map(oracle) do
-    assert Map.keys(py_stats) |> Enum.sort() == Map.keys(oracle) |> Enum.sort()
+  describe "integer variance (population)" do
+    property "two-pass (map + sum of squares) matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-    Enum.each(oracle, fn {name, expected} ->
-      py = Map.fetch!(py_stats, name)
-      variants = Map.fetch!(py, "variants")
-      py_subsets = Map.fetch!(py, "subsets")
-      oracle_subsets = Map.fetch!(expected, "subsets")
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              mean = sum(xs) / len(xs)
+              squares = list(map(lambda x: (x - mean) * (x - mean), xs))
+              sum(squares) / len(xs)
+              """,
+            opts
+          )
 
-      assert py["count"] == expected["count"]
-      assert_float_close(py["sum"], expected["sum"])
-      assert_float_close(py["min"], expected["min"])
-      assert_float_close(py["max"], expected["max"])
+        assert_close(py, Oracle.polars_int(:variance_pop, xs))
+      end
+    end
 
-      assert_float_close(py["mean"], expected["mean"])
-      assert_float_close(py["median"], expected["median"])
-      assert_float_close(py["variance_pop"], expected["variance_pop"])
-      assert_float_close(py["stddev_pop"], expected["stddev_pop"])
+    property "reduce-based matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-      assert py["sorted"] == expected["sorted"]
-      assert py["sorted_reverse"] == expected["sorted_reverse"]
-      assert py["sorted_abs"] == expected["sorted_abs"]
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              @reduce <>
+              """
+              mean = sum(xs) / len(xs)
+              reduce(lambda a, x: a + (x - mean) * (x - mean), xs, 0.0) / len(xs)
+              """,
+            opts
+          )
 
-      assert_float_close(variants["sum_loop"], expected["sum"])
-      assert_float_close(variants["sum_reduce"], expected["sum"])
-      assert_float_close(variants["min_loop"], expected["min"])
-      assert_float_close(variants["min_reduce"], expected["min"])
-      assert_float_close(variants["max_loop"], expected["max"])
-      assert_float_close(variants["max_reduce"], expected["max"])
+        assert_close(py, Oracle.polars_int(:variance_pop, xs))
+      end
+    end
 
-      assert_float_close(variants["mean_reduce"], expected["mean"])
-      assert_float_close(variants["mean_sum_div"], expected["mean"])
-      assert_float_close(variants["median_reverse"], expected["median"])
-      assert_float_close(variants["median_key_sorted"], expected["median"])
-      assert_float_close(variants["variance_reduce"], expected["variance_pop"])
-      assert_float_close(variants["variance_welford"], expected["variance_pop"])
-      assert_float_close(variants["stddev_via_two_pass"], expected["stddev_pop"])
+    property "Welford one-pass matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-      assert variants["sorted"] == expected["sorted"]
-      assert variants["sorted_reverse"] == expected["sorted_reverse"]
-      assert variants["sorted_key"] == expected["sorted"]
-      assert variants["sorted_abs"] == expected["sorted_abs"]
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              n = 0
+              mean = 0.0
+              m2 = 0.0
+              for x in xs:
+                  n += 1
+                  dx = x - mean
+                  mean += dx / n
+                  m2 += dx * (x - mean)
+              m2 / n
+              """,
+            opts
+          )
 
-      assert is_integer(variants["neg_count"])
-      assert variants["neg_count"] >= 0
-      assert variants["neg_count"] <= expected["count"]
-      assert is_float(variants["squares_sum"])
-
-      Enum.each(["neg", "small", "large"], fn subset_name ->
-        assert_float_subset_stats(
-          Map.fetch!(py_subsets, subset_name),
-          Map.fetch!(oracle_subsets, subset_name)
-        )
-      end)
-    end)
+        assert_close(py, Oracle.polars_int(:variance_pop, xs))
+      end
+    end
   end
 
-  defp assert_float_subset_stats(py, expected) when is_map(py) and is_map(expected) do
-    assert py["count"] == expected["count"]
-    assert_float_close_or_nil(py["sum"], expected["sum"])
-    assert_float_close_or_nil(py["min"], expected["min"])
-    assert_float_close_or_nil(py["max"], expected["max"])
-    assert_float_close_or_nil(py["mean"], expected["mean"])
-    assert_float_close_or_nil(py["median"], expected["median"])
-    assert_float_close_or_nil(py["variance_pop"], expected["variance_pop"])
-    assert_float_close_or_nil(py["stddev_pop"], expected["stddev_pop"])
+  describe "integer stddev (population)" do
+    property "sqrt of two-pass variance matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
 
-    assert py["sorted"] == expected["sorted"]
-    assert py["sorted_reverse"] == expected["sorted_reverse"]
-    assert py["sorted_abs"] == expected["sorted_abs"]
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              mean = sum(xs) / len(xs)
+              squares = list(map(lambda x: (x - mean) * (x - mean), xs))
+              (sum(squares) / len(xs)) ** 0.5
+              """,
+            opts
+          )
+
+        assert_close(py, Oracle.polars_int(:stddev_pop, xs))
+      end
+    end
   end
 
-  # ---------------------------------------------------------------------------
-  # Tolerance helpers
-  # ---------------------------------------------------------------------------
+  # ---- integer sorting ----
 
-  defp assert_close_or_nil(nil, nil), do: :ok
-  defp assert_close_or_nil(a, b), do: assert_close(a, b)
+  describe "integer sorting" do
+    property "sorted() matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.int_preamble() <> "sorted(xs)", opts)
+        assert py == Oracle.polars_sorted(xs)
+      end
+    end
+
+    property "sorted(reverse=True) matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.int_preamble() <> "sorted(xs, reverse=True)", opts)
+        assert py == Oracle.polars_sorted_desc(xs)
+      end
+    end
+
+    property "sorted(key=abs) matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.int_preamble() <> "sorted(xs, key=abs)", opts)
+        assert py == Oracle.polars_sorted_abs(xs)
+      end
+    end
+
+    property "sorted(key=lambda x: x) matches sorted()" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.int_preamble() <> "sorted(xs, key=lambda x: x)", opts)
+        assert py == Oracle.polars_sorted(xs)
+      end
+    end
+  end
+
+  # ---- integer subsets ----
+
+  describe "integer filtered subsets" do
+    property "filter(neg) count and sum match Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              neg = list(filter(lambda x: x < 0, xs))
+              neg_sum = sum(neg) if len(neg) > 0 else 0
+              {"count": len(neg), "sum": neg_sum}
+              """,
+            opts
+          )
+
+        expected = Oracle.polars_filter(xs, :neg)
+        assert py["count"] == length(expected)
+
+        if length(expected) > 0 do
+          assert py["sum"] == Oracle.polars_int(:sum, expected)
+        end
+      end
+    end
+
+    property "filter(even) sorted matches Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              "sorted(list(filter(lambda x: x % 2 == 0, xs)))",
+            opts
+          )
+
+        expected = Oracle.polars_filter(xs, :even)
+        assert py == Oracle.polars_sorted(expected)
+      end
+    end
+
+    property "comprehension filter(smallabs) stats match Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              small = [x for x in xs if abs(x) <= 10]
+              {"count": len(small), "sorted": sorted(small)}
+              """,
+            opts
+          )
+
+        expected = Oracle.polars_filter(xs, :smallabs)
+        assert py["count"] == length(expected)
+        assert py["sorted"] == Oracle.polars_sorted(expected)
+      end
+    end
+
+    property "negative subset full stats match Polars" do
+      check all(xs <- int_list(), max_runs: @int_runs) do
+        opts = Oracle.int_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.int_preamble() <>
+              """
+              neg = list(filter(lambda x: x < 0, xs))
+              if len(neg) == 0:
+                  result = {"count": 0, "sum": 0, "min": None, "max": None}
+              else:
+                  result = {"count": len(neg), "sum": sum(neg), "min": min(neg), "max": max(neg)}
+              result
+              """,
+            opts
+          )
+
+        expected = Oracle.polars_filter(xs, :neg)
+        assert py["count"] == length(expected)
+
+        if length(expected) > 0 do
+          assert py["sum"] == Oracle.polars_int(:sum, expected)
+          assert py["min"] == Oracle.polars_int(:min, expected)
+          assert py["max"] == Oracle.polars_int(:max, expected)
+        else
+          assert py["sum"] == 0
+          assert py["min"] == nil
+          assert py["max"] == nil
+        end
+      end
+    end
+  end
+
+  # ---- float stats ----
+
+  describe "float sum" do
+    property "builtin sum() matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.float_preamble() <> "sum(xs)", opts)
+        assert_float_close(py, Oracle.polars_float(:sum, xs))
+      end
+    end
+
+    property "loop accumulator matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.float_preamble() <>
+              """
+              total = 0.0
+              for x in xs:
+                  total += x
+              total
+              """,
+            opts
+          )
+
+        assert_float_close(py, Oracle.polars_float(:sum, xs))
+      end
+    end
+
+    property "reduce with lambda matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.float_preamble() <>
+              @reduce <>
+              "reduce(lambda acc, x: acc + x, xs, 0.0)",
+            opts
+          )
+
+        assert_float_close(py, Oracle.polars_float(:sum, xs))
+      end
+    end
+  end
+
+  describe "float min/max" do
+    property "builtin min() matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.float_preamble() <> "min(xs)", opts)
+        assert_float_close(py, Oracle.polars_float(:min, xs))
+      end
+    end
+
+    property "builtin max() matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.float_preamble() <> "max(xs)", opts)
+        assert_float_close(py, Oracle.polars_float(:max, xs))
+      end
+    end
+
+    property "loop min matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.float_preamble() <>
+              """
+              m = xs[0]
+              for x in xs:
+                  if x < m:
+                      m = x
+              m
+              """,
+            opts
+          )
+
+        assert_float_close(py, Oracle.polars_float(:min, xs))
+      end
+    end
+
+    property "loop max matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.float_preamble() <>
+              """
+              m = xs[0]
+              for x in xs:
+                  if x > m:
+                      m = x
+              m
+              """,
+            opts
+          )
+
+        assert_float_close(py, Oracle.polars_float(:max, xs))
+      end
+    end
+  end
+
+  describe "float mean" do
+    property "sum/len matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.float_preamble() <> "sum(xs) / len(xs)", opts)
+        assert_float_close(py, Oracle.polars_float(:mean, xs))
+      end
+    end
+  end
+
+  describe "float median" do
+    property "forward sorted median matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.float_preamble() <>
+              """
+              ys = sorted(xs)
+              n = len(ys)
+              mid = n // 2
+              if n % 2 == 1:
+                  result = ys[mid]
+              else:
+                  result = (ys[mid - 1] + ys[mid]) / 2
+              result
+              """,
+            opts
+          )
+
+        assert_float_close(py, Oracle.polars_float(:median, xs))
+      end
+    end
+  end
+
+  describe "float variance (population)" do
+    property "two-pass matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.float_preamble() <>
+              """
+              mean = sum(xs) / len(xs)
+              squares = list(map(lambda x: (x - mean) * (x - mean), xs))
+              sum(squares) / len(xs)
+              """,
+            opts
+          )
+
+        assert_float_close(py, Oracle.polars_float(:variance_pop, xs))
+      end
+    end
+
+    property "Welford one-pass matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.float_preamble() <>
+              """
+              n = 0
+              mean = 0.0
+              m2 = 0.0
+              for x in xs:
+                  n += 1
+                  dx = x - mean
+                  mean += dx / n
+                  m2 += dx * (x - mean)
+              m2 / n
+              """,
+            opts
+          )
+
+        assert_float_close(py, Oracle.polars_float(:variance_pop, xs))
+      end
+    end
+  end
+
+  describe "float sorting" do
+    property "sorted() matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.float_preamble() <> "sorted(xs)", opts)
+        assert py == Oracle.polars_sorted(xs)
+      end
+    end
+
+    property "sorted(reverse=True) matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.float_preamble() <> "sorted(xs, reverse=True)", opts)
+        assert py == Oracle.polars_sorted_desc(xs)
+      end
+    end
+
+    property "sorted(key=abs) matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+        py = Oracle.run_with_csv(Oracle.float_preamble() <> "sorted(xs, key=abs)", opts)
+        assert py == Oracle.polars_sorted_abs(xs)
+      end
+    end
+  end
+
+  describe "float filtered subsets" do
+    property "filter(neg) sorted matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.float_preamble() <>
+              "sorted(list(filter(lambda x: x < 0, xs)))",
+            opts
+          )
+
+        expected = Oracle.polars_filter(xs, :neg)
+        assert py == Oracle.polars_sorted(expected)
+      end
+    end
+
+    property "filter(small abs <= 1.0) count matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.float_preamble() <>
+              "len(list(filter(lambda x: abs(x) <= 1.0, xs)))",
+            opts
+          )
+
+        expected = Oracle.polars_filter(xs, :small)
+        assert py == length(expected)
+      end
+    end
+
+    property "comprehension filter(large abs > 1000) sorted matches Polars" do
+      check all(xs <- float_list(), max_runs: @float_runs) do
+        opts = Oracle.float_csv_opts(xs)
+
+        py =
+          Oracle.run_with_csv(
+            Oracle.float_preamble() <>
+              "sorted([x for x in xs if abs(x) > 1000.0])",
+            opts
+          )
+
+        expected = Oracle.polars_filter(xs, :large)
+        assert py == Oracle.polars_sorted(expected)
+      end
+    end
+  end
+
+  # ---- tolerance helpers ----
 
   defp assert_close(a, b) when is_integer(a) and is_integer(b), do: assert(a == b)
 
@@ -932,11 +765,8 @@ defmodule Pyex.MathOracleTest do
     diff = abs(a - b)
     scale = max(abs(a), abs(b))
     tol = max(1.0e-9, scale * 1.0e-9)
-    assert diff <= tol
+    assert diff <= tol, "expected #{b}, got #{a}, diff=#{diff}, tol=#{tol}"
   end
-
-  defp assert_float_close_or_nil(nil, nil), do: :ok
-  defp assert_float_close_or_nil(a, b), do: assert_float_close(a, b)
 
   defp assert_float_close(a, b) when is_number(a) and is_number(b) do
     a = a * 1.0
@@ -944,42 +774,6 @@ defmodule Pyex.MathOracleTest do
     diff = abs(a - b)
     scale = max(abs(a), abs(b))
     tol = max(@float_tol, scale * @float_tol)
-    assert diff <= tol
+    assert diff <= tol, "expected #{b}, got #{a}, diff=#{diff}, tol=#{tol}"
   end
-
-  # ---------------------------------------------------------------------------
-  # Timing summary (printed when PYEX_BENCH=1)
-  # ---------------------------------------------------------------------------
-
-  defp print_timing_summary(timings, label) when is_list(timings) do
-    if @verbose and timings != [] do
-      us_list = timings |> Enum.map(&elem(&1, 0)) |> Enum.sort()
-      n = length(us_list)
-
-      p50 = percentile(us_list, n, 50)
-      p95 = percentile(us_list, n, 95)
-      p99 = percentile(us_list, n, 99)
-      max_us = List.last(us_list)
-      min_us = hd(us_list)
-
-      IO.puts("""
-
-      [#{label}] Pyex.run timing (#{n} runs):
-        min  = #{format_us(min_us)}
-        p50  = #{format_us(p50)}
-        p95  = #{format_us(p95)}
-        p99  = #{format_us(p99)}
-        max  = #{format_us(max_us)}
-      """)
-    end
-  end
-
-  defp percentile(sorted, n, p) do
-    idx = min(round(n * p / 100), n - 1)
-    Enum.at(sorted, idx)
-  end
-
-  defp format_us(us) when us < 1_000, do: "#{us}µs"
-  defp format_us(us) when us < 1_000_000, do: "#{Float.round(us / 1_000, 1)}ms"
-  defp format_us(us), do: "#{Float.round(us / 1_000_000, 2)}s"
 end
