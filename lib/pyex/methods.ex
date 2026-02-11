@@ -8,6 +8,22 @@ defmodule Pyex.Methods do
 
   alias Pyex.{Builtins, Interpreter}
 
+  @string_methods ~w(
+    capitalize center count encode endswith expandtabs find format
+    index isalnum isalpha isdigit islower isnumeric isspace istitle
+    isupper join ljust lower lstrip partition replace rfind rindex
+    rjust rpartition rsplit rstrip split splitlines startswith strip
+    swapcase title upper zfill
+  )
+
+  @list_methods ~w(append clear copy count extend index insert pop remove reverse sort)
+  @dict_methods ~w(clear copy get items keys pop setdefault update values)
+  @set_methods ~w(
+    add clear copy difference discard intersection isdisjoint
+    issubset issuperset pop remove symmetric_difference union
+  )
+  @tuple_methods ~w(count index)
+
   @doc """
   Attempts to resolve `attr` on `object`. Returns
   `{:ok, value}` or `:error`.
@@ -61,6 +77,17 @@ defmodule Pyex.Methods do
   end
 
   def resolve(_object, _attr), do: :error
+
+  @doc """
+  Returns the list of method names available on a value's type.
+  """
+  @spec method_names(Interpreter.pyvalue()) :: [String.t()]
+  def method_names(val) when is_binary(val), do: @string_methods
+  def method_names(val) when is_list(val), do: @list_methods
+  def method_names(val) when is_map(val), do: @dict_methods
+  def method_names({:set, _}), do: @set_methods
+  def method_names({:tuple, _}), do: @tuple_methods
+  def method_names(_), do: []
 
   @spec bound(
           (Interpreter.pyvalue(), [Interpreter.pyvalue()] -> Interpreter.pyvalue()),

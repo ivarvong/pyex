@@ -27,7 +27,11 @@ defmodule Pyex.Stdlib do
     "uuid" => Pyex.Stdlib.Uuid,
     "sql" => Pyex.Stdlib.Sql,
     "pydantic" => Pyex.Stdlib.Pydantic,
-    "boto3" => Pyex.Stdlib.Boto3
+    "boto3" => Pyex.Stdlib.Boto3,
+    "hashlib" => Pyex.Stdlib.Hashlib,
+    "hmac" => Pyex.Stdlib.Hmac,
+    "base64" => Pyex.Stdlib.Base64Encode,
+    "secrets" => Pyex.Stdlib.Secrets
   }
 
   @doc """

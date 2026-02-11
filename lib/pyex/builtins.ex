@@ -101,7 +101,9 @@ defmodule Pyex.Builtins do
       {"compile", &builtin_compile/1},
       {"complex", &builtin_complex/1},
       {"bytes", &builtin_bytes/1},
-      {"bytearray", &builtin_bytearray/1}
+      {"bytearray", &builtin_bytearray/1},
+      {"dir", &builtin_dir/1},
+      {"vars", &builtin_vars/1}
     ]
   end
 
@@ -956,6 +958,63 @@ defmodule Pyex.Builtins do
   end
 
   defp builtin_callable([_]), do: false
+
+  @spec builtin_dir([Interpreter.pyvalue()]) :: [String.t()]
+  defp builtin_dir([{:instance, {:class, _, bases, class_attrs}, instance_attrs}]) do
+    inherited = collect_inherited_attrs(bases)
+    all_keys = Map.keys(class_attrs) ++ Map.keys(instance_attrs) ++ Map.keys(inherited)
+    all_keys |> Enum.uniq() |> Enum.sort()
+  end
+
+  defp builtin_dir([{:class, _, bases, class_attrs}]) do
+    inherited = collect_inherited_attrs(bases)
+    all_keys = Map.keys(class_attrs) ++ Map.keys(inherited)
+    all_keys |> Enum.uniq() |> Enum.sort()
+  end
+
+  defp builtin_dir([val]) when is_map(val) do
+    own_keys = val |> Map.keys() |> Enum.filter(&is_binary/1)
+    methods = Pyex.Methods.method_names(val)
+    (own_keys ++ methods) |> Enum.uniq() |> Enum.sort()
+  end
+
+  defp builtin_dir([val]) do
+    Pyex.Methods.method_names(val) |> Enum.sort()
+  end
+
+  defp builtin_dir([]) do
+    {:exception, "TypeError: dir expected at most 1 argument, got 0"}
+  end
+
+  @spec collect_inherited_attrs([Interpreter.pyvalue()]) :: %{
+          optional(String.t()) => Interpreter.pyvalue()
+        }
+  defp collect_inherited_attrs(bases) do
+    Enum.reduce(bases, %{}, fn
+      {:class, _, parent_bases, attrs}, acc ->
+        parent = collect_inherited_attrs(parent_bases)
+        Map.merge(parent, Map.merge(attrs, acc))
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  @spec builtin_vars([Interpreter.pyvalue()]) :: %{optional(String.t()) => Interpreter.pyvalue()}
+  defp builtin_vars([{:instance, _class, attrs}]), do: attrs
+
+  defp builtin_vars([{:class, _, _bases, attrs}]), do: attrs
+
+  defp builtin_vars([val]) when is_map(val), do: val
+
+  defp builtin_vars([other]) do
+    type_name = pytype(other)
+    {:exception, "TypeError: vars() argument must have __dict__ attribute (got #{type_name})"}
+  end
+
+  defp builtin_vars([]) do
+    {:exception, "TypeError: vars expected at most 1 argument, got 0"}
+  end
 
   @spec mod_pow(integer(), integer(), integer()) :: integer()
   defp mod_pow(_base, _exp, 1), do: 0

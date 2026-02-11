@@ -46,6 +46,15 @@ defmodule Pyex.Ctx do
           call_us: %{optional(String.t()) => non_neg_integer()}
         }
 
+  @type network_config :: %{
+          allowed_hosts: [String.t()],
+          allowed_url_prefixes: [String.t()],
+          allowed_methods: [String.t()],
+          dangerously_allow_full_internet_access: boolean()
+        }
+
+  @type capability :: :boto3 | :sql | atom()
+
   @type generator_mode :: :accumulate | :defer | :defer_inner | nil
 
   @type t :: %__MODULE__{
@@ -68,6 +77,8 @@ defmodule Pyex.Ctx do
           generator_acc: [term()] | nil,
           iterators: %{optional(non_neg_integer()) => [term()] | term()},
           next_iterator_id: non_neg_integer(),
+          network: network_config() | nil,
+          capabilities: MapSet.t(capability()),
           exception_instance: term(),
           current_line: non_neg_integer() | nil
         }
@@ -91,6 +102,8 @@ defmodule Pyex.Ctx do
             generator_acc: nil,
             iterators: %{},
             next_iterator_id: 0,
+            network: nil,
+            capabilities: MapSet.new(),
             exception_instance: nil,
             current_line: nil
 
@@ -109,6 +122,24 @@ defmodule Pyex.Ctx do
   - `:profile` -- when `true`, collects per-line execution counts and
     per-function call counts with timing. Results are stored in the
     returned context's `profile` field. Default `false`.
+  - `:network` -- network access policy for the `requests` module.
+    A keyword list or map with:
+    - `:allowed_hosts` -- list of hostnames that are permitted (exact match,
+      compared against `URI.parse(url).host`)
+    - `:allowed_url_prefixes` -- list of URL prefixes that are permitted
+      (use trailing slash to prevent subdomain bypass)
+    - `:allowed_methods` -- list of HTTP methods allowed (default `["GET", "HEAD"]`)
+    - `:dangerously_allow_full_internet_access` -- `true` to allow all
+      URLs and methods (use with caution)
+
+    A request is allowed if its URL matches any `:allowed_hosts` entry
+    **or** any `:allowed_url_prefixes` entry. When `nil` (the default),
+    all network access is denied.
+  - `:capabilities` -- a list of atoms naming enabled I/O capabilities.
+    Known capabilities: `:boto3` (S3 operations), `:sql` (database
+    queries). All capabilities are denied by default.
+  - `:boto3` -- shorthand for adding `:boto3` to capabilities.
+  - `:sql` -- shorthand for adding `:sql` to capabilities.
   """
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
@@ -128,6 +159,9 @@ defmodule Pyex.Ctx do
         do: %{line_counts: %{}, call_counts: %{}, call_us: %{}},
         else: nil
 
+    network = normalize_network(Keyword.get(opts, :network))
+    capabilities = normalize_capabilities(opts)
+
     %__MODULE__{
       filesystem: fs,
       fs_module: mod,
@@ -136,7 +170,9 @@ defmodule Pyex.Ctx do
       timeout_ns: timeout_ns,
       compute_ns: 0,
       compute_started_at: System.monotonic_time(:nanosecond),
-      profile: profile
+      profile: profile,
+      network: network,
+      capabilities: capabilities
     }
   end
 
@@ -155,6 +191,161 @@ defmodule Pyex.Ctx do
 
   defp resolve_module_value(map) when is_map(map) do
     map
+  end
+
+  @spec normalize_capabilities(keyword()) :: MapSet.t(capability())
+  defp normalize_capabilities(opts) do
+    explicit = Keyword.get(opts, :capabilities, [])
+
+    shorthand =
+      for key <- [:boto3, :sql],
+          Keyword.get(opts, key, false) == true,
+          do: key
+
+    MapSet.new(explicit ++ shorthand)
+  end
+
+  @spec normalize_network(keyword() | map() | nil) :: network_config() | nil
+  defp normalize_network(nil), do: nil
+
+  defp normalize_network(opts) when is_list(opts) do
+    normalize_network(Map.new(opts))
+  end
+
+  defp normalize_network(opts) when is_map(opts) do
+    %{
+      allowed_hosts:
+        Map.get(opts, :allowed_hosts, [])
+        |> Enum.map(&(&1 |> to_string() |> String.downcase())),
+      allowed_url_prefixes: Map.get(opts, :allowed_url_prefixes, []) |> Enum.map(&to_string/1),
+      allowed_methods:
+        Map.get(opts, :allowed_methods, ["GET", "HEAD"])
+        |> Enum.map(&(&1 |> to_string() |> String.upcase())),
+      dangerously_allow_full_internet_access:
+        Map.get(opts, :dangerously_allow_full_internet_access, false) == true
+    }
+  end
+
+  @doc """
+  Checks whether a network request is allowed by the current policy.
+
+  Returns `:ok` if the request is permitted, or `{:denied, reason}` with
+  a descriptive error message when the request violates the policy.
+  """
+  @spec check_network_access(t(), String.t(), String.t()) :: :ok | {:denied, String.t()}
+  def check_network_access(%__MODULE__{network: nil}, _method, _url) do
+    {:denied,
+     "NetworkError: network access is disabled. " <>
+       "Configure the :network option to allow HTTP requests"}
+  end
+
+  def check_network_access(
+        %__MODULE__{network: %{dangerously_allow_full_internet_access: true}},
+        _method,
+        _url
+      ) do
+    :ok
+  end
+
+  def check_network_access(%__MODULE__{network: config}, method, url) do
+    method_upper = String.upcase(method)
+
+    with :ok <- check_method(config.allowed_methods, method_upper),
+         :ok <- check_url_allowed(config.allowed_hosts, config.allowed_url_prefixes, url) do
+      :ok
+    end
+  end
+
+  @spec check_method([String.t()], String.t()) :: :ok | {:denied, String.t()}
+  defp check_method(allowed, method) do
+    if method in allowed do
+      :ok
+    else
+      {:denied,
+       "NetworkError: HTTP method #{method} is not allowed. " <>
+         "Allowed methods: #{Enum.join(allowed, ", ")}"}
+    end
+  end
+
+  @spec check_url_allowed([String.t()], [String.t()], String.t()) ::
+          :ok | {:denied, String.t()}
+  defp check_url_allowed([], [], _url) do
+    {:denied,
+     "NetworkError: no allowed hosts or URL prefixes configured. " <>
+       "Add hosts to :allowed_hosts or URL prefixes to :allowed_url_prefixes"}
+  end
+
+  defp check_url_allowed(hosts, prefixes, url) do
+    host_match = hosts != [] and url_matches_host?(hosts, url)
+    prefix_match = prefixes != [] and Enum.any?(prefixes, &String.starts_with?(url, &1))
+
+    if host_match or prefix_match do
+      :ok
+    else
+      parts =
+        []
+        |> then(fn acc ->
+          if hosts != [], do: ["allowed hosts: #{Enum.join(hosts, ", ")}" | acc], else: acc
+        end)
+        |> then(fn acc ->
+          if prefixes != [],
+            do: ["allowed prefixes: #{Enum.join(prefixes, ", ")}" | acc],
+            else: acc
+        end)
+        |> Enum.reverse()
+        |> Enum.join("; ")
+
+      {:denied, "NetworkError: URL is not allowed. #{String.capitalize(parts)}"}
+    end
+  end
+
+  @spec url_matches_host?([String.t()], String.t()) :: boolean()
+  defp url_matches_host?(allowed_hosts, url) do
+    case URI.parse(url) do
+      %URI{host: host} when is_binary(host) ->
+        normalized = String.downcase(host)
+        Enum.any?(allowed_hosts, &(&1 == normalized))
+
+      _ ->
+        false
+    end
+  end
+
+  @doc """
+  Checks whether a capability is enabled.
+
+  Returns `:ok` if the capability is in the context's `capabilities`
+  set, or `{:denied, reason}` with a `PermissionError` message.
+  """
+  @spec check_capability(t(), capability()) :: :ok | {:denied, String.t()}
+  def check_capability(%__MODULE__{capabilities: caps}, capability) do
+    if MapSet.member?(caps, capability) do
+      :ok
+    else
+      {:denied,
+       "PermissionError: #{capability} is disabled. " <>
+         "Configure the :#{capability} option to enable access"}
+    end
+  end
+
+  @doc """
+  Wraps an I/O callback with a capability check.
+
+  Returns an `{:io_call, fun}` tuple where `fun` first verifies
+  the capability is enabled before executing the callback. If
+  the capability is denied, returns an exception tuple without
+  calling the callback.
+  """
+  @spec guarded_io_call(capability(), (Pyex.Env.t(), t() -> {term(), Pyex.Env.t(), t()})) ::
+          {:io_call, (Pyex.Env.t(), t() -> {term(), Pyex.Env.t(), t()})}
+  def guarded_io_call(capability, fun) do
+    {:io_call,
+     fn env, ctx ->
+       case check_capability(ctx, capability) do
+         {:denied, reason} -> {{:exception, reason}, env, ctx}
+         :ok -> fun.(env, ctx)
+       end
+     end}
   end
 
   @doc """
@@ -334,7 +525,9 @@ defmodule Pyex.Ctx do
       imported_modules: %{},
       timeout_ns: ctx.timeout_ns,
       compute_ns: 0,
-      compute_started_at: System.monotonic_time(:nanosecond)
+      compute_started_at: System.monotonic_time(:nanosecond),
+      network: ctx.network,
+      capabilities: ctx.capabilities
     }
   end
 

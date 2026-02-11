@@ -32,16 +32,15 @@ defmodule Pyex.Stdlib.Sql do
           {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
           | {:exception, String.t()}
   defp do_query([sql, params]) when is_binary(sql) and is_list(params) do
-    {:io_call,
-     fn env, ctx ->
-       case Map.fetch(ctx.environ, "DATABASE_URL") do
-         {:ok, url} when is_binary(url) ->
-           run_query(sql, params, url, env, ctx)
+    Pyex.Ctx.guarded_io_call(:sql, fn env, ctx ->
+      case Map.fetch(ctx.environ, "DATABASE_URL") do
+        {:ok, url} when is_binary(url) ->
+          run_query(sql, params, url, env, ctx)
 
-         _ ->
-           {{:exception, "sql.query: DATABASE_URL not set in environ"}, env, ctx}
-       end
-     end}
+        _ ->
+          {{:exception, "sql.query: DATABASE_URL not set in environ"}, env, ctx}
+      end
+    end)
   end
 
   defp do_query([sql]) when is_binary(sql) do

@@ -71,6 +71,15 @@ defmodule Pyex do
   - `:fs_module` -- the module implementing `Pyex.Filesystem`
   - `:environ` -- environment variables for `os.environ`
   - `:timeout_ms` -- compute time budget in milliseconds
+  - `:network` -- network access policy for the `requests` module.
+    Accepts a keyword list with `:allowed_hosts` (exact hostname match),
+    `:allowed_url_prefixes`, `:allowed_methods` (default `["GET", "HEAD"]`),
+    or `:dangerously_allow_full_internet_access`. When omitted,
+    all network access is denied.
+  - `:capabilities` -- list of enabled I/O capabilities (e.g.
+    `[:boto3, :sql]`). All capabilities are denied by default.
+  - `:boto3` -- shorthand for adding `:boto3` to capabilities.
+  - `:sql` -- shorthand for adding `:sql` to capabilities.
 
   ## Examples
 
