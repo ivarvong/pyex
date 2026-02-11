@@ -80,7 +80,9 @@ defmodule Pyex.Ctx do
           network: network_config() | nil,
           capabilities: MapSet.t(capability()),
           exception_instance: term(),
-          current_line: non_neg_integer() | nil
+          current_line: non_neg_integer() | nil,
+          call_depth: non_neg_integer(),
+          max_call_depth: non_neg_integer()
         }
 
   defstruct mode: :live,
@@ -105,7 +107,9 @@ defmodule Pyex.Ctx do
             network: nil,
             capabilities: MapSet.new(),
             exception_instance: nil,
-            current_line: nil
+            current_line: nil,
+            call_depth: 0,
+            max_call_depth: 500
 
   @doc """
   Creates a fresh live context that records all events.

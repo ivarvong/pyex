@@ -346,9 +346,11 @@ defmodule Pyex.Stdlib.PandasTest do
 
       speedup = naive_us / max(pandas_us, 1)
 
-      IO.puts(
-        "\n  Golden cross 300 days: naive=#{fmt(naive_us)} pandas=#{fmt(pandas_us)} speedup=#{Float.round(speedup, 1)}x"
-      )
+      if System.get_env("PYEX_BENCH") do
+        IO.puts(
+          "\n  Golden cross 300 days: naive=#{fmt(naive_us)} pandas=#{fmt(pandas_us)} speedup=#{Float.round(speedup, 1)}x"
+        )
+      end
 
       assert pandas_us < naive_us,
              "pandas (#{fmt(pandas_us)}) should be faster than naive (#{fmt(naive_us)})"

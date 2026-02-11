@@ -526,6 +526,10 @@ defmodule Pyex.Parser do
     case parse_expression(tokens) do
       {:ok, key, rest} ->
         case rest do
+          [{:op, _, :rbracket}, {:op, _, :lbracket} | nested_rest] ->
+            target = {:subscript, [line: line], [{:var, [line: line], [name]}, key]}
+            try_nested_subscript_assign(nested_rest, line, target)
+
           [{:op, _, :rbracket}, {:op, _, :assign} | rest] ->
             case parse_expression(rest) do
               {:ok, val, rest} ->
@@ -542,6 +546,47 @@ defmodule Pyex.Parser do
                 op = Map.fetch!(@aug_assign_ops, aug_op)
 
                 {:ok, {:aug_subscript_assign, [line: line], [name, key, op, val]},
+                 drop_newline(rest)}
+
+              {:error, _} = error ->
+                error
+            end
+
+          _ ->
+            :not_assign
+        end
+
+      {:error, _} ->
+        :not_assign
+    end
+  end
+
+  @spec try_nested_subscript_assign([Lexer.token()], pos_integer(), ast_node()) ::
+          parse_result() | :not_assign
+  defp try_nested_subscript_assign(tokens, line, target) do
+    case parse_expression(tokens) do
+      {:ok, key, rest} ->
+        case rest do
+          [{:op, _, :rbracket}, {:op, _, :lbracket} | nested_rest] ->
+            nested_target = {:subscript, [line: line], [target, key]}
+            try_nested_subscript_assign(nested_rest, line, nested_target)
+
+          [{:op, _, :rbracket}, {:op, _, :assign} | rest] ->
+            case parse_expression(rest) do
+              {:ok, val, rest} ->
+                {:ok, {:subscript_assign, [line: line], [target, key, val]}, drop_newline(rest)}
+
+              {:error, _} = error ->
+                error
+            end
+
+          [{:op, _, :rbracket}, {:op, _, aug_op} | rest]
+          when is_map_key(@aug_assign_ops, aug_op) ->
+            case parse_expression(rest) do
+              {:ok, val, rest} ->
+                op = Map.fetch!(@aug_assign_ops, aug_op)
+
+                {:ok, {:aug_subscript_assign, [line: line], [target, key, op, val]},
                  drop_newline(rest)}
 
               {:error, _} = error ->

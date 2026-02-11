@@ -91,10 +91,7 @@ defmodule Pyex.Methods do
   end
 
   def resolve({:pandas_dataframe, _} = object, attr) do
-    case pandas_dataframe_method(attr) do
-      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
-      :error -> pandas_dataframe_property(object, attr)
-    end
+    pandas_dataframe_property(object, attr)
   end
 
   def resolve(_object, _attr), do: :error
@@ -335,16 +332,26 @@ defmodule Pyex.Methods do
   @spec str_title(String.t(), [Interpreter.pyvalue()]) :: String.t()
   defp str_title(s, []) do
     s
-    |> String.split(~r/(\s+)/, include_captures: true)
-    |> Enum.map(fn
-      <<first::utf8, rest::binary>> ->
-        String.upcase(<<first::utf8>>) <> String.downcase(rest)
-
-      other ->
-        other
-    end)
-    |> Enum.join()
+    |> String.codepoints()
+    |> title_codepoints(true, [])
+    |> IO.iodata_to_binary()
   end
+
+  @spec title_codepoints([String.t()], boolean(), iodata()) :: iodata()
+  defp title_codepoints([], _capitalize_next, acc), do: Enum.reverse(acc)
+
+  defp title_codepoints([cp | rest], capitalize_next, acc) do
+    if alpha?(cp) do
+      transformed = if capitalize_next, do: String.upcase(cp), else: String.downcase(cp)
+      title_codepoints(rest, false, [transformed | acc])
+    else
+      title_codepoints(rest, true, [cp | acc])
+    end
+  end
+
+  @spec alpha?(String.t()) :: boolean()
+  defp alpha?(<<c::utf8>>) when c in ?a..?z or c in ?A..?Z, do: true
+  defp alpha?(_), do: false
 
   @spec str_capitalize(String.t(), [Interpreter.pyvalue()]) :: String.t()
   defp str_capitalize("", []), do: ""
@@ -791,8 +798,6 @@ defmodule Pyex.Methods do
   # pandas Series methods (backed by Explorer/Polars)
   # ---------------------------------------------------------------------------
 
-  @pandas_series_methods ~w(sum mean std min max median cumsum diff shift abs rolling tolist)
-
   @spec pandas_series_method(String.t()) ::
           {:ok, (Interpreter.pyvalue(), [Interpreter.pyvalue()] -> Interpreter.pyvalue())}
           | :error
@@ -905,11 +910,6 @@ defmodule Pyex.Methods do
   # ---------------------------------------------------------------------------
   # pandas DataFrame methods
   # ---------------------------------------------------------------------------
-
-  @spec pandas_dataframe_method(String.t()) ::
-          {:ok, (Interpreter.pyvalue(), [Interpreter.pyvalue()] -> Interpreter.pyvalue())}
-          | :error
-  defp pandas_dataframe_method(_), do: :error
 
   @spec pandas_dataframe_property(Interpreter.pyvalue(), String.t()) ::
           {:ok, Interpreter.pyvalue()} | :error
