@@ -48,6 +48,9 @@ defmodule Pyex.Interpreter do
           | {:generator_error, [pyvalue()], String.t()}
           | {:iterator, non_neg_integer()}
           | {:super_proxy, pyvalue(), [pyvalue()]}
+          | {:pandas_series, Explorer.Series.t()}
+          | {:pandas_rolling, Explorer.Series.t(), pos_integer()}
+          | {:pandas_dataframe, Explorer.DataFrame.t()}
 
   @typep signal ::
            {:returned, pyvalue()}

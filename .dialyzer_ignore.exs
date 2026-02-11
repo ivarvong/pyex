@@ -17,5 +17,9 @@
   # used correctly via MapSet.member?/2 and MapSet.new/1 -- these are false positives.
   {"lib/pyex/ctx.ex", :contract_with_opaque},
   {"lib/pyex/interpreter.ex", :call_without_opaque},
-  {"lib/pyex/stdlib/jinja2.ex", :call_without_opaque}
+  {"lib/pyex/stdlib/jinja2.ex", :call_without_opaque},
+  # pandas_dataframe_method/1 currently has no methods (only properties),
+  # so Dialyzer sees the {:ok, _} match as unreachable. Will resolve when
+  # DataFrame callable methods are added.
+  {"lib/pyex/methods.ex", :pattern_match}
 ]
