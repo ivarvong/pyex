@@ -216,16 +216,21 @@ defmodule Pyex.Stdlib.PandasTest do
 
     setup do
       prices = generate_prices(300)
-      series = {:pandas_series, Explorer.Series.from_list(prices)}
+      series = Explorer.Series.from_list(prices)
 
       platform = %{
-        "get_prices" => {:builtin, fn [_symbol] -> series end}
+        "get_prices" => {:builtin, fn [_symbol] -> {:pandas_series, series} end}
       }
 
-      %{platform: platform}
+      expected_signals = golden_cross_oracle(series, 50, 200)
+
+      %{platform: platform, expected_signals: expected_signals}
     end
 
-    test "pandas golden cross matches naive Python golden cross", %{platform: platform} do
+    test "naive Python matches Elixir oracle", %{
+      platform: platform,
+      expected_signals: expected_signals
+    } do
       opts = [timeout_ms: 20_000, modules: %{"platform" => platform}]
 
       naive_code = """
@@ -256,6 +261,15 @@ defmodule Pyex.Stdlib.PandasTest do
       signals
       """
 
+      assert Pyex.run!(naive_code, opts) == expected_signals
+    end
+
+    test "pandas Python matches Elixir oracle", %{
+      platform: platform,
+      expected_signals: expected_signals
+    } do
+      opts = [timeout_ms: 20_000, modules: %{"platform" => platform}]
+
       pandas_code = """
       import pandas as pd
       import platform
@@ -274,10 +288,7 @@ defmodule Pyex.Stdlib.PandasTest do
       signals
       """
 
-      naive_result = Pyex.run!(naive_code, opts)
-      pandas_result = Pyex.run!(pandas_code, opts)
-
-      assert naive_result == pandas_result
+      assert Pyex.run!(pandas_code, opts) == expected_signals
     end
 
     @tag timeout: 30_000
@@ -370,6 +381,23 @@ defmodule Pyex.Stdlib.PandasTest do
 
       assert is_float(result)
     end
+  end
+
+  defp golden_cross_oracle(series, short_window, long_window) do
+    sma_short = Explorer.Series.window_mean(series, short_window, min_periods: short_window)
+    sma_long = Explorer.Series.window_mean(series, long_window, min_periods: long_window)
+    diff = Explorer.Series.subtract(sma_short, sma_long)
+    diff_list = Explorer.Series.to_list(diff)
+
+    diff_list
+    |> Enum.with_index()
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.flat_map(fn [{prev, _}, {curr, i}] ->
+      case {prev, curr} do
+        {p, c} when is_number(p) and is_number(c) and p <= 0 and c > 0 -> [i]
+        _ -> []
+      end
+    end)
   end
 
   defp generate_prices(n) do
