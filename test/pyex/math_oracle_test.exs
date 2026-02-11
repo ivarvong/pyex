@@ -2,19 +2,19 @@ defmodule Pyex.MathOracleTest do
   @moduledoc """
   Cross-checks LLM-style Python math code against an Explorer (Polars/Rust) oracle.
 
-  The Python program generates random datasets, writes them as CSV to the
-  in-memory filesystem, reads them back, and computes statistics using
-  multiple independent algorithm implementations (loops, reduce, map,
-  filter, Welford, etc.). Every result is returned to the Elixir test.
+  Data is generated entirely in Elixir via StreamData and written as CSV
+  to the in-memory filesystem *before* Python ever runs. Python only reads
+  the CSV and computes statistics — it never generates or controls the data.
 
-  The Elixir side parses the same CSV with Explorer (backed by Polars,
-  written in Rust) — a completely independent implementation in a
-  different language — and asserts that every Python result matches
-  the Polars-computed oracle.
+  The same raw integer lists are fed to Explorer (Polars, written in Rust)
+  to compute the oracle. The Elixir test then asserts every Python result
+  matches the Polars result.
 
-  This makes it essentially impossible for a shared bug to pass:
-  the Python interpreter, the Elixir test helpers, and the Polars
-  engine would all need the same defect.
+  Three independent implementations, three languages, zero shared code:
+  - Data generation: Elixir (StreamData)
+  - Stats computation #1: Python (Pyex interpreter)
+  - Stats computation #2: Rust (Polars via Explorer)
+  - Assertion: Elixir (ExUnit)
   """
 
   use ExUnit.Case, async: true
@@ -28,18 +28,29 @@ defmodule Pyex.MathOracleTest do
 
   property "stats computed in Python match the Explorer/Polars oracle" do
     check all(
-            seed <- integer(0..1_000_000_000),
             row_count <- integer(1..60),
             col_count <- integer(1..8),
             max_runs: @runs
           ) do
-      source = python_source(seed, row_count, col_count)
-      opts = [filesystem: Memory.new(), fs_module: Memory, timeout_ms: @timeout_ms]
+      fieldnames = Enum.map(0..(col_count - 1), &"c#{&1}")
 
-      {:ok, py_stats, ctx} = run_pyex_isolated(source, opts)
-      {:ok, csv} = Memory.read(ctx.filesystem, "data.csv")
+      columns =
+        Enum.map(fieldnames, fn name ->
+          values = for _ <- 1..row_count, do: Enum.random(-1000..1000)
+          {name, values}
+        end)
+        |> Map.new()
 
-      oracle = explorer_oracle(csv)
+      csv = build_csv(fieldnames, columns, row_count)
+
+      fs = Memory.new()
+      {:ok, fs} = Memory.write(fs, "data.csv", csv, :write)
+      opts = [filesystem: fs, fs_module: Memory, timeout_ms: @timeout_ms]
+
+      source = python_source(fieldnames)
+
+      {:ok, py_stats, _ctx} = run_pyex_isolated(source, opts)
+      oracle = explorer_oracle(fieldnames, columns)
       assert_all_stats(py_stats, oracle)
     end
   end
@@ -50,39 +61,37 @@ defmodule Pyex.MathOracleTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Explorer/Polars oracle
+  # CSV generation (Elixir-side, no Python involvement)
   # ---------------------------------------------------------------------------
 
-  defp explorer_oracle(csv) when is_binary(csv) do
-    lines =
-      csv
-      |> String.split(~r/\r\n|\n|\r/)
-      |> Enum.reject(&(&1 == ""))
+  defp build_csv(fieldnames, columns, row_count) do
+    header = Enum.join(fieldnames, ",")
 
-    [header | data_lines] = lines
-    fieldnames = String.split(header, ",")
-
-    values_by_field =
-      Enum.reduce(data_lines, %{}, fn line, acc ->
-        fields = String.split(line, ",")
-
-        Enum.zip(fieldnames, fields)
-        |> Enum.reduce(acc, fn {name, val}, acc2 ->
-          Map.update(acc2, name, [String.to_integer(val)], fn xs ->
-            xs ++ [String.to_integer(val)]
-          end)
+    rows =
+      Enum.map(0..(row_count - 1), fn i ->
+        Enum.map_join(fieldnames, ",", fn name ->
+          columns |> Map.fetch!(name) |> Enum.at(i) |> Integer.to_string()
         end)
       end)
 
-    values_by_field
-    |> Enum.map(fn {name, xs} ->
+    Enum.join([header | rows], "\r\n") <> "\r\n"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Explorer/Polars oracle (operates on raw Elixir data, not CSV)
+  # ---------------------------------------------------------------------------
+
+  defp explorer_oracle(fieldnames, columns) do
+    fieldnames
+    |> Enum.map(fn name ->
+      xs = Map.fetch!(columns, name)
       s = Series.from_list(xs)
       {name, explorer_stats_for_series(s, xs)}
     end)
     |> Map.new()
   end
 
-  defp explorer_stats_for_series(s, xs) do
+  defp explorer_stats_for_series(s, _xs) do
     n = Series.count(s)
     sorted = Series.sort(s) |> Series.to_list()
     sorted_desc = Series.sort(s, direction: :desc) |> Series.to_list()
@@ -114,14 +123,14 @@ defmodule Pyex.MathOracleTest do
       "sorted_reverse" => sorted_desc,
       "sorted_abs" => sorted_abs,
       "subsets" => %{
-        "neg" => explorer_subset_stats(neg, Enum.filter(xs, &(&1 < 0))),
-        "even" => explorer_subset_stats(even, Enum.filter(xs, &(rem(&1, 2) == 0))),
-        "smallabs" => explorer_subset_stats(smallabs, Enum.filter(xs, &(abs(&1) <= 10)))
+        "neg" => explorer_subset_stats(neg),
+        "even" => explorer_subset_stats(even),
+        "smallabs" => explorer_subset_stats(smallabs)
       }
     }
   end
 
-  defp explorer_subset_stats(series, _xs) do
+  defp explorer_subset_stats(series) do
     n = Series.count(series)
 
     if n == 0 do
@@ -166,13 +175,14 @@ defmodule Pyex.MathOracleTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Python source generator
+  # Python source (reads CSV, never generates data)
   # ---------------------------------------------------------------------------
 
-  defp python_source(seed, row_count, col_count) do
+  defp python_source(fieldnames) do
+    fields_str = Enum.map_join(fieldnames, ", ", &"\"#{&1}\"")
+
     """
     import csv
-    import random
 
     def reduce(fn, xs, init):
         acc = init
@@ -273,45 +283,21 @@ defmodule Pyex.MathOracleTest do
                 "sorted_abs": [],
             }
 
-        sum_builtin = sum(xs)
-        min_builtin = min(xs)
-        max_builtin = max(xs)
-
-        mean_a = mean_loop(xs)
-        med_a = median_sorted(xs)
-        var_a = variance_two_pass(xs)
-        std_a = var_a ** 0.5
-
         return {
             "count": len(xs),
-            "sum": sum_builtin,
-            "min": min_builtin,
-            "max": max_builtin,
-            "mean": mean_a,
-            "median": med_a,
-            "variance_pop": var_a,
-            "stddev_pop": std_a,
+            "sum": sum(xs),
+            "min": min(xs),
+            "max": max(xs),
+            "mean": mean_loop(xs),
+            "median": median_sorted(xs),
+            "variance_pop": variance_two_pass(xs),
+            "stddev_pop": variance_two_pass(xs) ** 0.5,
             "sorted": sorted(xs),
             "sorted_reverse": sorted(xs, reverse=True),
             "sorted_abs": sorted(xs, key=abs),
         }
 
-    random.seed(#{seed})
-    fieldnames = ["c" + str(i) for i in range(#{col_count})]
-
-    rows = []
-    for _ in range(#{row_count}):
-        values = [random.randint(-1000, 1000) for _ in fieldnames]
-        row = dict(zip(fieldnames, values))
-        rows.append(row)
-
-    assert all([len(r) == len(fieldnames) and all([name in r for name in fieldnames]) for r in rows])
-
-    f = open("data.csv", "w")
-    w = csv.DictWriter(f, fieldnames)
-    w.writeheader()
-    w.writerows(rows)
-    f.close()
+    fieldnames = [#{fields_str}]
 
     f = open("data.csv")
     parsed = list(csv.DictReader(f))
@@ -320,7 +306,7 @@ defmodule Pyex.MathOracleTest do
     cols = {name: [] for name in fieldnames}
     for _, row in enumerate(parsed):
         for name in fieldnames:
-            cols[name].append(int(row.get(name)))
+            cols[name].append(int(row[name]))
 
     stats = {}
     for name in fieldnames:
