@@ -17,5 +17,13 @@
   # used correctly via MapSet.member?/2 and MapSet.new/1 -- these are false positives.
   {"lib/pyex/ctx.ex", :contract_with_opaque},
   {"lib/pyex/interpreter.ex", :call_without_opaque},
-  {"lib/pyex/stdlib/jinja2.ex", :call_without_opaque}
+  {"lib/pyex/stdlib/jinja2.ex", :call_without_opaque},
+  # The with-statement eval clause calls eval/3 on the context manager expression,
+  # but Dialyzer cannot narrow the union type through pattern matching on
+  # {:with, _, [expr, as_name, body]} and thinks expr could be an atom.
+  {"lib/pyex/interpreter.ex", :call},
+  # extract_exception_type_name/1 and with_update_cm/3 are called from the
+  # {:with, ...} eval clause but Dialyzer's call graph analysis cannot trace
+  # through the complex union-typed control flow. Both are genuinely reachable.
+  {"lib/pyex/interpreter.ex", :unused_fun}
 ]

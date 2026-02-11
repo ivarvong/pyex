@@ -252,9 +252,7 @@ defmodule Pyex.DifferentialFuzzTest do
 
     property "string title method" do
       check all(
-              s <- string(:ascii, min_length: 1, max_length: 15),
-              s = String.replace(s, ~r/[^a-zA-Z ]/, ""),
-              s != "",
+              s <- string(:alphanumeric, min_length: 1, max_length: 15),
               max_runs: 200
             ) do
         assert_differential("print(repr(\"#{s}\".title()))")
@@ -846,7 +844,7 @@ defmodule Pyex.DifferentialFuzzTest do
 
     property "chr and ord round-trip" do
       check all(
-              n <- filter(integer(32..126), &(&1 != 39)),
+              n <- integer(32..126),
               max_runs: 100
             ) do
         assert_differential("print(repr((chr(#{n}), ord(chr(#{n})))))")

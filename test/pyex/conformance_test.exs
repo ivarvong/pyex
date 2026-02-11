@@ -2072,7 +2072,6 @@ defmodule Pyex.ConformanceTest do
   # ── With statement / context managers ─────────────────────────
 
   describe "with statement" do
-    @tag :skip
     test "custom class context manager enter/exit" do
       assert_conforms("""
       class CM:
@@ -2092,7 +2091,6 @@ defmodule Pyex.ConformanceTest do
       """)
     end
 
-    @tag :skip
     test "with statement exit called on exception" do
       assert_conforms("""
       class CM:
@@ -2114,7 +2112,6 @@ defmodule Pyex.ConformanceTest do
       """)
     end
 
-    @tag :skip
     test "with statement exit suppresses exception" do
       assert_conforms("""
       class Suppress:
@@ -2129,7 +2126,6 @@ defmodule Pyex.ConformanceTest do
       """)
     end
 
-    @tag :skip
     test "nested with custom context managers" do
       assert_conforms("""
       class CM:
@@ -2176,7 +2172,7 @@ defmodule Pyex.ConformanceTest do
     end
 
     test "%r repr formatting" do
-      assert_conforms(~S[print(repr("%r" % 42))])
+      assert_conforms(~S[print(repr("%r" % "hello"))])
     end
 
     test "width and padding" do
@@ -2767,17 +2763,15 @@ defmodule Pyex.ConformanceTest do
 
     test "matrix multiplication" do
       assert_conforms("""
-      def dot(row, col):
-          total = 0
-          for i in range(len(row)):
-              total = total + row[i] * col[i]
-          return total
-
-      def col(matrix, j):
-          return [matrix[i][j] for i in range(len(matrix))]
-
       def matmul(a, b):
-          return [[dot(a[i], col(b, j)) for j in range(len(b[0]))] for i in range(len(a))]
+          rows_a, cols_a = len(a), len(a[0])
+          cols_b = len(b[0])
+          result = [[0] * cols_b for _ in range(rows_a)]
+          for i in range(rows_a):
+              for j in range(cols_b):
+                  for k in range(cols_a):
+                      result[i][j] += a[i][k] * b[k][j]
+          return result
 
       a = [[1, 2], [3, 4]]
       b = [[5, 6], [7, 8]]

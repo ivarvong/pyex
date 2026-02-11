@@ -96,7 +96,6 @@ defmodule Pyex.ErrorConformanceTest do
       )
     end
 
-    @tag :skip
     test "int not subscriptable" do
       assert_error_type("x = 42[0]", "TypeError")
     end
@@ -120,12 +119,10 @@ defmodule Pyex.ErrorConformanceTest do
       assert_error_type("[1, 2] + 3", "TypeError")
     end
 
-    @tag :skip
     test "unorderable types in comparison" do
       assert_error_type(~S["abc" < 123], "TypeError")
     end
 
-    @tag :skip
     test "unhashable type: list" do
       assert_error_type("{[1, 2]: 3}", "TypeError")
     end
@@ -309,7 +306,6 @@ defmodule Pyex.ErrorConformanceTest do
       assert_error_type(~S[raise RuntimeError("oops")], "RuntimeError")
     end
 
-    @tag :skip
     test "maximum recursion depth" do
       code = """
       def f():
@@ -317,9 +313,10 @@ defmodule Pyex.ErrorConformanceTest do
       f()
       """
 
-      case Pyex.run(code, Pyex.Ctx.new(timeout_ms: 2_000)) do
-        {:error, _err} ->
-          :ok
+      case Pyex.run(code) do
+        {:error, err} ->
+          assert err.exception_type == "RecursionError",
+                 "Expected RecursionError, got: #{inspect(err.exception_type)} - #{err.message}"
 
         {:ok, _, _} ->
           flunk("Expected Pyex to error on infinite recursion")
