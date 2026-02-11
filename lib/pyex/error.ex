@@ -128,7 +128,9 @@ defmodule Pyex.Error do
   @spec classify_python_exception(String.t()) :: {kind(), String.t() | nil}
   defp classify_python_exception(msg) do
     case Enum.find(@python_exception_prefixes, fn prefix ->
-           String.starts_with?(msg, prefix <> ":")
+           String.starts_with?(msg, prefix <> ":") or
+             String.starts_with?(msg, prefix <> " ") or
+             msg == prefix
          end) do
       nil -> {:python, nil}
       prefix -> {:python, prefix}
