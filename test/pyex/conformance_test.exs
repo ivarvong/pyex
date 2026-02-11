@@ -2069,6 +2069,811 @@ defmodule Pyex.ConformanceTest do
     end
   end
 
+  # ── With statement / context managers ─────────────────────────
+
+  describe "with statement" do
+    @tag :skip
+    test "custom class context manager enter/exit" do
+      assert_conforms("""
+      class CM:
+          def __init__(self, val):
+              self.val = val
+              self.log = []
+          def __enter__(self):
+              self.log.append("enter")
+              return self.val
+          def __exit__(self, exc_type, exc_val, exc_tb):
+              self.log.append("exit")
+              return False
+      cm = CM(42)
+      with cm as v:
+          result = v
+      print(repr((result, cm.log)))
+      """)
+    end
+
+    @tag :skip
+    test "with statement exit called on exception" do
+      assert_conforms("""
+      class CM:
+          def __init__(self):
+              self.log = []
+          def __enter__(self):
+              self.log.append("enter")
+              return self
+          def __exit__(self, exc_type, exc_val, exc_tb):
+              self.log.append("exit")
+              return False
+      cm = CM()
+      try:
+          with cm:
+              raise ValueError("oops")
+      except ValueError:
+          pass
+      print(repr(cm.log))
+      """)
+    end
+
+    @tag :skip
+    test "with statement exit suppresses exception" do
+      assert_conforms("""
+      class Suppress:
+          def __enter__(self):
+              return self
+          def __exit__(self, exc_type, exc_val, exc_tb):
+              return True
+      result = "ok"
+      with Suppress():
+          raise ValueError("suppressed")
+      print(repr(result))
+      """)
+    end
+
+    @tag :skip
+    test "nested with custom context managers" do
+      assert_conforms("""
+      class CM:
+          def __init__(self, name):
+              self.name = name
+              self.log = []
+          def __enter__(self):
+              self.log.append("enter")
+              return self.name
+          def __exit__(self, exc_type, exc_val, exc_tb):
+              self.log.append("exit")
+              return False
+      a = CM("a")
+      b = CM("b")
+      with a as va:
+          with b as vb:
+              result = va + vb
+      print(repr((result, a.log, b.log)))
+      """)
+    end
+  end
+
+  # ── String formatting ──────────────────────────────────────
+
+  describe "string percent formatting" do
+    test "basic %s and %d" do
+      assert_conforms(~S[print(repr("hello %s, you are %d" % ("world", 42)))])
+    end
+
+    test "%f formatting" do
+      assert_conforms(~S[print(repr("pi is %f" % 3.14159))])
+    end
+
+    test "%x hex formatting" do
+      assert_conforms(~S[print(repr("%x" % 255))])
+    end
+
+    test "%o octal formatting" do
+      assert_conforms(~S[print(repr("%o" % 8))])
+    end
+
+    test "percent escape" do
+      assert_conforms(~S[print(repr("100%% done"))])
+    end
+
+    test "%r repr formatting" do
+      assert_conforms(~S[print(repr("%r" % 42))])
+    end
+
+    test "width and padding" do
+      assert_conforms(~S[print(repr("%10d" % 42))])
+    end
+
+    test "zero padding" do
+      assert_conforms(~S[print(repr("%05d" % 42))])
+    end
+
+    test "left alignment" do
+      assert_conforms(~S[print(repr("%-10s!" % "hi"))])
+    end
+
+    test "multiple substitutions" do
+      assert_conforms(
+        ~S[print(repr("%s is %d years old and %.1f meters tall" % ("Alice", 30, 1.7)))]
+      )
+    end
+  end
+
+  describe "string format method" do
+    test "positional format" do
+      assert_conforms(~S[print(repr("{} + {} = {}".format(1, 2, 3)))])
+    end
+
+    test "indexed format" do
+      assert_conforms(~S[print(repr("{0} and {1} and {0}".format("a", "b")))])
+    end
+  end
+
+  # ── Class decorators ────────────────────────────────────────
+
+  describe "class decorators" do
+    test "basic class decorator" do
+      assert_conforms("""
+      def add_greeting(cls):
+          cls.greet = lambda self: "hello from " + type(self).__name__
+          return cls
+
+      @add_greeting
+      class MyClass:
+          pass
+
+      print(repr(MyClass().greet()))
+      """)
+    end
+
+    test "class decorator adds attribute" do
+      assert_conforms("""
+      def tag(cls):
+          cls.tagged = True
+          return cls
+
+      @tag
+      class Config:
+          def __init__(self):
+              self.val = 42
+
+      c = Config()
+      print(repr((c.val, Config.tagged)))
+      """)
+    end
+  end
+
+  # ── Advanced function features ──────────────────────────────
+
+  describe "advanced functions" do
+    test "star args unpacking in call" do
+      assert_conforms("""
+      def add(a, b, c):
+          return a + b + c
+      args = [1, 2, 3]
+      print(repr(add(*args)))
+      """)
+    end
+
+    test "double star kwargs unpacking in call" do
+      assert_conforms("""
+      def greet(name, greeting):
+          return f"{greeting}, {name}!"
+      kwargs = {"name": "World", "greeting": "Hello"}
+      print(repr(greet(**kwargs)))
+      """)
+    end
+
+    test "mixed star and double star unpacking" do
+      assert_conforms("""
+      def f(a, b, c, d=10, e=20):
+          return (a, b, c, d, e)
+      args = [1, 2]
+      kwargs = {"d": 100, "e": 200}
+      print(repr(f(*args, 3, **kwargs)))
+      """)
+    end
+
+    test "args and kwargs combined" do
+      assert_conforms("""
+      def f(*args, **kwargs):
+          return (list(args), sorted(kwargs.items()))
+      print(repr(f(1, 2, 3, x=4, y=5)))
+      """)
+    end
+
+    test "global and nonlocal interaction" do
+      assert_conforms("""
+      g = 0
+      def outer():
+          x = 0
+          def middle():
+              nonlocal x
+              global g
+              x += 1
+              g += 10
+          middle()
+          middle()
+          return x
+      result = outer()
+      print(repr((result, g)))
+      """)
+    end
+  end
+
+  # ── Advanced comprehensions ────────────────────────────────
+
+  describe "advanced comprehensions" do
+    test "nested list comprehension with multiple conditions" do
+      assert_conforms("""
+      print(repr([x*y for x in range(1, 6) for y in range(1, 6) if x != y if x*y < 10]))
+      """)
+    end
+
+    test "dict comprehension with value transformation" do
+      assert_conforms("""
+      words = ["hello", "world", "python"]
+      print(repr(sorted({w: len(w) for w in words}.items())))
+      """)
+    end
+
+    test "set comprehension deduplication" do
+      assert_conforms("""
+      print(repr(sorted({x % 5 for x in range(20)})))
+      """)
+    end
+
+    test "comprehension with function call" do
+      assert_conforms("""
+      def square(x):
+          return x * x
+      print(repr([square(i) for i in range(8)]))
+      """)
+    end
+
+    test "comprehension variable does not leak" do
+      assert_conforms("""
+      x = "before"
+      result = [x for x in range(5)]
+      print(repr((result, x)))
+      """)
+    end
+  end
+
+  # ── Advanced generators ────────────────────────────────────
+
+  describe "advanced generators" do
+    test "generator with send-like accumulation" do
+      assert_conforms("""
+      def running_sum(items):
+          total = 0
+          for x in items:
+              total += x
+              yield total
+      print(repr(list(running_sum([1, 2, 3, 4, 5]))))
+      """)
+    end
+
+    test "generator as pipeline" do
+      assert_conforms("""
+      def evens(n):
+          for i in range(n):
+              if i % 2 == 0:
+                  yield i
+
+      def squared(gen):
+          for x in gen:
+              yield x * x
+
+      print(repr(list(squared(evens(10)))))
+      """)
+    end
+
+    test "generator with try/except" do
+      assert_conforms("""
+      def safe_divide(pairs):
+          for a, b in pairs:
+              try:
+                  yield a / b
+              except ZeroDivisionError:
+                  yield None
+      print(repr(list(safe_divide([(10, 2), (5, 0), (8, 4)]))))
+      """)
+    end
+
+    test "multiple generators interleaved" do
+      assert_conforms("""
+      def g1():
+          yield 1
+          yield 2
+          yield 3
+
+      def g2():
+          yield "a"
+          yield "b"
+          yield "c"
+
+      print(repr(list(zip(g1(), g2()))))
+      """)
+    end
+  end
+
+  # ── Advanced class features ────────────────────────────────
+
+  describe "advanced classes" do
+    test "dunder str" do
+      assert_conforms("""
+      class Thing:
+          def __init__(self, name):
+              self.name = name
+          def __str__(self):
+              return "Thing:" + self.name
+      t = Thing("foo")
+      print(repr(str(t)))
+      """)
+    end
+
+    test "dunder contains" do
+      assert_conforms("""
+      class Range:
+          def __init__(self, lo, hi):
+              self.lo = lo
+              self.hi = hi
+          def __contains__(self, val):
+              return self.lo <= val < self.hi
+      r = Range(1, 10)
+      print(repr((5 in r, 15 in r, 1 in r, 10 in r)))
+      """)
+    end
+
+    test "dunder lt for comparison" do
+      assert_conforms("""
+      class Score:
+          def __init__(self, name, val):
+              self.name = name
+              self.val = val
+          def __lt__(self, other):
+              return self.val < other.val
+      a = Score("a", 1)
+      b = Score("b", 2)
+      print(repr((a < b, b < a)))
+      """)
+    end
+
+    test "dunder mul" do
+      assert_conforms("""
+      class Vec:
+          def __init__(self, x, y):
+              self.x = x
+              self.y = y
+          def __mul__(self, scalar):
+              return Vec(self.x * scalar, self.y * scalar)
+      v = Vec(1, 2) * 3
+      print(repr((v.x, v.y)))
+      """)
+    end
+
+    test "multiple inheritance method resolution" do
+      assert_conforms("""
+      class A:
+          def who(self):
+              return "A"
+      class B(A):
+          def who(self):
+              return "B"
+      class C(A):
+          def who(self):
+              return "C"
+      class D(B, C):
+          pass
+      print(repr(D().who()))
+      """)
+    end
+
+    test "class with custom iterator" do
+      assert_conforms("""
+      class Countdown:
+          def __init__(self, n):
+              self.n = n
+          def __iter__(self):
+              self.current = self.n
+              return self
+          def __next__(self):
+              if self.current <= 0:
+                  raise StopIteration
+              val = self.current
+              self.current -= 1
+              return val
+      print(repr(list(Countdown(5))))
+      print(repr(sum(Countdown(10))))
+      """)
+    end
+  end
+
+  # ── Import patterns ────────────────────────────────────────
+
+  describe "import patterns" do
+    test "from X import Y" do
+      assert_conforms("""
+      from collections import Counter
+      c = Counter([1, 1, 2, 3, 3, 3])
+      print(repr(c.most_common(2)))
+      """)
+    end
+
+    test "import X as Y" do
+      assert_conforms("""
+      import json as j
+      print(repr(j.loads('[1, 2, 3]')))
+      """)
+    end
+
+    test "from X import Y as Z" do
+      assert_conforms("""
+      from collections import Counter as C
+      c = C([1, 1, 2, 3, 3, 3])
+      print(repr(c.most_common(3)))
+      """)
+    end
+
+    test "multiple from imports" do
+      assert_conforms("""
+      from itertools import chain, islice
+      print(repr(list(islice(chain([1, 2], [3, 4]), 3))))
+      """)
+    end
+  end
+
+  # ── Boolean edge cases ─────────────────────────────────────
+
+  describe "boolean edge cases" do
+    test "bool constructor" do
+      assert_conforms("""
+      vals = [0, 1, -1, 0.0, 0.1, "", "a", [], [0], {}, {1:2}, None, True, False, (), (0,)]
+      print(repr([bool(v) for v in vals]))
+      """)
+    end
+
+    test "and returns last evaluated operand" do
+      assert_conforms(~S[print(repr((1 and 2 and 3, 1 and 0 and 3, 0 and 1 and 3)))])
+    end
+
+    test "or returns first truthy operand" do
+      assert_conforms(~s|print(repr((0 or 0 or 3, 1 or 2 or 3, 0 or "" or [] or "found")))|)
+    end
+
+    test "chained not" do
+      assert_conforms("print(repr((not not True, not not False, not not 0, not not 1)))")
+    end
+  end
+
+  # ── Assignment edge cases ──────────────────────────────────
+
+  describe "assignment edge cases" do
+    test "chained assignment" do
+      assert_conforms("""
+      a = b = c = 42
+      print(repr((a, b, c)))
+      """)
+    end
+
+    test "augmented assignment operators" do
+      assert_conforms("""
+      x = 10
+      x += 5
+      x -= 3
+      x *= 2
+      x //= 3
+      x %= 5
+      print(repr(x))
+      """)
+    end
+
+    test "augmented assignment on list elements" do
+      assert_conforms("""
+      x = [1, 2, 3]
+      x[0] += 10
+      x[1] *= 5
+      x[-1] -= 1
+      print(repr(x))
+      """)
+    end
+
+    test "augmented assignment on dict values" do
+      assert_conforms(~S"""
+      d = {"a": 1, "b": 2}
+      d["a"] += 10
+      d["b"] *= 3
+      print(repr(sorted(d.items())))
+      """)
+    end
+
+    test "swap via tuple unpacking" do
+      assert_conforms("""
+      a, b = 1, 2
+      a, b = b, a
+      print(repr((a, b)))
+      """)
+    end
+  end
+
+  # ── Assert statement ───────────────────────────────────────
+
+  describe "assert statement" do
+    test "assert passes for true" do
+      assert_conforms("""
+      assert True
+      assert 1 == 1
+      assert len([1, 2]) == 2
+      print(repr("all passed"))
+      """)
+    end
+
+    test "assert with message" do
+      assert_conforms("""
+      try:
+          assert False, "custom message"
+      except:
+          print(repr("caught"))
+      """)
+    end
+  end
+
+  # ── Del statement edge cases ───────────────────────────────
+
+  describe "del statement" do
+    test "del dict key" do
+      assert_conforms(~S"""
+      d = {"a": 1, "b": 2, "c": 3}
+      del d["b"]
+      print(repr(sorted(d.items())))
+      """)
+    end
+
+    test "del list element" do
+      assert_conforms("""
+      x = [1, 2, 3, 4, 5]
+      del x[2]
+      print(repr(x))
+      """)
+    end
+
+    test "del variable" do
+      assert_conforms("""
+      x = 42
+      del x
+      try:
+          print(x)
+      except NameError:
+          print(repr("deleted"))
+      """)
+    end
+  end
+
+  # ── Semicolon separator ────────────────────────────────────
+
+  describe "semicolon separator" do
+    test "multiple statements on one line" do
+      assert_conforms("x = 1; y = 2; z = x + y; print(repr(z))")
+    end
+
+    test "semicolons with function calls" do
+      assert_conforms("""
+      result = []; result.append(1); result.append(2); result.append(3)
+      print(repr(result))
+      """)
+    end
+  end
+
+  # ── Range as lazy object ───────────────────────────────────
+
+  describe "range object" do
+    test "range in operator" do
+      assert_conforms("print(repr((5 in range(10), 15 in range(10))))")
+    end
+
+    test "range length" do
+      assert_conforms("print(repr(len(range(5, 15, 2))))")
+    end
+
+    test "range indexing" do
+      assert_conforms("print(repr(range(10)[3]))")
+    end
+
+    test "range negative indexing" do
+      assert_conforms("print(repr(range(10)[-1]))")
+    end
+
+    test "range attributes" do
+      assert_conforms("""
+      r = range(1, 10, 2)
+      print(repr((r.start, r.stop, r.step)))
+      """)
+    end
+  end
+
+  # ── Inline if ──────────────────────────────────────────────
+
+  describe "inline if" do
+    test "single line if body" do
+      assert_conforms("""
+      x = 5
+      if x > 3: print(repr("big"))
+      """)
+    end
+
+    test "single line if/else" do
+      assert_conforms("""
+      x = 1
+      if x > 3: y = "big"
+      else: y = "small"
+      print(repr(y))
+      """)
+    end
+  end
+
+  # ── Complex real-world programs ────────────────────────────
+
+  describe "real-world programs" do
+    test "CSV-like parser" do
+      assert_conforms(~S"""
+      def parse_csv(text):
+          rows = []
+          for line in text.strip().split("\n"):
+              rows.append(line.split(","))
+          return rows
+
+      data = "name,age,city\nAlice,30,NYC\nBob,25,LA"
+      rows = parse_csv(data)
+      header = rows[0]
+      records = [{header[i]: row[i] for i in range(len(header))} for row in rows[1:]]
+      print(repr([sorted(r.items()) for r in records]))
+      """)
+    end
+
+    test "mini calculator" do
+      assert_conforms(~S"""
+      def calc(expr):
+          parts = expr.split()
+          a = int(parts[0])
+          op = parts[1]
+          b = int(parts[2])
+          if op == "+":
+              return a + b
+          elif op == "-":
+              return a - b
+          elif op == "*":
+              return a * b
+          elif op == "/":
+              return a / b
+          else:
+              return None
+
+      exprs = ["10 + 5", "20 - 8", "6 * 7", "15 / 4"]
+      print(repr([calc(e) for e in exprs]))
+      """)
+    end
+
+    test "frequency analysis" do
+      assert_conforms(~S"""
+      text = "the quick brown fox jumps over the lazy dog the fox"
+      words = text.split()
+      freq = {}
+      for w in words:
+          freq[w] = freq.get(w, 0) + 1
+      top = sorted(freq.items(), key=lambda x: (-x[1], x[0]))
+      print(repr(top[:3]))
+      """)
+    end
+
+    test "matrix multiplication" do
+      assert_conforms("""
+      def dot(row, col):
+          total = 0
+          for i in range(len(row)):
+              total = total + row[i] * col[i]
+          return total
+
+      def col(matrix, j):
+          return [matrix[i][j] for i in range(len(matrix))]
+
+      def matmul(a, b):
+          return [[dot(a[i], col(b, j)) for j in range(len(b[0]))] for i in range(len(a))]
+
+      a = [[1, 2], [3, 4]]
+      b = [[5, 6], [7, 8]]
+      print(repr(matmul(a, b)))
+      """)
+    end
+
+    test "LRU-like cache using dict" do
+      assert_conforms("""
+      def cached_fib():
+          cache = {}
+          def fib(n):
+              if n in cache:
+                  return cache[n]
+              if n <= 1:
+                  result = n
+              else:
+                  result = fib(n - 1) + fib(n - 2)
+              cache[n] = result
+              return result
+          return fib
+
+      fib = cached_fib()
+      print(repr([fib(i) for i in range(20)]))
+      """)
+    end
+
+    test "simple state machine" do
+      assert_conforms(~S"""
+      def run_machine(transitions, start, inputs):
+          state = start
+          path = [state]
+          for inp in inputs:
+              key = (state, inp)
+              if key in transitions:
+                  state = transitions[key]
+              path.append(state)
+          return path
+
+      transitions = {
+          ("locked", "coin"): "unlocked",
+          ("unlocked", "push"): "locked",
+      }
+      print(repr(run_machine(transitions, "locked", ["coin", "push", "push", "coin"])))
+      """)
+    end
+
+    test "graph BFS" do
+      assert_conforms(~S"""
+      def bfs(graph, start):
+          visited = set()
+          queue = [start]
+          order = []
+          while queue:
+              node = queue.pop(0)
+              if node not in visited:
+                  visited.add(node)
+                  order.append(node)
+                  for neighbor in sorted(graph.get(node, [])):
+                      if neighbor not in visited:
+                          queue.append(neighbor)
+          return order
+
+      graph = {
+          "a": ["b", "c"],
+          "b": ["d"],
+          "c": ["d", "e"],
+          "d": [],
+          "e": [],
+      }
+      print(repr(bfs(graph, "a")))
+      """)
+    end
+
+    test "decorator memoize with class" do
+      assert_conforms("""
+      class Memoize:
+          def __init__(self, func):
+              self.func = func
+              self.cache = {}
+          def __call__(self, *args):
+              if args not in self.cache:
+                  self.cache[args] = self.func(*args)
+              return self.cache[args]
+
+      @Memoize
+      def fib(n):
+          if n <= 1:
+              return n
+          return fib(n - 1) + fib(n - 2)
+
+      print(repr([fib(i) for i in range(15)]))
+      """)
+    end
+  end
+
   describe "unittest assertions" do
     test "assertEqual passes and returns None" do
       assert_conforms(~S"""
