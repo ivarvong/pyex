@@ -222,17 +222,15 @@ defmodule Pyex.Stdlib.PandasTest do
         "get_prices" => {:builtin, fn [_symbol] -> series end}
       }
 
-      %{prices: prices, platform: platform}
+      %{platform: platform}
     end
 
-    test "pandas golden cross matches naive Python golden cross", %{
-      prices: prices,
-      platform: platform
-    } do
-      prices_str = prices_literal(prices)
+    test "pandas golden cross matches naive Python golden cross", %{platform: platform} do
+      opts = [timeout_ms: 20_000, modules: %{"platform" => platform}]
 
       naive_code = """
-      prices = #{prices_str}
+      import platform
+      prices = platform.get_prices("AAPL").tolist()
 
       def sma(data, window):
           result = []
@@ -276,23 +274,19 @@ defmodule Pyex.Stdlib.PandasTest do
       signals
       """
 
-      naive_result = Pyex.run!(naive_code, timeout_ms: 20_000)
-
-      pandas_result =
-        Pyex.run!(pandas_code, timeout_ms: 20_000, modules: %{"platform" => platform})
+      naive_result = Pyex.run!(naive_code, opts)
+      pandas_result = Pyex.run!(pandas_code, opts)
 
       assert naive_result == pandas_result
     end
 
     @tag timeout: 30_000
-    test "pandas via platform.get_prices is faster than naive", %{
-      prices: prices,
-      platform: platform
-    } do
-      prices_str = prices_literal(prices)
+    test "pandas via platform.get_prices is faster than naive", %{platform: platform} do
+      opts = [timeout_ms: 20_000, modules: %{"platform" => platform}]
 
       naive_code = """
-      prices = #{prices_str}
+      import platform
+      prices = platform.get_prices("AAPL").tolist()
 
       def sma(data, window):
           result = []
@@ -336,8 +330,7 @@ defmodule Pyex.Stdlib.PandasTest do
       signals
       """
 
-      opts = [timeout_ms: 20_000, modules: %{"platform" => platform}]
-      {naive_us, _} = :timer.tc(fn -> Pyex.run!(naive_code, timeout_ms: 20_000) end)
+      {naive_us, _} = :timer.tc(fn -> Pyex.run!(naive_code, opts) end)
       {pandas_us, _} = :timer.tc(fn -> Pyex.run!(pandas_code, opts) end)
 
       speedup = naive_us / max(pandas_us, 1)
@@ -386,10 +379,6 @@ defmodule Pyex.Stdlib.PandasTest do
       change = (:rand.uniform() - 0.48) * 4
       Float.round(max(prev + change, 1.0), 2)
     end)
-  end
-
-  defp prices_literal(prices) do
-    "[" <> Enum.join(Enum.map(prices, &Float.to_string/1), ", ") <> "]"
   end
 
   defp fmt(us) when us < 1_000, do: "#{us}us"
