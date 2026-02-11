@@ -2456,6 +2456,29 @@ defmodule Pyex.Interpreter do
              env, ctx}
         end
 
+      {:pandas_dataframe, df} when is_binary(key) ->
+        col = Explorer.DataFrame.pull(df, key)
+        {{:pandas_series, col}, env, ctx}
+
+      {:pandas_series, s} ->
+        case key do
+          {:pandas_series, mask} ->
+            {{:pandas_series, Explorer.Series.mask(s, mask)}, env, ctx}
+
+          i when is_integer(i) ->
+            len = Explorer.Series.count(s)
+            index = if i < 0, do: len + i, else: i
+
+            if index < 0 or index >= len do
+              {{:exception, "IndexError: Series index out of range"}, env, ctx}
+            else
+              {Explorer.Series.at(s, index), env, ctx}
+            end
+
+          _ ->
+            {{:exception, "TypeError: invalid Series index type"}, env, ctx}
+        end
+
       %{"__defaultdict_factory__" => factory} = dict when is_map(dict) ->
         case call_function(factory, [], %{}, env, ctx) do
           {{:exception, _} = signal, env, ctx} ->
@@ -3024,8 +3047,62 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  defp eval_binop(op, {:pandas_series, _} = l, r, env, ctx) do
+    binop_result(series_binop(op, l, r), env, ctx)
+  end
+
+  defp eval_binop(op, l, {:pandas_series, _} = r, env, ctx) do
+    binop_result(series_binop(op, l, r), env, ctx)
+  end
+
   defp eval_binop(op, l, r, env, ctx) do
     binop_result(safe_binop(op, l, r), env, ctx)
+  end
+
+  @spec series_binop(atom(), pyvalue(), pyvalue()) :: pyvalue() | {:exception, String.t()}
+  defp series_binop(op, l, r) do
+    ls = series_unwrap(l)
+    rs = series_unwrap(r)
+
+    result =
+      case op do
+        :plus -> Explorer.Series.add(ls, rs)
+        :minus -> Explorer.Series.subtract(ls, rs)
+        :star -> Explorer.Series.multiply(ls, rs)
+        :slash -> Explorer.Series.divide(ls, rs)
+        :gt -> Explorer.Series.greater(ls, rs)
+        :gte -> Explorer.Series.greater_equal(ls, rs)
+        :lt -> Explorer.Series.less(ls, rs)
+        :lte -> Explorer.Series.less_equal(ls, rs)
+        :eq -> Explorer.Series.equal(ls, rs)
+        :neq -> Explorer.Series.not_equal(ls, rs)
+        :amp -> series_bool_and(ls, rs)
+        :pipe -> series_bool_or(ls, rs)
+        _ -> {:exception, "TypeError: unsupported operand for Series"}
+      end
+
+    case result do
+      {:exception, _} = err -> err
+      %Explorer.Series{} = s -> {:pandas_series, s}
+    end
+  end
+
+  @spec series_unwrap(pyvalue()) :: Explorer.Series.t() | number()
+  defp series_unwrap({:pandas_series, s}), do: s
+  defp series_unwrap(v) when is_number(v), do: v
+  defp series_unwrap(true), do: 1
+  defp series_unwrap(false), do: 0
+
+  @spec series_bool_and(Explorer.Series.t() | number(), Explorer.Series.t() | number()) ::
+          Explorer.Series.t()
+  defp series_bool_and(%Explorer.Series{} = l, %Explorer.Series{} = r) do
+    Explorer.Series.and(l, r)
+  end
+
+  @spec series_bool_or(Explorer.Series.t() | number(), Explorer.Series.t() | number()) ::
+          Explorer.Series.t()
+  defp series_bool_or(%Explorer.Series{} = l, %Explorer.Series{} = r) do
+    Explorer.Series.or(l, r)
   end
 
   @spec binop_result(pyvalue() | {:exception, String.t()}, Env.t(), Ctx.t()) :: eval_result()

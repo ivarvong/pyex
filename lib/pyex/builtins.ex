@@ -134,6 +134,8 @@ defmodule Pyex.Builtins do
   defp builtin_len([{:set, s}]), do: MapSet.size(s)
   defp builtin_len([{:generator, items}]), do: length(items)
   defp builtin_len([{:range, _, _, _} = r]), do: range_length(r)
+  defp builtin_len([{:pandas_series, s}]), do: Explorer.Series.count(s)
+  defp builtin_len([{:pandas_dataframe, df}]), do: elem(Explorer.DataFrame.shape(df), 0)
 
   defp builtin_len([{:instance, _, _} = inst]),
     do: {:dunder_call, inst, "__len__", []}

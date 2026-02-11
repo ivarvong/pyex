@@ -40,6 +40,9 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:bound_method, _, _, _}), do: "method"
   def py_type({:range, _, _, _}), do: "range"
   def py_type({:super_proxy, _, _}), do: "super"
+  def py_type({:pandas_series, _}), do: "Series"
+  def py_type({:pandas_rolling, _, _}), do: "Rolling"
+  def py_type({:pandas_dataframe, _}), do: "DataFrame"
   def py_type(_), do: "object"
 
   @doc """
