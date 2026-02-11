@@ -1,26 +1,32 @@
 defmodule Pyex.MathOracleTest do
+  @moduledoc """
+  Cross-checks LLM-style Python math code against an Explorer (Polars/Rust) oracle.
+
+  The Python program generates random datasets, writes them as CSV to the
+  in-memory filesystem, reads them back, and computes statistics using
+  multiple independent algorithm implementations (loops, reduce, map,
+  filter, Welford, etc.). Every result is returned to the Elixir test.
+
+  The Elixir side parses the same CSV with Explorer (backed by Polars,
+  written in Rust) — a completely independent implementation in a
+  different language — and asserts that every Python result matches
+  the Polars-computed oracle.
+
+  This makes it essentially impossible for a shared bug to pass:
+  the Python interpreter, the Elixir test helpers, and the Polars
+  engine would all need the same defect.
+  """
+
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias Explorer.Series
   alias Pyex.Filesystem.Memory
-
-  @moduledoc """
-  Cross-checks LLM-style Python math code against an Elixir oracle.
-
-  The Python program:
-  - generates a list of dict rows with consistent keys
-  - generates random integers (seeded) per cell
-  - writes the rows to CSV in the in-memory filesystem
-  - reads the CSV back and computes stats using basic Python
-
-  The Elixir side reads the exact CSV content and computes the same
-  stats as the oracle, then compares within float tolerance.
-  """
 
   @runs 200
   @timeout_ms 500
 
-  property "stats computed in Python match the Elixir oracle" do
+  property "stats computed in Python match the Explorer/Polars oracle" do
     check all(
             seed <- integer(0..1_000_000_000),
             row_count <- integer(1..60),
@@ -28,14 +34,13 @@ defmodule Pyex.MathOracleTest do
             max_runs: @runs
           ) do
       source = python_source(seed, row_count, col_count)
-
       opts = [filesystem: Memory.new(), fs_module: Memory, timeout_ms: @timeout_ms]
 
       {:ok, py_stats, ctx} = run_pyex_isolated(source, opts)
       {:ok, csv} = Memory.read(ctx.filesystem, "data.csv")
 
-      oracle_stats = oracle_stats_from_csv(csv)
-      assert_stats_close(py_stats, oracle_stats)
+      oracle = explorer_oracle(csv)
+      assert_all_stats(py_stats, oracle)
     end
   end
 
@@ -43,6 +48,126 @@ defmodule Pyex.MathOracleTest do
     Task.async(fn -> Pyex.run(source, opts) end)
     |> Task.await(@timeout_ms * 5)
   end
+
+  # ---------------------------------------------------------------------------
+  # Explorer/Polars oracle
+  # ---------------------------------------------------------------------------
+
+  defp explorer_oracle(csv) when is_binary(csv) do
+    lines =
+      csv
+      |> String.split(~r/\r\n|\n|\r/)
+      |> Enum.reject(&(&1 == ""))
+
+    [header | data_lines] = lines
+    fieldnames = String.split(header, ",")
+
+    values_by_field =
+      Enum.reduce(data_lines, %{}, fn line, acc ->
+        fields = String.split(line, ",")
+
+        Enum.zip(fieldnames, fields)
+        |> Enum.reduce(acc, fn {name, val}, acc2 ->
+          Map.update(acc2, name, [String.to_integer(val)], fn xs ->
+            xs ++ [String.to_integer(val)]
+          end)
+        end)
+      end)
+
+    values_by_field
+    |> Enum.map(fn {name, xs} ->
+      s = Series.from_list(xs)
+      {name, explorer_stats_for_series(s, xs)}
+    end)
+    |> Map.new()
+  end
+
+  defp explorer_stats_for_series(s, xs) do
+    n = Series.count(s)
+    sorted = Series.sort(s) |> Series.to_list()
+    sorted_desc = Series.sort(s, direction: :desc) |> Series.to_list()
+
+    abs_s = Series.abs(s)
+    rank = Series.argsort(abs_s)
+    sorted_abs = Series.slice(s, rank) |> Series.to_list()
+
+    sample_var = if n > 1, do: Series.variance(s), else: 0.0
+    pop_var = if n > 1, do: sample_var * (n - 1) / n, else: 0.0
+
+    neg_mask = Series.less(s, 0)
+    neg = Series.mask(s, neg_mask)
+    even_mask = Series.equal(Series.remainder(s, 2), 0)
+    even = Series.mask(s, even_mask)
+    smallabs_mask = Series.less_equal(abs_s, 10)
+    smallabs = Series.mask(s, smallabs_mask)
+
+    %{
+      "count" => n,
+      "sum" => Series.sum(s),
+      "min" => Series.min(s),
+      "max" => Series.max(s),
+      "mean" => Series.mean(s),
+      "median" => Series.median(s),
+      "variance_pop" => pop_var,
+      "stddev_pop" => :math.sqrt(pop_var),
+      "sorted" => sorted,
+      "sorted_reverse" => sorted_desc,
+      "sorted_abs" => sorted_abs,
+      "subsets" => %{
+        "neg" => explorer_subset_stats(neg, Enum.filter(xs, &(&1 < 0))),
+        "even" => explorer_subset_stats(even, Enum.filter(xs, &(rem(&1, 2) == 0))),
+        "smallabs" => explorer_subset_stats(smallabs, Enum.filter(xs, &(abs(&1) <= 10)))
+      }
+    }
+  end
+
+  defp explorer_subset_stats(series, _xs) do
+    n = Series.count(series)
+
+    if n == 0 do
+      %{
+        "count" => 0,
+        "sum" => 0,
+        "min" => nil,
+        "max" => nil,
+        "mean" => nil,
+        "median" => nil,
+        "variance_pop" => nil,
+        "stddev_pop" => nil,
+        "sorted" => [],
+        "sorted_reverse" => [],
+        "sorted_abs" => []
+      }
+    else
+      sorted = Series.sort(series) |> Series.to_list()
+      sorted_desc = Series.sort(series, direction: :desc) |> Series.to_list()
+
+      abs_s = Series.abs(series)
+      rank = Series.argsort(abs_s)
+      sorted_abs = Series.slice(series, rank) |> Series.to_list()
+
+      sample_var = if n > 1, do: Series.variance(series), else: 0.0
+      pop_var = if n > 1, do: sample_var * (n - 1) / n, else: 0.0
+
+      %{
+        "count" => n,
+        "sum" => Series.sum(series),
+        "min" => Series.min(series),
+        "max" => Series.max(series),
+        "mean" => Series.mean(series),
+        "median" => Series.median(series),
+        "variance_pop" => pop_var,
+        "stddev_pop" => :math.sqrt(pop_var),
+        "sorted" => sorted,
+        "sorted_reverse" => sorted_desc,
+        "sorted_abs" => sorted_abs
+      }
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Python source generator
+  # ---------------------------------------------------------------------------
 
   defp python_source(seed, row_count, col_count) do
     """
@@ -275,195 +400,82 @@ defmodule Pyex.MathOracleTest do
     """
   end
 
-  defp oracle_stats_from_csv(csv) when is_binary(csv) do
-    lines =
-      csv
-      |> String.split(~r/\r\n|\n|\r/)
-      |> Enum.reject(&(&1 == ""))
+  # ---------------------------------------------------------------------------
+  # Assertion helpers
+  # ---------------------------------------------------------------------------
 
-    [header | data_lines] = lines
-    fieldnames = String.split(header, ",")
+  defp assert_all_stats(py_stats, oracle)
+       when is_map(py_stats) and is_map(oracle) do
+    assert Map.keys(py_stats) |> Enum.sort() == Map.keys(oracle) |> Enum.sort()
 
-    values_by_field =
-      Enum.reduce(fieldnames, %{}, fn name, acc -> Map.put(acc, name, []) end)
-
-    values_by_field =
-      Enum.reduce(data_lines, values_by_field, fn line, acc ->
-        fields = String.split(line, ",")
-
-        Enum.zip(fieldnames, fields)
-        |> Enum.reduce(acc, fn {name, value}, acc2 ->
-          n = String.to_integer(value)
-          Map.update!(acc2, name, fn xs -> [n | xs] end)
-        end)
-      end)
-
-    values_by_field
-    |> Enum.map(fn {name, xs_rev} ->
-      xs = Enum.reverse(xs_rev)
-
-      stats = %{
-        "count" => length(xs),
-        "sum" => Enum.sum(xs),
-        "min" => Enum.min(xs),
-        "max" => Enum.max(xs),
-        "mean" => mean(xs),
-        "median" => median(xs),
-        "variance_pop" => variance_pop(xs),
-        "stddev_pop" => :math.sqrt(variance_pop(xs)),
-        "sorted" => Enum.sort(xs),
-        "sorted_reverse" => Enum.sort(xs, :desc),
-        "sorted_abs" => Enum.sort_by(xs, &abs/1),
-        "subsets" => %{
-          "neg" => oracle_subset_stats(xs, fn x -> x < 0 end),
-          "even" => oracle_subset_stats(xs, fn x -> rem(x, 2) == 0 end),
-          "smallabs" => oracle_subset_stats(xs, fn x -> abs(x) <= 10 end)
-        }
-      }
-
-      {name, stats}
-    end)
-    |> Map.new()
-  end
-
-  defp oracle_subset_stats(xs, pred) when is_list(xs) and is_function(pred, 1) do
-    subset = Enum.filter(xs, pred)
-
-    if subset == [] do
-      %{
-        "count" => 0,
-        "sum" => 0,
-        "min" => nil,
-        "max" => nil,
-        "mean" => nil,
-        "median" => nil,
-        "variance_pop" => nil,
-        "stddev_pop" => nil,
-        "sorted" => [],
-        "sorted_reverse" => [],
-        "sorted_abs" => []
-      }
-    else
-      var = variance_pop(subset)
-
-      %{
-        "count" => length(subset),
-        "sum" => Enum.sum(subset),
-        "min" => Enum.min(subset),
-        "max" => Enum.max(subset),
-        "mean" => mean(subset),
-        "median" => median(subset),
-        "variance_pop" => var,
-        "stddev_pop" => :math.sqrt(var),
-        "sorted" => Enum.sort(subset),
-        "sorted_reverse" => Enum.sort(subset, :desc),
-        "sorted_abs" => Enum.sort_by(subset, &abs/1)
-      }
-    end
-  end
-
-  defp mean(xs) when is_list(xs) and xs != [] do
-    Enum.sum(xs) / length(xs)
-  end
-
-  defp median(xs) when is_list(xs) and xs != [] do
-    ys = Enum.sort(xs)
-    n = length(ys)
-    mid = div(n, 2)
-
-    if rem(n, 2) == 1 do
-      Enum.at(ys, mid)
-    else
-      (Enum.at(ys, mid - 1) + Enum.at(ys, mid)) / 2
-    end
-  end
-
-  defp variance_pop(xs) when is_list(xs) and xs != [] do
-    m = mean(xs)
-
-    Enum.reduce(xs, 0.0, fn x, acc ->
-      d = x - m
-      acc + d * d
-    end) / length(xs)
-  end
-
-  defp assert_stats_close(py_stats, oracle_stats)
-       when is_map(py_stats) and is_map(oracle_stats) do
-    assert Map.keys(py_stats) |> Enum.sort() == Map.keys(oracle_stats) |> Enum.sort()
-
-    Enum.each(oracle_stats, fn {name, oracle} ->
+    Enum.each(oracle, fn {name, expected} ->
       py = Map.fetch!(py_stats, name)
       variants = Map.fetch!(py, "variants")
       py_subsets = Map.fetch!(py, "subsets")
-      oracle_subsets = Map.fetch!(oracle, "subsets")
+      oracle_subsets = Map.fetch!(expected, "subsets")
 
-      assert py["count"] == oracle["count"]
-      assert py["sum"] == oracle["sum"]
-      assert py["min"] == oracle["min"]
-      assert py["max"] == oracle["max"]
+      assert py["count"] == expected["count"]
+      assert py["sum"] == expected["sum"]
+      assert py["min"] == expected["min"]
+      assert py["max"] == expected["max"]
 
-      assert_close(py["mean"], oracle["mean"])
-      assert_close(py["median"], oracle["median"])
-      assert_close(py["variance_pop"], oracle["variance_pop"])
-      assert_close(py["stddev_pop"], oracle["stddev_pop"])
+      assert_close(py["mean"], expected["mean"])
+      assert_close(py["median"], expected["median"])
+      assert_close(py["variance_pop"], expected["variance_pop"])
+      assert_close(py["stddev_pop"], expected["stddev_pop"])
 
-      assert py["sorted"] == oracle["sorted"]
-      assert py["sorted_reverse"] == oracle["sorted_reverse"]
-      assert py["sorted_abs"] == oracle["sorted_abs"]
+      assert py["sorted"] == expected["sorted"]
+      assert py["sorted_reverse"] == expected["sorted_reverse"]
+      assert py["sorted_abs"] == expected["sorted_abs"]
 
-      assert variants["sum_loop"] == oracle["sum"]
-      assert variants["sum_reduce"] == oracle["sum"]
-      assert variants["min_loop"] == oracle["min"]
-      assert variants["min_reduce"] == oracle["min"]
-      assert variants["max_loop"] == oracle["max"]
-      assert variants["max_reduce"] == oracle["max"]
+      assert variants["sum_loop"] == expected["sum"]
+      assert variants["sum_reduce"] == expected["sum"]
+      assert variants["min_loop"] == expected["min"]
+      assert variants["min_reduce"] == expected["min"]
+      assert variants["max_loop"] == expected["max"]
+      assert variants["max_reduce"] == expected["max"]
 
-      assert_close(variants["mean_reduce"], oracle["mean"])
-      assert_close(variants["mean_sum_div"], oracle["mean"])
-      assert_close(variants["median_reverse"], oracle["median"])
-      assert_close(variants["median_key_sorted"], oracle["median"])
-      assert_close(variants["variance_reduce"], oracle["variance_pop"])
-      assert_close(variants["variance_welford"], oracle["variance_pop"])
-      assert_close(variants["stddev_via_two_pass"], oracle["stddev_pop"])
+      assert_close(variants["mean_reduce"], expected["mean"])
+      assert_close(variants["mean_sum_div"], expected["mean"])
+      assert_close(variants["median_reverse"], expected["median"])
+      assert_close(variants["median_key_sorted"], expected["median"])
+      assert_close(variants["variance_reduce"], expected["variance_pop"])
+      assert_close(variants["variance_welford"], expected["variance_pop"])
+      assert_close(variants["stddev_via_two_pass"], expected["stddev_pop"])
 
-      assert variants["sorted"] == oracle["sorted"]
-      assert variants["sorted_reverse"] == oracle["sorted_reverse"]
-      assert variants["sorted_key"] == oracle["sorted"]
-      assert variants["sorted_abs"] == oracle["sorted_abs"]
+      assert variants["sorted"] == expected["sorted"]
+      assert variants["sorted_reverse"] == expected["sorted_reverse"]
+      assert variants["sorted_key"] == expected["sorted"]
+      assert variants["sorted_abs"] == expected["sorted_abs"]
 
       assert is_integer(variants["neg_count"])
       assert variants["neg_count"] >= 0
-      assert variants["neg_count"] <= oracle["count"]
+      assert variants["neg_count"] <= expected["count"]
       assert is_integer(variants["squares_sum"])
 
-      assert_subset_stats_close(Map.fetch!(py_subsets, "neg"), Map.fetch!(oracle_subsets, "neg"))
-
-      assert_subset_stats_close(
-        Map.fetch!(py_subsets, "even"),
-        Map.fetch!(oracle_subsets, "even")
-      )
-
-      assert_subset_stats_close(
-        Map.fetch!(py_subsets, "smallabs"),
-        Map.fetch!(oracle_subsets, "smallabs")
-      )
+      Enum.each(["neg", "even", "smallabs"], fn subset_name ->
+        assert_subset_stats(
+          Map.fetch!(py_subsets, subset_name),
+          Map.fetch!(oracle_subsets, subset_name)
+        )
+      end)
     end)
   end
 
-  defp assert_subset_stats_close(py, oracle) when is_map(py) and is_map(oracle) do
-    assert py["count"] == oracle["count"]
-    assert py["sum"] == oracle["sum"]
-    assert py["min"] == oracle["min"]
-    assert py["max"] == oracle["max"]
+  defp assert_subset_stats(py, expected) when is_map(py) and is_map(expected) do
+    assert py["count"] == expected["count"]
+    assert py["sum"] == expected["sum"]
+    assert py["min"] == expected["min"]
+    assert py["max"] == expected["max"]
 
-    assert_close_or_nil(py["mean"], oracle["mean"])
-    assert_close_or_nil(py["median"], oracle["median"])
-    assert_close_or_nil(py["variance_pop"], oracle["variance_pop"])
-    assert_close_or_nil(py["stddev_pop"], oracle["stddev_pop"])
+    assert_close_or_nil(py["mean"], expected["mean"])
+    assert_close_or_nil(py["median"], expected["median"])
+    assert_close_or_nil(py["variance_pop"], expected["variance_pop"])
+    assert_close_or_nil(py["stddev_pop"], expected["stddev_pop"])
 
-    assert py["sorted"] == oracle["sorted"]
-    assert py["sorted_reverse"] == oracle["sorted_reverse"]
-    assert py["sorted_abs"] == oracle["sorted_abs"]
+    assert py["sorted"] == expected["sorted"]
+    assert py["sorted_reverse"] == expected["sorted_reverse"]
+    assert py["sorted_abs"] == expected["sorted_abs"]
   end
 
   defp assert_close_or_nil(nil, nil), do: :ok

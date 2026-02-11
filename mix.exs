@@ -41,6 +41,7 @@ defmodule Pyex.MixProject do
       {:opentelemetry, "~> 1.7"},
       {:opentelemetry_exporter, "~> 1.10"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
+      {:explorer, "~> 0.10", only: :test},
       {:stream_data, "~> 1.1", only: :test},
       {:bypass, "~> 2.1", only: :test},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
