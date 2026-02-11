@@ -68,16 +68,22 @@ defmodule Pyex.ErrorBoundaryTest do
   end
 
   describe "cross-type comparison" do
-    test "string less than integer returns false" do
-      assert Pyex.run!(~s("hello" < 5)) == false
+    test "string less than integer raises TypeError" do
+      {:error, error} = Pyex.run(~s("hello" < 5))
+      assert error.kind == :python
+      assert error.message =~ "TypeError"
     end
 
-    test "list less than integer returns false" do
-      assert Pyex.run!("[1] < 5") == false
+    test "list less than integer raises TypeError" do
+      {:error, error} = Pyex.run("[1] < 5")
+      assert error.kind == :python
+      assert error.message =~ "TypeError"
     end
 
-    test "None less than integer returns false" do
-      assert Pyex.run!("None < 5") == false
+    test "None less than integer raises TypeError" do
+      {:error, error} = Pyex.run("None < 5")
+      assert error.kind == :python
+      assert error.message =~ "TypeError"
     end
 
     test "equality across types returns false" do

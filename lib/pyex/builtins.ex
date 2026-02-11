@@ -134,6 +134,8 @@ defmodule Pyex.Builtins do
   defp builtin_len([{:set, s}]), do: MapSet.size(s)
   defp builtin_len([{:generator, items}]), do: length(items)
   defp builtin_len([{:range, _, _, _} = r]), do: range_length(r)
+  defp builtin_len([{:pandas_series, s}]), do: Explorer.Series.count(s)
+  defp builtin_len([{:pandas_dataframe, df}]), do: elem(Explorer.DataFrame.shape(df), 0)
 
   defp builtin_len([{:instance, _, _} = inst]),
     do: {:dunder_call, inst, "__len__", []}
@@ -1161,17 +1163,30 @@ defmodule Pyex.Builtins do
   defp py_repr(_), do: "<object>"
 
   @spec py_repr_quoted(Interpreter.pyvalue()) :: String.t()
-  defp py_repr_quoted(val) when is_binary(val), do: "'#{escape_string(val)}'"
+  defp py_repr_quoted(val) when is_binary(val) do
+    if String.contains?(val, "'") and not String.contains?(val, "\"") do
+      "\"#{escape_string(val, "\"")}\""
+    else
+      "'#{escape_string(val, "'")}'"
+    end
+  end
+
   defp py_repr_quoted(val), do: py_repr(val)
 
-  @spec escape_string(String.t()) :: String.t()
-  defp escape_string(s) do
-    s
-    |> String.replace("\\", "\\\\")
-    |> String.replace("'", "\\'")
-    |> String.replace("\n", "\\n")
-    |> String.replace("\r", "\\r")
-    |> String.replace("\t", "\\t")
+  @spec escape_string(String.t(), String.t()) :: String.t()
+  defp escape_string(s, quote_char) do
+    s =
+      s
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\n", "\\n")
+      |> String.replace("\r", "\\r")
+      |> String.replace("\t", "\\t")
+
+    if quote_char == "'" do
+      String.replace(s, "'", "\\'")
+    else
+      String.replace(s, "\"", "\\\"")
+    end
     |> String.replace("\0", "\\x00")
   end
 

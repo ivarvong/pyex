@@ -76,6 +76,24 @@ defmodule Pyex.Methods do
     end
   end
 
+  def resolve({:pandas_series, _} = object, attr) do
+    case pandas_series_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> pandas_series_property(object, attr)
+    end
+  end
+
+  def resolve({:pandas_rolling, _, _} = object, attr) do
+    case pandas_rolling_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
+  def resolve({:pandas_dataframe, _} = object, attr) do
+    pandas_dataframe_property(object, attr)
+  end
+
   def resolve(_object, _attr), do: :error
 
   @doc """
@@ -314,16 +332,26 @@ defmodule Pyex.Methods do
   @spec str_title(String.t(), [Interpreter.pyvalue()]) :: String.t()
   defp str_title(s, []) do
     s
-    |> String.split(~r/(\s+)/, include_captures: true)
-    |> Enum.map(fn
-      <<first::utf8, rest::binary>> ->
-        String.upcase(<<first::utf8>>) <> String.downcase(rest)
-
-      other ->
-        other
-    end)
-    |> Enum.join()
+    |> String.codepoints()
+    |> title_codepoints(true, [])
+    |> IO.iodata_to_binary()
   end
+
+  @spec title_codepoints([String.t()], boolean(), iodata()) :: iodata()
+  defp title_codepoints([], _capitalize_next, acc), do: Enum.reverse(acc)
+
+  defp title_codepoints([cp | rest], capitalize_next, acc) do
+    if alpha?(cp) do
+      transformed = if capitalize_next, do: String.upcase(cp), else: String.downcase(cp)
+      title_codepoints(rest, false, [transformed | acc])
+    else
+      title_codepoints(rest, true, [cp | acc])
+    end
+  end
+
+  @spec alpha?(String.t()) :: boolean()
+  defp alpha?(<<c::utf8>>) when c in ?a..?z or c in ?A..?Z, do: true
+  defp alpha?(_), do: false
 
   @spec str_capitalize(String.t(), [Interpreter.pyvalue()]) :: String.t()
   defp str_capitalize("", []), do: ""
@@ -765,4 +793,134 @@ defmodule Pyex.Methods do
   defp py_repr(val) when is_integer(val), do: Integer.to_string(val)
   defp py_repr(val) when is_float(val), do: Float.to_string(val)
   defp py_repr(_), do: "<object>"
+
+  # ---------------------------------------------------------------------------
+  # pandas Series methods (backed by Explorer/Polars)
+  # ---------------------------------------------------------------------------
+
+  @spec pandas_series_method(String.t()) ::
+          {:ok, (Interpreter.pyvalue(), [Interpreter.pyvalue()] -> Interpreter.pyvalue())}
+          | :error
+  defp pandas_series_method("sum"), do: {:ok, &series_sum/2}
+  defp pandas_series_method("mean"), do: {:ok, &series_mean/2}
+  defp pandas_series_method("std"), do: {:ok, &series_std/2}
+  defp pandas_series_method("min"), do: {:ok, &series_min/2}
+  defp pandas_series_method("max"), do: {:ok, &series_max/2}
+  defp pandas_series_method("median"), do: {:ok, &series_median/2}
+  defp pandas_series_method("cumsum"), do: {:ok, &series_cumsum/2}
+  defp pandas_series_method("diff"), do: {:ok, &series_diff/2}
+  defp pandas_series_method("shift"), do: {:ok, &series_shift/2}
+  defp pandas_series_method("abs"), do: {:ok, &series_abs/2}
+  defp pandas_series_method("rolling"), do: {:ok, &series_rolling/2}
+  defp pandas_series_method("tolist"), do: {:ok, &series_tolist/2}
+  defp pandas_series_method(_), do: :error
+
+  @spec pandas_series_property(Interpreter.pyvalue(), String.t()) ::
+          {:ok, Interpreter.pyvalue()} | :error
+  defp pandas_series_property({:pandas_series, s}, "dtype") do
+    dtype = Explorer.Series.dtype(s)
+    {:ok, Atom.to_string(dtype)}
+  end
+
+  defp pandas_series_property({:pandas_series, s}, "shape") do
+    {:ok, {:tuple, [Explorer.Series.count(s)]}}
+  end
+
+  defp pandas_series_property(_, _), do: :error
+
+  defp series_sum({:pandas_series, s}, []), do: Explorer.Series.sum(s)
+  defp series_mean({:pandas_series, s}, []), do: Explorer.Series.mean(s)
+
+  defp series_std({:pandas_series, s}, []) do
+    Explorer.Series.standard_deviation(s)
+  end
+
+  defp series_min({:pandas_series, s}, []), do: Explorer.Series.min(s)
+  defp series_max({:pandas_series, s}, []), do: Explorer.Series.max(s)
+  defp series_median({:pandas_series, s}, []), do: Explorer.Series.median(s)
+
+  defp series_cumsum({:pandas_series, s}, []) do
+    {:pandas_series, Explorer.Series.cumulative_sum(s)}
+  end
+
+  defp series_diff({:pandas_series, s}, []) do
+    series_diff({:pandas_series, s}, [1])
+  end
+
+  defp series_diff({:pandas_series, s}, [n]) when is_integer(n) do
+    shifted = Explorer.Series.shift(s, n)
+    {:pandas_series, Explorer.Series.subtract(s, shifted)}
+  end
+
+  defp series_shift({:pandas_series, s}, [n]) when is_integer(n) do
+    {:pandas_series, Explorer.Series.shift(s, n)}
+  end
+
+  defp series_abs({:pandas_series, s}, []) do
+    {:pandas_series, Explorer.Series.abs(s)}
+  end
+
+  defp series_rolling({:pandas_series, s}, [window]) when is_integer(window) do
+    {:pandas_rolling, s, window}
+  end
+
+  defp series_tolist({:pandas_series, s}, []) do
+    Explorer.Series.to_list(s)
+    |> Enum.map(fn
+      %Date{} = d -> Date.to_string(d)
+      %NaiveDateTime{} = dt -> NaiveDateTime.to_string(dt)
+      other -> other
+    end)
+  end
+
+  # ---------------------------------------------------------------------------
+  # pandas Rolling methods
+  # ---------------------------------------------------------------------------
+
+  @spec pandas_rolling_method(String.t()) ::
+          {:ok, (Interpreter.pyvalue(), [Interpreter.pyvalue()] -> Interpreter.pyvalue())}
+          | :error
+  defp pandas_rolling_method("mean"), do: {:ok, &rolling_mean/2}
+  defp pandas_rolling_method("sum"), do: {:ok, &rolling_sum/2}
+  defp pandas_rolling_method("min"), do: {:ok, &rolling_min/2}
+  defp pandas_rolling_method("max"), do: {:ok, &rolling_max/2}
+  defp pandas_rolling_method("std"), do: {:ok, &rolling_std/2}
+  defp pandas_rolling_method(_), do: :error
+
+  defp rolling_mean({:pandas_rolling, s, w}, []) do
+    {:pandas_series, Explorer.Series.window_mean(s, w, min_periods: w)}
+  end
+
+  defp rolling_sum({:pandas_rolling, s, w}, []) do
+    {:pandas_series, Explorer.Series.window_sum(s, w, min_periods: w)}
+  end
+
+  defp rolling_min({:pandas_rolling, s, w}, []) do
+    {:pandas_series, Explorer.Series.window_min(s, w, min_periods: w)}
+  end
+
+  defp rolling_max({:pandas_rolling, s, w}, []) do
+    {:pandas_series, Explorer.Series.window_max(s, w, min_periods: w)}
+  end
+
+  defp rolling_std({:pandas_rolling, s, w}, []) do
+    {:pandas_series, Explorer.Series.window_standard_deviation(s, w, min_periods: w)}
+  end
+
+  # ---------------------------------------------------------------------------
+  # pandas DataFrame methods
+  # ---------------------------------------------------------------------------
+
+  @spec pandas_dataframe_property(Interpreter.pyvalue(), String.t()) ::
+          {:ok, Interpreter.pyvalue()} | :error
+  defp pandas_dataframe_property({:pandas_dataframe, df}, "columns") do
+    {:ok, Explorer.DataFrame.names(df)}
+  end
+
+  defp pandas_dataframe_property({:pandas_dataframe, df}, "shape") do
+    {rows, cols} = Explorer.DataFrame.shape(df)
+    {:ok, {:tuple, [rows, cols]}}
+  end
+
+  defp pandas_dataframe_property(_, _), do: :error
 end
