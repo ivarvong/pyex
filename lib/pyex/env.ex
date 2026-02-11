@@ -11,15 +11,15 @@ defmodule Pyex.Env do
   @type name :: String.t()
   @type value :: term()
   @type scope :: %{optional(name()) => value()}
-  @type t :: %__MODULE__{scopes: [scope(), ...]}
+  @type t :: %__MODULE__{scopes: [scope(), ...], global: scope()}
 
-  defstruct scopes: [%{}]
+  defstruct scopes: [%{}], global: %{}
 
   @doc """
   Creates a fresh environment with a single empty scope.
   """
   @spec new() :: t()
-  def new, do: %__MODULE__{scopes: [%{}]}
+  def new, do: %__MODULE__{scopes: [%{}], global: %{}}
 
   @doc """
   Looks up `name` in the scope stack, returning `{:ok, value}`
@@ -45,7 +45,12 @@ defmodule Pyex.Env do
   """
   @spec put(t(), name(), value()) :: t()
   def put(%__MODULE__{scopes: [top | rest]} = env, name, value) do
-    %{env | scopes: [Map.put(top, name, value) | rest]}
+    new_top = Map.put(top, name, value)
+
+    case rest do
+      [] -> %{env | scopes: [new_top], global: new_top}
+      _ -> %{env | scopes: [new_top | rest]}
+    end
   end
 
   @doc """
@@ -65,9 +70,10 @@ defmodule Pyex.Env do
   Binds `name` to `value` in the bottom (module-level) scope.
   """
   @spec put_global(t(), name(), value()) :: t()
-  def put_global(%__MODULE__{scopes: scopes}, name, value) do
-    {bottom, upper} = List.pop_at(scopes, -1)
-    %__MODULE__{scopes: upper ++ [Map.put(bottom, name, value)]}
+  def put_global(%__MODULE__{scopes: scopes, global: global}, name, value) do
+    new_global = Map.put(global, name, value)
+    upper = Enum.drop(scopes, -1)
+    %__MODULE__{scopes: upper ++ [new_global], global: new_global}
   end
 
   @doc """
@@ -78,7 +84,8 @@ defmodule Pyex.Env do
   @spec put_enclosing(t(), name(), value()) :: t()
   def put_enclosing(%__MODULE__{scopes: [top | rest]}, name, value) do
     updated = put_in_enclosing(rest, name, value, [])
-    %__MODULE__{scopes: [top | updated]}
+    new_scopes = [top | updated]
+    %__MODULE__{scopes: new_scopes, global: List.last(new_scopes)}
   end
 
   @spec put_in_enclosing([scope()], name(), value(), [scope()]) :: [scope()]
@@ -96,23 +103,23 @@ defmodule Pyex.Env do
   Marks `name` as a `global` variable in the current scope.
   """
   @spec declare_global(t(), name()) :: t()
-  def declare_global(%__MODULE__{scopes: [top | rest]}, name) do
-    %__MODULE__{scopes: [Map.put(top, {:__global__, name}, true) | rest]}
+  def declare_global(%__MODULE__{scopes: [top | rest], global: global}, name) do
+    %__MODULE__{scopes: [Map.put(top, {:__global__, name}, true) | rest], global: global}
   end
 
   @doc """
   Marks `name` as a `nonlocal` variable in the current scope.
   """
   @spec declare_nonlocal(t(), name()) :: t()
-  def declare_nonlocal(%__MODULE__{scopes: [top | rest]}, name) do
-    %__MODULE__{scopes: [Map.put(top, {:__nonlocal__, name}, true) | rest]}
+  def declare_nonlocal(%__MODULE__{scopes: [top | rest], global: global}, name) do
+    %__MODULE__{scopes: [Map.put(top, {:__nonlocal__, name}, true) | rest], global: global}
   end
 
   @doc """
   Returns the bottom (module-level) scope.
   """
   @spec global_scope(t()) :: scope()
-  def global_scope(%__MODULE__{scopes: scopes}), do: List.last(scopes)
+  def global_scope(%__MODULE__{global: global}), do: global
 
   @doc """
   Returns all bindings across all scopes as a flat list of
@@ -129,9 +136,13 @@ defmodule Pyex.Env do
   Replaces the bottom (module-level) scope with `new_bottom`.
   """
   @spec put_global_scope(t(), scope()) :: t()
+  def put_global_scope(%__MODULE__{scopes: [_]}, new_bottom) do
+    %__MODULE__{scopes: [new_bottom], global: new_bottom}
+  end
+
   def put_global_scope(%__MODULE__{scopes: scopes}, new_bottom) do
     upper = Enum.drop(scopes, -1)
-    %__MODULE__{scopes: upper ++ [new_bottom]}
+    %__MODULE__{scopes: upper ++ [new_bottom], global: new_bottom}
   end
 
   @doc """
@@ -158,7 +169,8 @@ defmodule Pyex.Env do
     caller_upper = Enum.take(caller_scopes, caller_depth - shared_depth)
     post_shared = Enum.drop(post_closure, closure_depth - shared_depth)
 
-    %__MODULE__{scopes: caller_upper ++ post_shared}
+    new_scopes = caller_upper ++ post_shared
+    %__MODULE__{scopes: new_scopes, global: List.last(new_scopes)}
   end
 
   @doc """
@@ -170,8 +182,12 @@ defmodule Pyex.Env do
   @spec put_at_source(t(), name(), value()) :: t()
   def put_at_source(%__MODULE__{scopes: scopes} = env, name, value) do
     case put_in_source(scopes, name, value, []) do
-      {:ok, new_scopes} -> %{env | scopes: new_scopes}
-      :not_found -> smart_put(env, name, value)
+      {:ok, new_scopes} ->
+        new_global = List.last(new_scopes)
+        %{env | scopes: new_scopes, global: new_global}
+
+      :not_found ->
+        smart_put(env, name, value)
     end
   end
 
@@ -193,7 +209,7 @@ defmodule Pyex.Env do
   @spec delete(t(), name()) :: t()
   def delete(%__MODULE__{scopes: scopes} = env, name) do
     case delete_from_scopes(scopes, name, []) do
-      {:ok, new_scopes} -> %__MODULE__{scopes: new_scopes}
+      {:ok, new_scopes} -> %__MODULE__{scopes: new_scopes, global: List.last(new_scopes)}
       :not_found -> env
     end
   end
@@ -214,8 +230,19 @@ defmodule Pyex.Env do
   Pushes a new empty scope onto the stack.
   """
   @spec push_scope(t()) :: t()
-  def push_scope(%__MODULE__{scopes: scopes}) do
-    %__MODULE__{scopes: [%{} | scopes]}
+  def push_scope(%__MODULE__{scopes: scopes, global: global}) do
+    %__MODULE__{scopes: [%{} | scopes], global: global}
+  end
+
+  @doc """
+  Pushes a new scope with initial bindings onto the stack.
+
+  Equivalent to `push_scope/1` followed by multiple `put/3` calls,
+  but creates only one intermediate struct instead of N+1.
+  """
+  @spec push_scope_with(t(), scope()) :: t()
+  def push_scope_with(%__MODULE__{scopes: scopes, global: global}, initial) do
+    %__MODULE__{scopes: [initial | scopes], global: global}
   end
 
   @doc """
@@ -228,8 +255,8 @@ defmodule Pyex.Env do
   Removes the topmost scope from the stack.
   """
   @spec drop_top_scope(t()) :: t()
-  def drop_top_scope(%__MODULE__{scopes: [_top | rest]}) do
-    %__MODULE__{scopes: rest}
+  def drop_top_scope(%__MODULE__{scopes: [_top | rest], global: global}) do
+    %__MODULE__{scopes: rest, global: global}
   end
 
   @doc """
@@ -245,12 +272,14 @@ defmodule Pyex.Env do
     post_len = length(post_closure)
     old_len = length(old_scopes)
 
-    if post_len >= old_len do
-      updated = Enum.drop(post_closure, post_len - old_len)
-      %__MODULE__{scopes: updated}
-    else
-      kept = Enum.take(old_scopes, old_len - post_len)
-      %__MODULE__{scopes: kept ++ post_closure}
-    end
+    new_scopes =
+      if post_len >= old_len do
+        Enum.drop(post_closure, post_len - old_len)
+      else
+        kept = Enum.take(old_scopes, old_len - post_len)
+        kept ++ post_closure
+      end
+
+    %__MODULE__{scopes: new_scopes, global: List.last(new_scopes)}
   end
 end
