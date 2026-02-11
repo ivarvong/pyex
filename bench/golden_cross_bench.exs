@@ -1,17 +1,23 @@
 # Golden cross detection benchmark: naive Python vs pandas (Explorer/Polars).
 #
+# Prices are injected via a custom `platform` module, just like production:
+#
+#     import platform
+#     prices = platform.get_prices("AAPL")
+#
 # Usage:
 #   mix run bench/golden_cross_bench.exs
 #
 # Compares three approaches at 300 and 1000 price points:
-# - Naive: O(n*w) nested loop SMA
-# - Prefix sum: O(n) prefix-sum SMA
-# - Pandas: Explorer/Polars rolling window (Rust NIF)
+# - Naive: O(n*w) nested loop SMA on a plain Python list
+# - Prefix sum: O(n) prefix-sum SMA on a plain Python list
+# - Pandas: Explorer/Polars rolling window (Rust NIF) on a Series
 
 defmodule GoldenCrossBench do
-  def naive_code(prices_lit) do
+  def naive_code do
     """
-    prices = #{prices_lit}
+    import platform
+    prices = platform.get_prices("AAPL").tolist()
 
     def sma(data, window):
         result = []
@@ -38,9 +44,10 @@ defmodule GoldenCrossBench do
     """
   end
 
-  def prefix_code(prices_lit) do
+  def prefix_code do
     """
-    prices = #{prices_lit}
+    import platform
+    prices = platform.get_prices("AAPL").tolist()
 
     def sma_prefix(data, window):
         n = len(data)
@@ -68,14 +75,14 @@ defmodule GoldenCrossBench do
     """
   end
 
-  def pandas_code(prices_lit) do
+  def pandas_code do
     """
     import pandas as pd
-    prices = #{prices_lit}
+    import platform
 
-    s = pd.Series(prices)
-    sma50 = s.rolling(50).mean()
-    sma200 = s.rolling(200).mean()
+    prices = platform.get_prices("AAPL")
+    sma50 = prices.rolling(50).mean()
+    sma200 = prices.rolling(200).mean()
     diff = sma50 - sma200
     diff_list = diff.tolist()
 
@@ -97,16 +104,17 @@ defmodule GoldenCrossBench do
     end)
   end
 
-  def prices_literal(prices) do
-    "[" <> Enum.join(Enum.map(prices, &Float.to_string/1), ", ") <> "]"
+  def platform_module(prices) do
+    series = {:pandas_series, Explorer.Series.from_list(prices)}
+    %{"platform" => %{"get_prices" => {:builtin, fn [_symbol] -> series end}}}
   end
 
-  def run_bench(label, code, runs) do
-    for _ <- 1..3, do: Pyex.run!(code, timeout_ms: 30_000)
+  def run_bench(label, code, opts, runs) do
+    for _ <- 1..3, do: Pyex.run!(code, opts)
 
     times =
       for _ <- 1..runs do
-        {us, _} = :timer.tc(fn -> Pyex.run!(code, timeout_ms: 30_000) end)
+        {us, _} = :timer.tc(fn -> Pyex.run!(code, opts) end)
         us
       end
 
@@ -132,19 +140,25 @@ IO.puts("=== Golden Cross Benchmark ===\n")
 
 for n <- [300, 1000] do
   prices = GoldenCrossBench.generate_prices(n)
-  lit = GoldenCrossBench.prices_literal(prices)
+  modules = GoldenCrossBench.platform_module(prices)
+  opts = [timeout_ms: 30_000, modules: modules]
   runs = if n <= 300, do: 20, else: 10
 
   IO.puts("#{n} price points (#{runs} runs):")
 
   naive_p50 =
-    GoldenCrossBench.run_bench("Naive (O(n*w) loop)", GoldenCrossBench.naive_code(lit), runs)
+    GoldenCrossBench.run_bench("Naive (O(n*w) loop)", GoldenCrossBench.naive_code(), opts, runs)
 
   prefix_p50 =
-    GoldenCrossBench.run_bench("Prefix sum (O(n))", GoldenCrossBench.prefix_code(lit), runs)
+    GoldenCrossBench.run_bench("Prefix sum (O(n))", GoldenCrossBench.prefix_code(), opts, runs)
 
   pandas_p50 =
-    GoldenCrossBench.run_bench("Pandas/Explorer (Rust)", GoldenCrossBench.pandas_code(lit), runs)
+    GoldenCrossBench.run_bench(
+      "Pandas/Explorer (Rust)",
+      GoldenCrossBench.pandas_code(),
+      opts,
+      runs
+    )
 
   IO.puts(
     "  Speedup: naive/pandas=#{Float.round(naive_p50 / max(pandas_p50, 1), 1)}x  prefix/pandas=#{Float.round(prefix_p50 / max(pandas_p50, 1), 1)}x"

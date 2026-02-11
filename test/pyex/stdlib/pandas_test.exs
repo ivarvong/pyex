@@ -211,11 +211,25 @@ defmodule Pyex.Stdlib.PandasTest do
     end
   end
 
-  describe "golden cross detection" do
+  describe "golden cross via platform.get_prices" do
     @tag timeout: 30_000
 
-    test "pandas golden cross matches naive Python golden cross" do
-      prices_str = golden_cross_prices_literal(300)
+    setup do
+      prices = generate_prices(300)
+      series = {:pandas_series, Explorer.Series.from_list(prices)}
+
+      platform = %{
+        "get_prices" => {:builtin, fn [_symbol] -> series end}
+      }
+
+      %{prices: prices, platform: platform}
+    end
+
+    test "pandas golden cross matches naive Python golden cross", %{
+      prices: prices,
+      platform: platform
+    } do
+      prices_str = prices_literal(prices)
 
       naive_code = """
       prices = #{prices_str}
@@ -246,11 +260,11 @@ defmodule Pyex.Stdlib.PandasTest do
 
       pandas_code = """
       import pandas as pd
-      prices = #{prices_str}
+      import platform
 
-      s = pd.Series(prices)
-      sma50 = s.rolling(50).mean()
-      sma200 = s.rolling(200).mean()
+      prices = platform.get_prices("AAPL")
+      sma50 = prices.rolling(50).mean()
+      sma200 = prices.rolling(200).mean()
       diff = sma50 - sma200
       diff_list = diff.tolist()
 
@@ -263,14 +277,19 @@ defmodule Pyex.Stdlib.PandasTest do
       """
 
       naive_result = Pyex.run!(naive_code, timeout_ms: 20_000)
-      pandas_result = Pyex.run!(pandas_code, timeout_ms: 20_000)
+
+      pandas_result =
+        Pyex.run!(pandas_code, timeout_ms: 20_000, modules: %{"platform" => platform})
 
       assert naive_result == pandas_result
     end
 
     @tag timeout: 30_000
-    test "pandas golden cross is faster than naive" do
-      prices_str = golden_cross_prices_literal(300)
+    test "pandas via platform.get_prices is faster than naive", %{
+      prices: prices,
+      platform: platform
+    } do
+      prices_str = prices_literal(prices)
 
       naive_code = """
       prices = #{prices_str}
@@ -301,11 +320,11 @@ defmodule Pyex.Stdlib.PandasTest do
 
       pandas_code = """
       import pandas as pd
-      prices = #{prices_str}
+      import platform
 
-      s = pd.Series(prices)
-      sma50 = s.rolling(50).mean()
-      sma200 = s.rolling(200).mean()
+      prices = platform.get_prices("AAPL")
+      sma50 = prices.rolling(50).mean()
+      sma200 = prices.rolling(200).mean()
       diff = sma50 - sma200
       diff_list = diff.tolist()
 
@@ -317,8 +336,9 @@ defmodule Pyex.Stdlib.PandasTest do
       signals
       """
 
+      opts = [timeout_ms: 20_000, modules: %{"platform" => platform}]
       {naive_us, _} = :timer.tc(fn -> Pyex.run!(naive_code, timeout_ms: 20_000) end)
-      {pandas_us, _} = :timer.tc(fn -> Pyex.run!(pandas_code, timeout_ms: 20_000) end)
+      {pandas_us, _} = :timer.tc(fn -> Pyex.run!(pandas_code, opts) end)
 
       speedup = naive_us / max(pandas_us, 1)
 
@@ -329,19 +349,47 @@ defmodule Pyex.Stdlib.PandasTest do
       assert pandas_us < naive_us,
              "pandas (#{fmt(pandas_us)}) should be faster than naive (#{fmt(naive_us)})"
     end
-  end
 
-  defp golden_cross_prices_literal(n) do
-    :rand.seed(:exsss, {42, 42, 42})
-    prices = generate_prices(n)
-    "[" <> Enum.join(Enum.map(prices, &Float.to_string/1), ", ") <> "]"
+    test "platform.get_prices returns Series usable with .tolist()", %{platform: platform} do
+      result =
+        Pyex.run!(
+          """
+          import platform
+          prices = platform.get_prices("AAPL")
+          len(prices)
+          """,
+          modules: %{"platform" => platform}
+        )
+
+      assert result == 300
+    end
+
+    test "platform.get_prices Series supports method chaining", %{platform: platform} do
+      result =
+        Pyex.run!(
+          """
+          import platform
+          prices = platform.get_prices("AAPL")
+          prices.rolling(5).mean().tolist()[-1]
+          """,
+          modules: %{"platform" => platform}
+        )
+
+      assert is_float(result)
+    end
   end
 
   defp generate_prices(n) do
+    :rand.seed(:exsss, {42, 42, 42})
+
     Enum.scan(1..n, 100.0, fn _, prev ->
       change = (:rand.uniform() - 0.48) * 4
       Float.round(max(prev + change, 1.0), 2)
     end)
+  end
+
+  defp prices_literal(prices) do
+    "[" <> Enum.join(Enum.map(prices, &Float.to_string/1), ", ") <> "]"
   end
 
   defp fmt(us) when us < 1_000, do: "#{us}us"
