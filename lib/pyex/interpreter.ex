@@ -150,7 +150,8 @@ defmodule Pyex.Interpreter do
   end
 
   def eval({:def, _, [name, params, body]}, env, ctx) do
-    func = {:function, name, params, body, env}
+    tagged_body = if contains_yield?(body), do: [:__generator__ | body], else: body
+    func = {:function, name, params, tagged_body, env}
     ctx = Ctx.record(ctx, :assign, {name, :function})
     {nil, Env.smart_put(env, name, func), ctx}
   end
@@ -1335,7 +1336,7 @@ defmodule Pyex.Interpreter do
   def call_function({:function, name, params, body, closure_env} = func, args, kwargs, env, ctx) do
     ctx = Ctx.record(ctx, :call_enter, {length(args) + map_size(kwargs)})
     fresh_closure = Env.put_global_scope(closure_env, Env.global_scope(env))
-    base_env = Env.push_scope(Env.put(fresh_closure, name, func))
+    base_env = Env.push_scope_with(fresh_closure, %{name => func})
 
     case bind_params(params, args, kwargs, base_env, ctx) do
       {:exception, msg, ctx} ->
@@ -1345,12 +1346,14 @@ defmodule Pyex.Interpreter do
         t0 = if ctx.profile, do: System.monotonic_time(:microsecond)
 
         result =
-          if contains_yield?(body) do
+          if match?([:__generator__ | _], body) do
+            gen_body = tl(body)
+
             case ctx.generator_mode do
               :defer ->
                 gen_ctx = %{ctx | generator_mode: :defer_inner}
 
-                case eval_statements(body, call_env, gen_ctx) do
+                case eval_statements(gen_body, call_env, gen_ctx) do
                   {{:yielded, val, cont}, gen_env, gen_ctx} ->
                     ctx =
                       Ctx.record(
@@ -1392,7 +1395,7 @@ defmodule Pyex.Interpreter do
               _ ->
                 prev_acc = ctx.generator_acc
                 gen_ctx = %{ctx | generator_mode: :accumulate, generator_acc: []}
-                {result, _post_call_env, gen_ctx} = eval_statements(body, call_env, gen_ctx)
+                {result, _post_call_env, gen_ctx} = eval_statements(gen_body, call_env, gen_ctx)
                 yields = Enum.reverse(gen_ctx.generator_acc || [])
 
                 ctx =
@@ -1890,6 +1893,56 @@ defmodule Pyex.Interpreter do
           Ctx.t()
         ) :: {Env.t(), Ctx.t()} | {:exception, String.t(), Ctx.t()}
   defp bind_params(params, args, kwargs, env, ctx) do
+    if kwargs == %{} and simple_params?(params) do
+      bind_params_simple(params, args, env, ctx)
+    else
+      bind_params_full(params, args, kwargs, env, ctx)
+    end
+  end
+
+  @spec simple_params?([Parser.param()]) :: boolean()
+  defp simple_params?(params) do
+    Enum.all?(params, fn param ->
+      not String.starts_with?(elem(param, 0), "*")
+    end)
+  end
+
+  @spec bind_params_simple([Parser.param()], [pyvalue()], Env.t(), Ctx.t()) ::
+          {Env.t(), Ctx.t()} | {:exception, String.t(), Ctx.t()}
+  defp bind_params_simple(params, args, env, ctx) do
+    n_params = length(params)
+    n_args = length(args)
+
+    if n_args > n_params do
+      {:exception,
+       "TypeError: function takes #{n_params} positional arguments but #{n_args} were given", ctx}
+    else
+      bind_simple_acc(params, args, env, ctx)
+    end
+  end
+
+  @spec bind_simple_acc([Parser.param()], [pyvalue()], Env.t(), Ctx.t()) ::
+          {Env.t(), Ctx.t()} | {:exception, String.t(), Ctx.t()}
+  defp bind_simple_acc([], _args, env, ctx), do: {env, ctx}
+
+  defp bind_simple_acc([param | rest_params], args, env, ctx) do
+    name = elem(param, 0)
+    default = elem(param, 1)
+
+    case args do
+      [val | rest_args] ->
+        bind_simple_acc(rest_params, rest_args, Env.put(env, name, val), ctx)
+
+      [] when default != nil ->
+        {val, _env, ctx} = eval(default, env, ctx)
+        bind_simple_acc(rest_params, [], Env.put(env, name, val), ctx)
+
+      [] ->
+        {:exception, "TypeError: missing required argument: '#{name}'", ctx}
+    end
+  end
+
+  defp bind_params_full(params, args, kwargs, env, ctx) do
     {regular, star_param, dstar_param} = split_variadic_params(params)
     regular_names = Enum.map(regular, &elem(&1, 0))
     defaults = Enum.map(regular, &elem(&1, 1))

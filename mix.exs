@@ -9,6 +9,7 @@ defmodule Pyex.MixProject do
       app: :pyex,
       version: @version,
       elixir: "~> 1.19",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       dialyzer: [
@@ -24,6 +25,9 @@ defmodule Pyex.MixProject do
       package: package()
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   def application do
     [
@@ -41,6 +45,7 @@ defmodule Pyex.MixProject do
       {:opentelemetry, "~> 1.7"},
       {:opentelemetry_exporter, "~> 1.10"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
+      {:explorer, "~> 0.10", only: :test},
       {:stream_data, "~> 1.1", only: :test},
       {:bypass, "~> 2.1", only: :test},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
