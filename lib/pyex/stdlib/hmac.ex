@@ -74,7 +74,7 @@ defmodule Pyex.Stdlib.Hmac do
   defp do_digest([key, msg, digestmod]) when is_binary(key) and is_binary(msg) do
     case resolve_digestmod(digestmod) do
       {:ok, algo_name} ->
-        erlang_algo = Map.fetch!(@algorithms, algo_name)
+        erlang_algo = Map.get(@algorithms, algo_name)
         :crypto.mac(:hmac, erlang_algo, key, msg) |> Base.encode16(case: :lower)
 
       {:error, reason} ->
@@ -128,12 +128,12 @@ defmodule Pyex.Stdlib.Hmac do
 
   @spec make_hmac_object(String.t(), binary(), binary()) :: Pyex.Interpreter.pyvalue()
   defp make_hmac_object(algo_name, key, msg) do
-    erlang_algo = Map.fetch!(@algorithms, algo_name)
+    erlang_algo = Map.get(@algorithms, algo_name)
     mac = :crypto.mac(:hmac, erlang_algo, key, msg)
     hex = Base.encode16(mac, case: :lower)
 
-    digest_size = Map.fetch!(@digest_sizes, algo_name)
-    block_size = Map.fetch!(@block_sizes, algo_name)
+    digest_size = Map.get(@digest_sizes, algo_name, 0)
+    block_size = Map.get(@block_sizes, algo_name, 0)
 
     update_fn =
       {:builtin,

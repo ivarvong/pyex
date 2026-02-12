@@ -80,12 +80,12 @@ defmodule Pyex.LexerTest do
                {:name, 2, "b"},
                :newline,
                :dedent,
-               {:name, 3, "add"},
-               {:op, 3, :lparen},
-               {:integer, 3, 1},
-               {:op, 3, :comma},
-               {:integer, 3, 2},
-               {:op, 3, :rparen}
+               {:name, 4, "add"},
+               {:op, 4, :lparen},
+               {:integer, 4, 1},
+               {:op, 4, :comma},
+               {:integer, 4, 2},
+               {:op, 4, :rparen}
              ] = tokens
     end
 

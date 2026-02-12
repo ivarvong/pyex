@@ -20,7 +20,11 @@ defmodule Pyex.Methods do
   @dict_methods ~w(clear copy get items keys pop setdefault update values)
   @set_methods ~w(
     add clear copy difference discard intersection isdisjoint
-    issubset issuperset pop remove symmetric_difference union
+    issubset issuperset pop remove symmetric_difference union update
+  )
+  @frozenset_methods ~w(
+    copy difference intersection isdisjoint
+    issubset issuperset symmetric_difference union
   )
   @tuple_methods ~w(count index)
 
@@ -44,6 +48,7 @@ defmodule Pyex.Methods do
   def resolve(object, attr) when is_list(object) do
     case list_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      {:ok_kw, method_fn} -> {:ok, {:builtin_kw, bound_kw(method_fn, object)}}
       :error -> :error
     end
   end
@@ -64,6 +69,13 @@ defmodule Pyex.Methods do
 
   def resolve({:set, _} = object, attr) do
     case set_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
+  def resolve({:frozenset, _} = object, attr) do
+    case frozenset_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
       :error -> :error
     end
@@ -104,6 +116,7 @@ defmodule Pyex.Methods do
   def method_names(val) when is_list(val), do: @list_methods
   def method_names(val) when is_map(val), do: @dict_methods
   def method_names({:set, _}), do: @set_methods
+  def method_names({:frozenset, _}), do: @frozenset_methods
   def method_names({:tuple, _}), do: @tuple_methods
   def method_names(_), do: []
 
@@ -113,6 +126,14 @@ defmodule Pyex.Methods do
         ) :: ([Interpreter.pyvalue()] -> Interpreter.pyvalue())
   defp bound(method_fn, receiver) do
     fn args -> method_fn.(receiver, args) end
+  end
+
+  @spec bound_kw(
+          (Interpreter.pyvalue(), [Interpreter.pyvalue()], map() -> term()),
+          Interpreter.pyvalue()
+        ) :: ([Interpreter.pyvalue()], map() -> term())
+  defp bound_kw(method_fn, receiver) do
+    fn args, kwargs -> method_fn.(receiver, args, kwargs) end
   end
 
   @spec string_method(String.t()) ::
@@ -158,13 +179,15 @@ defmodule Pyex.Methods do
 
   @spec list_method(String.t()) ::
           {:ok, ([Interpreter.pyvalue()], [Interpreter.pyvalue()] -> Interpreter.pyvalue())}
+          | {:ok_kw,
+             ([Interpreter.pyvalue()], [Interpreter.pyvalue()], map() -> Interpreter.pyvalue())}
           | :error
   defp list_method("append"), do: {:ok, &list_append/2}
   defp list_method("extend"), do: {:ok, &list_extend/2}
   defp list_method("insert"), do: {:ok, &list_insert/2}
   defp list_method("remove"), do: {:ok, &list_remove/2}
   defp list_method("pop"), do: {:ok, &list_pop/2}
-  defp list_method("sort"), do: {:ok, &list_sort/2}
+  defp list_method("sort"), do: {:ok_kw, &list_sort/3}
   defp list_method("reverse"), do: {:ok, &list_reverse/2}
   defp list_method("clear"), do: {:ok, &list_clear/2}
   defp list_method("index"), do: {:ok, &list_index/2}
@@ -278,9 +301,20 @@ defmodule Pyex.Methods do
     s |> String.reverse() |> trim_leading_chars(chars) |> String.reverse()
   end
 
-  @spec str_split(String.t(), [Interpreter.pyvalue()]) :: [String.t()]
+  @spec str_split(String.t(), [Interpreter.pyvalue()]) ::
+          [String.t()] | {:exception, String.t()}
   defp str_split(s, []), do: String.split(s)
+  defp str_split(_s, [""]), do: {:exception, "ValueError: empty separator"}
+
   defp str_split(s, [sep]) when is_binary(sep), do: String.split(s, sep)
+
+  defp str_split(s, [sep, maxsplit]) when is_binary(sep) and is_integer(maxsplit) do
+    if sep == "" do
+      {:exception, "ValueError: empty separator"}
+    else
+      String.split(s, sep, parts: maxsplit + 1)
+    end
+  end
 
   @spec str_join(String.t(), [Interpreter.pyvalue()]) :: String.t()
   defp str_join(s, [list]) when is_list(list), do: Enum.join(list, s)
@@ -295,14 +329,26 @@ defmodule Pyex.Methods do
   @spec str_startswith(String.t(), [Interpreter.pyvalue()]) :: boolean()
   defp str_startswith(s, [prefix]) when is_binary(prefix), do: String.starts_with?(s, prefix)
 
+  defp str_startswith(s, [{:tuple, prefixes}]) do
+    Enum.any?(prefixes, fn p -> is_binary(p) and String.starts_with?(s, p) end)
+  end
+
   @spec str_endswith(String.t(), [Interpreter.pyvalue()]) :: boolean()
   defp str_endswith(s, [suffix]) when is_binary(suffix), do: String.ends_with?(s, suffix)
+
+  defp str_endswith(s, [{:tuple, suffixes}]) do
+    Enum.any?(suffixes, fn p -> is_binary(p) and String.ends_with?(s, p) end)
+  end
 
   @spec str_find(String.t(), [Interpreter.pyvalue()]) :: integer()
   defp str_find(s, [sub]) when is_binary(sub) do
     case :binary.match(s, sub) do
-      {pos, _len} -> pos
-      :nomatch -> -1
+      {byte_pos, _len} ->
+        byte_prefix = binary_part(s, 0, byte_pos)
+        String.length(byte_prefix)
+
+      :nomatch ->
+        -1
     end
   end
 
@@ -316,8 +362,10 @@ defmodule Pyex.Methods do
     args
     |> Enum.with_index()
     |> Enum.reduce(s, fn {arg, idx}, acc ->
-      String.replace(acc, "{#{idx}}", py_repr(arg), global: true)
-      |> String.replace("{}", py_repr(arg), global: false)
+      formatted = Builtins.py_repr(arg)
+
+      String.replace(acc, "{#{idx}}", formatted, global: true)
+      |> String.replace("{}", formatted, global: false)
     end)
   end
 
@@ -363,7 +411,13 @@ defmodule Pyex.Methods do
 
   @spec str_zfill(String.t(), [Interpreter.pyvalue()]) :: String.t()
   defp str_zfill(s, [width]) when is_integer(width) do
-    String.pad_leading(s, width, "0")
+    case s do
+      <<sign, rest::binary>> when sign in [?+, ?-] ->
+        <<sign>> <> String.pad_leading(rest, max(width - 1, 0), "0")
+
+      _ ->
+        String.pad_leading(s, width, "0")
+    end
   end
 
   @spec str_center(String.t(), [Interpreter.pyvalue()]) :: String.t()
@@ -565,11 +619,13 @@ defmodule Pyex.Methods do
     do: map |> Builtins.visible_dict() |> Enum.map(fn {k, v} -> {:tuple, [k, v]} end)
 
   @spec dict_pop(map(), [Interpreter.pyvalue()]) ::
-          {:mutate, map(), Interpreter.pyvalue()}
+          {:mutate, map(), Interpreter.pyvalue()} | {:exception, String.t()}
   defp dict_pop(map, [key]) do
-    case Map.pop(map, key) do
-      {nil, _} -> {:exception, "KeyError: #{inspect(key)}"}
-      {val, rest} -> {:mutate, rest, val}
+    if Map.has_key?(map, key) do
+      {val, rest} = Map.pop(map, key)
+      {:mutate, rest, val}
+    else
+      {:exception, "KeyError: #{Builtins.py_repr(key)}"}
     end
   end
 
@@ -618,8 +674,25 @@ defmodule Pyex.Methods do
   defp list_append(list, [item]), do: {:mutate, list ++ [item], nil}
 
   @spec list_extend([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
-          {:mutate, [Interpreter.pyvalue()], nil}
+          {:mutate, [Interpreter.pyvalue()], nil} | {:exception, String.t()}
   defp list_extend(list, [other]) when is_list(other), do: {:mutate, list ++ other, nil}
+  defp list_extend(list, [{:tuple, items}]), do: {:mutate, list ++ items, nil}
+  defp list_extend(list, [{:set, s}]), do: {:mutate, list ++ MapSet.to_list(s), nil}
+  defp list_extend(list, [{:frozenset, s}]), do: {:mutate, list ++ MapSet.to_list(s), nil}
+  defp list_extend(list, [{:generator, items}]), do: {:mutate, list ++ items, nil}
+
+  defp list_extend(list, [str]) when is_binary(str),
+    do: {:mutate, list ++ String.codepoints(str), nil}
+
+  defp list_extend(list, [map]) when is_map(map),
+    do: {:mutate, list ++ Map.keys(Builtins.visible_dict(map)), nil}
+
+  defp list_extend(list, [{:range, _, _, _} = r]) do
+    case Builtins.range_to_list(r) do
+      {:exception, _} = err -> err
+      items -> {:mutate, list ++ items, nil}
+    end
+  end
 
   @spec list_insert([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
           {:mutate, [Interpreter.pyvalue()], nil}
@@ -653,9 +726,19 @@ defmodule Pyex.Methods do
     end
   end
 
-  @spec list_sort([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
+  @spec list_sort([Interpreter.pyvalue()], [Interpreter.pyvalue()], map()) ::
           {:mutate, [Interpreter.pyvalue()], nil}
-  defp list_sort(list, []), do: {:mutate, Enum.sort(list), nil}
+          | {:list_sort_call, [Interpreter.pyvalue()], Interpreter.pyvalue() | nil, boolean()}
+  defp list_sort(list, [], kwargs) do
+    key_fn = Map.get(kwargs, "key")
+    reverse = Map.get(kwargs, "reverse", false)
+
+    if key_fn == nil and reverse == false do
+      {:mutate, Enum.sort(list), nil}
+    else
+      {:list_sort_call, list, key_fn, reverse == true}
+    end
+  end
 
   @spec list_reverse([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
           {:mutate, [Interpreter.pyvalue()], nil}
@@ -718,6 +801,7 @@ defmodule Pyex.Methods do
   defp set_method("issubset"), do: {:ok, &set_issubset/2}
   defp set_method("issuperset"), do: {:ok, &set_issuperset/2}
   defp set_method("isdisjoint"), do: {:ok, &set_isdisjoint/2}
+  defp set_method("update"), do: {:ok, &set_update/2}
   defp set_method(_), do: :error
 
   @spec set_add(Interpreter.pyvalue(), [Interpreter.pyvalue()]) ::
@@ -749,6 +833,26 @@ defmodule Pyex.Methods do
 
   @spec set_clear(Interpreter.pyvalue(), [Interpreter.pyvalue()]) :: tuple()
   defp set_clear({:set, _}, []), do: {:mutate, {:set, MapSet.new()}, nil}
+
+  @spec set_update(Interpreter.pyvalue(), [Interpreter.pyvalue()]) ::
+          {:mutate, Interpreter.pyvalue(), nil}
+  defp set_update({:set, a}, [{:set, b}]), do: {:mutate, {:set, MapSet.union(a, b)}, nil}
+  defp set_update({:set, a}, [{:frozenset, b}]), do: {:mutate, {:set, MapSet.union(a, b)}, nil}
+
+  defp set_update({:set, a}, [list]) when is_list(list),
+    do: {:mutate, {:set, MapSet.union(a, MapSet.new(list))}, nil}
+
+  defp set_update({:set, a}, [{:tuple, items}]),
+    do: {:mutate, {:set, MapSet.union(a, MapSet.new(items))}, nil}
+
+  defp set_update({:set, a}, [{:generator, items}]),
+    do: {:mutate, {:set, MapSet.union(a, MapSet.new(items))}, nil}
+
+  defp set_update({:set, a}, [str]) when is_binary(str),
+    do: {:mutate, {:set, MapSet.union(a, MapSet.new(String.codepoints(str)))}, nil}
+
+  defp set_update({:set, a}, [map]) when is_map(map),
+    do: {:mutate, {:set, MapSet.union(a, MapSet.new(Map.keys(Builtins.visible_dict(map))))}, nil}
 
   @spec set_copy(Interpreter.pyvalue(), [Interpreter.pyvalue()]) :: Interpreter.pyvalue()
   defp set_copy({:set, _} = s, []), do: s
@@ -785,14 +889,70 @@ defmodule Pyex.Methods do
   @spec set_isdisjoint(Interpreter.pyvalue(), [Interpreter.pyvalue()]) :: boolean()
   defp set_isdisjoint({:set, a}, [{:set, b}]), do: MapSet.disjoint?(a, b)
 
-  @spec py_repr(Interpreter.pyvalue()) :: String.t()
-  defp py_repr(nil), do: "None"
-  defp py_repr(true), do: "True"
-  defp py_repr(false), do: "False"
-  defp py_repr(val) when is_binary(val), do: val
-  defp py_repr(val) when is_integer(val), do: Integer.to_string(val)
-  defp py_repr(val) when is_float(val), do: Float.to_string(val)
-  defp py_repr(_), do: "<object>"
+  @spec frozenset_method(String.t()) ::
+          {:ok, (Interpreter.pyvalue(), [Interpreter.pyvalue()] -> Interpreter.pyvalue())}
+          | :error
+  defp frozenset_method("copy"), do: {:ok, &frozenset_copy/2}
+  defp frozenset_method("union"), do: {:ok, &frozenset_union/2}
+  defp frozenset_method("intersection"), do: {:ok, &frozenset_intersection/2}
+  defp frozenset_method("difference"), do: {:ok, &frozenset_difference/2}
+  defp frozenset_method("symmetric_difference"), do: {:ok, &frozenset_symmetric_difference/2}
+  defp frozenset_method("issubset"), do: {:ok, &frozenset_issubset/2}
+  defp frozenset_method("issuperset"), do: {:ok, &frozenset_issuperset/2}
+  defp frozenset_method("isdisjoint"), do: {:ok, &frozenset_isdisjoint/2}
+  defp frozenset_method(_), do: :error
+
+  @spec frozenset_copy(Interpreter.pyvalue(), [Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp frozenset_copy({:frozenset, _} = fs, []), do: fs
+
+  @spec frozenset_union(Interpreter.pyvalue(), [Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp frozenset_union({:frozenset, a}, [{:set, b}]), do: {:frozenset, MapSet.union(a, b)}
+  defp frozenset_union({:frozenset, a}, [{:frozenset, b}]), do: {:frozenset, MapSet.union(a, b)}
+
+  defp frozenset_union({:frozenset, a}, [list]) when is_list(list),
+    do: {:frozenset, MapSet.union(a, MapSet.new(list))}
+
+  @spec frozenset_intersection(Interpreter.pyvalue(), [Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue()
+  defp frozenset_intersection({:frozenset, a}, [{:set, b}]),
+    do: {:frozenset, MapSet.intersection(a, b)}
+
+  defp frozenset_intersection({:frozenset, a}, [{:frozenset, b}]),
+    do: {:frozenset, MapSet.intersection(a, b)}
+
+  defp frozenset_intersection({:frozenset, a}, [list]) when is_list(list),
+    do: {:frozenset, MapSet.intersection(a, MapSet.new(list))}
+
+  @spec frozenset_difference(Interpreter.pyvalue(), [Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue()
+  defp frozenset_difference({:frozenset, a}, [{:set, b}]),
+    do: {:frozenset, MapSet.difference(a, b)}
+
+  defp frozenset_difference({:frozenset, a}, [{:frozenset, b}]),
+    do: {:frozenset, MapSet.difference(a, b)}
+
+  defp frozenset_difference({:frozenset, a}, [list]) when is_list(list),
+    do: {:frozenset, MapSet.difference(a, MapSet.new(list))}
+
+  @spec frozenset_symmetric_difference(Interpreter.pyvalue(), [Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue()
+  defp frozenset_symmetric_difference({:frozenset, a}, [{:set, b}]),
+    do: {:frozenset, MapSet.symmetric_difference(a, b)}
+
+  defp frozenset_symmetric_difference({:frozenset, a}, [{:frozenset, b}]),
+    do: {:frozenset, MapSet.symmetric_difference(a, b)}
+
+  @spec frozenset_issubset(Interpreter.pyvalue(), [Interpreter.pyvalue()]) :: boolean()
+  defp frozenset_issubset({:frozenset, a}, [{:set, b}]), do: MapSet.subset?(a, b)
+  defp frozenset_issubset({:frozenset, a}, [{:frozenset, b}]), do: MapSet.subset?(a, b)
+
+  @spec frozenset_issuperset(Interpreter.pyvalue(), [Interpreter.pyvalue()]) :: boolean()
+  defp frozenset_issuperset({:frozenset, a}, [{:set, b}]), do: MapSet.subset?(b, a)
+  defp frozenset_issuperset({:frozenset, a}, [{:frozenset, b}]), do: MapSet.subset?(b, a)
+
+  @spec frozenset_isdisjoint(Interpreter.pyvalue(), [Interpreter.pyvalue()]) :: boolean()
+  defp frozenset_isdisjoint({:frozenset, a}, [{:set, b}]), do: MapSet.disjoint?(a, b)
+  defp frozenset_isdisjoint({:frozenset, a}, [{:frozenset, b}]), do: MapSet.disjoint?(a, b)
 
   # ---------------------------------------------------------------------------
   # pandas Series methods (backed by Explorer/Polars)

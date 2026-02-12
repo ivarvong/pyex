@@ -31,13 +31,14 @@ defmodule Pyex.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :opentelemetry_exporter, :opentelemetry]
+      extra_applications: [:logger]
     ]
   end
 
   defp deps do
     [
       {:cmark, "~> 0.10"},
+      {:jason, "~> 1.4"},
       {:nimble_parsec, "~> 1.4"},
       {:req, "~> 0.5"},
       {:postgrex, "~> 0.22", optional: true},

@@ -56,12 +56,24 @@ defmodule Pyex.Stdlib.Re do
   end
 
   @spec do_findall([Pyex.Interpreter.pyvalue()]) ::
-          [String.t()] | {:exception, String.t()}
+          [Pyex.Interpreter.pyvalue()] | {:exception, String.t()}
   defp do_findall([pattern, string]) when is_binary(pattern) and is_binary(string) do
     case Regex.compile(pattern) do
       {:ok, re} ->
-        case Regex.scan(re, string) do
-          results -> Enum.map(results, fn [m | _] -> m end)
+        results = Regex.scan(re, string)
+
+        case results do
+          [] ->
+            []
+
+          [[_full] | _] ->
+            Enum.map(results, fn [m | _] -> m end)
+
+          [[_full | _groups] | _] ->
+            Enum.map(results, fn
+              [_full | [single]] -> single
+              [_full | groups] -> {:tuple, groups}
+            end)
         end
 
       {:error, {msg, _}} ->

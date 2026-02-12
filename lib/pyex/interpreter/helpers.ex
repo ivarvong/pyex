@@ -27,6 +27,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type(val) when is_map(val), do: "dict"
   def py_type({:tuple, _}), do: "tuple"
   def py_type({:set, _}), do: "set"
+  def py_type({:frozenset, _}), do: "frozenset"
   def py_type({:function, _, _, _, _}), do: "function"
   def py_type({:builtin, _}), do: "builtin_function_or_method"
   def py_type({:builtin_type, name, _}), do: "<class '#{name}'>"
@@ -73,6 +74,15 @@ defmodule Pyex.Interpreter.Helpers do
 
   def py_str({:tuple, items}), do: "(" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> ")"
   def py_str({:set, s}), do: "{" <> Enum.map_join(MapSet.to_list(s), ", ", &py_repr_fmt/1) <> "}"
+
+  def py_str({:frozenset, s}) do
+    if MapSet.size(s) == 0 do
+      "frozenset()"
+    else
+      "frozenset({" <> Enum.map_join(MapSet.to_list(s), ", ", &py_repr_fmt/1) <> "})"
+    end
+  end
+
   def py_str({:class, name, _, _}), do: "<class '#{name}'>"
   def py_str({:builtin_type, name, _}), do: "<class '#{name}'>"
 
@@ -170,18 +180,33 @@ defmodule Pyex.Interpreter.Helpers do
   def bool_to_int(false), do: 0
   def bool_to_int(other), do: other
 
+  @max_exp 100_000
+
   @doc false
-  @spec int_pow(integer(), non_neg_integer()) :: integer()
+  @spec int_pow(integer(), non_neg_integer()) :: integer() | {:exception, String.t()}
   def int_pow(_base, 0), do: 1
   def int_pow(base, 1), do: base
 
+  def int_pow(_base, exp) when exp > @max_exp do
+    {:exception, "OverflowError: exponent #{exp} exceeds maximum allowed (#{@max_exp})"}
+  end
+
   def int_pow(base, exp) when rem(exp, 2) == 0 do
     half = int_pow(base, div(exp, 2))
-    half * half
+
+    case half do
+      {:exception, _} -> half
+      _ -> half * half
+    end
   end
 
   def int_pow(base, exp) do
-    base * int_pow(base, exp - 1)
+    rest = int_pow(base, exp - 1)
+
+    case rest do
+      {:exception, _} -> rest
+      _ -> base * rest
+    end
   end
 
   @doc false
@@ -191,12 +216,21 @@ defmodule Pyex.Interpreter.Helpers do
     if rounded == f, do: rounded, else: f
   end
 
+  @max_repeat_len 10_000_000
+
   @doc false
-  @spec repeat_list(list(), integer()) :: list()
+  @spec repeat_list(list(), integer()) :: list() | {:exception, String.t()}
   def repeat_list(_list, n) when n <= 0, do: []
 
   def repeat_list(list, n) do
-    list |> List.duplicate(n) |> List.flatten()
+    result_len = length(list) * n
+
+    if result_len > @max_repeat_len do
+      {:exception,
+       "MemoryError: list repetition would create #{result_len} elements (max #{@max_repeat_len})"}
+    else
+      list |> List.duplicate(n) |> List.flatten()
+    end
   end
 
   @doc false

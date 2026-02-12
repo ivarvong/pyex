@@ -51,7 +51,15 @@ defmodule Pyex.Stdlib.Itertools do
   defp materialize({:tuple, items}), do: items
   defp materialize({:generator, items}), do: items
   defp materialize({:set, s}), do: MapSet.to_list(s)
-  defp materialize({:range, _, _, _} = r), do: Builtins.range_to_list(r)
+  defp materialize({:frozenset, s}), do: MapSet.to_list(s)
+
+  defp materialize({:range, _, _, _} = r) do
+    case Builtins.range_to_list(r) do
+      {:exception, _} -> []
+      list -> list
+    end
+  end
+
   defp materialize(str) when is_binary(str), do: String.codepoints(str)
   defp materialize(map) when is_map(map), do: map |> Builtins.visible_dict() |> Map.keys()
 

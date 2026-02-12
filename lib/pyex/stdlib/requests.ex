@@ -131,7 +131,15 @@ defmodule Pyex.Stdlib.Requests do
 
   @spec build_response(Req.Response.t()) :: Pyex.Interpreter.pyvalue()
   defp build_response(%Req.Response{status: status, body: body, headers: resp_headers}) do
-    text = if is_binary(body), do: body, else: Jason.encode!(body)
+    text =
+      if is_binary(body) do
+        body
+      else
+        case Jason.encode(body) do
+          {:ok, json} -> json
+          {:error, _} -> inspect(body)
+        end
+      end
 
     headers_map =
       Enum.reduce(resp_headers, %{}, fn {k, v}, acc ->
@@ -144,7 +152,14 @@ defmodule Pyex.Stdlib.Requests do
       "status_code" => status,
       "ok" => status >= 200 and status < 300,
       "headers" => headers_map,
-      "json" => {:builtin, fn [] -> Jason.decode!(text) end}
+      "json" =>
+        {:builtin,
+         fn [] ->
+           case Jason.decode(text) do
+             {:ok, value} -> value
+             {:error, reason} -> {:exception, "json.JSONDecodeError: #{inspect(reason)}"}
+           end
+         end}
     }
   end
 

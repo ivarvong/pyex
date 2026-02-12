@@ -145,8 +145,29 @@ defmodule Pyex.Ctx do
   - `:boto3` -- shorthand for adding `:boto3` to capabilities.
   - `:sql` -- shorthand for adding `:sql` to capabilities.
   """
+  @valid_keys [
+    :filesystem,
+    :fs_module,
+    :environ,
+    :modules,
+    :timeout_ms,
+    :profile,
+    :network,
+    :capabilities,
+    :boto3,
+    :sql
+  ]
+
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
+    unknown = Keyword.keys(opts) -- @valid_keys
+
+    if unknown != [] do
+      raise ArgumentError,
+            "unknown options #{inspect(unknown)} passed to Pyex.Ctx.new/1. " <>
+              "Valid options: #{inspect(@valid_keys)}"
+    end
+
     fs = Keyword.get(opts, :filesystem)
     mod = Keyword.get(opts, :fs_module)
     environ = Keyword.get(opts, :environ, %{})
