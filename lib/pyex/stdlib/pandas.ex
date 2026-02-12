@@ -59,7 +59,22 @@ defmodule Pyex.Stdlib.Pandas do
         "DataFrame" => {:builtin, &do_dataframe/1}
       }
     else
-      raise "pandas module requires the :explorer dependency. Add {:explorer, \"~> 0.10\"} to your mix.exs deps."
+      %{
+        "Series" =>
+          {:builtin,
+           fn _ ->
+             {:exception,
+              "ImportError: pandas requires the :explorer dependency. " <>
+                "Add {:explorer, \"~> 0.10\"} to your mix.exs deps."}
+           end},
+        "DataFrame" =>
+          {:builtin,
+           fn _ ->
+             {:exception,
+              "ImportError: pandas requires the :explorer dependency. " <>
+                "Add {:explorer, \"~> 0.10\"} to your mix.exs deps."}
+           end}
+      }
     end
   end
 

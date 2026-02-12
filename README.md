@@ -6,6 +6,21 @@
 
 A Python 3 interpreter written in Elixir.
 
+## Installation
+
+Add `pyex` to your list of dependencies in `mix.exs`:
+
+```elixir
+def deps do
+  [{:pyex, "~> 0.1.0"}]
+end
+```
+
+Pyex uses [cmark](https://hex.pm/packages/cmark) for Markdown rendering, which
+requires a C compiler at build time.
+
+## Overview
+
 LLMs generate Python. This runs it as a function call inside your Elixir app --
 no container, no VM, no process isolation. The LLM doesn't need pip install;
 it writes self-contained programs using stdlib modules, and Pyex interprets them
@@ -199,16 +214,18 @@ snapshot -- store it in Postgres, resume it days later:
 
 ```elixir
 {:suspended, ctx} = Pyex.run(source, Pyex.Ctx.new())
-snapshot = Pyex.snapshot(ctx)
-# ... store snapshot, restart server, whatever ...
-{:ok, result, _ctx} = Pyex.resume(source, ctx)
+# ctx is a plain Elixir struct -- serialize with :erlang.term_to_binary/1
+binary = :erlang.term_to_binary(Pyex.Ctx.for_resume(ctx))
+# ... store in Postgres, restart server, whatever ...
+resumed_ctx = :erlang.binary_to_term(binary)
+{:ok, result, _ctx} = Pyex.resume(source, resumed_ctx)
 ```
 
 ### Compute Budgets
 
 ```elixir
-Pyex.run(source, timeout: 5_000)
-# => {:error, "TimeoutError: execution exceeded time limit"}
+Pyex.run(source, timeout_ms: 5_000)
+# => {:error, %Pyex.Error{kind: :timeout, message: "TimeoutError: ..."}}
 ```
 
 ### Profiling

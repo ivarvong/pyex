@@ -34,6 +34,7 @@ defmodule Pyex.Interpreter do
           | %{optional(pyvalue()) => pyvalue()}
           | {:tuple, [pyvalue()]}
           | {:set, MapSet.t(pyvalue())}
+          | {:frozenset, MapSet.t(pyvalue())}
           | {:range, integer(), integer(), integer()}
           | {:function, String.t(), [Parser.param()], [Parser.ast_node()], Env.t()}
           | {:builtin, ([pyvalue()] -> pyvalue())}
@@ -61,7 +62,7 @@ defmodule Pyex.Interpreter do
            | {:yielded, pyvalue(), [cont_frame()]}
 
   @type builtin_signal ::
-          {:print_call, [pyvalue()]}
+          {:print_call, [pyvalue()], String.t(), String.t()}
           | {:io_call, (Env.t(), Ctx.t() -> {term(), Env.t(), Ctx.t()})}
           | {:ctx_call, (Env.t(), Ctx.t() -> term())}
           | {:mutate, pyvalue(), pyvalue()}
@@ -71,6 +72,7 @@ defmodule Pyex.Interpreter do
           | {:min_call, [pyvalue()], pyvalue()}
           | {:max_call, [pyvalue()], pyvalue()}
           | {:sort_call, [pyvalue()], pyvalue() | nil, boolean()}
+          | {:list_sort_call, [pyvalue()], pyvalue() | nil, boolean()}
           | {:iter_sorted, pyvalue(), pyvalue() | nil, boolean()}
           | {:iter_sum, pyvalue()}
           | {:iter_to_list, pyvalue()}
@@ -286,24 +288,28 @@ defmodule Pyex.Interpreter do
 
     class_env = Env.push_scope(env)
 
-    {class_env, ctx} =
-      Enum.reduce(body, {class_env, ctx}, fn stmt, {ce, c} ->
+    {class_env, ctx, error} =
+      Enum.reduce_while(body, {class_env, ctx, nil}, fn stmt, {ce, c, _err} ->
         case eval(stmt, ce, c) do
-          {{:exception, _} = _signal, ce, c} -> {ce, c}
-          {_val, ce, c} -> {ce, c}
+          {{:exception, _} = signal, ce, c} -> {:halt, {ce, c, signal}}
+          {_val, ce, c} -> {:cont, {ce, c, nil}}
         end
       end)
 
-    class_scope = Env.current_scope(class_env)
+    if error do
+      {error, env, ctx}
+    else
+      class_scope = Env.current_scope(class_env)
 
-    class_attrs =
-      Enum.reduce(class_scope, %{}, fn {k, v}, acc ->
-        Map.put(acc, k, v)
-      end)
+      class_attrs =
+        Enum.reduce(class_scope, %{}, fn {k, v}, acc ->
+          Map.put(acc, k, v)
+        end)
 
-    class_val = {:class, name, bases, class_attrs}
-    ctx = Ctx.record(ctx, :assign, {name, :class})
-    {nil, Env.smart_put(env, name, class_val), ctx}
+      class_val = {:class, name, bases, class_attrs}
+      ctx = Ctx.record(ctx, :assign, {name, :class})
+      {nil, Env.smart_put(env, name, class_val), ctx}
+    end
   end
 
   def eval({:attr_assign, _, [target, expr]}, env, ctx) do
@@ -1636,6 +1642,12 @@ defmodule Pyex.Interpreter do
           {:exception, _} = signal -> {signal, env, ctx}
         end
 
+      {:iter_to_frozenset, val} ->
+        case to_iterable(val, env, ctx) do
+          {:ok, items, env, ctx} -> {{:frozenset, MapSet.new(items)}, env, ctx}
+          {:exception, _} = signal -> {signal, env, ctx}
+        end
+
       {:iter_instance, inst} ->
         case call_dunder(inst, "__iter__", [], env, ctx) do
           {:ok, {:instance, _, _} = iter_inst, env, ctx} ->
@@ -1713,12 +1725,21 @@ defmodule Pyex.Interpreter do
 
       {:iter_sum, val} ->
         case to_iterable(val, env, ctx) do
-          {:ok, items, env, ctx} -> {Enum.sum(items), env, ctx}
-          {:exception, _} = signal -> {signal, env, ctx}
+          {:ok, items, env, ctx} ->
+            if Enum.all?(items, &is_number/1) do
+              {Enum.sum(items), env, ctx}
+            else
+              {{:exception,
+                "TypeError: unsupported operand type(s) for +: sum() requires numeric items"},
+               env, ctx}
+            end
+
+          {:exception, _} = signal ->
+            {signal, env, ctx}
         end
 
-      {:print_call, print_args} ->
-        eval_print_call(print_args, env, ctx)
+      {:print_call, print_args, sep, end_str} ->
+        eval_print_call(print_args, sep, end_str, env, ctx)
 
       {:map_call, func, list} ->
         Iteration.eval_map_call(func, list, env, ctx)
@@ -1779,14 +1800,27 @@ defmodule Pyex.Interpreter do
       {:exception, _msg} = signal ->
         {signal, env, ctx}
 
+      {:mutate, new_object, return_value} ->
+        ctx = Ctx.record(ctx, :side_effect, {:mutate})
+        {:mutate, new_object, return_value, ctx}
+
       {:io_call, io_fun} ->
         ctx = Ctx.pause_compute(ctx)
         {result, env, ctx} = io_fun.(env, ctx)
         ctx = Ctx.resume_compute(ctx)
         {result, env, ctx}
 
+      {:print_call, print_args, sep, end_str} ->
+        eval_print_call(print_args, sep, end_str, env, ctx)
+
       {:sort_call, items, key_fn, reverse} ->
         eval_sort(items, key_fn, reverse, env, ctx)
+
+      {:list_sort_call, items, key_fn, reverse} ->
+        case eval_sort(items, key_fn, reverse, env, ctx) do
+          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+          {sorted, env, ctx} -> {{:mutate, sorted, nil}, env, ctx}
+        end
 
       {:iter_sorted, val, key_fn, reverse} ->
         case to_iterable(val, env, ctx) do
@@ -2629,11 +2663,15 @@ defmodule Pyex.Interpreter do
         end
 
       {:range, _, _, _} = r ->
-        items = Builtins.range_to_list(r)
+        case Builtins.range_to_list(r) do
+          {:exception, msg} ->
+            {{:exception, msg}, env, ctx}
 
-        case py_slice(items, start, stop, step) do
-          {:exception, msg} -> {{:exception, msg}, env, ctx}
-          result -> {result, env, ctx}
+          items ->
+            case py_slice(items, start, stop, step) do
+              {:exception, msg} -> {{:exception, msg}, env, ctx}
+              result -> {result, env, ctx}
+            end
         end
 
       _ ->
@@ -2738,17 +2776,32 @@ defmodule Pyex.Interpreter do
   end
 
   defp eval_comp_for_loop(kind, expr, var_name, [item | rest_items], rest_clauses, acc, env, ctx) do
-    case bind_loop_var(var_name, item, env) do
-      {:exception, msg} ->
-        {{:exception, msg}, env, ctx}
+    case Ctx.check_deadline(ctx) do
+      {:exceeded, _} ->
+        {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
 
-      bound_env ->
-        case eval_comp_clauses(kind, expr, rest_clauses, acc, bound_env, ctx) do
-          {{:exception, _}, _, _} = error ->
-            error
+      :ok ->
+        case bind_loop_var(var_name, item, env) do
+          {:exception, msg} ->
+            {{:exception, msg}, env, ctx}
 
-          {new_acc, _inner_env, ctx} ->
-            eval_comp_for_loop(kind, expr, var_name, rest_items, rest_clauses, new_acc, env, ctx)
+          bound_env ->
+            case eval_comp_clauses(kind, expr, rest_clauses, acc, bound_env, ctx) do
+              {{:exception, _}, _, _} = error ->
+                error
+
+              {new_acc, _inner_env, ctx} ->
+                eval_comp_for_loop(
+                  kind,
+                  expr,
+                  var_name,
+                  rest_items,
+                  rest_clauses,
+                  new_acc,
+                  env,
+                  ctx
+                )
+            end
         end
     end
   end
@@ -2934,9 +2987,14 @@ defmodule Pyex.Interpreter do
 
   defp to_iterable({:tuple, elements}, env, ctx), do: {:ok, elements, env, ctx}
   defp to_iterable({:set, s}, env, ctx), do: {:ok, MapSet.to_list(s), env, ctx}
+  defp to_iterable({:frozenset, s}, env, ctx), do: {:ok, MapSet.to_list(s), env, ctx}
 
-  defp to_iterable({:range, _, _, _} = r, env, ctx),
-    do: {:ok, Builtins.range_to_list(r), env, ctx}
+  defp to_iterable({:range, _, _, _} = r, env, ctx) do
+    case Builtins.range_to_list(r) do
+      {:exception, _} = err -> err
+      list -> {:ok, list, env, ctx}
+    end
+  end
 
   defp to_iterable({:generator, items}, env, ctx), do: {:ok, items, env, ctx}
   defp to_iterable({:generator_error, items, _msg}, env, ctx), do: {:ok, items, env, ctx}
@@ -2991,11 +3049,23 @@ defmodule Pyex.Interpreter do
           {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
   defp unpack_iterable_safe([single], names) do
     case single do
-      list when is_list(list) -> check_unpack_length(list, names)
-      {:tuple, items} -> check_unpack_length(items, names)
-      {:range, _, _, _} = r -> check_unpack_length(Builtins.range_to_list(r), names)
-      str when is_binary(str) -> check_unpack_length(String.codepoints(str), names)
-      val -> {:exception, "TypeError: cannot unpack non-iterable #{Helpers.py_type(val)} object"}
+      list when is_list(list) ->
+        check_unpack_length(list, names)
+
+      {:tuple, items} ->
+        check_unpack_length(items, names)
+
+      {:range, _, _, _} = r ->
+        case Builtins.range_to_list(r) do
+          {:exception, _} = err -> err
+          list -> check_unpack_length(list, names)
+        end
+
+      str when is_binary(str) ->
+        check_unpack_length(String.codepoints(str), names)
+
+      val ->
+        {:exception, "TypeError: cannot unpack non-iterable #{Helpers.py_type(val)} object"}
     end
   end
 
@@ -3289,16 +3359,32 @@ defmodule Pyex.Interpreter do
   defp safe_binop_dispatch(:minus, {:set, a}, {:set, b}),
     do: {:set, MapSet.difference(a, b)}
 
+  defp safe_binop_dispatch(:minus, {:frozenset, a}, {:set, b}),
+    do: {:frozenset, MapSet.difference(a, b)}
+
+  defp safe_binop_dispatch(:minus, {:frozenset, a}, {:frozenset, b}),
+    do: {:frozenset, MapSet.difference(a, b)}
+
+  defp safe_binop_dispatch(:minus, {:set, a}, {:frozenset, b}),
+    do: {:set, MapSet.difference(a, b)}
+
   defp safe_binop_dispatch(:minus, l, r),
     do:
       {:exception,
        "TypeError: unsupported operand type(s) for -: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
 
-  defp safe_binop_dispatch(:star, l, r) when is_binary(l) and is_integer(r),
-    do: String.duplicate(l, max(r, 0))
+  defp safe_binop_dispatch(:star, l, r) when is_binary(l) and is_integer(r) do
+    len = String.length(l) * max(r, 0)
+
+    if len > 10_000_000 do
+      {:exception, "MemoryError: string repetition would create #{len} characters (max 10000000)"}
+    else
+      String.duplicate(l, max(r, 0))
+    end
+  end
 
   defp safe_binop_dispatch(:star, l, r) when is_integer(l) and is_binary(r),
-    do: String.duplicate(r, max(l, 0))
+    do: safe_binop_dispatch(:star, r, l)
 
   defp safe_binop_dispatch(:star, l, r) when is_integer(l) and is_list(r),
     do: Helpers.repeat_list(r, l)
@@ -3306,11 +3392,19 @@ defmodule Pyex.Interpreter do
   defp safe_binop_dispatch(:star, l, r) when is_list(l) and is_integer(r),
     do: Helpers.repeat_list(l, r)
 
-  defp safe_binop_dispatch(:star, {:tuple, items}, r) when is_integer(r),
-    do: {:tuple, Helpers.repeat_list(items, r)}
+  defp safe_binop_dispatch(:star, {:tuple, items}, r) when is_integer(r) do
+    case Helpers.repeat_list(items, r) do
+      {:exception, _} = err -> err
+      list -> {:tuple, list}
+    end
+  end
 
-  defp safe_binop_dispatch(:star, l, {:tuple, items}) when is_integer(l),
-    do: {:tuple, Helpers.repeat_list(items, l)}
+  defp safe_binop_dispatch(:star, l, {:tuple, items}) when is_integer(l) do
+    case Helpers.repeat_list(items, l) do
+      {:exception, _} = err -> err
+      list -> {:tuple, list}
+    end
+  end
 
   defp safe_binop_dispatch(:star, l, r) when is_number(l) and is_number(r), do: l * r
 
@@ -3406,6 +3500,7 @@ defmodule Pyex.Interpreter do
     do: Map.has_key?(Builtins.visible_dict(r), l)
 
   defp safe_binop_dispatch(:in, l, {:set, s}), do: MapSet.member?(s, l)
+  defp safe_binop_dispatch(:in, l, {:frozenset, s}), do: MapSet.member?(s, l)
 
   defp safe_binop_dispatch(:in, l, {:range, start, stop, step}) when is_integer(l) do
     cond do
@@ -3432,6 +3527,15 @@ defmodule Pyex.Interpreter do
 
   defp safe_binop_dispatch(:amp, {:set, a}, {:set, b}), do: {:set, MapSet.intersection(a, b)}
 
+  defp safe_binop_dispatch(:amp, {:frozenset, a}, {:set, b}),
+    do: {:frozenset, MapSet.intersection(a, b)}
+
+  defp safe_binop_dispatch(:amp, {:frozenset, a}, {:frozenset, b}),
+    do: {:frozenset, MapSet.intersection(a, b)}
+
+  defp safe_binop_dispatch(:amp, {:set, a}, {:frozenset, b}),
+    do: {:set, MapSet.intersection(a, b)}
+
   defp safe_binop_dispatch(:amp, l, r) when is_integer(l) and is_integer(r), do: band(l, r)
 
   defp safe_binop_dispatch(:amp, l, r),
@@ -3440,6 +3544,14 @@ defmodule Pyex.Interpreter do
        "TypeError: unsupported operand type(s) for &: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
 
   defp safe_binop_dispatch(:pipe, {:set, a}, {:set, b}), do: {:set, MapSet.union(a, b)}
+
+  defp safe_binop_dispatch(:pipe, {:frozenset, a}, {:set, b}),
+    do: {:frozenset, MapSet.union(a, b)}
+
+  defp safe_binop_dispatch(:pipe, {:frozenset, a}, {:frozenset, b}),
+    do: {:frozenset, MapSet.union(a, b)}
+
+  defp safe_binop_dispatch(:pipe, {:set, a}, {:frozenset, b}), do: {:set, MapSet.union(a, b)}
 
   defp safe_binop_dispatch(:pipe, l, r) when is_integer(l) and is_integer(r), do: bor(l, r)
 
@@ -3451,6 +3563,15 @@ defmodule Pyex.Interpreter do
   defp safe_binop_dispatch(:caret, {:set, a}, {:set, b}),
     do: {:set, MapSet.symmetric_difference(a, b)}
 
+  defp safe_binop_dispatch(:caret, {:frozenset, a}, {:set, b}),
+    do: {:frozenset, MapSet.symmetric_difference(a, b)}
+
+  defp safe_binop_dispatch(:caret, {:frozenset, a}, {:frozenset, b}),
+    do: {:frozenset, MapSet.symmetric_difference(a, b)}
+
+  defp safe_binop_dispatch(:caret, {:set, a}, {:frozenset, b}),
+    do: {:set, MapSet.symmetric_difference(a, b)}
+
   defp safe_binop_dispatch(:caret, l, r) when is_integer(l) and is_integer(r), do: bxor(l, r)
 
   defp safe_binop_dispatch(:caret, l, r),
@@ -3458,7 +3579,13 @@ defmodule Pyex.Interpreter do
       {:exception,
        "TypeError: unsupported operand type(s) for ^: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
 
-  defp safe_binop_dispatch(:lshift, l, r) when is_integer(l) and is_integer(r), do: bsl(l, r)
+  defp safe_binop_dispatch(:lshift, l, r) when is_integer(l) and is_integer(r) do
+    if r > 100_000 do
+      {:exception, "OverflowError: left shift by #{r} exceeds maximum allowed (100000)"}
+    else
+      bsl(l, r)
+    end
+  end
 
   defp safe_binop_dispatch(:lshift, l, r),
     do:
@@ -3900,15 +4027,16 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  @spec eval_print_call([pyvalue()], Env.t(), Ctx.t()) :: eval_result()
-  defp eval_print_call(args, env, ctx) do
+  @spec eval_print_call([pyvalue()], String.t(), String.t(), Env.t(), Ctx.t()) :: eval_result()
+  defp eval_print_call(args, sep, end_str, env, ctx) do
     {strs, env, ctx} =
       Enum.reduce(args, {[], env, ctx}, fn arg, {acc, env, ctx} ->
         {str, env, ctx} = eval_py_str(arg, env, ctx)
         {[str | acc], env, ctx}
       end)
 
-    output = strs |> Enum.reverse() |> Enum.join(" ")
+    output = strs |> Enum.reverse() |> Enum.join(sep)
+    output = if end_str != "\n", do: output <> end_str, else: output
     ctx = Ctx.record(ctx, :output, output)
     {nil, env, ctx}
   end

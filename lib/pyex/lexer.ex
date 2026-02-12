@@ -77,7 +77,7 @@ defmodule Pyex.Lexer do
            | {:name, String.t()}
            | {:keyword, String.t()}
            | {:op, operator()}
-           | {:newline_raw, non_neg_integer()}
+           | {:newline_raw, non_neg_integer() | {non_neg_integer(), non_neg_integer()}}
 
   whitespace = ignore(ascii_string([?\s, ?\t], min: 1))
 
@@ -111,13 +111,26 @@ defmodule Pyex.Lexer do
     |> reduce(:__integer__)
     |> unwrap_and_tag(:integer)
 
+  exponent_suffix =
+    ascii_char([?e, ?E])
+    |> optional(ascii_char([?+, ?-]))
+    |> ascii_string([?0..?9], min: 1)
+
   float_literal =
     ascii_char([?0..?9])
     |> optional(ascii_string([?0..?9, ?_], min: 1))
     |> string(".")
     |> ascii_char([?0..?9])
     |> optional(ascii_string([?0..?9, ?_], min: 1))
+    |> optional(exponent_suffix)
     |> reduce(:__float__)
+    |> unwrap_and_tag(:float)
+
+  exponent_float =
+    ascii_char([?0..?9])
+    |> optional(ascii_string([?0..?9, ?_], min: 1))
+    |> concat(exponent_suffix)
+    |> reduce(:__exponent_float__)
     |> unwrap_and_tag(:float)
 
   hex_char = ascii_char([?0..?9, ?a..?f, ?A..?F])
@@ -194,6 +207,38 @@ defmodule Pyex.Lexer do
     |> ignore(string("'''"))
     |> reduce(:__string__)
     |> unwrap_and_tag(:string)
+
+  fstring_triple_double =
+    string(~S[f"""])
+    |> repeat(
+      choice(
+        [string("\\\"") |> replace(?")] ++
+          common_escapes ++
+          [
+            string("\\") |> concat(ascii_char([])) |> reduce(:__unknown_escape__),
+            lookahead_not(string(~S["""])) |> ascii_char([])
+          ]
+      )
+    )
+    |> ignore(string(~S["""]))
+    |> reduce(:__fstring_triple__)
+    |> unwrap_and_tag(:fstring)
+
+  fstring_triple_single =
+    string("f'''")
+    |> repeat(
+      choice(
+        [string("\\'") |> replace(?')] ++
+          common_escapes ++
+          [
+            string("\\") |> concat(ascii_char([])) |> reduce(:__unknown_escape__),
+            lookahead_not(string("'''")) |> ascii_char([])
+          ]
+      )
+    )
+    |> ignore(string("'''"))
+    |> reduce(:__fstring_triple__)
+    |> unwrap_and_tag(:fstring)
 
   double_quoted_string =
     ignore(string("\""))
@@ -389,6 +434,8 @@ defmodule Pyex.Lexer do
     choice([
       newline,
       whitespace,
+      fstring_triple_double,
+      fstring_triple_single,
       triple_double_string,
       triple_single_string,
       fstring_double,
@@ -401,6 +448,7 @@ defmodule Pyex.Lexer do
       octal_integer,
       binary_integer,
       float_literal,
+      exponent_float,
       integer,
       identifier_or_keyword,
       operator
@@ -420,6 +468,9 @@ defmodule Pyex.Lexer do
     if not String.valid?(source) do
       {:error, "SyntaxError: source contains invalid UTF-8"}
     else
+      source = String.replace(source, "\r\n", "\n")
+      source = String.replace(source, "\r", "\n")
+
       with {:ok, source} <- strip_comments(source),
            source = join_continued_lines(source),
            {:ok, source} <- replace_semicolons(source),
@@ -479,6 +530,26 @@ defmodule Pyex.Lexer do
 
       {:error, :unterminated} ->
         {:error, "SyntaxError: unterminated string literal"}
+    end
+  end
+
+  defp replace_semicolons(<<"f\"\"\"", rest::binary>>, acc) do
+    case consume_triple(rest, ?") do
+      {:ok, rest, content} ->
+        replace_semicolons(rest, <<acc::binary, "f\"\"\"", content::binary, "\"\"\"">>)
+
+      {:error, :unterminated} ->
+        {:error, "SyntaxError: unterminated triple-quoted string literal"}
+    end
+  end
+
+  defp replace_semicolons(<<"f'''", rest::binary>>, acc) do
+    case consume_triple(rest, ?') do
+      {:ok, rest, content} ->
+        replace_semicolons(rest, <<acc::binary, "f'''", content::binary, "'''">>)
+
+      {:error, :unterminated} ->
+        {:error, "SyntaxError: unterminated triple-quoted string literal"}
     end
   end
 
@@ -603,6 +674,26 @@ defmodule Pyex.Lexer do
 
       {:error, :unterminated} ->
         {:error, "SyntaxError: unterminated string literal"}
+    end
+  end
+
+  defp strip_comments(<<"f\"\"\"", rest::binary>>, acc) do
+    case consume_triple(rest, ?") do
+      {:ok, rest, content} ->
+        strip_comments(rest, <<acc::binary, "f\"\"\"", content::binary, "\"\"\"">>)
+
+      {:error, :unterminated} ->
+        {:error, "SyntaxError: unterminated triple-quoted string literal"}
+    end
+  end
+
+  defp strip_comments(<<"f'''", rest::binary>>, acc) do
+    case consume_triple(rest, ?') do
+      {:ok, rest, content} ->
+        strip_comments(rest, <<acc::binary, "f'''", content::binary, "'''">>)
+
+      {:error, :unterminated} ->
+        {:error, "SyntaxError: unterminated triple-quoted string literal"}
     end
   end
 
@@ -757,8 +848,8 @@ defmodule Pyex.Lexer do
   defp assign_lines(tokens) do
     {result, _line} =
       Enum.reduce(tokens, {[], 1}, fn
-        {:newline_raw, indent_level}, {acc, line} ->
-          {[{:newline_raw, indent_level} | acc], line + 1}
+        {:newline_raw, {indent_level, newline_count}}, {acc, line} ->
+          {[{:newline_raw, indent_level} | acc], line + newline_count}
 
         {tag, value}, {acc, line} ->
           {[{tag, line, value} | acc], line}
@@ -839,12 +930,16 @@ defmodule Pyex.Lexer do
   defp pop_indents(stack, _target), do: {stack, 0}
 
   @doc false
-  @spec __newline__([non_neg_integer()]) :: non_neg_integer()
+  @spec __newline__([non_neg_integer()]) :: {non_neg_integer(), non_neg_integer()}
   def __newline__(chars) do
-    chars
-    |> Enum.reverse()
-    |> Enum.take_while(&(&1 != ?\n))
-    |> length()
+    indent =
+      chars
+      |> Enum.reverse()
+      |> Enum.take_while(&(&1 != ?\n))
+      |> length()
+
+    newline_count = Enum.count(chars, &(&1 == ?\n))
+    {indent, newline_count}
   end
 
   @doc false
@@ -874,19 +969,41 @@ defmodule Pyex.Lexer do
   end
 
   @doc false
+  @spec __exponent_float__([String.t() | non_neg_integer()]) :: float()
+  def __exponent_float__(parts) do
+    str =
+      parts
+      |> Enum.map(fn
+        c when is_integer(c) -> <<c>>
+        s -> s
+      end)
+      |> Enum.join()
+      |> String.replace("_", "")
+
+    {f, ""} = Float.parse(str)
+    f
+  end
+
+  @doc false
   @spec __hex_integer__([String.t()]) :: integer()
-  def __hex_integer__([_prefix, digits]),
-    do: digits |> String.replace("_", "") |> String.to_integer(16)
+  def __hex_integer__([_prefix, digits]) do
+    cleaned = String.replace(digits, "_", "")
+    if cleaned == "", do: 0, else: String.to_integer(cleaned, 16)
+  end
 
   @doc false
   @spec __octal_integer__([String.t()]) :: integer()
-  def __octal_integer__([_prefix, digits]),
-    do: digits |> String.replace("_", "") |> String.to_integer(8)
+  def __octal_integer__([_prefix, digits]) do
+    cleaned = String.replace(digits, "_", "")
+    if cleaned == "", do: 0, else: String.to_integer(cleaned, 8)
+  end
 
   @doc false
   @spec __binary_integer__([String.t()]) :: integer()
-  def __binary_integer__([_prefix, digits]),
-    do: digits |> String.replace("_", "") |> String.to_integer(2)
+  def __binary_integer__([_prefix, digits]) do
+    cleaned = String.replace(digits, "_", "")
+    if cleaned == "", do: 0, else: String.to_integer(cleaned, 2)
+  end
 
   @doc false
   @spec __identifier__([non_neg_integer()]) :: String.t()
@@ -899,6 +1016,12 @@ defmodule Pyex.Lexer do
   end
 
   def __fstring__(["f'" | chars]) do
+    __string__(chars)
+  end
+
+  @doc false
+  @spec __fstring_triple__([String.t() | non_neg_integer()]) :: String.t()
+  def __fstring_triple__([prefix | chars]) when prefix in [~S[f"""], "f'''"] do
     __string__(chars)
   end
 

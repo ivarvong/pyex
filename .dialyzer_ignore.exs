@@ -25,5 +25,9 @@
   # extract_exception_type_name/1 and with_update_cm/3 are called from the
   # {:with, ...} eval clause but Dialyzer's call graph analysis cannot trace
   # through the complex union-typed control flow. Both are genuinely reachable.
-  {"lib/pyex/interpreter.ex", :unused_fun}
+  {"lib/pyex/interpreter.ex", :unused_fun},
+  # bound_kw/2 wraps a method function with receiver binding. Dialyzer traces
+  # through the single call site (list_sort/3) and infers the args pattern must
+  # be [], but the anonymous function accepts any args list. False positive.
+  {"lib/pyex/methods.ex", :no_return}
 ]

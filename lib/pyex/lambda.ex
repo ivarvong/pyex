@@ -420,7 +420,16 @@ defmodule Pyex.Lambda do
 
   defp unwrap_stream_response(%{"__response__" => true} = resp) do
     body = Map.get(resp, "body")
-    body_str = if is_binary(body), do: body, else: Jason.encode!(body)
+
+    body_str =
+      if is_binary(body) do
+        body
+      else
+        case Jason.encode(body) do
+          {:ok, json} -> json
+          {:error, _} -> inspect(body)
+        end
+      end
 
     %{
       status: Map.get(resp, "status_code", 200),
@@ -430,7 +439,11 @@ defmodule Pyex.Lambda do
   end
 
   defp unwrap_stream_response(result) do
-    body_str = Jason.encode!(result)
+    body_str =
+      case Jason.encode(result) do
+        {:ok, json} -> json
+        {:error, _} -> inspect(result)
+      end
 
     %{
       status: 200,
