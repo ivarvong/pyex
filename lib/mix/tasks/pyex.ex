@@ -42,9 +42,6 @@ defmodule Mix.Tasks.Pyex do
 
           {:error, msg} ->
             Mix.shell().error(msg)
-
-          {:suspended, _ctx} ->
-            Mix.shell().error("Program suspended")
         end
 
       {:error, reason} ->

@@ -3,7 +3,7 @@ defmodule Pyex.Filesystem.Memory do
   In-memory filesystem backend.
 
   Stores files as a map of path strings to content strings.
-  Fully serializable — survives suspend/resume via `Pyex.Ctx`.
+  Fully serializable — suitable for use with `Pyex.Ctx`.
   Directories are implicit (a file at "a/b/c.txt" implies "a/"
   and "a/b/" exist).
   """

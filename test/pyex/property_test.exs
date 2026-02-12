@@ -19,7 +19,6 @@ defmodule Pyex.PropertyTest do
 
   defp assert_no_crash(result) do
     assert match?({:ok, _, _}, result) or
-             match?({:suspended, _}, result) or
              match?({:error, _}, result)
   end
 
@@ -316,7 +315,6 @@ defmodule Pyex.PropertyTest do
           result = Interpreter.run_with_ctx(ast, Builtins.env(), ctx)
 
           assert match?({:ok, _, _, _}, result) or
-                   match?({:suspended, _, _}, result) or
                    match?({:error, _}, result)
         end
       end

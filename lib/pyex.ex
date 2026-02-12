@@ -1,39 +1,32 @@
 defmodule Pyex do
   @moduledoc """
-  A Python 3 interpreter written in Elixir.
-
-  Designed as a capabilities-based sandbox for LLMs
-  to safely run compute. Supports Temporal-style suspend,
-  resume, and branch via `Pyex.Ctx` event logging.
+  Run LLM-generated Python inside your Elixir app.
 
   ## Quick start
 
-      {:ok, 5, _ctx} = Pyex.run("2 + 3")
-      5 = Pyex.run!("2 + 3")
+      Pyex.run!("sorted([3, 1, 2])")
+      # => [1, 2, 3]
 
-  ## Pipeline
+      {:ok, 42, _ctx} = Pyex.run("40 + 2")
 
-  Source code flows through two stages:
+  ## Public API
 
-      source  ->  Pyex.compile/1  ->  ast
-      ast     ->  Pyex.run/2      ->  result
+  - `compile/1` -- parse source to AST (reusable)
+  - `run/2` -- execute source or AST, returns `{:ok, value, ctx}` or `{:error, error}`
+  - `run!/2` -- execute, returns value or raises
+  - `output/1` -- extract print output from a context
 
-  When the same source will be executed many times (e.g. a
-  FastAPI handler), compile once and pass the AST to `run/2`
-  to skip lexing and parsing.
+  ## Sandbox
 
-  ## Context
+  All external access is configured through `Pyex.Ctx` options.
+  Python code can only reach what you explicitly grant:
 
-  Every execution threads a `Pyex.Ctx` which carries the
-  filesystem, environment variables, custom modules, compute
-  budget, and event log. Pass a `Ctx` or keyword opts as the
-  second argument to `run/2`:
+      Pyex.run(source,
+        environ: %{"API_KEY" => "sk-..."},
+        timeout_ms: 5_000,
+        modules: %{"mylib" => %{"greet" => {:builtin, fn [n] -> "hi \#{n}" end}}})
 
-      ctx = Pyex.Ctx.new(filesystem: fs, fs_module: Memory)
-      {:ok, result, ctx} = Pyex.run(source, ctx)
-
-      {:ok, result, _ctx} = Pyex.run(source,
-        modules: %{"mylib" => %{"greet" => {:builtin, fn [n] -> "hi " <> n end}}})
+  See `run/2` for the full list of options.
   """
 
   alias Pyex.{Builtins, Ctx, Error, Lexer, Parser, Interpreter}
@@ -61,8 +54,7 @@ defmodule Pyex do
   The optional second argument can be a `Pyex.Ctx` struct
   or a keyword list of options (forwarded to `Pyex.Ctx.new/1`).
 
-  Returns `{:ok, value, ctx}` on success, `{:suspended, ctx}`
-  if the program called `suspend()`, or `{:error, reason}`.
+  Returns `{:ok, value, ctx}` on success, or `{:error, reason}`.
 
   ## Options (when passing keyword list)
 
@@ -98,7 +90,6 @@ defmodule Pyex do
   """
   @spec run(String.t() | Parser.ast_node(), Ctx.t() | keyword()) ::
           {:ok, Interpreter.pyvalue(), Ctx.t()}
-          | {:suspended, Ctx.t()}
           | {:error, Error.t()}
   def run(source_or_ast, ctx_or_opts \\ [])
 
@@ -118,9 +109,6 @@ defmodule Pyex do
         {:ok, value, _env, final_ctx} ->
           Tracer.set_attribute("pyex.compute_us", Ctx.compute_time_us(final_ctx))
           {:ok, value, final_ctx}
-
-        {:suspended, _env, final_ctx} ->
-          {:suspended, final_ctx}
 
         {:error, msg} ->
           {:error, Error.from_message(msg)}
@@ -147,34 +135,9 @@ defmodule Pyex do
   def run!(source_or_ast, ctx_or_opts \\ []) do
     case run(source_or_ast, ctx_or_opts) do
       {:ok, result, _ctx} -> result
-      {:suspended, _ctx} -> raise "program suspended"
       {:error, %Error{message: msg}} -> raise msg
     end
   end
-
-  @doc """
-  Resumes a suspended program from a context.
-
-  The source must be the same source that was originally
-  executed. The interpreter replays the event log to
-  reconstruct state, then continues live execution.
-  """
-  @spec resume(String.t(), Ctx.t()) ::
-          {:ok, Interpreter.pyvalue(), Ctx.t()}
-          | {:suspended, Ctx.t()}
-          | {:error, Error.t()}
-  def resume(source, %Ctx{} = ctx) when is_binary(source) do
-    with {:ok, ast} <- compile(source) do
-      run(ast, Ctx.for_resume(ctx))
-    end
-  end
-
-  @doc """
-  Returns the event log from a context as a list of
-  `{type, step, data}` tuples.
-  """
-  @spec events(Ctx.t()) :: [Ctx.event()]
-  def events(%Ctx{} = ctx), do: Ctx.events(ctx)
 
   @doc """
   Returns all captured print output as a single string.
@@ -189,21 +152,4 @@ defmodule Pyex do
   """
   @spec output(Ctx.t()) :: String.t()
   def output(%Ctx{} = ctx), do: Ctx.output(ctx)
-
-  @doc """
-  Returns the profile data from a context, or `nil` if profiling
-  was not enabled.
-
-  The profile is a map with:
-  - `:line_counts` -- `%{line_number => execution_count}`
-  - `:call_counts` -- `%{function_name => call_count}`
-  - `:call_us` -- `%{function_name => total_microseconds}`
-
-  ## Example
-
-      {:ok, _val, ctx} = Pyex.run(source, profile: true)
-      %{line_counts: lines, call_counts: calls, call_us: timing} = Pyex.profile(ctx)
-  """
-  @spec profile(Ctx.t()) :: Ctx.profile_data() | nil
-  def profile(%Ctx{profile: profile}), do: profile
 end

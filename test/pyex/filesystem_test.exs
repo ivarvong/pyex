@@ -16,7 +16,6 @@ defmodule Pyex.FilesystemTest do
 
     case Interpreter.run_with_ctx(ast, Builtins.env(), ctx) do
       {:ok, value, _env, ctx} -> {value, ctx}
-      {:suspended, _env, ctx} -> {:suspended, ctx}
       {:error, msg} -> {:error, msg}
     end
   end

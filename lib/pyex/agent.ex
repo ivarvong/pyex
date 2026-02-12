@@ -219,15 +219,6 @@ defmodule Pyex.Agent do
 
             {{:ok, value}, new_state}
 
-          {:suspended, ctx} ->
-            new_state = %{
-              state
-              | filesystem: ctx.filesystem,
-                total_events: state.total_events + length(Ctx.events(ctx))
-            }
-
-            {{:ok, nil}, new_state}
-
           {:error, reason} ->
             {{:error, reason}, state}
         end
@@ -330,7 +321,7 @@ defmodule Pyex.Agent do
           "os.environ[\"KEY\"] reads environment variables. " <>
           "Builtins: len, range, print, str, int, float, type, abs, min, max, " <>
           "sum, sorted, reversed, enumerate, zip, bool, list, dict, tuple, " <>
-          "isinstance, round, open, input, suspend. " <>
+          "isinstance, round, open, input. " <>
           "String methods: upper, lower, strip, lstrip, rstrip, split, join, replace, " <>
           "startswith, endswith, find, count, format, isdigit, isalpha, isalnum, " <>
           "title, capitalize. " <>

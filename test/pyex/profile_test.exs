@@ -11,7 +11,7 @@ defmodule Pyex.ProfileTest do
   describe "profiling disabled (default)" do
     test "profile is nil when not requested" do
       {:ok, _val, ctx} = Pyex.run("x = 1 + 2")
-      assert Pyex.profile(ctx) == nil
+      assert ctx.profile == nil
     end
   end
 
@@ -27,7 +27,7 @@ defmodule Pyex.ProfileTest do
           profile: true
         )
 
-      %{line_counts: lines} = Pyex.profile(ctx)
+      %{line_counts: lines} = ctx.profile
       assert lines[1] == 1
       assert lines[2] == 1
       assert lines[3] == 1
@@ -44,7 +44,7 @@ defmodule Pyex.ProfileTest do
           profile: true
         )
 
-      %{line_counts: lines} = Pyex.profile(ctx)
+      %{line_counts: lines} = ctx.profile
       assert lines[1] == 1
       assert lines[3] >= 5
     end
@@ -62,7 +62,7 @@ defmodule Pyex.ProfileTest do
           profile: true
         )
 
-      %{line_counts: lines} = Pyex.profile(ctx)
+      %{line_counts: lines} = ctx.profile
       assert lines[3] == 1
       assert Map.get(lines, 5, 0) == 0
     end
@@ -82,7 +82,7 @@ defmodule Pyex.ProfileTest do
           profile: true
         )
 
-      %{call_counts: calls} = Pyex.profile(ctx)
+      %{call_counts: calls} = ctx.profile
       assert calls["add"] == 3
     end
 
@@ -100,7 +100,7 @@ defmodule Pyex.ProfileTest do
           profile: true
         )
 
-      %{call_us: timing} = Pyex.profile(ctx)
+      %{call_us: timing} = ctx.profile
       assert is_integer(timing["work"])
       assert timing["work"] >= 0
     end
@@ -120,7 +120,7 @@ defmodule Pyex.ProfileTest do
           profile: true
         )
 
-      %{call_counts: calls, call_us: timing} = Pyex.profile(ctx)
+      %{call_counts: calls, call_us: timing} = ctx.profile
       assert calls["compute"] == 10
       assert timing["compute"] > 0
     end
@@ -138,7 +138,7 @@ defmodule Pyex.ProfileTest do
           profile: true
         )
 
-      %{call_counts: calls} = Pyex.profile(ctx)
+      %{call_counts: calls} = ctx.profile
       assert calls["inner"] == 1
       assert calls["outer"] == 1
     end
@@ -147,7 +147,7 @@ defmodule Pyex.ProfileTest do
   describe "profile data structure" do
     test "has all expected keys" do
       {:ok, _val, ctx} = Pyex.run("x = 1", profile: true)
-      profile = Pyex.profile(ctx)
+      profile = ctx.profile
       assert is_map(profile)
       assert Map.has_key?(profile, :line_counts)
       assert Map.has_key?(profile, :call_counts)
@@ -156,7 +156,7 @@ defmodule Pyex.ProfileTest do
 
     test "empty program has empty call maps" do
       {:ok, _val, ctx} = Pyex.run("x = 1", profile: true)
-      %{call_counts: calls, call_us: timing} = Pyex.profile(ctx)
+      %{call_counts: calls, call_us: timing} = ctx.profile
       assert calls == %{}
       assert timing == %{}
     end
@@ -173,7 +173,7 @@ defmodule Pyex.ProfileTest do
         fib(10)
         """)
 
-      assert Pyex.profile(ctx) == nil
+      assert ctx.profile == nil
     end
   end
 end

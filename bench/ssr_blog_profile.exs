@@ -362,7 +362,7 @@ IO.puts("=" |> String.duplicate(70))
 # ---------- Boot with profiling ----------
 
 {boot_us, {:ok, app}} = :timer.tc(fn -> Lambda.boot(blog_source, ctx: ctx) end)
-boot_profile = Pyex.profile(app.ctx)
+boot_profile = app.ctx.profile
 
 IO.puts("\n--- Boot (#{Float.round(boot_us / 1000, 2)} ms) ---\n")
 

@@ -22,8 +22,7 @@ write arbitrary Python -- it must be rock solid.
 
 ### Core pipeline: Lexer -> Parser -> Interpreter
 
-- `Pyex` -- public API: `compile/1`, `run/2`, `run!/2`, `resume/2`, `events/1`,
-  `snapshot/1`, `profile/1`
+- `Pyex` -- public API: `compile/1`, `run/2`, `run!/2`, `output/1`
 - `Pyex.Lexer` -- NimbleParsec-based tokenizer with indent/dedent/newline handling
 - `Pyex.Parser` -- recursive descent parser producing `{node_type, meta, children}`
   AST nodes with `[line: n]` metadata
@@ -34,7 +33,7 @@ write arbitrary Python -- it must be rock solid.
 ### Environment and context
 
 - `Pyex.Env` -- scope-stack environment with global/nonlocal/put_at_source support
-- `Pyex.Ctx` -- execution context: deterministic replay via append-only event log,
+- `Pyex.Ctx` -- execution context: append-only event log for observability,
   filesystem handles, environ, compute timeout, `:noop` mode for compilation checks,
   custom modules, `imported_modules` cache, profile data, `generator_mode`
   (`:accumulate | :defer | nil`), `generator_acc`
@@ -174,7 +173,6 @@ values are collected. This is by design.
 - `test/pyex/try_except_test.exs` -- exception handling
 - `test/pyex/match_case_test.exs` -- structural pattern matching
 - `test/pyex/ctx_test.exs` -- execution context
-- `test/pyex/suspend_test.exs` -- suspend/resume/replay
 - `test/pyex/filesystem_test.exs` -- filesystem backends
 - `test/pyex/filesystem_import_test.exs` -- importing from filesystem
 - `test/pyex/lambda_test.exs` -- Lambda invocation and routing

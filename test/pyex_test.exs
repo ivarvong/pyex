@@ -549,4 +549,16 @@ defmodule PyexTest do
       assert message =~ "Lexer error"
     end
   end
+
+  describe "Pyex.output/1" do
+    test "captures print output" do
+      {:ok, _val, ctx} = Pyex.run("print('hello')\nprint('world')")
+      assert Pyex.output(ctx) == "hello\nworld"
+    end
+
+    test "returns empty string when no output" do
+      {:ok, _val, ctx} = Pyex.run("x = 42")
+      assert Pyex.output(ctx) == ""
+    end
+  end
 end
