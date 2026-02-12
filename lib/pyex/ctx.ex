@@ -2,20 +2,24 @@ defmodule Pyex.Ctx do
   @moduledoc """
   Execution context for the Pyex interpreter.
 
-  Implements Temporal-style deterministic replay. Every
-  non-deterministic decision (branch taken, loop iteration,
-  side effect result) is recorded as an event in an append-only
-  log. On replay, the interpreter consumes events from the log
-  instead of re-executing, allowing instant resume from any
-  point in history.
-
-  Modes:
-  - `:live` -- executing normally, recording events
-  - `:replay` -- consuming previously recorded events, then
-    switching to `:live` when the log is exhausted
-
-  The context is threaded through every `eval` call alongside
+  Carries all external configuration -- filesystem, environment
+  variables, custom modules, compute budget, network policy, and
+  I/O capabilities. Threaded through every `eval` call alongside
   the environment.
+
+  Most users don't need to construct a `Ctx` directly. Pass
+  keyword options to `Pyex.run/2` instead:
+
+      Pyex.run(source,
+        env: %{"KEY" => "val"},
+        timeout_ms: 5_000,
+        modules: %{"mylib" => %{...}})
+
+  Use `Ctx.new/1` when you need to share a context across
+  multiple calls (e.g. Lambda boot + handle):
+
+      ctx = Ctx.new(filesystem: Memory.new())
+      {:ok, app} = Lambda.boot(source, ctx: ctx)
   """
 
   @type event_type ::
@@ -25,14 +29,13 @@ defmodule Pyex.Ctx do
           | :call_enter
           | :call_exit
           | :side_effect
-          | :suspend
           | :exception
           | :file_op
           | :output
 
   @type event :: {event_type(), non_neg_integer(), term()}
 
-  @type mode :: :live | :replay | :noop
+  @type mode :: :live | :noop
 
   @type file_handle :: %{
           path: String.t(),
@@ -60,13 +63,11 @@ defmodule Pyex.Ctx do
   @type t :: %__MODULE__{
           mode: mode(),
           log: [event()],
-          remaining: [event()],
           step: non_neg_integer(),
           filesystem: term(),
-          fs_module: module() | nil,
           handles: %{optional(non_neg_integer()) => file_handle()},
           next_handle: non_neg_integer(),
-          environ: %{optional(String.t()) => String.t()},
+          env: %{optional(String.t()) => String.t()},
           modules: %{optional(String.t()) => Pyex.Stdlib.Module.module_value()},
           imported_modules: %{optional(String.t()) => Pyex.Stdlib.Module.module_value()},
           timeout_ns: non_neg_integer() | nil,
@@ -87,13 +88,11 @@ defmodule Pyex.Ctx do
 
   defstruct mode: :live,
             log: [],
-            remaining: [],
             step: 0,
             filesystem: nil,
-            fs_module: nil,
             handles: %{},
             next_handle: 0,
-            environ: %{},
+            env: %{},
             modules: %{},
             imported_modules: %{},
             timeout_ns: nil,
@@ -115,9 +114,9 @@ defmodule Pyex.Ctx do
   Creates a fresh live context that records all events.
 
   Options:
-  - `:filesystem` -- a filesystem backend struct (e.g. `Pyex.Filesystem.Memory.new()`)
-  - `:fs_module` -- the module implementing `Pyex.Filesystem` behaviour
-  - `:environ` -- a map of environment variables accessible via `os.environ`
+  - `:filesystem` -- a filesystem backend struct (e.g. `Pyex.Filesystem.Memory.new()`).
+    The implementing module is derived automatically from the struct.
+  - `:env` -- a map of environment variables accessible via `os.environ`
   - `:modules` -- custom Python modules available via `import`. A map from
     module name strings to either a `%{String.t() => pyvalue()}` map or a
     module implementing `Pyex.Stdlib.Module`.
@@ -147,8 +146,7 @@ defmodule Pyex.Ctx do
   """
   @valid_keys [
     :filesystem,
-    :fs_module,
-    :environ,
+    :env,
     :modules,
     :timeout_ms,
     :profile,
@@ -169,8 +167,7 @@ defmodule Pyex.Ctx do
     end
 
     fs = Keyword.get(opts, :filesystem)
-    mod = Keyword.get(opts, :fs_module)
-    environ = Keyword.get(opts, :environ, %{})
+    env = Keyword.get(opts, :env, %{})
     modules = Keyword.get(opts, :modules, %{}) |> normalize_modules()
 
     timeout_ns =
@@ -189,8 +186,7 @@ defmodule Pyex.Ctx do
 
     %__MODULE__{
       filesystem: fs,
-      fs_module: mod,
-      environ: environ,
+      env: env,
       modules: modules,
       timeout_ns: timeout_ns,
       compute_ns: 0,
@@ -439,26 +435,7 @@ defmodule Pyex.Ctx do
   end
 
   @doc """
-  Creates a replay context from a previously captured log.
-
-  The interpreter will consume events from the log. When the
-  cursor reaches the end, it switches to live mode and continues
-  recording.
-  """
-  @spec from_log([event()]) :: t()
-  def from_log(log) when is_list(log) do
-    %__MODULE__{
-      mode: :replay,
-      log: Enum.reverse(log),
-      remaining: log,
-      step: 0
-    }
-  end
-
-  @doc """
   Records an event in live mode. Returns the updated context.
-
-  In replay mode this is a no-op (the event is already in the log).
   """
   @spec record(t(), event_type(), term()) :: t()
   def record(%__MODULE__{mode: :noop} = ctx, _type, _data), do: ctx
@@ -466,42 +443,6 @@ defmodule Pyex.Ctx do
   def record(%__MODULE__{mode: :live} = ctx, type, data) do
     event = {type, ctx.step, data}
     %{ctx | log: [event | ctx.log], step: ctx.step + 1}
-  end
-
-  def record(%__MODULE__{mode: :replay} = ctx, _type, _data), do: ctx
-
-  @doc """
-  Consumes the next event from the log in replay mode.
-
-  Returns `{:ok, event, ctx}` if there is a matching event at
-  the cursor, or `:live` if the log is exhausted (the context
-  switches to live mode automatically).
-
-  In live mode, always returns `:live`.
-  """
-  @spec consume(t(), event_type()) :: {:ok, event(), t()} | :live
-  def consume(%__MODULE__{mode: :live}, _type), do: :live
-
-  def consume(%__MODULE__{mode: :replay, remaining: []}, _type), do: :live
-
-  def consume(%__MODULE__{mode: :replay, remaining: [event | rest]} = ctx, type) do
-    case event do
-      {^type, _step, _data} ->
-        ctx = %{ctx | remaining: rest, step: ctx.step + 1}
-        {:ok, event, ctx}
-
-      _ ->
-        :live
-    end
-  end
-
-  @doc """
-  Switches a replay context to live mode, keeping the log
-  and step counter intact so new events append correctly.
-  """
-  @spec go_live(t()) :: t()
-  def go_live(%__MODULE__{} = ctx) do
-    %{ctx | mode: :live}
   end
 
   @doc """
@@ -529,54 +470,17 @@ defmodule Pyex.Ctx do
   end
 
   @doc """
-  Prepares a context for resume by setting it to replay mode
-  with the cursor at the beginning.
-  """
-  @spec for_resume(t()) :: t()
-  def for_resume(%__MODULE__{} = ctx) do
-    ordered = events(ctx)
-
-    %__MODULE__{
-      mode: :replay,
-      log: ctx.log,
-      remaining: ordered,
-      step: 0,
-      filesystem: ctx.filesystem,
-      fs_module: ctx.fs_module,
-      handles: %{},
-      next_handle: 0,
-      environ: ctx.environ,
-      modules: ctx.modules,
-      imported_modules: %{},
-      timeout_ns: ctx.timeout_ns,
-      compute_ns: 0,
-      compute_started_at: System.monotonic_time(:nanosecond),
-      network: ctx.network,
-      capabilities: ctx.capabilities
-    }
-  end
-
-  @doc """
-  Returns the event log truncated to `n` steps, for branching.
-
-  Creates a new replay context from the first `n` events.
-  """
-  @spec branch_at(t(), non_neg_integer()) :: t()
-  def branch_at(%__MODULE__{} = ctx, n) do
-    truncated = Enum.take(events(ctx), n)
-    from_log(truncated)
-  end
-
-  @doc """
   Opens a file handle, returning `{handle_id, ctx}`.
   """
   @spec open_handle(t(), String.t(), :read | :write | :append) ::
           {:ok, non_neg_integer(), t()} | {:error, String.t()}
-  def open_handle(%__MODULE__{fs_module: nil}, _path, _mode) do
+  def open_handle(%__MODULE__{filesystem: nil}, _path, _mode) do
     {:error, "IOError: no filesystem configured"}
   end
 
-  def open_handle(%__MODULE__{fs_module: mod, filesystem: fs} = ctx, path, mode) do
+  def open_handle(%__MODULE__{filesystem: fs} = ctx, path, mode) do
+    mod = fs.__struct__
+
     case mode do
       :read ->
         case mod.read(fs, path) do
@@ -642,10 +546,10 @@ defmodule Pyex.Ctx do
   Closes a file handle, flushing writes to the filesystem.
   """
   @spec close_handle(t(), non_neg_integer()) :: {:ok, t()} | {:error, String.t()}
-  def close_handle(%__MODULE__{handles: handles, fs_module: mod, filesystem: fs} = ctx, id) do
+  def close_handle(%__MODULE__{handles: handles, filesystem: fs} = ctx, id) do
     case Map.fetch(handles, id) do
       {:ok, %{mode: mode, path: path, buffer: buffer}} when mode in [:write, :append] ->
-        case mod.write(fs, path, buffer, mode) do
+        case fs.__struct__.write(fs, path, buffer, mode) do
           {:ok, new_fs} ->
             ctx = %{ctx | handles: Map.delete(handles, id), filesystem: new_fs}
             ctx = record(ctx, :file_op, {:close, id})

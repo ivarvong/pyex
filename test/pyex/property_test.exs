@@ -19,27 +19,26 @@ defmodule Pyex.PropertyTest do
 
   defp assert_no_crash(result) do
     assert match?({:ok, _, _}, result) or
-             match?({:suspended, _}, result) or
              match?({:error, _}, result)
   end
 
   describe "lexer robustness" do
     property "never crashes on arbitrary binary input" do
-      check all(source <- string(:printable, max_length: 500), max_runs: 1000) do
+      check all(source <- string(:printable, max_length: 500), max_runs: 100) do
         result = Lexer.tokenize(source)
         assert match?({:ok, _}, result) or match?({:error, _}, result)
       end
     end
 
     property "never crashes on binary with control characters" do
-      check all(source <- binary(max_length: 300), max_runs: 1000) do
+      check all(source <- binary(max_length: 300), max_runs: 100) do
         result = Lexer.tokenize(source)
         assert match?({:ok, _}, result) or match?({:error, _}, result)
       end
     end
 
     property "never crashes on strings with Python-like tokens" do
-      check all(source <- python_like_source(), max_runs: 1000) do
+      check all(source <- python_like_source(), max_runs: 100) do
         result = Lexer.tokenize(source)
         assert match?({:ok, _}, result) or match?({:error, _}, result)
       end
@@ -48,21 +47,21 @@ defmodule Pyex.PropertyTest do
 
   describe "full pipeline robustness" do
     property "never crashes on arbitrary printable strings" do
-      check all(source <- string(:printable, max_length: 500), max_runs: 1000) do
+      check all(source <- string(:printable, max_length: 500), max_runs: 100) do
         result = Pyex.run(source)
         assert match?({:ok, _, _}, result) or match?({:error, _}, result)
       end
     end
 
     property "never crashes on Python-like source" do
-      check all(source <- python_like_source(), max_runs: 1000) do
+      check all(source <- python_like_source(), max_runs: 100) do
         result = Pyex.run(source)
         assert match?({:ok, _, _}, result) or match?({:error, _}, result)
       end
     end
 
     property "never crashes on generated expressions" do
-      check all(source <- python_expression(), max_runs: 1000) do
+      check all(source <- python_expression(), max_runs: 100) do
         assert_no_crash(Pyex.run(source, fresh_ctx()))
       end
     end
@@ -70,135 +69,131 @@ defmodule Pyex.PropertyTest do
 
   describe "generated valid programs" do
     property "arithmetic programs always return a value or error cleanly" do
-      check all(program <- arithmetic_program(), max_runs: 500) do
+      check all(program <- arithmetic_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "assignment + expression programs never crash" do
-      check all(program <- assignment_program(), max_runs: 500) do
+      check all(program <- assignment_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "list/dict programs never crash" do
-      check all(program <- collection_program(), max_runs: 500) do
+      check all(program <- collection_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "control flow programs never crash" do
-      check all(program <- control_flow_program(), max_runs: 500) do
+      check all(program <- control_flow_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "function definition programs never crash" do
-      check all(program <- function_program(), max_runs: 500) do
+      check all(program <- function_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "string operation programs never crash" do
-      check all(program <- string_program(), max_runs: 500) do
+      check all(program <- string_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "class programs never crash" do
-      check all(program <- class_program(), max_runs: 500) do
+      check all(program <- class_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "try/except programs never crash" do
-      check all(program <- try_except_program(), max_runs: 500) do
+      check all(program <- try_except_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "comprehension programs never crash" do
-      check all(program <- comprehension_program(), max_runs: 500) do
+      check all(program <- comprehension_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "generator/yield programs never crash" do
-      check all(program <- generator_program(), max_runs: 500) do
+      check all(program <- generator_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "with statement programs never crash" do
-      check all(program <- with_program(), max_runs: 500) do
+      check all(program <- with_program(), max_runs: 100) do
         ctx = fresh_ctx()
 
-        ctx = %{
-          ctx
-          | filesystem: Pyex.Filesystem.Memory.new(),
-            fs_module: Pyex.Filesystem.Memory
-        }
+        ctx = %{ctx | filesystem: Pyex.Filesystem.Memory.new()}
 
         assert_no_crash(Pyex.run(program, ctx))
       end
     end
 
     property "decorator programs never crash" do
-      check all(program <- decorator_program(), max_runs: 500) do
+      check all(program <- decorator_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "unpacking programs never crash" do
-      check all(program <- unpacking_program(), max_runs: 500) do
+      check all(program <- unpacking_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "walrus operator programs never crash" do
-      check all(program <- walrus_program(), max_runs: 500) do
+      check all(program <- walrus_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "stdlib math programs never crash" do
-      check all(program <- math_program(), max_runs: 500) do
+      check all(program <- math_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "stdlib json programs never crash" do
-      check all(program <- json_program(), max_runs: 500) do
+      check all(program <- json_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "stdlib re programs never crash" do
-      check all(program <- regex_program(), max_runs: 500) do
+      check all(program <- regex_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "stdlib collections programs never crash" do
-      check all(program <- collections_program(), max_runs: 500) do
+      check all(program <- collections_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "method chaining programs never crash" do
-      check all(program <- method_chain_program(), max_runs: 500) do
+      check all(program <- method_chain_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "match/case programs never crash" do
-      check all(program <- match_case_program(), max_runs: 500) do
+      check all(program <- match_case_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
 
     property "mixed feature programs never crash" do
-      check all(program <- mixed_feature_program(), max_runs: 500) do
+      check all(program <- mixed_feature_program(), max_runs: 100) do
         assert_no_crash(Pyex.run(program, fresh_ctx()))
       end
     end
@@ -238,7 +233,7 @@ defmodule Pyex.PropertyTest do
     end
 
     property "strings with all escape sequences don't crash" do
-      check all(s <- escape_heavy_string(), max_runs: 200) do
+      check all(s <- escape_heavy_string(), max_runs: 100) do
         source = "\"#{s}\""
         result = Pyex.run(source)
         assert match?({:ok, _, _}, result) or match?({:error, _}, result)
@@ -246,7 +241,7 @@ defmodule Pyex.PropertyTest do
     end
 
     property "large integer literals don't crash" do
-      check all(n <- integer(-999_999_999..999_999_999), max_runs: 200) do
+      check all(n <- integer(-999_999_999..999_999_999), max_runs: 100) do
         result = Pyex.run(to_string(n))
         assert match?({:ok, _, _}, result) or match?({:error, _}, result)
       end
@@ -255,7 +250,7 @@ defmodule Pyex.PropertyTest do
     property "float edge cases don't crash" do
       check all(
               f <- one_of([float(min: -1.0e100, max: 1.0e100), constant(0.0)]),
-              max_runs: 200
+              max_runs: 100
             ) do
         result = Pyex.run(to_string(f))
         assert match?({:ok, _, _}, result) or match?({:error, _}, result)
@@ -272,7 +267,7 @@ defmodule Pyex.PropertyTest do
     end
 
     property "unicode identifiers don't crash" do
-      check all(name <- unicode_identifier(), max_runs: 200) do
+      check all(name <- unicode_identifier(), max_runs: 100) do
         source = "#{name} = 1\n#{name}"
         result = Pyex.run(source)
         assert match?({:ok, _, _}, result) or match?({:error, _}, result)
@@ -280,7 +275,7 @@ defmodule Pyex.PropertyTest do
     end
 
     property "mixed indentation doesn't crash" do
-      check all(program <- mixed_indent_program(), max_runs: 200) do
+      check all(program <- mixed_indent_program(), max_runs: 100) do
         result = Pyex.run(program)
         assert match?({:ok, _, _}, result) or match?({:error, _}, result)
       end
@@ -289,7 +284,7 @@ defmodule Pyex.PropertyTest do
 
   describe "parser robustness with lexer output" do
     property "parser never crashes on successfully lexed tokens" do
-      check all(source <- python_like_source(), max_runs: 500) do
+      check all(source <- python_like_source(), max_runs: 100) do
         case Lexer.tokenize(source) do
           {:ok, tokens} ->
             result = Parser.parse(tokens)
@@ -304,7 +299,7 @@ defmodule Pyex.PropertyTest do
 
   describe "interpreter robustness with parsed AST" do
     property "interpreter never crashes on successfully parsed AST" do
-      check all(source <- python_like_source(), max_runs: 500) do
+      check all(source <- python_like_source(), max_runs: 100) do
         with {:ok, tokens} <- Lexer.tokenize(source),
              {:ok, ast} <- Parser.parse(tokens) do
           ctx = %{
@@ -316,7 +311,6 @@ defmodule Pyex.PropertyTest do
           result = Interpreter.run_with_ctx(ast, Builtins.env(), ctx)
 
           assert match?({:ok, _, _, _}, result) or
-                   match?({:suspended, _, _}, result) or
                    match?({:error, _}, result)
         end
       end

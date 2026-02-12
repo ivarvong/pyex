@@ -47,7 +47,7 @@ defmodule Pyex.CapabilitiesTest do
 
   describe "sql capability" do
     test "denied by default" do
-      ctx = Pyex.Ctx.new(environ: %{"DATABASE_URL" => "postgres://localhost/fake"})
+      ctx = Pyex.Ctx.new(env: %{"DATABASE_URL" => "postgres://localhost/fake"})
 
       {:error, error} =
         Pyex.run(

@@ -70,7 +70,7 @@ defmodule Pyex.Stdlib.SqlTest do
   end
 
   defp run(code) do
-    ctx = Pyex.Ctx.new(environ: %{"DATABASE_URL" => @db_url}, sql: true)
+    ctx = Pyex.Ctx.new(env: %{"DATABASE_URL" => @db_url}, sql: true)
 
     case Pyex.run(code, ctx) do
       {:ok, value, ctx} -> {value, ctx}
@@ -148,7 +148,7 @@ defmodule Pyex.Stdlib.SqlTest do
     end
 
     test "error on missing DATABASE_URL" do
-      ctx = Pyex.Ctx.new(environ: %{}, sql: true)
+      ctx = Pyex.Ctx.new(env: %{}, sql: true)
 
       assert {:error, %Error{message: msg}} =
                Pyex.run(
@@ -163,7 +163,7 @@ defmodule Pyex.Stdlib.SqlTest do
     end
 
     test "error on bad SQL" do
-      ctx = Pyex.Ctx.new(environ: %{"DATABASE_URL" => @db_url}, sql: true)
+      ctx = Pyex.Ctx.new(env: %{"DATABASE_URL" => @db_url}, sql: true)
 
       assert {:error, %Error{message: msg}} =
                Pyex.run(

@@ -290,7 +290,7 @@ defmodule Pyex.LambdaTest do
       request = %{
         method: "GET",
         path: "/distance",
-        query: %{
+        query_params: %{
           "lat1" => "40.6392",
           "lng1" => "-73.7639",
           "lat2" => "33.9382",
@@ -310,7 +310,7 @@ defmodule Pyex.LambdaTest do
       request = %{
         method: "GET",
         path: "/distance",
-        query: %{
+        query_params: %{
           "lat1" => "45.5958",
           "lng1" => "-122.6092",
           "lat2" => "33.9382",
@@ -328,7 +328,7 @@ defmodule Pyex.LambdaTest do
       request = %{
         method: "GET",
         path: "/distance",
-        query: %{
+        query_params: %{
           "lat1" => "45.5958",
           "lng1" => "-122.6092",
           "lat2" => "45.5958",
@@ -433,7 +433,7 @@ defmodule Pyex.LambdaTest do
           return {"query": q}
       """
 
-      req = %{method: "GET", path: "/search", query: %{"q" => "elixir"}}
+      req = %{method: "GET", path: "/search", query_params: %{"q" => "elixir"}}
 
       assert {:ok, resp} = Lambda.invoke(source, req)
       assert resp.status == 200
@@ -624,11 +624,7 @@ defmodule Pyex.LambdaTest do
     end
 
     test "boot/handle with HTMLResponse threads ctx" do
-      ctx =
-        Pyex.Ctx.new(
-          filesystem: Pyex.Filesystem.Memory.new(),
-          fs_module: Pyex.Filesystem.Memory
-        )
+      ctx = Pyex.Ctx.new(filesystem: Pyex.Filesystem.Memory.new())
 
       source = """
       import fastapi
@@ -804,7 +800,7 @@ defmodule Pyex.LambdaTest do
       req = %{
         method: "POST",
         path: "/search",
-        query: %{"page" => "2"},
+        query_params: %{"page" => "2"},
         body: ~s({"min_price": 10.0, "max_price": 99.99})
       }
 

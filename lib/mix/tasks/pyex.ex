@@ -27,11 +27,11 @@ defmodule Mix.Tasks.Pyex do
   defp run_file(path) do
     case File.read(path) do
       {:ok, code} ->
-        environ =
+        env =
           System.get_env()
           |> Map.new(fn {k, v} -> {k, v} end)
 
-        ctx = Pyex.Ctx.new(environ: environ)
+        ctx = Pyex.Ctx.new(env: env)
 
         case Pyex.run(code, ctx) do
           {:ok, nil, _ctx} ->
@@ -42,9 +42,6 @@ defmodule Mix.Tasks.Pyex do
 
           {:error, msg} ->
             Mix.shell().error(msg)
-
-          {:suspended, _ctx} ->
-            Mix.shell().error("Program suspended")
         end
 
       {:error, reason} ->

@@ -5,7 +5,7 @@ defmodule Pyex.FilesystemImportTest do
 
   defp run_with_fs!(code, files) do
     fs = Memory.new(files)
-    ctx = Ctx.new(filesystem: fs, fs_module: Memory)
+    ctx = Ctx.new(filesystem: fs)
 
     case Pyex.run(code, ctx) do
       {:ok, value, ctx} -> {value, ctx}
@@ -15,7 +15,7 @@ defmodule Pyex.FilesystemImportTest do
 
   defp run_with_fs(code, files) do
     fs = Memory.new(files)
-    ctx = Ctx.new(filesystem: fs, fs_module: Memory)
+    ctx = Ctx.new(filesystem: fs)
     Pyex.run(code, ctx)
   end
 
@@ -405,7 +405,6 @@ defmodule Pyex.FilesystemImportTest do
       ctx =
         Ctx.new(
           filesystem: fs,
-          fs_module: Memory,
           modules: %{"mymod" => %{"value" => "from_ctx"}}
         )
 

@@ -33,7 +33,7 @@ defmodule Pyex.Stdlib.Sql do
           | {:exception, String.t()}
   defp do_query([sql, params]) when is_binary(sql) and is_list(params) do
     Pyex.Ctx.guarded_io_call(:sql, fn env, ctx ->
-      case Map.fetch(ctx.environ, "DATABASE_URL") do
+      case Map.fetch(ctx.env, "DATABASE_URL") do
         {:ok, url} when is_binary(url) ->
           run_query(sql, params, url, env, ctx)
 

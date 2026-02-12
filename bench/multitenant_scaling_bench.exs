@@ -187,7 +187,7 @@ results =
 
     # Full boot (includes filesystem setup)
     fs = Memory.new()
-    ctx = Ctx.new(filesystem: fs, fs_module: Memory)
+    ctx = Ctx.new(filesystem: fs)
     {boot_us, {:ok, app}} = :timer.tc(fn -> Lambda.boot(source, ctx: ctx) end)
 
     # Measure app size (AST + env + routes)

@@ -278,14 +278,14 @@ defmodule PyexTest do
 
       ctx =
         Pyex.Ctx.new(
-          environ: %{
+          env: %{
             "API_KEY" => "sk-test-key-123",
             "API_URL" => "http://localhost:#{port}"
           },
           network: @network
         )
 
-      request = %{method: "GET", path: "/analyze", query: %{"ticker" => "AAPL"}}
+      request = %{method: "GET", path: "/analyze", query_params: %{"ticker" => "AAPL"}}
       assert {:ok, resp} = Pyex.Lambda.invoke(source, request, ctx: ctx)
 
       assert resp.status == 200
@@ -547,6 +547,18 @@ defmodule PyexTest do
     test "lexer errors propagate through Pyex.run/1" do
       assert {:error, %Error{message: message}} = Pyex.run("`invalid")
       assert message =~ "Lexer error"
+    end
+  end
+
+  describe "Pyex.output/1" do
+    test "captures print output" do
+      {:ok, _val, ctx} = Pyex.run("print('hello')\nprint('world')")
+      assert Pyex.output(ctx) == "hello\nworld"
+    end
+
+    test "returns empty string when no output" do
+      {:ok, _val, ctx} = Pyex.run("x = 42")
+      assert Pyex.output(ctx) == ""
     end
   end
 end

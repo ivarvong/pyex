@@ -1,14 +1,27 @@
 # Pyex
 
-> **Experimental software.** This project was generated entirely by Claude
-> Opus 4.6 via [OpenCode](https://opencode.ai). It is under active development
-> and has not been audited for production use.
+Run LLM-generated Python inside your Elixir app. No containers,
+no ports, no process isolation -- just a function call on the BEAM.
 
-A Python 3 interpreter written in Elixir.
+> **Experimental.** Under active development. Not audited for production use.
 
-## Installation
+```elixir
+Pyex.run!("sorted([3, 1, 2])")
+# => [1, 2, 3]
+```
 
-Add `pyex` to your list of dependencies in `mix.exs`:
+## Why
+
+LLMs write Python. If your backend is Elixir, you need a way to execute
+it. The options are: spin up a Docker container per request, maintain a
+pool of Python processes, or interpret it directly.
+
+Pyex interprets it directly. The tradeoff is speed (12-70x slower than
+CPython on pure computation), but for most LLM workloads -- data
+transformation, API handlers, template rendering -- the interpreter
+isn't the bottleneck. Your database and network calls are.
+
+## Install
 
 ```elixir
 def deps do
@@ -16,149 +29,166 @@ def deps do
 end
 ```
 
-Pyex uses [cmark](https://hex.pm/packages/cmark) for Markdown rendering, which
-requires a C compiler at build time.
+Requires a C compiler for the [cmark](https://hex.pm/packages/cmark)
+Markdown NIF.
 
-## Overview
+## API
 
-LLMs generate Python. This runs it as a function call inside your Elixir app --
-no container, no VM, no process isolation. The LLM doesn't need pip install;
-it writes self-contained programs using stdlib modules, and Pyex interprets them
-directly on the BEAM.
-
-## Quick Start
+Four public functions:
 
 ```elixir
-Pyex.run!("2 + 3")
-# => 5
-
-{:ok, result, _ctx} = Pyex.run("sorted([3, 1, 2])")
-# result => [1, 2, 3]
+{:ok, ast} = Pyex.compile(source)
+{:ok, value, ctx} = Pyex.run(source_or_ast, opts)
+value = Pyex.run!(source_or_ast, opts)
+output_string = Pyex.output(ctx)
 ```
 
-## A Real Example
+`run/2` accepts either a source string or a pre-compiled AST. The second
+argument is a `Pyex.Ctx` struct or a keyword list of options.
 
-The LLM writes a TODO API in Python:
+## Getting Data In
+
+Everything flows through the context. Python code can only access what
+you explicitly provide.
+
+### Environment variables
+
+```elixir
+{:ok, result, _ctx} = Pyex.run(
+  "import os\nos.environ['API_KEY']",
+  env: %{"API_KEY" => "sk-..."}
+)
+```
+
+### Filesystem
+
+```elixir
+alias Pyex.Filesystem.Memory
+
+fs = Memory.new(%{"data.json" => ~s({"users": ["alice", "bob"]})})
+{:ok, result, _ctx} = Pyex.run(source, filesystem: fs)
+```
+
+Two backends: `Memory` (in-memory map) and `S3` (S3-backed via Req).
+
+### Custom modules
+
+Inject your app's capabilities as importable Python modules:
+
+```elixir
+Pyex.run!(source,
+  modules: %{
+    "auth" => %{"get_user" => {:builtin, fn [] -> "alice" end}},
+    "db"   => %{"query" => {:builtin, fn [sql] -> do_query(sql) end}}
+  })
+```
+
+The LLM writes `import auth` and calls `auth.get_user()`. You control
+what it can access.
+
+## Sandbox Controls
+
+### Compute budget
+
+```elixir
+Pyex.run(source, timeout_ms: 5_000)
+# => {:error, %Pyex.Error{kind: :timeout}}
+```
+
+### Network access
+
+All network access is denied by default:
+
+```elixir
+Pyex.run(source, network: [allowed_hosts: ["api.example.com"]])
+```
+
+### I/O capabilities
+
+SQL and S3 require explicit opt-in:
+
+```elixir
+Pyex.run(source, sql: true, env: %{"DATABASE_URL" => "postgres://..."})
+Pyex.run(source, boto3: true)
+```
+
+## Error Handling
+
+Errors are structured with a `kind` field for programmatic handling:
+
+```elixir
+case Pyex.run(source) do
+  {:ok, result, ctx} -> handle_result(result)
+  {:error, %Pyex.Error{kind: :timeout}} -> send_resp(504, "Timeout")
+  {:error, %Pyex.Error{kind: :python}} -> send_resp(500, "Runtime error")
+  {:error, %Pyex.Error{kind: :syntax}} -> send_resp(400, "Bad Python")
+end
+```
+
+Kinds: `:syntax`, `:python`, `:timeout`, `:import`, `:io`,
+`:route_not_found`, `:internal`.
+
+## Print Output
+
+```elixir
+{:ok, _val, ctx} = Pyex.run("for i in range(3):\n    print(i)")
+Pyex.output(ctx)
+# => "0\n1\n2"
+```
+
+## FastAPI / Lambda
+
+LLMs write HTTP handlers in Python. You serve them from Elixir:
 
 ```python
 import fastapi
-import json
-import uuid
-
 app = fastapi.FastAPI()
 
-def load_todos():
-    try:
-        f = open("todos.json")
-        data = json.loads(f.read())
-        f.close()
-        return data
-    except:
-        return []
-
-def save_todos(todos):
-    f = open("todos.json", "w")
-    f.write(json.dumps(todos))
-    f.close()
-
-@app.post("/todos")
-def create_todo(request):
-    body = request.json()
-    todo = {"id": str(uuid.uuid4()), "title": body["title"], "done": False}
-    todos = load_todos()
-    todos.append(todo)
-    save_todos(todos)
-    return todo
-
-@app.get("/todos")
-def list_todos():
-    return load_todos()
-
-@app.get("/todos/{todo_id}")
-def get_todo(todo_id):
-    for todo in load_todos():
-        if todo["id"] == todo_id:
-            return todo
-    return None
-
-@app.put("/todos/{todo_id}")
-def update_todo(todo_id, request):
-    body = request.json()
-    todos = load_todos()
-    for i in range(len(todos)):
-        if todos[i]["id"] == todo_id:
-            if "title" in body:
-                todos[i]["title"] = body["title"]
-            if "done" in body:
-                todos[i]["done"] = body["done"]
-            save_todos(todos)
-            return todos[i]
-    return None
-
-@app.delete("/todos/{todo_id}")
-def delete_todo(todo_id):
-    todos = load_todos()
-    new_todos = [t for t in todos if t["id"] != todo_id]
-    if len(new_todos) == len(todos):
-        return {"deleted": False}
-    save_todos(new_todos)
-    return {"deleted": True}
+@app.get("/hello/{name}")
+def hello(name):
+    return {"message": f"hello {name}"}
 ```
-
-You serve it from Elixir:
 
 ```elixir
-alias Pyex.{Ctx, Lambda}
-alias Pyex.Filesystem.Memory
-
-ctx = Ctx.new(filesystem: Memory.new(), fs_module: Memory)
-{:ok, app} = Lambda.boot(source, ctx: ctx)
-
-{:ok, resp, app} = Lambda.handle(app, %{method: "POST", path: "/todos", body: ~s|{"title": "Buy milk"}|})
-# resp.status => 200
-# resp.body => %{"id" => "a1b2c3...", "title" => "Buy milk", "done" => false}
-
-{:ok, resp, app} = Lambda.handle(app, %{method: "GET", path: "/todos"})
-# resp.body => [%{"id" => "a1b2c3...", "title" => "Buy milk", "done" => false}]
+{:ok, app} = Pyex.Lambda.boot(source, ctx: ctx)
+{:ok, resp, app} = Pyex.Lambda.handle(app, %{method: "GET", path: "/hello/world"})
+# resp.status => 200, resp.body => %{"message" => "hello world"}
 ```
 
-Boot once, handle many requests. State threads through -- the in-memory
+Boot once, handle many requests. State threads through -- the
 filesystem persists across calls, exactly like a real server.
 
-## Streaming
-
-Generators yield chunks lazily. Each `yield` produces a value that can be
-consumed on demand -- nothing buffers:
-
-```python
-from fastapi import StreamingResponse
-
-@app.get("/events")
-def events():
-    def generate():
-        for i in range(100):
-            yield f"data: {i}\n\n"
-    return StreamingResponse(generate())
-```
+POST with a JSON body:
 
 ```elixir
-{:ok, resp, _app} = Lambda.handle_stream(app, %{method: "GET", path: "/events"})
+{:ok, resp, _app} = Pyex.Lambda.handle(app, %{
+  method: "POST",
+  path: "/items",
+  body: ~s({"name": "widget", "qty": 3})
+})
+```
 
-# resp.chunks is a lazy Stream -- nothing executes until consumed
+The handler reads `request.json()` just like real FastAPI.
+
+### Streaming
+
+Generators yield chunks lazily:
+
+```elixir
+{:ok, resp, _app} = Pyex.Lambda.handle_stream(app, %{method: "GET", path: "/events"})
 Enum.take(resp.chunks, 3)
 # => ["data: 0\n\n", "data: 1\n\n", "data: 2\n\n"]
 ```
 
 ## What Python Does It Support
 
-Classes with inheritance and operator overloading. Generators and `yield from`.
-`match`/`case`. Decorators. List/dict/set comprehensions. `*args`/`**kwargs`.
-F-strings. `try`/`except`/`finally`. `with` statements. Type annotations
-(parsed, silently ignored). Walrus operator. Most things an LLM would write.
+Classes with inheritance and operator overloading. Generators and
+`yield from`. `match`/`case`. Decorators. List/dict/set comprehensions.
+`*args`/`**kwargs`. F-strings. `try`/`except`/`finally`. `with`
+statements. Type annotations (parsed, silently ignored). Walrus
+operator. Most things an LLM would write.
 
-262 CPython conformance tests verify output parity.
-
-### Stdlib Modules
+### Stdlib
 
 | Module | What it does |
 |--------|-------------|
@@ -178,166 +208,50 @@ F-strings. `try`/`except`/`finally`. `with` statements. Type annotations
 | `unittest` | TestCase with assertions |
 | `fastapi` | route registration, HTMLResponse, JSONResponse, StreamingResponse |
 | `pydantic` | BaseModel, Field validation, type coercion |
-| `requests` | get, post, put, patch, delete, head, options |
-| `sql` | parameterized queries against PostgreSQL |
-| `boto3` | S3 client |
+| `requests` | get, post, put, patch, delete (network-gated) |
+| `sql` | parameterized queries against PostgreSQL (capability-gated) |
+| `boto3` | S3 client (capability-gated) |
 
-## Platform Features
+## Performance
 
-### Custom Modules
-
-Inject your app's capabilities as Python modules:
-
-```elixir
-Pyex.run!(source,
-  modules: %{
-    "auth" => %{"get_user" => {:builtin, fn [] -> "alice" end}},
-    "db"   => %{"save" => {:builtin, fn [record] -> persist(record) end}}
-  })
-```
-
-The LLM writes `import auth` and calls `auth.get_user()`. You control
-what it can access.
-
-### Filesystem Isolation
-
-Each tenant gets its own filesystem. Three backends:
-
-- `Pyex.Filesystem.Memory` -- in-memory map, fully serializable
-- `Pyex.Filesystem.Local` -- sandboxed directory with path traversal protection
-- `Pyex.Filesystem.S3` -- S3-backed via Req
-
-### Suspend and Resume
-
-Programs can pause execution. The entire state serializes to a binary
-snapshot -- store it in Postgres, resume it days later:
-
-```elixir
-{:suspended, ctx} = Pyex.run(source, Pyex.Ctx.new())
-# ctx is a plain Elixir struct -- serialize with :erlang.term_to_binary/1
-binary = :erlang.term_to_binary(Pyex.Ctx.for_resume(ctx))
-# ... store in Postgres, restart server, whatever ...
-resumed_ctx = :erlang.binary_to_term(binary)
-{:ok, result, _ctx} = Pyex.resume(source, resumed_ctx)
-```
-
-### Compute Budgets
-
-```elixir
-Pyex.run(source, timeout_ms: 5_000)
-# => {:error, %Pyex.Error{kind: :timeout, message: "TimeoutError: ..."}}
-```
-
-### Profiling
-
-```elixir
-{:ok, _val, ctx} = Pyex.run(source, profile: true)
-Pyex.profile(ctx)
-# => %{line_counts: %{3 => 100}, call_counts: %{"fib" => 177}, call_us: %{"fib" => 4521}}
-```
-
-### Compile Once, Run Many
-
-```elixir
-{:ok, ast} = Pyex.compile(source)
-{:ok, result1, _ctx} = Pyex.run(ast, ctx1)
-{:ok, result2, _ctx} = Pyex.run(ast, ctx2)
-```
-
-Skip lexing and parsing on repeated execution. The AST is a plain Elixir
-term -- cache it in ETS, store it wherever.
-
-## How Fast Is It?
-
-This is a tree-walking interpreter -- pure computation is 12-70x slower
-than CPython. Whether that matters depends on the workload.
-
-All numbers below are measured on Apple M4 Max, OTP 28, CPython 3.14.
-
-### Cold execution
-
-When a customer's Python runs from scratch -- a webhook handler, a workflow
-step, a cron job -- you're paying startup cost. CPython's is ~16 ms per
-invocation unless you maintain a warm process pool. Pyex's is zero: it's a
-function call in your existing BEAM process.
+Tree-walking interpreter. Pure computation is 12-70x slower than
+CPython. Cold startup is 7-83x faster (no process to spawn).
 
 | Benchmark | CPython cold | Pyex cold |
 |-----------|-------------|-----------|
-| FizzBuzz (100 iterations) | 16.3 ms | 197 us (**83x faster**) |
-| Algorithms (~150 LOC: sieve, sort, fib, stats) | 16.8 ms | 2.3 ms (**7x faster**) |
+| FizzBuzz (100 iter) | 16.3 ms | 197 us |
+| Algorithms (~150 LOC) | 16.8 ms | 2.3 ms |
 
-CPython cold = `python3 -c`. Pyex cold = `Pyex.run!` from source string.
-Both include full startup, compile, and execute. Pyex wins because there's
-no process to spawn. The heavier the program, the smaller the gap -- CPython's
-startup is fixed at ~16 ms while its execution is fast.
+For HTTP handler workloads (the Lambda path), per-request latency is
+66-90 us after boot. The interpreter isn't the bottleneck.
 
-### Warm execution
-
-When both interpreters are already running and you're measuring pure
-computation, CPython is faster:
-
-| Benchmark | CPython warm | Pyex warm | Ratio |
-|-----------|-------------|-----------|-------|
-| FizzBuzz (100 iterations) | 12 us | 151 us | **~12x** |
-| Algorithms (~150 LOC) | 27 us | 1.9 ms | **~70x** |
-
-CPython warm = in-process timing via `time.perf_counter_ns`.
-Pyex warm = `Pyex.run!` with pre-compiled AST (lex+parse skipped).
-The gap widens with heavier computation -- this is the inherent cost of
-tree-walking vs bytecode.
-
-### HTTP handlers
-
-For web workloads (the FastAPI/Lambda path), you boot the app once and handle
-many requests. Each request is a function call against already-initialized
-state -- there's no per-request startup cost on either side.
-
-| Benchmark | avg | p50 | p99 |
-|-----------|-----|-----|-----|
-| Cold boot (compile + execute routes) | 183 us | 175 us | 262 us |
-| GET /posts (Jinja2 template render) | 66 us | 63 us | 120 us |
-| GET /posts/:slug (markdown + Jinja2) | 90 us | 89 us | 147 us |
-
-At 66-90 us per request, the interpreter isn't the bottleneck -- your database
-and network calls are.
-
-*All numbers: 1000 iterations (100 for cold), wall clock.
-Run it yourself: `mix run bench/cpython_comparison.exs`*
+`mix run bench/cpython_comparison.exs` to run benchmarks yourself.
 
 ## Architecture
 
 ```
-Source code
-    |
-    v
-Pyex.Lexer        NimbleParsec tokenizer (significant whitespace, indent/dedent)
-    |
-    v
-Pyex.Parser       Recursive descent, produces {node_type, [line: n], children} AST
-    |
-    v
-Pyex.Interpreter  Tree-walking evaluator with threaded env + ctx
-    |
-    v
-Pyex.Ctx          Event-sourced execution context (suspend, resume, replay)
+Source  ->  Pyex.Lexer  ->  Pyex.Parser  ->  Pyex.Interpreter
+                                                    |
+                                                 Pyex.Ctx
+                                           (filesystem, env,
+                                            compute budget, modules)
 ```
 
 No processes, no message passing, no global state. The interpreter is a
-pure function of `(ast, env, ctx) -> (value, env, ctx)`.
+pure function: `(ast, env, ctx) -> (value, env, ctx)`.
 
 ## Tests
 
-2,142 tests, 39 property-based tests, 0 failures. 262 CPython conformance
-tests. 57 continuation stress tests for generators. 37 streaming tests.
+2,400+ tests, 160 property-based tests, 262 CPython conformance tests.
 
 ```bash
-mix test     # 5 seconds
-mix dialyzer # clean
+mix test
+mix dialyzer
 ```
 
 ## Development
 
-Requires Elixir ~> 1.19 and OTP 28. Uses asdf (`.tool-versions` in root).
+Requires Elixir ~> 1.19 and OTP 28.
 
 ```bash
 mix deps.get

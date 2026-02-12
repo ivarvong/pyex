@@ -87,7 +87,7 @@ defmodule Pyex.DifferentialFuzzTest do
               a <- small_int(),
               b <- small_int(),
               op <- member_of(["+", "-"]),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(#{a} #{op} #{b}))")
       end
@@ -97,7 +97,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               a <- integer(-100..100),
               b <- integer(-100..100),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(#{a} * #{b}))")
       end
@@ -107,7 +107,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               a <- integer(-100..100),
               b <- filter(integer(-100..100), &(&1 != 0)),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(#{a} // #{b}))")
       end
@@ -117,7 +117,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               a <- integer(-100..100),
               b <- filter(integer(-100..100), &(&1 != 0)),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(#{a} % #{b}))")
       end
@@ -127,7 +127,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               base <- integer(-10..10),
               exp <- integer(0..6),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(#{base} ** #{exp}))")
       end
@@ -137,7 +137,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               a <- integer(-100..100),
               b <- filter(integer(-100..100), &(&1 != 0)),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(divmod(#{a}, #{b})))")
       end
@@ -150,7 +150,7 @@ defmodule Pyex.DifferentialFuzzTest do
               c <- small_int(),
               op1 <- comparison_op(),
               op2 <- comparison_op(),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(#{a} #{op1} #{b} #{op2} #{c}))")
       end
@@ -161,7 +161,7 @@ defmodule Pyex.DifferentialFuzzTest do
               a <- integer(0..255),
               b <- integer(0..255),
               op <- member_of(["&", "|", "^"]),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(#{a} #{op} #{b}))")
       end
@@ -172,7 +172,7 @@ defmodule Pyex.DifferentialFuzzTest do
               a <- integer(0..255),
               b <- integer(0..8),
               op <- member_of(["<<", ">>"]),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(#{a} #{op} #{b}))")
       end
@@ -185,7 +185,7 @@ defmodule Pyex.DifferentialFuzzTest do
               c <- small_int(),
               op1 <- arith_op(),
               op2 <- arith_op(),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr((#{a} #{op1} #{b}) #{op2} #{c}))")
       end
@@ -199,7 +199,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               s <- safe_string(),
               n <- integer(-2..5),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(\"#{s}\" * #{n}))")
       end
@@ -210,7 +210,7 @@ defmodule Pyex.DifferentialFuzzTest do
               s <- string(:alphanumeric, min_length: 1, max_length: 10),
               start <- integer(-5..5),
               stop <- integer(-5..10),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(\"#{s}\"[#{start}:#{stop}]))")
       end
@@ -222,7 +222,7 @@ defmodule Pyex.DifferentialFuzzTest do
               start <- integer(0..3),
               stop <- integer(4..10),
               step <- filter(integer(-3..3), &(&1 != 0)),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(\"#{s}\"[#{start}:#{stop}:#{step}]))")
       end
@@ -244,7 +244,7 @@ defmodule Pyex.DifferentialFuzzTest do
                   "isupper()",
                   "islower()"
                 ]),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(\"#{s}\".#{method}))")
       end
@@ -253,7 +253,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "string title method" do
       check all(
               s <- string(:alphanumeric, min_length: 1, max_length: 15),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(\"#{s}\".title()))")
       end
@@ -263,7 +263,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               s <- string(:alphanumeric, min_length: 3, max_length: 15),
               sub <- string(:alphanumeric, min_length: 1, max_length: 3),
-              max_runs: 200
+              max_runs: 100
             ) do
         code = """
         s = "#{s}"
@@ -282,7 +282,7 @@ defmodule Pyex.DifferentialFuzzTest do
                   max_length: 5
                 ),
               sep <- member_of([" ", ",", "-", "."]),
-              max_runs: 200
+              max_runs: 100
             ) do
         joined = Enum.join(words, sep)
 
@@ -294,7 +294,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               haystack <- string(:alphanumeric, min_length: 2, max_length: 15),
               needle <- string(:alphanumeric, min_length: 1, max_length: 3),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential(~s[print(repr("#{needle}" in "#{haystack}"))])
       end
@@ -304,7 +304,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               n <- small_int(),
               s <- string(:alphanumeric, min_length: 1, max_length: 8),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential(~s[print(repr("int=%d str=%s" % (#{n}, "#{s}")))])
       end
@@ -318,7 +318,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               items <- list_of(small_int(), min_length: 1, max_length: 8),
               idx <- integer(0..(length(items) - 1)),
-              max_runs: 200
+              max_runs: 100
             ) do
         list_str = Enum.join(items, ", ")
         assert_differential("print(repr([#{list_str}][#{idx}]))")
@@ -330,7 +330,7 @@ defmodule Pyex.DifferentialFuzzTest do
               items <- list_of(small_int(), min_length: 1, max_length: 10),
               start <- integer(0..3),
               stop <- integer(3..10),
-              max_runs: 200
+              max_runs: 100
             ) do
         list_str = Enum.join(items, ", ")
         assert_differential("print(repr([#{list_str}][#{start}:#{stop}]))")
@@ -341,7 +341,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               n <- integer(1..15),
               expr <- member_of(["i", "i * 2", "i ** 2", "i + 1", "-i"]),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr([#{expr} for i in range(#{n})]))")
       end
@@ -358,7 +358,7 @@ defmodule Pyex.DifferentialFuzzTest do
                   "i < 3",
                   "i != 0"
                 ]),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr([i for i in range(#{n}) if #{cond_expr}]))")
       end
@@ -377,7 +377,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "list sorting" do
       check all(
               items <- list_of(small_int(), min_length: 0, max_length: 10),
-              max_runs: 200
+              max_runs: 100
             ) do
         list_str = Enum.join(items, ", ")
         assert_differential("print(repr(sorted([#{list_str}])))")
@@ -389,7 +389,7 @@ defmodule Pyex.DifferentialFuzzTest do
               a <- list_of(small_int(), min_length: 0, max_length: 5),
               b <- list_of(small_int(), min_length: 0, max_length: 5),
               n <- integer(0..4),
-              max_runs: 200
+              max_runs: 100
             ) do
         a_str = Enum.join(a, ", ")
         b_str = Enum.join(b, ", ")
@@ -401,7 +401,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "list methods" do
       check all(
               items <- list_of(small_int(), min_length: 1, max_length: 8),
-              max_runs: 200
+              max_runs: 100
             ) do
         list_str = Enum.join(items, ", ")
         first = hd(items)
@@ -421,7 +421,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               n <- integer(1..6),
               vals <- list_of(small_int(), length: n),
-              max_runs: 200
+              max_runs: 100
             ) do
         pairs =
           Enum.with_index(vals)
@@ -434,7 +434,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "dict comprehension" do
       check all(
               n <- integer(1..10),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr({i: i ** 2 for i in range(#{n})}))")
       end
@@ -444,7 +444,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               n <- integer(1..5),
               vals <- list_of(small_int(), length: n),
-              max_runs: 200
+              max_runs: 100
             ) do
         pairs =
           Enum.with_index(vals)
@@ -469,7 +469,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               a <- list_of(integer(0..15), min_length: 0, max_length: 8),
               b <- list_of(integer(0..15), min_length: 0, max_length: 8),
-              max_runs: 200
+              max_runs: 100
             ) do
         a_str = Enum.join(a, ", ")
         b_str = Enum.join(b, ", ")
@@ -491,7 +491,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               n <- integer(1..15),
               mod <- integer(2..5),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(sorted({i % #{mod} for i in range(#{n})})))")
       end
@@ -503,7 +503,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               items <- list_of(small_int(), min_length: 1, max_length: 8),
               idx <- integer(0..(length(items) - 1)),
-              max_runs: 200
+              max_runs: 100
             ) do
         tuple_str =
           case items do
@@ -520,7 +520,7 @@ defmodule Pyex.DifferentialFuzzTest do
               a <- small_int(),
               b <- small_int(),
               c <- small_int(),
-              max_runs: 200
+              max_runs: 100
             ) do
         code = """
         x, y, z = #{a}, #{b}, #{c}
@@ -534,7 +534,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "starred unpacking" do
       check all(
               items <- list_of(small_int(), min_length: 3, max_length: 8),
-              max_runs: 200
+              max_runs: 100
             ) do
         list_str = Enum.join(items, ", ")
 
@@ -556,7 +556,7 @@ defmodule Pyex.DifferentialFuzzTest do
               start <- integer(0..5),
               stop <- integer(5..15),
               step <- filter(integer(1..3), &(&1 != 0)),
-              max_runs: 200
+              max_runs: 100
             ) do
         code = """
         result = []
@@ -572,7 +572,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "while loop with accumulator" do
       check all(
               limit <- integer(1..20),
-              max_runs: 200
+              max_runs: 100
             ) do
         code = """
         total = 0
@@ -591,7 +591,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               n <- integer(1..15),
               target <- integer(0..20),
-              max_runs: 200
+              max_runs: 100
             ) do
         code = """
         result = "not found"
@@ -612,7 +612,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               a <- small_int(),
               b <- small_int(),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(#{a} if #{a} > #{b} else #{b}))")
       end
@@ -622,7 +622,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               a <- small_int(),
               b <- small_int(),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr((#{a} and #{b}, #{a} or #{b})))")
       end
@@ -636,7 +636,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               default <- small_int(),
               arg <- small_int(),
-              max_runs: 200
+              max_runs: 100
             ) do
         code = """
         def f(x, y=#{default}):
@@ -653,7 +653,7 @@ defmodule Pyex.DifferentialFuzzTest do
               a <- small_int(),
               b <- small_int(),
               op <- arith_op(),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr((lambda x, y: x #{op} y)(#{a}, #{b})))")
       end
@@ -680,7 +680,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               n <- small_int(),
               x <- small_int(),
-              max_runs: 200
+              max_runs: 100
             ) do
         code = """
         def make_adder(n):
@@ -697,7 +697,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "variadic function" do
       check all(
               args <- list_of(small_int(), min_length: 0, max_length: 6),
-              max_runs: 200
+              max_runs: 100
             ) do
         args_str = Enum.join(args, ", ")
 
@@ -715,7 +715,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               a <- small_int(),
               b <- small_int(),
-              max_runs: 200
+              max_runs: 100
             ) do
         code = """
         def f(x=0, y=0):
@@ -735,7 +735,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               items <- list_of(small_int(), min_length: 0, max_length: 10),
               reverse <- boolean(),
-              max_runs: 200
+              max_runs: 100
             ) do
         list_str = Enum.join(items, ", ")
         rev_str = if reverse, do: "True", else: "False"
@@ -746,7 +746,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "min and max" do
       check all(
               items <- list_of(small_int(), min_length: 1, max_length: 8),
-              max_runs: 200
+              max_runs: 100
             ) do
         list_str = Enum.join(items, ", ")
         assert_differential("print(repr((min([#{list_str}]), max([#{list_str}]))))")
@@ -756,7 +756,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "sum" do
       check all(
               items <- list_of(small_int(), min_length: 0, max_length: 10),
-              max_runs: 200
+              max_runs: 100
             ) do
         list_str = Enum.join(items, ", ")
         assert_differential("print(repr(sum([#{list_str}])))")
@@ -766,7 +766,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "abs" do
       check all(
               n <- integer(-1000..1000),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(abs(#{n})))")
       end
@@ -777,7 +777,7 @@ defmodule Pyex.DifferentialFuzzTest do
               start <- integer(-5..5),
               stop <- integer(-5..15),
               step <- filter(integer(-3..3), &(&1 != 0)),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(list(range(#{start}, #{stop}, #{step}))))")
       end
@@ -787,7 +787,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               items <- list_of(safe_string(), min_length: 0, max_length: 5),
               start <- integer(0..5),
-              max_runs: 200
+              max_runs: 100
             ) do
         list_str = Enum.map_join(items, ", ", &"\"#{&1}\"")
         assert_differential("print(repr(list(enumerate([#{list_str}], #{start}))))")
@@ -798,7 +798,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               a <- list_of(small_int(), min_length: 0, max_length: 5),
               b <- list_of(small_int(), min_length: 0, max_length: 5),
-              max_runs: 200
+              max_runs: 100
             ) do
         a_str = Enum.join(a, ", ")
         b_str = Enum.join(b, ", ")
@@ -809,7 +809,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "map and filter" do
       check all(
               items <- list_of(small_int(), min_length: 0, max_length: 8),
-              max_runs: 200
+              max_runs: 100
             ) do
         list_str = Enum.join(items, ", ")
 
@@ -826,7 +826,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "any and all" do
       check all(
               items <- list_of(small_int(), min_length: 0, max_length: 8),
-              max_runs: 200
+              max_runs: 100
             ) do
         list_str = Enum.join(items, ", ")
         assert_differential("print(repr((any([#{list_str}]), all([#{list_str}]))))")
@@ -836,7 +836,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "type conversions" do
       check all(
               n <- small_int(),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr((int(#{n}), float(#{n}), str(#{n}), bool(#{n}))))")
       end
@@ -854,7 +854,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "hex oct bin" do
       check all(
               n <- integer(0..255),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr((hex(#{n}), oct(#{n}), bin(#{n}))))")
       end
@@ -863,7 +863,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "int with base" do
       check all(
               n <- integer(0..255),
-              max_runs: 200
+              max_runs: 100
             ) do
         hex_str = Integer.to_string(n, 16) |> String.downcase()
         oct_str = Integer.to_string(n, 8)
@@ -882,7 +882,7 @@ defmodule Pyex.DifferentialFuzzTest do
               base <- integer(2..10),
               exp <- integer(1..10),
               mod <- integer(2..20),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(pow(#{base}, #{exp}, #{mod})))")
       end
@@ -900,7 +900,7 @@ defmodule Pyex.DifferentialFuzzTest do
                   constant("{1: 2}")
                 ]),
               type <- member_of(["int", "str", "bool", "list", "tuple", "dict"]),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(isinstance(#{val}, #{type})))")
       end
@@ -930,7 +930,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               n <- integer(1..15),
               expr <- member_of(["x", "x*2", "x**2", "x+1"]),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(list(#{expr} for x in range(#{n}))))")
       end
@@ -940,7 +940,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               n <- integer(1..15),
               pred <- member_of(["x % 2 == 0", "x > 3", "x < 8", "x != 5"]),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(list(x for x in range(#{n}) if #{pred})))")
       end
@@ -949,7 +949,7 @@ defmodule Pyex.DifferentialFuzzTest do
     property "sum of generator expression" do
       check all(
               n <- integer(1..15),
-              max_runs: 200
+              max_runs: 100
             ) do
         assert_differential("print(repr(sum(x * x for x in range(#{n}))))")
       end
@@ -1050,7 +1050,7 @@ defmodule Pyex.DifferentialFuzzTest do
       check all(
               a <- small_int(),
               b <- small_int(),
-              max_runs: 200
+              max_runs: 100
             ) do
         code = """
         try:

@@ -75,7 +75,6 @@ defmodule Pyex.Builtins do
       {"issubclass", &builtin_issubclass/1},
       {"round", &builtin_round/1},
       {"input", &builtin_input/1},
-      {"suspend", &builtin_suspend/1},
       {"open", &builtin_open/1},
       {"any", &builtin_any/1},
       {"all", &builtin_all/1},
@@ -819,9 +818,6 @@ defmodule Pyex.Builtins do
   defp builtin_input(_args) do
     {:exception, "RuntimeError: input() is not supported in the sandbox"}
   end
-
-  @spec builtin_suspend([Interpreter.pyvalue()]) :: {:suspended}
-  defp builtin_suspend([]), do: {:suspended}
 
   @spec builtin_open([Interpreter.pyvalue()]) ::
           {:ctx_call, (Pyex.Env.t(), Pyex.Ctx.t() -> term())}

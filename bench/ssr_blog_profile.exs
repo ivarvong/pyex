@@ -353,7 +353,7 @@ posts = [
 {:ok, fs} = Memory.write(fs, "posts/rest-api.md", medium_md, :write)
 {:ok, fs} = Memory.write(fs, "posts/sandboxed-execution.md", long_md, :write)
 
-ctx = Ctx.new(filesystem: fs, fs_module: Memory, profile: true)
+ctx = Ctx.new(filesystem: fs, profile: true)
 
 IO.puts("=" |> String.duplicate(70))
 IO.puts("SSR Blog Profile")
@@ -362,7 +362,7 @@ IO.puts("=" |> String.duplicate(70))
 # ---------- Boot with profiling ----------
 
 {boot_us, {:ok, app}} = :timer.tc(fn -> Lambda.boot(blog_source, ctx: ctx) end)
-boot_profile = Pyex.profile(app.ctx)
+boot_profile = app.ctx.profile
 
 IO.puts("\n--- Boot (#{Float.round(boot_us / 1000, 2)} ms) ---\n")
 

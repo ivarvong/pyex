@@ -12,11 +12,10 @@ defmodule Pyex.FilesystemTest do
 
   defp run_with_fs!(source, fs \\ Memory.new()) do
     ast = parse!(source)
-    ctx = Ctx.new(filesystem: fs, fs_module: Memory)
+    ctx = Ctx.new(filesystem: fs)
 
     case Interpreter.run_with_ctx(ast, Builtins.env(), ctx) do
       {:ok, value, _env, ctx} -> {value, ctx}
-      {:suspended, _env, ctx} -> {:suspended, ctx}
       {:error, msg} -> {:error, msg}
     end
   end
@@ -87,52 +86,6 @@ defmodule Pyex.FilesystemTest do
     test "path normalization strips leading/trailing slashes" do
       fs = Memory.new(%{"dir/file.txt" => "content"})
       assert {:ok, "content"} = Memory.read(fs, "/dir/file.txt")
-    end
-  end
-
-  describe "Filesystem.Local" do
-    setup do
-      dir = System.tmp_dir!() |> Path.join("pyex_test_#{:erlang.unique_integer([:positive])}")
-      File.mkdir_p!(dir)
-      on_exit(fn -> File.rm_rf!(dir) end)
-      {:ok, root: dir}
-    end
-
-    test "read and write", %{root: root} do
-      fs = Pyex.Filesystem.Local.new(root)
-      {:ok, fs} = Pyex.Filesystem.Local.write(fs, "test.txt", "hello", :write)
-      assert {:ok, "hello"} = Pyex.Filesystem.Local.read(fs, "test.txt")
-    end
-
-    test "path traversal is blocked", %{root: root} do
-      fs = Pyex.Filesystem.Local.new(root)
-
-      assert {:error, "PermissionError:" <> _} =
-               Pyex.Filesystem.Local.read(fs, "../../../etc/passwd")
-    end
-
-    test "exists?", %{root: root} do
-      fs = Pyex.Filesystem.Local.new(root)
-      refute Pyex.Filesystem.Local.exists?(fs, "nope.txt")
-      {:ok, _} = Pyex.Filesystem.Local.write(fs, "yes.txt", "", :write)
-      assert Pyex.Filesystem.Local.exists?(fs, "yes.txt")
-    end
-
-    test "list_dir", %{root: root} do
-      fs = Pyex.Filesystem.Local.new(root)
-      {:ok, _} = Pyex.Filesystem.Local.write(fs, "a.txt", "", :write)
-      {:ok, _} = Pyex.Filesystem.Local.write(fs, "b.txt", "", :write)
-      {:ok, entries} = Pyex.Filesystem.Local.list_dir(fs, "")
-      assert "a.txt" in entries
-      assert "b.txt" in entries
-    end
-
-    test "delete", %{root: root} do
-      fs = Pyex.Filesystem.Local.new(root)
-      {:ok, fs} = Pyex.Filesystem.Local.write(fs, "del.txt", "x", :write)
-      assert Pyex.Filesystem.Local.exists?(fs, "del.txt")
-      {:ok, _} = Pyex.Filesystem.Local.delete(fs, "del.txt")
-      refute Pyex.Filesystem.Local.exists?(fs, "del.txt")
     end
   end
 

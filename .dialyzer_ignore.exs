@@ -15,7 +15,6 @@
   # MapSet is an opaque type. Dialyzer complains when it appears in struct fields
   # because it cannot see through the opaque boundary. The capabilities MapSet is
   # used correctly via MapSet.member?/2 and MapSet.new/1 -- these are false positives.
-  {"lib/pyex/ctx.ex", :contract_with_opaque},
   {"lib/pyex/interpreter.ex", :call_without_opaque},
   {"lib/pyex/stdlib/jinja2.ex", :call_without_opaque},
   # The with-statement eval clause calls eval/3 on the context manager expression,

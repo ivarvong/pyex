@@ -43,7 +43,7 @@ defmodule Pyex.Lambda do
           required(:method) => String.t(),
           required(:path) => String.t(),
           optional(:headers) => %{optional(String.t()) => String.t()},
-          optional(:query) => %{optional(String.t()) => String.t()},
+          optional(:query_params) => %{optional(String.t()) => String.t()},
           optional(:body) => String.t() | nil
         }
 
@@ -85,7 +85,7 @@ defmodule Pyex.Lambda do
   a response map.
 
   Options:
-  - `:ctx` -- a `Pyex.Ctx` to use (e.g. with `:environ` for `os.environ`)
+  - `:ctx` -- a `Pyex.Ctx` to use (e.g. with `:env` for `os.environ`)
 
   Returns `{:ok, response}` or `{:error, reason}`.
   """
@@ -124,7 +124,7 @@ defmodule Pyex.Lambda do
 
   ## Example
 
-      ctx = Pyex.Ctx.new(filesystem: fs, fs_module: Memory)
+      ctx = Pyex.Ctx.new(filesystem: fs)
       {:ok, app} = Pyex.Lambda.boot(source, ctx: ctx)
   """
   @spec boot(String.t(), keyword()) :: {:ok, app()} | {:error, Error.t()}
@@ -469,7 +469,7 @@ defmodule Pyex.Lambda do
          request,
          ctx
        ) do
-    query_params = Map.get(request, :query, %{})
+    query_params = Map.get(request, :query_params, %{})
     request_obj = build_request_object(request)
     base_env = Env.push_scope(Env.put(closure_env, name, func))
 
@@ -519,7 +519,7 @@ defmodule Pyex.Lambda do
 
       _ ->
         func = handler
-        query_params = Map.get(request, :query, %{})
+        query_params = Map.get(request, :query_params, %{})
         request_obj = build_request_object(request)
         base_env = Env.push_scope(Env.put(closure_env, func_name, func))
 
@@ -625,7 +625,7 @@ defmodule Pyex.Lambda do
     %{
       "method" => String.upcase(request.method),
       "headers" => Map.get(request, :headers, %{}),
-      "query_params" => Map.get(request, :query, %{}),
+      "query_params" => Map.get(request, :query_params, %{}),
       "body" => body,
       "json" =>
         {:builtin,

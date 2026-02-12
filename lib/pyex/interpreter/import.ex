@@ -14,11 +14,17 @@ defmodule Pyex.Interpreter.Import do
   Returns a helpful error suffix for unknown module names.
   """
   @spec import_hint(String.t()) :: String.t()
-  def import_hint(name)
-      when name in ["urllib", "urllib2", "http", "httplib", "httpx", "aiohttp"],
-      do: ". Use 'import requests' instead"
+  def import_hint("urllib"), do: ". Use 'import requests' instead"
+  def import_hint("urllib." <> _), do: ". Use 'import requests' instead"
+
+  def import_hint(name) when name in ["urllib2", "http", "httplib", "httpx", "aiohttp"],
+    do: ". Use 'import requests' instead"
+
+  def import_hint("http." <> _), do: ". Use 'import requests' instead"
 
   def import_hint("sys"), do: ". Use 'import os' for environ access"
+  def import_hint("pathlib"), do: ". Use the filesystem option with Pyex.Filesystem.Memory"
+  def import_hint("io"), do: ". Use the filesystem option for file operations"
 
   def import_hint(_) do
     names = ["os" | Pyex.Stdlib.module_names()] |> Enum.join(", ")
@@ -86,7 +92,7 @@ defmodule Pyex.Interpreter.Import do
   @spec resolve_builtin_module(String.t(), Ctx.t()) ::
           {:ok, Pyex.Stdlib.Module.module_value()} | :unknown_module
   defp resolve_builtin_module("os", ctx) do
-    {:ok, %{"environ" => ctx.environ}}
+    {:ok, %{"environ" => ctx.env}}
   end
 
   defp resolve_builtin_module(name, _ctx) do
@@ -97,7 +103,7 @@ defmodule Pyex.Interpreter.Import do
           {:ok, Pyex.Stdlib.Module.module_value(), Ctx.t()}
           | {:unknown_module, Ctx.t()}
           | {:import_error, String.t(), Ctx.t()}
-  defp resolve_filesystem_module(_name, _env, %{fs_module: nil} = ctx) do
+  defp resolve_filesystem_module(_name, _env, %{filesystem: nil} = ctx) do
     {:unknown_module, ctx}
   end
 
@@ -109,7 +115,7 @@ defmodule Pyex.Interpreter.Import do
       :error ->
         path = String.replace(name, ".", "/") <> ".py"
 
-        case ctx.fs_module.read(ctx.filesystem, path) do
+        case ctx.filesystem.__struct__.read(ctx.filesystem, path) do
           {:ok, source} ->
             case Pyex.compile(source) do
               {:ok, ast} ->

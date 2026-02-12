@@ -3,17 +3,14 @@ defmodule Pyex.Interpreter do
   Tree-walking evaluator for the Pyex AST.
 
   Functions are first-class values stored in the environment.
-  Control flow (return, break, continue, suspend) is handled
-  via tagged tuples that unwind naturally through the call stack.
-  Python exceptions are `{:exception, message}` tuples that
-  propagate identically -- no Elixir raise/rescue for Python
-  error semantics.
+  Control flow (return, break, continue) is handled via tagged
+  tuples that unwind naturally through the call stack. Python
+  exceptions are `{:exception, message}` tuples that propagate
+  identically -- no Elixir raise/rescue for Python error semantics.
 
-  Every execution is instrumented via `Pyex.Ctx` for Temporal-style
-  deterministic replay. Decision points (branches, loop iterations,
-  side effects) are recorded as events. On replay the interpreter
-  consumes logged events instead of re-executing, enabling suspend,
-  resume, branch, and time-travel debugging.
+  Every execution is instrumented via `Pyex.Ctx`. Decision points
+  (branches, loop iterations, side effects) are recorded as events
+  in an append-only log for observability and debugging.
   """
 
   import Bitwise, only: [band: 2, bor: 2, bxor: 2, bsl: 2, bsr: 2, bnot: 1]
@@ -57,7 +54,6 @@ defmodule Pyex.Interpreter do
            {:returned, pyvalue()}
            | {:break}
            | {:continue}
-           | {:suspended}
            | {:exception, String.t()}
            | {:yielded, pyvalue(), [cont_frame()]}
 
@@ -94,7 +90,6 @@ defmodule Pyex.Interpreter do
           | {:assert_raises, String.t()}
           | {:register_route, String.t(), String.t(), pyvalue()}
           | {:super_call}
-          | {:suspended}
 
   @typep eval_result :: {pyvalue() | signal(), Env.t(), Ctx.t()}
 
@@ -117,20 +112,14 @@ defmodule Pyex.Interpreter do
   Evaluates an AST with a provided context, returning
   the value, final environment, and context (with full
   event log).
-
-  Returns `{:suspended, env, ctx}` if the program called
-  `suspend()`, allowing the caller to serialize and resume
-  later.
   """
   @spec run_with_ctx(Parser.ast_node(), Env.t(), Ctx.t()) ::
           {:ok, pyvalue(), Env.t(), Ctx.t()}
-          | {:suspended, Env.t(), Ctx.t()}
           | {:error, String.t()}
   def run_with_ctx(ast, env, ctx) do
     ctx = init_profile(ctx)
 
     case eval(ast, env, ctx) do
-      {{:suspended}, env, ctx} -> {:suspended, env, ctx}
       {{:exception, msg}, _env, ctx} -> {:error, Helpers.format_error(msg, ctx)}
       {result, env, ctx} -> {:ok, Helpers.unwrap(result), env, ctx}
     end
@@ -146,8 +135,8 @@ defmodule Pyex.Interpreter do
 
   Returns `{value, env, ctx}` where value may be a raw value
   or a signal (`{:returned, value}`, `{:break}`, `{:continue}`,
-  `{:suspended}`, `{:exception, msg}`, `{:yielded, value, cont}`)
-  that propagates up through statement evaluation.
+  `{:exception, msg}`, `{:yielded, value, cont}`) that
+  propagates up through statement evaluation.
   """
   @spec eval(Parser.ast_node(), Env.t(), Ctx.t()) :: eval_result()
   def eval({:module, _, statements}, env, ctx) do
@@ -1367,9 +1356,6 @@ defmodule Pyex.Interpreter do
           {{:continue} = signal, env, ctx} ->
             {signal, env, ctx}
 
-          {{:suspended} = signal, env, ctx} ->
-            {signal, env, ctx}
-
           {{:exception, _} = signal, env, ctx} ->
             {signal, env, ctx}
 
@@ -1588,14 +1574,6 @@ defmodule Pyex.Interpreter do
       end
 
     case result do
-      {:suspended} ->
-        if ctx.mode == :replay do
-          {nil, env, ctx}
-        else
-          ctx = Ctx.record(ctx, :suspend, {})
-          {{:suspended}, env, ctx}
-        end
-
       {:ctx_call, ctx_fun} ->
         ctx_fun.(env, ctx)
 
@@ -2267,9 +2245,6 @@ defmodule Pyex.Interpreter do
             {{:break}, env, ctx} ->
               {nil, env, ctx}
 
-            {{:suspended} = signal, env, ctx} ->
-              {signal, env, ctx}
-
             {{:exception, _} = signal, env, ctx} ->
               {signal, env, ctx}
 
@@ -2321,9 +2296,6 @@ defmodule Pyex.Interpreter do
               {{:break}, env, ctx} ->
                 {nil, env, ctx}
 
-              {{:suspended} = signal, env, ctx} ->
-                {signal, env, ctx}
-
               {{:exception, _} = signal, env, ctx} ->
                 {signal, env, ctx}
 
@@ -2359,9 +2331,6 @@ defmodule Pyex.Interpreter do
 
           {{:break}, env, ctx} ->
             {nil, env, ctx}
-
-          {{:suspended} = signal, env, ctx} ->
-            {signal, env, ctx}
 
           {{:exception, _} = signal, env, ctx} ->
             {signal, env, ctx}

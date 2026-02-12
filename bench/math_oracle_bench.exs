@@ -117,7 +117,7 @@ defmodule MathOracleBench do
     csv = build_csv(row_count)
     fs = Memory.new()
     {:ok, fs} = Memory.write(fs, "data.csv", csv, :write)
-    opts = [filesystem: fs, fs_module: Memory, timeout_ms: 5000]
+    opts = [filesystem: fs, timeout_ms: 5000]
     source = python_source(row_count)
 
     # warm up
