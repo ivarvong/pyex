@@ -86,6 +86,8 @@ defmodule Pyex.Ctx do
           max_call_depth: non_neg_integer()
         }
 
+  @max_log_events 100_000
+
   defstruct mode: :live,
             log: [],
             step: 0,
@@ -439,6 +441,11 @@ defmodule Pyex.Ctx do
   """
   @spec record(t(), event_type(), term()) :: t()
   def record(%__MODULE__{mode: :noop} = ctx, _type, _data), do: ctx
+
+  def record(%__MODULE__{mode: :live, step: step} = ctx, _type, _data)
+      when step >= @max_log_events do
+    %{ctx | step: step + 1}
+  end
 
   def record(%__MODULE__{mode: :live} = ctx, type, data) do
     event = {type, ctx.step, data}

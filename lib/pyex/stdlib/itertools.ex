@@ -16,6 +16,8 @@ defmodule Pyex.Stdlib.Itertools do
 
   alias Pyex.{Builtins, Interpreter}
 
+  @max_output 1_000_000
+
   @doc """
   Returns the module value map with all itertools functions.
   """
@@ -116,8 +118,15 @@ defmodule Pyex.Stdlib.Itertools do
         n -> lists |> List.duplicate(n) |> Enum.concat()
       end
 
-    cartesian_product(repeated)
-    |> Enum.map(fn combo -> {:tuple, combo} end)
+    output_size = Enum.reduce(repeated, 1, fn list, acc -> acc * length(list) end)
+
+    if output_size >= @max_output do
+      {:exception,
+       "MemoryError: itertools.product would produce #{output_size} elements (max #{@max_output})"}
+    else
+      cartesian_product(repeated)
+      |> Enum.map(fn combo -> {:tuple, combo} end)
+    end
   end
 
   @spec cartesian_product([[Interpreter.pyvalue()]]) :: [[Interpreter.pyvalue()]]
@@ -147,15 +156,40 @@ defmodule Pyex.Stdlib.Itertools do
     permute(items, length(items))
   end
 
-  @spec permute([Interpreter.pyvalue()], non_neg_integer()) :: [Interpreter.pyvalue()]
+  @spec permute([Interpreter.pyvalue()], non_neg_integer()) ::
+          [Interpreter.pyvalue()] | {:exception, String.t()}
   defp permute(_items, 0), do: [{:tuple, []}]
 
   defp permute(items, r) when r > length(items), do: []
 
   defp permute(items, r) do
-    do_permute(items, r)
-    |> Enum.map(fn combo -> {:tuple, combo} end)
+    output_size = perm_count(length(items), r)
+
+    if output_size >= @max_output do
+      {:exception,
+       "MemoryError: itertools.permutations would produce #{output_size} elements (max #{@max_output})"}
+    else
+      do_permute(items, r)
+      |> Enum.map(fn combo -> {:tuple, combo} end)
+    end
   end
+
+  @spec perm_count(non_neg_integer(), non_neg_integer()) :: non_neg_integer()
+  defp perm_count(n, r) when r > n, do: 0
+  defp perm_count(n, r), do: Enum.reduce((n - r + 1)..n//1, 1, &*/2)
+
+  @spec comb_count(non_neg_integer(), non_neg_integer()) :: non_neg_integer()
+  defp comb_count(n, r) when r > n, do: 0
+  defp comb_count(_n, r) when r == 0, do: 1
+
+  defp comb_count(n, r) do
+    r = min(r, n - r)
+    div(perm_count(n, r), factorial(r))
+  end
+
+  @spec factorial(non_neg_integer()) :: pos_integer()
+  defp factorial(0), do: 1
+  defp factorial(n), do: Enum.reduce(1..n//1, 1, &*/2)
 
   @spec do_permute([Interpreter.pyvalue()], non_neg_integer()) :: [[Interpreter.pyvalue()]]
   defp do_permute(_items, 0), do: [[]]
@@ -167,13 +201,23 @@ defmodule Pyex.Stdlib.Itertools do
     end
   end
 
-  @spec do_combinations([Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]
+  @spec do_combinations([Interpreter.pyvalue()]) ::
+          [Interpreter.pyvalue()] | {:exception, String.t()}
   defp do_combinations([iterable, r]) when is_integer(r) do
     items = materialize(iterable)
-    combine(items, r)
+    n = length(items)
+    output_size = comb_count(n, r)
+
+    if output_size >= @max_output do
+      {:exception,
+       "MemoryError: itertools.combinations would produce #{output_size} elements (max #{@max_output})"}
+    else
+      combine(items, r)
+    end
   end
 
-  @spec combine([Interpreter.pyvalue()], non_neg_integer()) :: [Interpreter.pyvalue()]
+  @spec combine([Interpreter.pyvalue()], non_neg_integer()) ::
+          [Interpreter.pyvalue()] | {:exception, String.t()}
   defp combine(_items, 0), do: [{:tuple, []}]
   defp combine([], _r), do: []
 
@@ -188,10 +232,19 @@ defmodule Pyex.Stdlib.Itertools do
     with_head ++ without_head
   end
 
-  @spec do_combinations_with_replacement([Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]
+  @spec do_combinations_with_replacement([Interpreter.pyvalue()]) ::
+          [Interpreter.pyvalue()] | {:exception, String.t()}
   defp do_combinations_with_replacement([iterable, r]) when is_integer(r) do
     items = materialize(iterable)
-    combine_with_replacement(items, r)
+    n = length(items)
+    output_size = comb_count(n + r - 1, r)
+
+    if output_size >= @max_output do
+      {:exception,
+       "MemoryError: itertools.combinations_with_replacement would produce #{output_size} elements (max #{@max_output})"}
+    else
+      combine_with_replacement(items, r)
+    end
   end
 
   @spec combine_with_replacement([Interpreter.pyvalue()], non_neg_integer()) ::
@@ -214,7 +267,8 @@ defmodule Pyex.Stdlib.Itertools do
   end
 
   defp do_repeat([elem, n]) when is_integer(n) do
-    List.duplicate(elem, max(n, 0))
+    capped = min(max(n, 0), @max_output)
+    List.duplicate(elem, capped)
   end
 
   @spec do_compress([Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]

@@ -230,4 +230,58 @@ defmodule Pyex.Stdlib.ReTest do
       assert msg =~ "re.error"
     end
   end
+
+  describe "ReDoS protection" do
+    test "normal regex operations work with timeout protection" do
+      result =
+        Pyex.run!("""
+        import re
+        m = re.search("(\\\\d+)", "abc123def")
+        m.group(1)
+        """)
+
+      assert result == "123"
+    end
+
+    test "match works with complex but safe pattern" do
+      result =
+        Pyex.run!("""
+        import re
+        m = re.match("([a-z]+)@([a-z]+)\\\\.com", "user@example.com")
+        [m.group(1), m.group(2)]
+        """)
+
+      assert result == ["user", "example"]
+    end
+
+    test "findall works with timeout protection" do
+      result =
+        Pyex.run!("""
+        import re
+        re.findall("\\\\d+", "a1b22c333")
+        """)
+
+      assert result == ["1", "22", "333"]
+    end
+
+    test "sub works with timeout protection" do
+      result =
+        Pyex.run!("""
+        import re
+        re.sub("\\\\s+", "-", "hello   world   foo")
+        """)
+
+      assert result == "hello-world-foo"
+    end
+
+    test "split works with timeout protection" do
+      result =
+        Pyex.run!("""
+        import re
+        re.split(",\\\\s*", "a, b,c,  d")
+        """)
+
+      assert result == ["a", "b", "c", "d"]
+    end
+  end
 end

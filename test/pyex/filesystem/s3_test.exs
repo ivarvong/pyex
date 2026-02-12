@@ -581,4 +581,40 @@ defmodule Pyex.Filesystem.S3Test do
       assert result == ["alice", "bob"]
     end
   end
+
+  # ── path traversal protection ─────────────────────────────────────────
+
+  describe "path traversal protection" do
+    test "read rejects ../ in path", %{fs: fs} do
+      assert {:error, msg} = S3.read(fs, "../etc/passwd")
+      assert msg =~ "path traversal not allowed"
+    end
+
+    test "write rejects ../ in path", %{fs: fs} do
+      assert {:error, msg} = S3.write(fs, "../../escape", "data", :write)
+      assert msg =~ "path traversal not allowed"
+    end
+
+    test "exists? returns false for ../ path", %{fs: fs} do
+      assert S3.exists?(fs, "../secret") == false
+    end
+
+    test "list_dir rejects ../ in path", %{fs: fs} do
+      assert {:error, msg} = S3.list_dir(fs, "../")
+      assert msg =~ "path traversal not allowed"
+    end
+
+    test "delete rejects ../ in path", %{fs: fs} do
+      assert {:error, msg} = S3.delete(fs, "foo/../../bar")
+      assert msg =~ "path traversal not allowed"
+    end
+
+    test "normal nested paths still work", %{bypass: bypass, fs: fs} do
+      Bypass.expect_once(bypass, "PUT", "/test-bucket/pyex/deep/nested/file.txt", fn conn ->
+        Plug.Conn.resp(conn, 200, "")
+      end)
+
+      assert {:ok, _} = S3.write(fs, "deep/nested/file.txt", "hello", :write)
+    end
+  end
 end

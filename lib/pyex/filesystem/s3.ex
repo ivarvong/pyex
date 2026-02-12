@@ -46,20 +46,22 @@ defmodule Pyex.Filesystem.S3 do
   @impl Pyex.Filesystem
   @spec read(t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def read(%__MODULE__{} = fs, path) do
-    url = object_url(fs, path)
+    with :ok <- validate_path(path) do
+      url = object_url(fs, path)
 
-    case Req.get(url, req_opts(fs, decode_body: false)) do
-      {:ok, %{status: 200, body: body}} ->
-        {:ok, body}
+      case Req.get(url, req_opts(fs, decode_body: false)) do
+        {:ok, %{status: 200, body: body}} ->
+          {:ok, body}
 
-      {:ok, %{status: 404}} ->
-        {:error, "FileNotFoundError: [Errno 2] No such file or directory: '#{path}'"}
+        {:ok, %{status: 404}} ->
+          {:error, "FileNotFoundError: [Errno 2] No such file or directory: '#{path}'"}
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, "IOError: S3 returned #{status}: #{inspect(body)}"}
+        {:ok, %{status: status, body: body}} ->
+          {:error, "IOError: S3 returned #{status}: #{inspect(body)}"}
 
-      {:error, reason} ->
-        {:error, "IOError: #{inspect(reason)}"}
+        {:error, reason} ->
+          {:error, "IOError: #{inspect(reason)}"}
+      end
     end
   end
 
@@ -67,6 +69,14 @@ defmodule Pyex.Filesystem.S3 do
   @spec write(t(), String.t(), String.t(), Pyex.Filesystem.mode()) ::
           {:ok, t()} | {:error, String.t()}
   def write(%__MODULE__{} = fs, path, content, mode) do
+    with :ok <- validate_path(path) do
+      write_validated(fs, path, content, mode)
+    end
+  end
+
+  @spec write_validated(t(), String.t(), String.t(), Pyex.Filesystem.mode()) ::
+          {:ok, t()} | {:error, String.t()}
+  defp write_validated(fs, path, content, mode) do
     full_content =
       case mode do
         :write ->
@@ -96,49 +106,59 @@ defmodule Pyex.Filesystem.S3 do
   @impl Pyex.Filesystem
   @spec exists?(t(), String.t()) :: boolean()
   def exists?(%__MODULE__{} = fs, path) do
-    url = object_url(fs, path)
+    case validate_path(path) do
+      {:error, _} ->
+        false
 
-    case Req.head(url, req_opts(fs)) do
-      {:ok, %{status: 200}} -> true
-      _ -> false
+      :ok ->
+        url = object_url(fs, path)
+
+        case Req.head(url, req_opts(fs)) do
+          {:ok, %{status: 200}} -> true
+          _ -> false
+        end
     end
   end
 
   @impl Pyex.Filesystem
   @spec list_dir(t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
   def list_dir(%__MODULE__{} = fs, path) do
-    prefix = s3_key(fs, path)
-    prefix = if prefix == "", do: "", else: String.trim_trailing(prefix, "/") <> "/"
-    url = base_url(fs) <> "/"
-    params = [{"list-type", "2"}, {"prefix", prefix}, {"delimiter", "/"}]
+    with :ok <- validate_path(path) do
+      prefix = s3_key(fs, path)
+      prefix = if prefix == "", do: "", else: String.trim_trailing(prefix, "/") <> "/"
+      url = base_url(fs) <> "/"
+      params = [{"list-type", "2"}, {"prefix", prefix}, {"delimiter", "/"}]
 
-    case Req.get(url, [{:params, params} | req_opts(fs, decode_body: false)]) do
-      {:ok, %{status: 200, body: body}} ->
-        entries = parse_list_response(body, prefix)
-        {:ok, entries}
+      case Req.get(url, [{:params, params} | req_opts(fs, decode_body: false)]) do
+        {:ok, %{status: 200, body: body}} ->
+          entries = parse_list_response(body, prefix)
+          {:ok, entries}
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, "IOError: S3 LIST returned #{status}: #{inspect(body)}"}
+        {:ok, %{status: status, body: body}} ->
+          {:error, "IOError: S3 LIST returned #{status}: #{inspect(body)}"}
 
-      {:error, reason} ->
-        {:error, "IOError: #{inspect(reason)}"}
+        {:error, reason} ->
+          {:error, "IOError: #{inspect(reason)}"}
+      end
     end
   end
 
   @impl Pyex.Filesystem
   @spec delete(t(), String.t()) :: {:ok, t()} | {:error, String.t()}
   def delete(%__MODULE__{} = fs, path) do
-    url = object_url(fs, path)
+    with :ok <- validate_path(path) do
+      url = object_url(fs, path)
 
-    case Req.delete(url, req_opts(fs)) do
-      {:ok, %{status: status}} when status in [200, 204] ->
-        {:ok, fs}
+      case Req.delete(url, req_opts(fs)) do
+        {:ok, %{status: status}} when status in [200, 204] ->
+          {:ok, fs}
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, "IOError: S3 DELETE returned #{status}: #{inspect(body)}"}
+        {:ok, %{status: status, body: body}} ->
+          {:error, "IOError: S3 DELETE returned #{status}: #{inspect(body)}"}
 
-      {:error, reason} ->
-        {:error, "IOError: #{inspect(reason)}"}
+        {:error, reason} ->
+          {:error, "IOError: #{inspect(reason)}"}
+      end
     end
   end
 
@@ -160,6 +180,17 @@ defmodule Pyex.Filesystem.S3 do
 
   defp base_url(%__MODULE__{bucket: bucket, region: region}) do
     "https://#{bucket}.s3.#{region}.amazonaws.com"
+  end
+
+  @spec validate_path(String.t()) :: :ok | {:error, String.t()}
+  defp validate_path(path) do
+    normalized = String.trim_leading(path, "/")
+
+    if String.contains?(normalized, "..") do
+      {:error, "IOError: path traversal not allowed: '#{path}'"}
+    else
+      :ok
+    end
   end
 
   @spec s3_key(t(), String.t()) :: String.t()

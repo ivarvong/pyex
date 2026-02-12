@@ -53,13 +53,14 @@ defmodule Pyex.Agent do
   Runs the agent loop with the given user prompt.
 
   Options:
+  - `:api_key` (required) -- Anthropic API key
   - `:filesystem` -- initial Memory filesystem (default: empty)
 
   Returns `{:ok, final_text, state}` or `{:error, reason}`.
   """
   @spec run(String.t(), keyword()) :: {:ok, String.t(), state()} | {:error, String.t()}
   def run(prompt, opts \\ []) do
-    api_key = System.get_env("ANTHROPIC_API_KEY") || raise "ANTHROPIC_API_KEY not set"
+    api_key = Keyword.fetch!(opts, :api_key)
     fs = Keyword.get(opts, :filesystem, Memory.new())
 
     state = %{
