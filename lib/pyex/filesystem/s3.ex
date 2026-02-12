@@ -103,9 +103,10 @@ defmodule Pyex.Filesystem.S3 do
   def list_dir(%__MODULE__{} = fs, path) do
     prefix = s3_key(fs, path)
     prefix = if prefix == "", do: "", else: String.trim_trailing(prefix, "/") <> "/"
-    url = base_url(fs) <> "/?list-type=2&prefix=#{prefix}&delimiter=/"
+    url = base_url(fs) <> "/"
+    params = [{"list-type", "2"}, {"prefix", prefix}, {"delimiter", "/"}]
 
-    case Req.get(url, req_opts(fs, decode_body: false)) do
+    case Req.get(url, [{:params, params} | req_opts(fs, decode_body: false)]) do
       {:ok, %{status: 200, body: body}} ->
         entries = parse_list_response(body, prefix)
         {:ok, entries}
@@ -147,8 +148,8 @@ defmodule Pyex.Filesystem.S3 do
   end
 
   @spec base_url(t()) :: String.t()
-  defp base_url(%__MODULE__{endpoint_url: url}) when is_binary(url) do
-    String.trim_trailing(url, "/")
+  defp base_url(%__MODULE__{endpoint_url: url, bucket: bucket}) when is_binary(url) do
+    String.trim_trailing(url, "/") <> "/#{bucket}"
   end
 
   defp base_url(%__MODULE__{bucket: bucket, region: region}) do

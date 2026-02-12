@@ -4081,6 +4081,17 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  defp call_dunder_mut({:file_handle, _id} = handle, "__enter__", [], env, ctx) do
+    {:ok, handle, handle, env, ctx}
+  end
+
+  defp call_dunder_mut({:file_handle, id} = handle, "__exit__", _args, env, ctx) do
+    case Ctx.close_handle(ctx, id) do
+      {:ok, ctx} -> {:ok, handle, nil, env, ctx}
+      {:error, _} -> {:ok, handle, nil, env, ctx}
+    end
+  end
+
   defp call_dunder_mut(_, _, _, _, _), do: :not_found
 
   @spec resolve_class_attr(pyvalue(), String.t()) :: {:ok, pyvalue()} | :error

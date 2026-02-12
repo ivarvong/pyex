@@ -71,7 +71,7 @@ defmodule Pyex.Filesystem.S3Test do
 
   describe "read/2" do
     test "returns content on 200", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "GET", "/pyex/hello.txt", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/pyex/hello.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "hello world")
       end)
 
@@ -79,7 +79,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "returns FileNotFoundError on 404", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "GET", "/pyex/missing.txt", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/pyex/missing.txt", fn conn ->
         Plug.Conn.resp(conn, 404, "Not Found")
       end)
 
@@ -89,7 +89,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "returns IOError on other status codes", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "GET", "/pyex/forbidden.txt", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/pyex/forbidden.txt", fn conn ->
         Plug.Conn.resp(conn, 403, "Forbidden")
       end)
 
@@ -105,7 +105,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "handles path with leading slash", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "GET", "/pyex/data.txt", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/pyex/data.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "data")
       end)
 
@@ -115,7 +115,7 @@ defmodule Pyex.Filesystem.S3Test do
     test "works with empty prefix", %{bypass: bypass, url: url} do
       fs = S3.new(bucket: "b", endpoint_url: url)
 
-      Bypass.expect_once(bypass, "GET", "/file.txt", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/b/file.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "no prefix")
       end)
 
@@ -123,7 +123,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "handles nested paths", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "GET", "/pyex/dir/sub/file.txt", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/pyex/dir/sub/file.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "nested")
       end)
 
@@ -135,7 +135,7 @@ defmodule Pyex.Filesystem.S3Test do
 
   describe "write/4" do
     test "write mode PUTs content directly", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "PUT", "/pyex/out.txt", fn conn ->
+      Bypass.expect_once(bypass, "PUT", "/test-bucket/pyex/out.txt", fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
         assert body == "hello"
         Plug.Conn.resp(conn, 200, "")
@@ -145,7 +145,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "write mode accepts 201", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "PUT", "/pyex/new.txt", fn conn ->
+      Bypass.expect_once(bypass, "PUT", "/test-bucket/pyex/new.txt", fn conn ->
         Plug.Conn.resp(conn, 201, "")
       end)
 
@@ -155,10 +155,10 @@ defmodule Pyex.Filesystem.S3Test do
     test "append mode reads then writes concatenated content", %{bypass: bypass, fs: fs} do
       Bypass.expect(bypass, fn conn ->
         case {conn.method, conn.request_path} do
-          {"GET", "/pyex/log.txt"} ->
+          {"GET", "/test-bucket/pyex/log.txt"} ->
             Plug.Conn.resp(conn, 200, "line1\n")
 
-          {"PUT", "/pyex/log.txt"} ->
+          {"PUT", "/test-bucket/pyex/log.txt"} ->
             {:ok, body, conn} = Plug.Conn.read_body(conn)
             assert body == "line1\nline2\n"
             Plug.Conn.resp(conn, 200, "")
@@ -171,10 +171,10 @@ defmodule Pyex.Filesystem.S3Test do
     test "append mode on nonexistent file writes content alone", %{bypass: bypass, fs: fs} do
       Bypass.expect(bypass, fn conn ->
         case {conn.method, conn.request_path} do
-          {"GET", "/pyex/new.txt"} ->
+          {"GET", "/test-bucket/pyex/new.txt"} ->
             Plug.Conn.resp(conn, 404, "Not Found")
 
-          {"PUT", "/pyex/new.txt"} ->
+          {"PUT", "/test-bucket/pyex/new.txt"} ->
             {:ok, body, conn} = Plug.Conn.read_body(conn)
             assert body == "first line\n"
             Plug.Conn.resp(conn, 200, "")
@@ -185,7 +185,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "returns IOError on PUT failure", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "PUT", "/pyex/fail.txt", fn conn ->
+      Bypass.expect_once(bypass, "PUT", "/test-bucket/pyex/fail.txt", fn conn ->
         Plug.Conn.resp(conn, 500, "Internal Server Error")
       end)
 
@@ -205,7 +205,7 @@ defmodule Pyex.Filesystem.S3Test do
 
   describe "exists?/2" do
     test "returns true on 200 HEAD", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "HEAD", "/pyex/present.txt", fn conn ->
+      Bypass.expect_once(bypass, "HEAD", "/test-bucket/pyex/present.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "")
       end)
 
@@ -213,7 +213,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "returns false on 404 HEAD", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "HEAD", "/pyex/gone.txt", fn conn ->
+      Bypass.expect_once(bypass, "HEAD", "/test-bucket/pyex/gone.txt", fn conn ->
         Plug.Conn.resp(conn, 404, "")
       end)
 
@@ -239,9 +239,9 @@ defmodule Pyex.Filesystem.S3Test do
       </ListBucketResult>
       """
 
-      Bypass.expect_once(bypass, "GET", "/", fn conn ->
-        assert conn.query_string =~ "prefix=pyex/data/"
-        assert conn.query_string =~ "delimiter=/"
+      Bypass.expect_once(bypass, "GET", "/test-bucket/", fn conn ->
+        assert conn.query_string =~ "prefix=pyex%2Fdata%2F"
+        assert conn.query_string =~ "delimiter=%2F"
         Plug.Conn.resp(conn, 200, xml)
       end)
 
@@ -258,8 +258,8 @@ defmodule Pyex.Filesystem.S3Test do
       </ListBucketResult>
       """
 
-      Bypass.expect_once(bypass, "GET", "/", fn conn ->
-        assert conn.query_string =~ "prefix=pyex/"
+      Bypass.expect_once(bypass, "GET", "/test-bucket/", fn conn ->
+        assert conn.query_string =~ "prefix=pyex%2F"
         Plug.Conn.resp(conn, 200, xml)
       end)
 
@@ -274,7 +274,7 @@ defmodule Pyex.Filesystem.S3Test do
       </ListBucketResult>
       """
 
-      Bypass.expect_once(bypass, "GET", "/", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/", fn conn ->
         Plug.Conn.resp(conn, 200, xml)
       end)
 
@@ -282,7 +282,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "returns IOError on error status", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "GET", "/", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/", fn conn ->
         Plug.Conn.resp(conn, 403, "Access Denied")
       end)
 
@@ -307,7 +307,7 @@ defmodule Pyex.Filesystem.S3Test do
       </ListBucketResult>
       """
 
-      Bypass.expect_once(bypass, "GET", "/", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/b/", fn conn ->
         assert conn.query_string =~ "prefix=&"
         Plug.Conn.resp(conn, 200, xml)
       end)
@@ -318,7 +318,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "handles non-binary body gracefully", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "GET", "/", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/", fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.resp(200, "{}")
@@ -332,7 +332,7 @@ defmodule Pyex.Filesystem.S3Test do
 
   describe "delete/2" do
     test "succeeds on 200", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "DELETE", "/pyex/old.txt", fn conn ->
+      Bypass.expect_once(bypass, "DELETE", "/test-bucket/pyex/old.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "")
       end)
 
@@ -340,7 +340,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "succeeds on 204", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "DELETE", "/pyex/old.txt", fn conn ->
+      Bypass.expect_once(bypass, "DELETE", "/test-bucket/pyex/old.txt", fn conn ->
         Plug.Conn.resp(conn, 204, "")
       end)
 
@@ -348,7 +348,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "returns IOError on error status", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "DELETE", "/pyex/perm.txt", fn conn ->
+      Bypass.expect_once(bypass, "DELETE", "/test-bucket/pyex/perm.txt", fn conn ->
         Plug.Conn.resp(conn, 403, "Forbidden")
       end)
 
@@ -370,7 +370,7 @@ defmodule Pyex.Filesystem.S3Test do
     test "prefix with trailing slash is normalized", %{bypass: bypass, url: url} do
       fs = S3.new(bucket: "b", prefix: "data/", endpoint_url: url)
 
-      Bypass.expect_once(bypass, "GET", "/data/file.txt", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/b/data/file.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
@@ -378,7 +378,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "path with leading slash is normalized", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "GET", "/pyex/file.txt", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/pyex/file.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "ok")
       end)
 
@@ -388,7 +388,7 @@ defmodule Pyex.Filesystem.S3Test do
     test "deeply nested prefix works", %{bypass: bypass, url: url} do
       fs = S3.new(bucket: "b", prefix: "a/b/c", endpoint_url: url)
 
-      Bypass.expect_once(bypass, "GET", "/a/b/c/d.txt", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/b/a/b/c/d.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "deep")
       end)
 
@@ -400,7 +400,7 @@ defmodule Pyex.Filesystem.S3Test do
 
   describe "Python integration" do
     test "open and read a file", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "GET", "/pyex/data.txt", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/pyex/data.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "hello from s3")
       end)
 
@@ -421,12 +421,12 @@ defmodule Pyex.Filesystem.S3Test do
     test "write and read back", %{bypass: bypass, fs: fs} do
       Bypass.expect(bypass, fn conn ->
         case {conn.method, conn.request_path} do
-          {"PUT", "/pyex/out.txt"} ->
+          {"PUT", "/test-bucket/pyex/out.txt"} ->
             {:ok, body, conn} = Plug.Conn.read_body(conn)
             assert body == "written by python"
             Plug.Conn.resp(conn, 200, "")
 
-          {"GET", "/pyex/out.txt"} ->
+          {"GET", "/test-bucket/pyex/out.txt"} ->
             Plug.Conn.resp(conn, 200, "written by python")
         end
       end)
@@ -450,7 +450,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "read nonexistent file raises IOError", %{bypass: bypass, fs: fs} do
-      Bypass.expect_once(bypass, "GET", "/pyex/nope.txt", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/pyex/nope.txt", fn conn ->
         Plug.Conn.resp(conn, 404, "Not Found")
       end)
 
@@ -471,7 +471,7 @@ defmodule Pyex.Filesystem.S3Test do
           return GREETING + " " + name
       """
 
-      Bypass.expect_once(bypass, "GET", "/pyex/mylib.py", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/pyex/mylib.py", fn conn ->
         Plug.Conn.resp(conn, 200, module_source)
       end)
 
@@ -490,10 +490,10 @@ defmodule Pyex.Filesystem.S3Test do
     test "with statement for file I/O", %{bypass: bypass, fs: fs} do
       Bypass.expect(bypass, fn conn ->
         case {conn.method, conn.request_path} do
-          {"PUT", "/pyex/ctx.txt"} ->
+          {"PUT", "/test-bucket/pyex/ctx.txt"} ->
             Plug.Conn.resp(conn, 200, "")
 
-          {"GET", "/pyex/ctx.txt"} ->
+          {"GET", "/test-bucket/pyex/ctx.txt"} ->
             Plug.Conn.resp(conn, 200, "context manager works")
         end
       end)
@@ -516,10 +516,10 @@ defmodule Pyex.Filesystem.S3Test do
     test "json round-trip through S3", %{bypass: bypass, fs: fs} do
       Bypass.expect(bypass, fn conn ->
         case {conn.method, conn.request_path} do
-          {"PUT", "/pyex/config.json"} ->
+          {"PUT", "/test-bucket/pyex/config.json"} ->
             Plug.Conn.resp(conn, 200, "")
 
-          {"GET", "/pyex/config.json"} ->
+          {"GET", "/test-bucket/pyex/config.json"} ->
             Plug.Conn.resp(conn, 200, ~s({"key": "value", "n": 42}))
         end
       end)
@@ -546,7 +546,7 @@ defmodule Pyex.Filesystem.S3Test do
     test "csv processing from S3", %{bypass: bypass, fs: fs} do
       csv_data = "name,age\nalice,30\nbob,25\n"
 
-      Bypass.expect_once(bypass, "GET", "/pyex/people.csv", fn conn ->
+      Bypass.expect_once(bypass, "GET", "/test-bucket/pyex/people.csv", fn conn ->
         Plug.Conn.resp(conn, 200, csv_data)
       end)
 
