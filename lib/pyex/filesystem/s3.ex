@@ -1,10 +1,10 @@
 defmodule Pyex.Filesystem.S3 do
   @moduledoc """
-  S3-backed filesystem using pre-signed URLs via Req.
+  S3-backed filesystem via Req with AWS signature v4.
 
   All paths are prefixed with a configurable key prefix within
-  a single bucket. Uses the standard AWS signature v4 via
-  environment credentials.
+  a single bucket. Works with any S3-compatible store (AWS S3,
+  MinIO, Cloudflare R2, Backblaze B2, etc.) by setting `:endpoint_url`.
   """
 
   @behaviour Pyex.Filesystem
@@ -12,10 +12,11 @@ defmodule Pyex.Filesystem.S3 do
   @type t :: %__MODULE__{
           bucket: String.t(),
           prefix: String.t(),
-          region: String.t()
+          region: String.t(),
+          endpoint_url: String.t() | nil
         }
 
-  defstruct [:bucket, :prefix, :region]
+  defstruct [:bucket, :prefix, :region, :endpoint_url]
 
   @doc """
   Creates a new S3 filesystem backend.
@@ -24,13 +25,15 @@ defmodule Pyex.Filesystem.S3 do
   - `:bucket` (required) -- S3 bucket name
   - `:prefix` -- key prefix, default `""`
   - `:region` -- AWS region, default `"us-east-1"`
+  - `:endpoint_url` -- custom endpoint for S3-compatible stores (e.g. MinIO)
   """
   @spec new(keyword()) :: t()
   def new(opts) do
     %__MODULE__{
       bucket: Keyword.fetch!(opts, :bucket),
       prefix: Keyword.get(opts, :prefix, ""),
-      region: Keyword.get(opts, :region, "us-east-1")
+      region: Keyword.get(opts, :region, "us-east-1"),
+      endpoint_url: Keyword.get(opts, :endpoint_url)
     }
   end
 
@@ -39,7 +42,7 @@ defmodule Pyex.Filesystem.S3 do
   def read(%__MODULE__{} = fs, path) do
     url = object_url(fs, path)
 
-    case Req.get(url, aws_sigv4: aws_opts(fs)) do
+    case Req.get(url, req_opts(fs, decode_body: false)) do
       {:ok, %{status: 200, body: body}} ->
         {:ok, body}
 
@@ -72,7 +75,7 @@ defmodule Pyex.Filesystem.S3 do
 
     url = object_url(fs, path)
 
-    case Req.put(url, body: full_content, aws_sigv4: aws_opts(fs)) do
+    case Req.put(url, [{:body, full_content} | req_opts(fs)]) do
       {:ok, %{status: status}} when status in [200, 201] ->
         {:ok, fs}
 
@@ -89,7 +92,7 @@ defmodule Pyex.Filesystem.S3 do
   def exists?(%__MODULE__{} = fs, path) do
     url = object_url(fs, path)
 
-    case Req.head(url, aws_sigv4: aws_opts(fs)) do
+    case Req.head(url, req_opts(fs)) do
       {:ok, %{status: 200}} -> true
       _ -> false
     end
@@ -97,12 +100,12 @@ defmodule Pyex.Filesystem.S3 do
 
   @impl Pyex.Filesystem
   @spec list_dir(t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
-  def list_dir(%__MODULE__{bucket: bucket, region: region} = fs, path) do
+  def list_dir(%__MODULE__{} = fs, path) do
     prefix = s3_key(fs, path)
-    prefix = if prefix == "", do: "", else: prefix <> "/"
-    url = "https://#{bucket}.s3.#{region}.amazonaws.com/?list-type=2&prefix=#{prefix}&delimiter=/"
+    prefix = if prefix == "", do: "", else: String.trim_trailing(prefix, "/") <> "/"
+    url = base_url(fs) <> "/?list-type=2&prefix=#{prefix}&delimiter=/"
 
-    case Req.get(url, aws_sigv4: aws_opts(fs)) do
+    case Req.get(url, req_opts(fs, decode_body: false)) do
       {:ok, %{status: 200, body: body}} ->
         entries = parse_list_response(body, prefix)
         {:ok, entries}
@@ -120,7 +123,7 @@ defmodule Pyex.Filesystem.S3 do
   def delete(%__MODULE__{} = fs, path) do
     url = object_url(fs, path)
 
-    case Req.delete(url, aws_sigv4: aws_opts(fs)) do
+    case Req.delete(url, req_opts(fs)) do
       {:ok, %{status: status}} when status in [200, 204] ->
         {:ok, fs}
 
@@ -132,10 +135,24 @@ defmodule Pyex.Filesystem.S3 do
     end
   end
 
+  @spec req_opts(t(), keyword()) :: keyword()
+  defp req_opts(%__MODULE__{} = fs, extra \\ []) do
+    [{:aws_sigv4, aws_opts(fs)}, {:retry, false} | extra]
+  end
+
   @spec object_url(t(), String.t()) :: String.t()
-  defp object_url(%__MODULE__{bucket: bucket, region: region} = fs, path) do
+  defp object_url(%__MODULE__{} = fs, path) do
     key = s3_key(fs, path)
-    "https://#{bucket}.s3.#{region}.amazonaws.com/#{key}"
+    base_url(fs) <> "/#{key}"
+  end
+
+  @spec base_url(t()) :: String.t()
+  defp base_url(%__MODULE__{endpoint_url: url}) when is_binary(url) do
+    String.trim_trailing(url, "/")
+  end
+
+  defp base_url(%__MODULE__{bucket: bucket, region: region}) do
+    "https://#{bucket}.s3.#{region}.amazonaws.com"
   end
 
   @spec s3_key(t(), String.t()) :: String.t()
@@ -150,7 +167,15 @@ defmodule Pyex.Filesystem.S3 do
 
   @spec aws_opts(t()) :: keyword()
   defp aws_opts(%__MODULE__{region: region}) do
-    [service: :s3, region: region]
+    base = [service: :s3, region: region]
+
+    case {System.get_env("AWS_ACCESS_KEY_ID"), System.get_env("AWS_SECRET_ACCESS_KEY")} do
+      {id, secret} when is_binary(id) and is_binary(secret) ->
+        Keyword.merge(base, access_key_id: id, secret_access_key: secret)
+
+      _ ->
+        base
+    end
   end
 
   @spec parse_list_response(String.t() | map(), String.t()) :: [String.t()]
