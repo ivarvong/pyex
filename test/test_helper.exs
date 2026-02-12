@@ -1,4 +1,4 @@
-ExUnit.start(exclude: [:postgres])
+ExUnit.start(exclude: [:postgres, :r2])
 
 if System.get_env("PYEX_TRACE") == "1" do
   ExUnit.after_suite(fn _results ->
