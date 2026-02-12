@@ -7,9 +7,6 @@ defmodule Pyex.Filesystem.S3Test do
   alias Pyex.Filesystem.S3
 
   setup do
-    System.put_env("AWS_ACCESS_KEY_ID", "test")
-    System.put_env("AWS_SECRET_ACCESS_KEY", "test")
-
     bypass = Bypass.open()
     url = "http://localhost:#{bypass.port}"
 
@@ -18,13 +15,10 @@ defmodule Pyex.Filesystem.S3Test do
         bucket: "test-bucket",
         prefix: "pyex",
         region: "us-east-1",
-        endpoint_url: url
+        endpoint_url: url,
+        access_key_id: "test-key",
+        secret_access_key: "test-secret"
       )
-
-    on_exit(fn ->
-      System.delete_env("AWS_ACCESS_KEY_ID")
-      System.delete_env("AWS_SECRET_ACCESS_KEY")
-    end)
 
     {:ok, bypass: bypass, fs: fs, url: url}
   end
@@ -38,32 +32,38 @@ defmodule Pyex.Filesystem.S3Test do
           bucket: "my-bucket",
           prefix: "data/v1",
           region: "eu-west-1",
-          endpoint_url: "http://localhost:9000"
+          endpoint_url: "http://localhost:9000",
+          access_key_id: "ak",
+          secret_access_key: "sk"
         )
 
       assert fs.bucket == "my-bucket"
       assert fs.prefix == "data/v1"
       assert fs.region == "eu-west-1"
       assert fs.endpoint_url == "http://localhost:9000"
+      assert fs.access_key_id == "ak"
+      assert fs.secret_access_key == "sk"
     end
 
     test "defaults prefix to empty string" do
-      fs = S3.new(bucket: "b")
+      fs = S3.new(bucket: "b", access_key_id: "ak", secret_access_key: "sk")
       assert fs.prefix == ""
     end
 
     test "defaults region to us-east-1" do
-      fs = S3.new(bucket: "b")
+      fs = S3.new(bucket: "b", access_key_id: "ak", secret_access_key: "sk")
       assert fs.region == "us-east-1"
     end
 
     test "defaults endpoint_url to nil" do
-      fs = S3.new(bucket: "b")
+      fs = S3.new(bucket: "b", access_key_id: "ak", secret_access_key: "sk")
       assert fs.endpoint_url == nil
     end
 
-    test "raises on missing bucket" do
+    test "raises on missing required options" do
       assert_raise KeyError, fn -> S3.new([]) end
+      assert_raise KeyError, fn -> S3.new(bucket: "b") end
+      assert_raise KeyError, fn -> S3.new(bucket: "b", access_key_id: "ak") end
     end
   end
 
@@ -113,7 +113,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "works with empty prefix", %{bypass: bypass, url: url} do
-      fs = S3.new(bucket: "b", endpoint_url: url)
+      fs = S3.new(bucket: "b", endpoint_url: url, access_key_id: "ak", secret_access_key: "sk")
 
       Bypass.expect_once(bypass, "GET", "/b/file.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "no prefix")
@@ -298,7 +298,7 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "handles root listing with empty prefix", %{bypass: bypass, url: url} do
-      fs = S3.new(bucket: "b", endpoint_url: url)
+      fs = S3.new(bucket: "b", endpoint_url: url, access_key_id: "ak", secret_access_key: "sk")
 
       xml = """
       <ListBucketResult>
@@ -368,7 +368,14 @@ defmodule Pyex.Filesystem.S3Test do
 
   describe "path normalization" do
     test "prefix with trailing slash is normalized", %{bypass: bypass, url: url} do
-      fs = S3.new(bucket: "b", prefix: "data/", endpoint_url: url)
+      fs =
+        S3.new(
+          bucket: "b",
+          prefix: "data/",
+          endpoint_url: url,
+          access_key_id: "ak",
+          secret_access_key: "sk"
+        )
 
       Bypass.expect_once(bypass, "GET", "/b/data/file.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "ok")
@@ -386,7 +393,14 @@ defmodule Pyex.Filesystem.S3Test do
     end
 
     test "deeply nested prefix works", %{bypass: bypass, url: url} do
-      fs = S3.new(bucket: "b", prefix: "a/b/c", endpoint_url: url)
+      fs =
+        S3.new(
+          bucket: "b",
+          prefix: "a/b/c",
+          endpoint_url: url,
+          access_key_id: "ak",
+          secret_access_key: "sk"
+        )
 
       Bypass.expect_once(bypass, "GET", "/b/a/b/c/d.txt", fn conn ->
         Plug.Conn.resp(conn, 200, "deep")

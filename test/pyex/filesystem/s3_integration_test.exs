@@ -10,22 +10,17 @@ defmodule Pyex.Filesystem.S3IntegrationTest do
       {:ok, json} ->
         creds = Jason.decode!(json)
 
-        System.put_env("AWS_ACCESS_KEY_ID", creds["access_key_id"])
-        System.put_env("AWS_SECRET_ACCESS_KEY", creds["secret_access_key"])
-
         fs =
           Pyex.Filesystem.S3.new(
             bucket: creds["bucket"],
             prefix: @test_prefix,
             region: "auto",
-            endpoint_url: creds["endpoint"]
+            endpoint_url: creds["endpoint"],
+            access_key_id: creds["access_key_id"],
+            secret_access_key: creds["secret_access_key"]
           )
 
-        on_exit(fn ->
-          cleanup(fs)
-          System.delete_env("AWS_ACCESS_KEY_ID")
-          System.delete_env("AWS_SECRET_ACCESS_KEY")
-        end)
+        on_exit(fn -> cleanup(fs) end)
 
         {:ok, fs: fs, creds: creds}
 

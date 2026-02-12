@@ -13,16 +13,20 @@ defmodule Pyex.Filesystem.S3 do
           bucket: String.t(),
           prefix: String.t(),
           region: String.t(),
-          endpoint_url: String.t() | nil
+          endpoint_url: String.t() | nil,
+          access_key_id: String.t(),
+          secret_access_key: String.t()
         }
 
-  defstruct [:bucket, :prefix, :region, :endpoint_url]
+  defstruct [:bucket, :prefix, :region, :endpoint_url, :access_key_id, :secret_access_key]
 
   @doc """
   Creates a new S3 filesystem backend.
 
   Options:
   - `:bucket` (required) -- S3 bucket name
+  - `:access_key_id` (required) -- AWS access key
+  - `:secret_access_key` (required) -- AWS secret key
   - `:prefix` -- key prefix, default `""`
   - `:region` -- AWS region, default `"us-east-1"`
   - `:endpoint_url` -- custom endpoint for S3-compatible stores (e.g. MinIO)
@@ -31,6 +35,8 @@ defmodule Pyex.Filesystem.S3 do
   def new(opts) do
     %__MODULE__{
       bucket: Keyword.fetch!(opts, :bucket),
+      access_key_id: Keyword.fetch!(opts, :access_key_id),
+      secret_access_key: Keyword.fetch!(opts, :secret_access_key),
       prefix: Keyword.get(opts, :prefix, ""),
       region: Keyword.get(opts, :region, "us-east-1"),
       endpoint_url: Keyword.get(opts, :endpoint_url)
@@ -167,16 +173,17 @@ defmodule Pyex.Filesystem.S3 do
   end
 
   @spec aws_opts(t()) :: keyword()
-  defp aws_opts(%__MODULE__{region: region}) do
-    base = [service: :s3, region: region]
-
-    case {System.get_env("AWS_ACCESS_KEY_ID"), System.get_env("AWS_SECRET_ACCESS_KEY")} do
-      {id, secret} when is_binary(id) and is_binary(secret) ->
-        Keyword.merge(base, access_key_id: id, secret_access_key: secret)
-
-      _ ->
-        base
-    end
+  defp aws_opts(%__MODULE__{
+         region: region,
+         access_key_id: access_key_id,
+         secret_access_key: secret_access_key
+       }) do
+    [
+      service: :s3,
+      region: region,
+      access_key_id: access_key_id,
+      secret_access_key: secret_access_key
+    ]
   end
 
   @spec parse_list_response(String.t() | map(), String.t()) :: [String.t()]
