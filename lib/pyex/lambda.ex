@@ -234,7 +234,12 @@ defmodule Pyex.Lambda do
 
           {:error, msg, new_ctx, updated_handler} ->
             telem = build_telemetry(t0, events_before, compute_us_before, new_ctx)
-            error_body = Jason.encode!(%{"detail" => msg})
+
+            error_body =
+              case Jason.encode(%{"detail" => msg}) do
+                {:ok, json} -> json
+                {:error, _} -> ~s({"detail":"internal error"})
+              end
 
             meta = %{
               status: 500,
@@ -748,7 +753,13 @@ defmodule Pyex.Lambda do
               {[chunk], :done}
 
             {{:exception, msg}, _env, _ctx} ->
-              {[chunk, Jason.encode!(%{"detail" => "GeneratorError: " <> msg})], :done}
+              error_json =
+                case Jason.encode(%{"detail" => "GeneratorError: " <> msg}) do
+                  {:ok, json} -> json
+                  {:error, _} -> ~s({"detail":"generator error"})
+                end
+
+              {[chunk, error_json], :done}
           end
       end,
       fn _ -> :ok end

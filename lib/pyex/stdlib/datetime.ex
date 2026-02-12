@@ -329,8 +329,9 @@ defmodule Pyex.Stdlib.Datetime do
 
   @spec ndt_to_timestamp(NaiveDateTime.t()) :: float()
   defp ndt_to_timestamp(ndt) do
-    ndt
-    |> DateTime.from_naive!("Etc/UTC")
+    {:ok, dt} = DateTime.from_naive(ndt, "Etc/UTC")
+
+    dt
     |> DateTime.to_unix(:millisecond)
     |> Kernel./(1000.0)
   end
@@ -357,7 +358,22 @@ defmodule Pyex.Stdlib.Datetime do
           String.t()
         ) :: String.t()
   defp format_strftime(year, month, day, hour, minute, second, fmt) do
-    dow = Date.new!(year, month, day) |> Date.day_of_week()
+    case Date.new(year, month, day) do
+      {:error, _} ->
+        {:exception, "ValueError: invalid date components: #{year}-#{month}-#{day}"}
+
+      {:ok, date} ->
+        format_strftime_with_date(date, hour, minute, second, fmt)
+    end
+  end
+
+  @spec format_strftime_with_date(Date.t(), integer(), integer(), integer(), String.t()) ::
+          String.t()
+  defp format_strftime_with_date(date, hour, minute, second, fmt) do
+    year = date.year
+    month = date.month
+    day = date.day
+    dow = Date.day_of_week(date)
 
     day_abbrs = %{
       1 => "Mon",

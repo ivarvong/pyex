@@ -113,12 +113,12 @@ defmodule Pyex.Stdlib.Hashlib do
 
   @spec make_hash_object(String.t(), binary()) :: Pyex.Interpreter.pyvalue()
   defp make_hash_object(algo_name, data) do
-    erlang_algo = Map.fetch!(@algorithms, algo_name)
+    erlang_algo = Map.get(@algorithms, algo_name)
     digest = :crypto.hash(erlang_algo, data)
     hex = Base.encode16(digest, case: :lower)
 
-    digest_size = Map.fetch!(@digest_sizes, algo_name)
-    block_size = Map.fetch!(@block_sizes, algo_name)
+    digest_size = Map.get(@digest_sizes, algo_name, 0)
+    block_size = Map.get(@block_sizes, algo_name, 0)
 
     update_fn =
       {:builtin,
