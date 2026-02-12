@@ -21,13 +21,30 @@ defmodule Pyex.LambdaTest do
       assert resp.body == %{"message" => "hello world"}
     end
 
-    test "path parameter with integer coercion" do
+    test "unannotated path parameter stays as string" do
       source = """
       import fastapi
       app = fastapi.FastAPI()
 
       @app.get("/users/{user_id}")
       def get_user(user_id):
+          return {"id": user_id, "type": type(user_id)}
+      """
+
+      assert {:ok, resp} = Lambda.invoke(source, %{method: "GET", path: "/users/42"})
+      assert resp.status == 200
+      assert resp.body["id"] == "42"
+      {:instance, _, %{"__name__" => name}} = resp.body["type"]
+      assert name == "str"
+    end
+
+    test "annotated int path parameter is coerced" do
+      source = """
+      import fastapi
+      app = fastapi.FastAPI()
+
+      @app.get("/users/{user_id}")
+      def get_user(user_id: int):
           return {"id": user_id, "type": type(user_id)}
       """
 
@@ -152,7 +169,7 @@ defmodule Pyex.LambdaTest do
       app = fastapi.FastAPI()
 
       @app.get("/fib/{n}")
-      def fib(n):
+      def fib(n: int):
           if n <= 1:
               return n
           a = 0
@@ -218,7 +235,7 @@ defmodule Pyex.LambdaTest do
 
       assert {:ok, resp} = Lambda.invoke(source, %{method: "GET", path: "/users/5/posts/99"})
       assert resp.status == 200
-      assert resp.body == %{"user" => 5, "post" => 99}
+      assert resp.body == %{"user" => "5", "post" => "99"}
     end
 
     test "PUT and DELETE methods" do
@@ -236,10 +253,10 @@ defmodule Pyex.LambdaTest do
       """
 
       assert {:ok, resp} = Lambda.invoke(source, %{method: "PUT", path: "/items/7"})
-      assert resp.body == %{"updated" => 7}
+      assert resp.body == %{"updated" => "7"}
 
       assert {:ok, resp} = Lambda.invoke(source, %{method: "DELETE", path: "/items/7"})
-      assert resp.body == %{"deleted" => 7}
+      assert resp.body == %{"deleted" => "7"}
     end
 
     test "no side effects between invocations" do
@@ -255,6 +272,112 @@ defmodule Pyex.LambdaTest do
       assert {:ok, resp1} = Lambda.invoke(source, %{method: "GET", path: "/count"})
       assert {:ok, resp2} = Lambda.invoke(source, %{method: "GET", path: "/count"})
       assert resp1.body == resp2.body
+    end
+  end
+
+  describe "param type coercion" do
+    test "unannotated query param stays as string" do
+      source = """
+      import fastapi
+      app = fastapi.FastAPI()
+
+      @app.get("/echo")
+      def echo(val):
+          return {"val": val, "type": type(val).__name__}
+      """
+
+      req = %{method: "GET", path: "/echo", query_params: %{"val" => "42"}}
+      assert {:ok, resp} = Lambda.invoke(source, req)
+      assert resp.body == %{"val" => "42", "type" => "str"}
+    end
+
+    test "int-annotated query param is coerced to int" do
+      source = """
+      import fastapi
+      app = fastapi.FastAPI()
+
+      @app.get("/add")
+      def add(a: int, b: int):
+          return {"sum": a + b, "type": type(a).__name__}
+      """
+
+      req = %{method: "GET", path: "/add", query_params: %{"a" => "3", "b" => "7"}}
+      assert {:ok, resp} = Lambda.invoke(source, req)
+      assert resp.body == %{"sum" => 10, "type" => "int"}
+    end
+
+    test "float-annotated query param is coerced to float" do
+      source = """
+      import fastapi
+      app = fastapi.FastAPI()
+
+      @app.get("/scale")
+      def scale(factor: float):
+          return {"factor": factor, "type": type(factor).__name__}
+      """
+
+      req = %{method: "GET", path: "/scale", query_params: %{"factor" => "2.5"}}
+      assert {:ok, resp} = Lambda.invoke(source, req)
+      assert resp.body == %{"factor" => 2.5, "type" => "float"}
+    end
+
+    test "str-annotated param stays as string even if numeric" do
+      source = """
+      import fastapi
+      app = fastapi.FastAPI()
+
+      @app.get("/label")
+      def label(code: str):
+          return {"code": code, "type": type(code).__name__}
+      """
+
+      req = %{method: "GET", path: "/label", query_params: %{"code" => "42"}}
+      assert {:ok, resp} = Lambda.invoke(source, req)
+      assert resp.body == %{"code" => "42", "type" => "str"}
+    end
+
+    test "int-annotated path param is coerced" do
+      source = """
+      import fastapi
+      app = fastapi.FastAPI()
+
+      @app.get("/items/{item_id}")
+      def get_item(item_id: int):
+          return {"id": item_id, "doubled": item_id * 2}
+      """
+
+      assert {:ok, resp} = Lambda.invoke(source, %{method: "GET", path: "/items/5"})
+      assert resp.body == %{"id" => 5, "doubled" => 10}
+    end
+
+    test "non-numeric string with int annotation stays as string" do
+      source = """
+      import fastapi
+      app = fastapi.FastAPI()
+
+      @app.get("/lookup")
+      def lookup(key: int):
+          return {"key": key, "type": type(key).__name__}
+      """
+
+      req = %{method: "GET", path: "/lookup", query_params: %{"key" => "abc"}}
+      assert {:ok, resp} = Lambda.invoke(source, req)
+      assert resp.body == %{"key" => "abc", "type" => "str"}
+    end
+
+    test "float annotation coerces integer string" do
+      source = """
+      import fastapi
+      app = fastapi.FastAPI()
+
+      @app.get("/rate")
+      def rate(r: float):
+          return {"rate": r, "type": type(r).__name__}
+      """
+
+      req = %{method: "GET", path: "/rate", query_params: %{"r" => "42"}}
+      assert {:ok, resp} = Lambda.invoke(source, req)
+      assert resp.body == %{"rate" => 42.0, "type" => "float"}
     end
   end
 
@@ -459,7 +582,7 @@ defmodule Pyex.LambdaTest do
 
       assert {:ok, resp} = Lambda.invoke(source, req)
       assert resp.status == 200
-      assert resp.body == %{"id" => 42, "updated" => %{"name" => "updated widget"}}
+      assert resp.body == %{"id" => "42", "updated" => %{"name" => "updated widget"}}
     end
 
     test "handler with path params and request object" do
@@ -481,7 +604,7 @@ defmodule Pyex.LambdaTest do
 
       assert {:ok, resp} = Lambda.invoke(source, req)
       assert resp.status == 200
-      assert resp.body == %{"user_id" => 7, "comment" => "great post!", "method" => "POST"}
+      assert resp.body == %{"user_id" => "7", "comment" => "great post!", "method" => "POST"}
     end
 
     test "request.json() with invalid JSON returns error" do
@@ -778,7 +901,7 @@ defmodule Pyex.LambdaTest do
 
       assert {:ok, resp} = Lambda.invoke(source, req)
       assert resp.status == 200
-      assert resp.body == %{"id" => 42, "name" => "Bob"}
+      assert resp.body == %{"id" => "42", "name" => "Bob"}
     end
 
     test "pydantic body with query params combined" do
