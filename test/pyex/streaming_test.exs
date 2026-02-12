@@ -349,7 +349,7 @@ defmodule Pyex.StreamingTest do
   describe "handle_stream/2 stateful across requests" do
     test "ctx threads through multiple streaming requests with filesystem" do
       fs = Pyex.Filesystem.Memory.new(%{"log.txt" => ""})
-      ctx = Pyex.Ctx.new(filesystem: fs, fs_module: Pyex.Filesystem.Memory)
+      ctx = Pyex.Ctx.new(filesystem: fs)
 
       source = """
       import fastapi
@@ -377,12 +377,20 @@ defmodule Pyex.StreamingTest do
       {:ok, app} = Lambda.boot(source, ctx: ctx)
 
       {:ok, resp1, app} =
-        Lambda.handle_stream(app, %{method: "GET", path: "/log", query: %{"msg" => "first"}})
+        Lambda.handle_stream(app, %{
+          method: "GET",
+          path: "/log",
+          query_params: %{"msg" => "first"}
+        })
 
       assert Enum.to_list(resp1.chunks) == ["first\n"]
 
       {:ok, resp2, _app} =
-        Lambda.handle_stream(app, %{method: "GET", path: "/log", query: %{"msg" => "second"}})
+        Lambda.handle_stream(app, %{
+          method: "GET",
+          path: "/log",
+          query_params: %{"msg" => "second"}
+        })
 
       assert Enum.to_list(resp2.chunks) == ["first\n", "second\n"]
     end

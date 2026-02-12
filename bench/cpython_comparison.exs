@@ -486,7 +486,7 @@ posts = [%{"slug" => "rest-api", "title" => "REST APIs", "date" => "2026-01-22"}
 {:ok, fs} = Memory.write(fs, "templates/list.html", list_html, :write)
 {:ok, fs} = Memory.write(fs, "templates/post.html", post_html, :write)
 {:ok, fs} = Memory.write(fs, "posts/rest-api.md", md, :write)
-blog_ctx = Ctx.new(filesystem: fs, fs_module: Memory)
+blog_ctx = Ctx.new(filesystem: fs)
 
 # warmup
 {:ok, app} = Lambda.boot(blog_source, ctx: blog_ctx)

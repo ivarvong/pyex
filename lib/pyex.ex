@@ -22,7 +22,7 @@ defmodule Pyex do
   Python code can only reach what you explicitly grant:
 
       Pyex.run(source,
-        environ: %{"API_KEY" => "sk-..."},
+        env: %{"API_KEY" => "sk-..."},
         timeout_ms: 5_000,
         modules: %{"mylib" => %{"greet" => {:builtin, fn [n] -> "hi \#{n}" end}}})
 
@@ -59,9 +59,8 @@ defmodule Pyex do
   ## Options (when passing keyword list)
 
   - `:modules` -- custom Python modules available via `import`
-  - `:filesystem` -- a filesystem backend struct
-  - `:fs_module` -- the module implementing `Pyex.Filesystem`
-  - `:environ` -- environment variables for `os.environ`
+  - `:filesystem` -- a filesystem backend struct (module derived automatically)
+  - `:env` -- environment variables for `os.environ`
   - `:timeout_ms` -- compute time budget in milliseconds
   - `:network` -- network access policy for the `requests` module.
     Accepts a keyword list with `:allowed_hosts` (exact hostname match),

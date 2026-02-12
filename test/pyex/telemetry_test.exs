@@ -140,7 +140,7 @@ defmodule Pyex.TelemetryTest do
   describe "handle/2 telemetry with file operations" do
     test "write handler counts file ops" do
       fs = Pyex.Filesystem.Memory.new()
-      ctx = Pyex.Ctx.new(filesystem: fs, fs_module: Pyex.Filesystem.Memory)
+      ctx = Pyex.Ctx.new(filesystem: fs)
       {:ok, app} = Lambda.boot(@file_app_source, ctx: ctx)
 
       body = Jason.encode!(%{"content" => "hello"})
@@ -154,7 +154,7 @@ defmodule Pyex.TelemetryTest do
 
     test "read handler counts file ops" do
       fs = Pyex.Filesystem.Memory.new(%{"data.txt" => "content"})
-      ctx = Pyex.Ctx.new(filesystem: fs, fs_module: Pyex.Filesystem.Memory)
+      ctx = Pyex.Ctx.new(filesystem: fs)
       {:ok, app} = Lambda.boot(@file_app_source, ctx: ctx)
 
       {:ok, resp, _app} = Lambda.handle(app, %{method: "GET", path: "/read"})
@@ -165,7 +165,7 @@ defmodule Pyex.TelemetryTest do
 
     test "file ops count increases with multiple operations" do
       fs = Pyex.Filesystem.Memory.new()
-      ctx = Pyex.Ctx.new(filesystem: fs, fs_module: Pyex.Filesystem.Memory)
+      ctx = Pyex.Ctx.new(filesystem: fs)
       {:ok, app} = Lambda.boot(@file_app_source, ctx: ctx)
 
       body = Jason.encode!(%{"content" => "data"})
@@ -249,7 +249,7 @@ defmodule Pyex.TelemetryTest do
 
     test "file ops are per-request, not cumulative" do
       fs = Pyex.Filesystem.Memory.new()
-      ctx = Pyex.Ctx.new(filesystem: fs, fs_module: Pyex.Filesystem.Memory)
+      ctx = Pyex.Ctx.new(filesystem: fs)
       {:ok, app} = Lambda.boot(@file_app_source, ctx: ctx)
 
       body = Jason.encode!(%{"content" => "hello"})

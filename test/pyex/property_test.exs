@@ -132,11 +132,7 @@ defmodule Pyex.PropertyTest do
       check all(program <- with_program(), max_runs: 500) do
         ctx = fresh_ctx()
 
-        ctx = %{
-          ctx
-          | filesystem: Pyex.Filesystem.Memory.new(),
-            fs_module: Pyex.Filesystem.Memory
-        }
+        ctx = %{ctx | filesystem: Pyex.Filesystem.Memory.new()}
 
         assert_no_crash(Pyex.run(program, ctx))
       end

@@ -1084,7 +1084,7 @@ defmodule Pyex.InterpreterTest do
 
   describe "os.environ" do
     test "reads environment variable from ctx" do
-      ctx = Pyex.Ctx.new(environ: %{"MY_KEY" => "secret123"})
+      ctx = Pyex.Ctx.new(env: %{"MY_KEY" => "secret123"})
 
       {:ok, result, _ctx} =
         Pyex.run(
@@ -1099,7 +1099,7 @@ defmodule Pyex.InterpreterTest do
     end
 
     test "missing key returns KeyError" do
-      ctx = Pyex.Ctx.new(environ: %{})
+      ctx = Pyex.Ctx.new(env: %{})
 
       assert {:error, %Error{message: msg}} =
                Pyex.run(
@@ -1114,7 +1114,7 @@ defmodule Pyex.InterpreterTest do
     end
 
     test "environ is a dict supporting in operator" do
-      ctx = Pyex.Ctx.new(environ: %{"A" => "1", "B" => "2"})
+      ctx = Pyex.Ctx.new(env: %{"A" => "1", "B" => "2"})
 
       {:ok, result, _ctx} =
         Pyex.run(

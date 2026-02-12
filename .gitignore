@@ -26,3 +26,5 @@ pyex-*.tar
 /tmp/
 
 .env
+.tool-versions
+/scratch/

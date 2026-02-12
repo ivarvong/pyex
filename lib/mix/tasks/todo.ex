@@ -36,13 +36,13 @@ defmodule Mix.Tasks.Todo do
     db_url =
       System.get_env("DATABASE_URL", "postgres://ivar@localhost:5432/sr2_dev")
 
-    environ = %{
+    env = %{
       "DATABASE_URL" => db_url,
       "TODO_CMD" => command,
       "TODO_ARG" => arg
     }
 
-    ctx = Pyex.Ctx.new(environ: environ)
+    ctx = Pyex.Ctx.new(env: env)
 
     case Pyex.run(@app_code, ctx) do
       {:ok, _, _} -> :ok

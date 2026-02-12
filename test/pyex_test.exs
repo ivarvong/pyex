@@ -278,14 +278,14 @@ defmodule PyexTest do
 
       ctx =
         Pyex.Ctx.new(
-          environ: %{
+          env: %{
             "API_KEY" => "sk-test-key-123",
             "API_URL" => "http://localhost:#{port}"
           },
           network: @network
         )
 
-      request = %{method: "GET", path: "/analyze", query: %{"ticker" => "AAPL"}}
+      request = %{method: "GET", path: "/analyze", query_params: %{"ticker" => "AAPL"}}
       assert {:ok, resp} = Pyex.Lambda.invoke(source, request, ctx: ctx)
 
       assert resp.status == 200

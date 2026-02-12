@@ -11,14 +11,14 @@ defmodule Pyex.Ctx do
   keyword options to `Pyex.run/2` instead:
 
       Pyex.run(source,
-        environ: %{"KEY" => "val"},
+        env: %{"KEY" => "val"},
         timeout_ms: 5_000,
         modules: %{"mylib" => %{...}})
 
   Use `Ctx.new/1` when you need to share a context across
   multiple calls (e.g. Lambda boot + handle):
 
-      ctx = Ctx.new(filesystem: Memory.new(), fs_module: Memory)
+      ctx = Ctx.new(filesystem: Memory.new())
       {:ok, app} = Lambda.boot(source, ctx: ctx)
   """
 
@@ -65,10 +65,9 @@ defmodule Pyex.Ctx do
           log: [event()],
           step: non_neg_integer(),
           filesystem: term(),
-          fs_module: module() | nil,
           handles: %{optional(non_neg_integer()) => file_handle()},
           next_handle: non_neg_integer(),
-          environ: %{optional(String.t()) => String.t()},
+          env: %{optional(String.t()) => String.t()},
           modules: %{optional(String.t()) => Pyex.Stdlib.Module.module_value()},
           imported_modules: %{optional(String.t()) => Pyex.Stdlib.Module.module_value()},
           timeout_ns: non_neg_integer() | nil,
@@ -91,10 +90,9 @@ defmodule Pyex.Ctx do
             log: [],
             step: 0,
             filesystem: nil,
-            fs_module: nil,
             handles: %{},
             next_handle: 0,
-            environ: %{},
+            env: %{},
             modules: %{},
             imported_modules: %{},
             timeout_ns: nil,
@@ -116,9 +114,9 @@ defmodule Pyex.Ctx do
   Creates a fresh live context that records all events.
 
   Options:
-  - `:filesystem` -- a filesystem backend struct (e.g. `Pyex.Filesystem.Memory.new()`)
-  - `:fs_module` -- the module implementing `Pyex.Filesystem` behaviour
-  - `:environ` -- a map of environment variables accessible via `os.environ`
+  - `:filesystem` -- a filesystem backend struct (e.g. `Pyex.Filesystem.Memory.new()`).
+    The implementing module is derived automatically from the struct.
+  - `:env` -- a map of environment variables accessible via `os.environ`
   - `:modules` -- custom Python modules available via `import`. A map from
     module name strings to either a `%{String.t() => pyvalue()}` map or a
     module implementing `Pyex.Stdlib.Module`.
@@ -148,8 +146,7 @@ defmodule Pyex.Ctx do
   """
   @valid_keys [
     :filesystem,
-    :fs_module,
-    :environ,
+    :env,
     :modules,
     :timeout_ms,
     :profile,
@@ -170,8 +167,7 @@ defmodule Pyex.Ctx do
     end
 
     fs = Keyword.get(opts, :filesystem)
-    mod = Keyword.get(opts, :fs_module)
-    environ = Keyword.get(opts, :environ, %{})
+    env = Keyword.get(opts, :env, %{})
     modules = Keyword.get(opts, :modules, %{}) |> normalize_modules()
 
     timeout_ns =
@@ -190,8 +186,7 @@ defmodule Pyex.Ctx do
 
     %__MODULE__{
       filesystem: fs,
-      fs_module: mod,
-      environ: environ,
+      env: env,
       modules: modules,
       timeout_ns: timeout_ns,
       compute_ns: 0,
@@ -479,11 +474,13 @@ defmodule Pyex.Ctx do
   """
   @spec open_handle(t(), String.t(), :read | :write | :append) ::
           {:ok, non_neg_integer(), t()} | {:error, String.t()}
-  def open_handle(%__MODULE__{fs_module: nil}, _path, _mode) do
+  def open_handle(%__MODULE__{filesystem: nil}, _path, _mode) do
     {:error, "IOError: no filesystem configured"}
   end
 
-  def open_handle(%__MODULE__{fs_module: mod, filesystem: fs} = ctx, path, mode) do
+  def open_handle(%__MODULE__{filesystem: fs} = ctx, path, mode) do
+    mod = fs.__struct__
+
     case mode do
       :read ->
         case mod.read(fs, path) do
@@ -549,10 +546,10 @@ defmodule Pyex.Ctx do
   Closes a file handle, flushing writes to the filesystem.
   """
   @spec close_handle(t(), non_neg_integer()) :: {:ok, t()} | {:error, String.t()}
-  def close_handle(%__MODULE__{handles: handles, fs_module: mod, filesystem: fs} = ctx, id) do
+  def close_handle(%__MODULE__{handles: handles, filesystem: fs} = ctx, id) do
     case Map.fetch(handles, id) do
       {:ok, %{mode: mode, path: path, buffer: buffer}} when mode in [:write, :append] ->
-        case mod.write(fs, path, buffer, mode) do
+        case fs.__struct__.write(fs, path, buffer, mode) do
           {:ok, new_fs} ->
             ctx = %{ctx | handles: Map.delete(handles, id), filesystem: new_fs}
             ctx = record(ctx, :file_op, {:close, id})

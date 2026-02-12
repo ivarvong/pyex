@@ -56,7 +56,7 @@ you explicitly provide.
 ```elixir
 {:ok, result, _ctx} = Pyex.run(
   "import os\nos.environ['API_KEY']",
-  environ: %{"API_KEY" => "sk-..."}
+  env: %{"API_KEY" => "sk-..."}
 )
 ```
 
@@ -66,11 +66,10 @@ you explicitly provide.
 alias Pyex.Filesystem.Memory
 
 fs = Memory.new(%{"data.json" => ~s({"users": ["alice", "bob"]})})
-{:ok, result, _ctx} = Pyex.run(source, filesystem: fs, fs_module: Memory)
+{:ok, result, _ctx} = Pyex.run(source, filesystem: fs)
 ```
 
-Three backends: `Memory` (in-memory map), `Local` (sandboxed directory),
-`S3` (S3-backed via Req).
+Two backends: `Memory` (in-memory map) and `S3` (S3-backed via Req).
 
 ### Custom modules
 
@@ -109,7 +108,7 @@ Pyex.run(source, network: [allowed_hosts: ["api.example.com"]])
 SQL and S3 require explicit opt-in:
 
 ```elixir
-Pyex.run(source, sql: true, environ: %{"DATABASE_URL" => "postgres://..."})
+Pyex.run(source, sql: true, env: %{"DATABASE_URL" => "postgres://..."})
 Pyex.run(source, boto3: true)
 ```
 
@@ -132,7 +131,7 @@ Kinds: `:syntax`, `:python`, `:timeout`, `:import`, `:io`,
 ## Print Output
 
 ```elixir
-{:ok, _val, ctx} = Pyex.run("for i in range(3): print(i)")
+{:ok, _val, ctx} = Pyex.run("for i in range(3):\n    print(i)")
 Pyex.output(ctx)
 # => "0\n1\n2"
 ```
@@ -158,6 +157,18 @@ def hello(name):
 
 Boot once, handle many requests. State threads through -- the
 filesystem persists across calls, exactly like a real server.
+
+POST with a JSON body:
+
+```elixir
+{:ok, resp, _app} = Pyex.Lambda.handle(app, %{
+  method: "POST",
+  path: "/items",
+  body: ~s({"name": "widget", "qty": 3})
+})
+```
+
+The handler reads `request.json()` just like real FastAPI.
 
 ### Streaming
 
@@ -222,8 +233,8 @@ For HTTP handler workloads (the Lambda path), per-request latency is
 Source  ->  Pyex.Lexer  ->  Pyex.Parser  ->  Pyex.Interpreter
                                                     |
                                                  Pyex.Ctx
-                                          (filesystem, environ,
-                                           compute budget, modules)
+                                           (filesystem, env,
+                                            compute budget, modules)
 ```
 
 No processes, no message passing, no global state. The interpreter is a
@@ -232,7 +243,6 @@ pure function: `(ast, env, ctx) -> (value, env, ctx)`.
 ## Tests
 
 2,400+ tests, 160 property-based tests, 262 CPython conformance tests.
-Zero failures, zero Dialyzer warnings.
 
 ```bash
 mix test
@@ -241,7 +251,7 @@ mix dialyzer
 
 ## Development
 
-Requires Elixir ~> 1.19, OTP 28. Uses asdf (`.tool-versions` in root).
+Requires Elixir ~> 1.19 and OTP 28.
 
 ```bash
 mix deps.get

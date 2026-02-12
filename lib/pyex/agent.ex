@@ -203,7 +203,7 @@ defmodule Pyex.Agent do
     {:ok, capture} = StringIO.open("")
     Process.group_leader(self(), capture)
 
-    ctx = Ctx.new(filesystem: state.filesystem, fs_module: Memory)
+    ctx = Ctx.new(filesystem: state.filesystem)
 
     {result, new_state} =
       try do

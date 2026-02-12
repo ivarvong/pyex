@@ -578,15 +578,12 @@ defmodule Pyex.Stdlib.CsvTest do
   end
 
   describe "file I/O" do
-    @fs_opts [
-      filesystem: Pyex.Filesystem.Memory.new(),
-      fs_module: Pyex.Filesystem.Memory
-    ]
+    @fs_opts [filesystem: Pyex.Filesystem.Memory.new()]
 
     defp fs_with_file(path, content) do
       fs = Pyex.Filesystem.Memory.new()
       {:ok, fs} = Pyex.Filesystem.Memory.write(fs, path, content, :write)
-      [filesystem: fs, fs_module: Pyex.Filesystem.Memory]
+      [filesystem: fs]
     end
 
     test "csv.reader reads from file handle" do

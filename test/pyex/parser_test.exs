@@ -156,6 +156,16 @@ defmodule Pyex.ParserTest do
     test "import statement" do
       {:module, _, [{:import, [line: 1], ["json"]}]} = parse!("import json")
     end
+
+    test "dotted import" do
+      {:module, _, [{:import, [line: 1], ["urllib.request"]}]} =
+        parse!("import urllib.request")
+    end
+
+    test "dotted import with alias" do
+      {:module, _, [{:import, [line: 1], ["urllib.request", "req"]}]} =
+        parse!("import urllib.request as req")
+    end
   end
 
   describe "error handling" do

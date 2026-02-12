@@ -103,7 +103,6 @@ defmodule Pyex.MixProject do
         Filesystem: [
           Pyex.Filesystem,
           Pyex.Filesystem.Memory,
-          Pyex.Filesystem.Local,
           Pyex.Filesystem.S3
         ],
         "Interpreter Internals": [

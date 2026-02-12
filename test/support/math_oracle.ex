@@ -20,7 +20,7 @@ defmodule Pyex.Test.MathOracle do
     csv = "x\r\n" <> Enum.map_join(xs, "\r\n", &Integer.to_string/1) <> "\r\n"
     fs = Memory.new()
     {:ok, fs} = Memory.write(fs, "data.csv", csv, :write)
-    [filesystem: fs, fs_module: Memory, timeout_ms: @timeout_ms]
+    [filesystem: fs, timeout_ms: @timeout_ms]
   end
 
   @doc """
@@ -32,7 +32,7 @@ defmodule Pyex.Test.MathOracle do
     csv = "x\r\n" <> Enum.map_join(xs, "\r\n", &Float.to_string/1) <> "\r\n"
     fs = Memory.new()
     {:ok, fs} = Memory.write(fs, "data.csv", csv, :write)
-    [filesystem: fs, fs_module: Memory, timeout_ms: @timeout_ms]
+    [filesystem: fs, timeout_ms: @timeout_ms]
   end
 
   @doc """

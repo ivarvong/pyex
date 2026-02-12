@@ -267,7 +267,7 @@ posts = [
 {:ok, fs} = Memory.write(fs, "posts/rest-api.md", medium_md, :write)
 {:ok, fs} = Memory.write(fs, "posts/sandboxed-execution.md", long_md, :write)
 
-ctx = Ctx.new(filesystem: fs, fs_module: Memory)
+ctx = Ctx.new(filesystem: fs)
 
 IO.puts("=" |> String.duplicate(70))
 IO.puts("SSR Blog Benchmark -- streaming vs buffered")

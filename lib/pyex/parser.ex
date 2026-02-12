@@ -960,15 +960,16 @@ defmodule Pyex.Parser do
   end
 
   @spec parse_import([Lexer.token()], pos_integer()) :: parse_result()
-  defp parse_import(
-         [{:name, line, module_name}, {:keyword, _, "as"}, {:name, _, alias_name} | rest],
-         _line
-       ) do
-    {:ok, {:import, [line: line], [module_name, alias_name]}, drop_newline(rest)}
-  end
+  defp parse_import([{:name, line, first} | rest], _line) do
+    {module_name, rest} = parse_dotted_name(first, rest)
 
-  defp parse_import([{:name, line, module_name} | rest], _line) do
-    {:ok, {:import, [line: line], [module_name]}, drop_newline(rest)}
+    case rest do
+      [{:keyword, _, "as"}, {:name, _, alias_name} | rest] ->
+        {:ok, {:import, [line: line], [module_name, alias_name]}, drop_newline(rest)}
+
+      _ ->
+        {:ok, {:import, [line: line], [module_name]}, drop_newline(rest)}
+    end
   end
 
   defp parse_import(tokens, line) do

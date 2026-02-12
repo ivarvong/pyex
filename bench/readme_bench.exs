@@ -275,7 +275,7 @@ posts = [
 {:ok, fs} = Memory.write(fs, "templates/post.html", post_html, :write)
 {:ok, fs} = Memory.write(fs, "posts/rest-api.md", medium_md, :write)
 
-blog_ctx = Ctx.new(filesystem: fs, fs_module: Memory)
+blog_ctx = Ctx.new(filesystem: fs)
 
 # ---------- Helpers ----------
 

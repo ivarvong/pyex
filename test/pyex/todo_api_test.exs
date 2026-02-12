@@ -82,7 +82,7 @@ defmodule Pyex.TodoApiTest do
   """
 
   defp boot do
-    ctx = Ctx.new(filesystem: Memory.new(), fs_module: Memory)
+    ctx = Ctx.new(filesystem: Memory.new())
     {:ok, app} = Lambda.boot(@source, ctx: ctx)
     app
   end

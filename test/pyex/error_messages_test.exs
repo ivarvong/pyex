@@ -210,6 +210,11 @@ defmodule Pyex.ErrorMessagesTest do
       assert msg =~ "requests"
     end
 
+    test "dotted urllib.request suggests requests" do
+      {:error, %Error{message: msg}} = Pyex.run("import urllib.request")
+      assert msg =~ "requests"
+    end
+
     test "sys module suggests os" do
       {:error, %Error{message: msg}} = Pyex.run("import sys")
       assert msg =~ "os"
