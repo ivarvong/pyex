@@ -220,4 +220,203 @@ defmodule Pyex.FilesystemTest do
       assert msg =~ "no filesystem"
     end
   end
+
+  describe "os.listdir" do
+    test "lists files in root directory" do
+      fs = Memory.new(%{"a.txt" => "aaa", "b.txt" => "bbb"})
+
+      code = """
+      import os
+      result = sorted(os.listdir())
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == ["a.txt", "b.txt"]
+    end
+
+    test "lists files with explicit empty string path" do
+      fs = Memory.new(%{"x.py" => "", "y.py" => ""})
+
+      code = """
+      import os
+      result = sorted(os.listdir(""))
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == ["x.py", "y.py"]
+    end
+
+    test "lists files in subdirectory" do
+      fs =
+        Memory.new(%{
+          "src/main.py" => "",
+          "src/utils.py" => "",
+          "readme.txt" => ""
+        })
+
+      code = """
+      import os
+      result = sorted(os.listdir("src"))
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == ["main.py", "utils.py"]
+    end
+
+    test "lists subdirectories as entries" do
+      fs =
+        Memory.new(%{
+          "dir/sub/file.txt" => "",
+          "dir/other.txt" => ""
+        })
+
+      code = """
+      import os
+      result = sorted(os.listdir("dir"))
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == ["other.txt", "sub"]
+    end
+
+    test "returns empty list for empty directory" do
+      fs = Memory.new()
+
+      code = """
+      import os
+      os.listdir()
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == []
+    end
+
+    test "returns list type usable in for loop" do
+      fs = Memory.new(%{"a.txt" => "", "b.txt" => "", "c.txt" => ""})
+
+      code = """
+      import os
+      result = []
+      for name in sorted(os.listdir()):
+          result.append(name.upper())
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == ["A.TXT", "B.TXT", "C.TXT"]
+    end
+
+    test "result works with len()" do
+      fs = Memory.new(%{"a.txt" => "", "b.txt" => ""})
+
+      code = """
+      import os
+      len(os.listdir())
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == 2
+    end
+
+    test "result works with in operator" do
+      fs = Memory.new(%{"target.txt" => "", "other.txt" => ""})
+
+      code = """
+      import os
+      "target.txt" in os.listdir()
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == true
+    end
+
+    test "raises OSError when no filesystem configured" do
+      code = """
+      import os
+      os.listdir()
+      """
+
+      ast = parse!(code)
+      ctx = Ctx.new()
+
+      assert {:error, msg} = Interpreter.run_with_ctx(ast, Builtins.env(), ctx)
+      assert msg =~ "OSError"
+      assert msg =~ "no filesystem configured"
+    end
+
+    test "raises TypeError for non-string argument" do
+      fs = Memory.new()
+
+      code = """
+      import os
+      os.listdir(123)
+      """
+
+      ast = parse!(code)
+      ctx = Ctx.new(filesystem: fs)
+
+      assert {:error, msg} = Interpreter.run_with_ctx(ast, Builtins.env(), ctx)
+      assert msg =~ "TypeError"
+    end
+
+    test "works with list comprehension" do
+      fs =
+        Memory.new(%{
+          "app.py" => "",
+          "test.py" => "",
+          "readme.md" => "",
+          "config.json" => ""
+        })
+
+      code = """
+      import os
+      py_files = sorted([f for f in os.listdir() if f.endswith(".py")])
+      py_files
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == ["app.py", "test.py"]
+    end
+
+    test "works after file creation" do
+      code = """
+      import os
+      f = open("new_file.txt", "w")
+      f.write("content")
+      f.close()
+      "new_file.txt" in os.listdir()
+      """
+
+      {value, _ctx} = run_with_fs!(code)
+      assert value == true
+    end
+
+    test "callable attribute is callable" do
+      fs = Memory.new()
+
+      code = """
+      import os
+      callable(os.listdir)
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == true
+    end
+
+    test "listdir from os import" do
+      fs = Memory.new(%{"file.txt" => ""})
+
+      code = """
+      from os import listdir
+      sorted(listdir())
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == ["file.txt"]
+    end
+  end
 end
