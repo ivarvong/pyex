@@ -91,6 +91,24 @@ defmodule Pyex.MethodsTest do
     test "returns -1 when not found" do
       assert Pyex.run!("\"hello\".find(\"xyz\")") == -1
     end
+
+    test "with start argument" do
+      assert Pyex.run!("\"hello hello\".find(\"hello\", 1)") == 6
+    end
+
+    test "with start argument - frontmatter repro" do
+      code = ~s|s = "---\\nkey: value\\n---\\nbody\\n"\ns.find("\\n---\\n", 4)|
+      assert Pyex.run!(code) == 14
+    end
+
+    test "with start and end arguments" do
+      assert Pyex.run!("\"abcabc\".find(\"abc\", 1, 5)") == -1
+      assert Pyex.run!("\"abcabc\".find(\"abc\", 1, 7)") == 3
+    end
+
+    test "with negative start" do
+      assert Pyex.run!("\"hello world\".find(\"world\", -5)") == 6
+    end
   end
 
   describe "string.count()" do
@@ -584,6 +602,16 @@ defmodule Pyex.MethodsTest do
       {:error, %Error{message: msg}} = Pyex.run(~S["hello".index("xyz")])
       assert msg =~ "ValueError: substring not found"
     end
+
+    test "with start argument" do
+      assert Pyex.run!(~S["hello hello".index("hello", 1)]) == 6
+    end
+
+    test "with start and end arguments" do
+      {:error, %Error{message: msg}} = Pyex.run(~S["abcabc".index("abc", 1, 5)])
+      assert msg =~ "ValueError: substring not found"
+      assert Pyex.run!(~S["abcabc".index("abc", 1, 7)]) == 3
+    end
   end
 
   describe "string.rfind()" do
@@ -594,6 +622,14 @@ defmodule Pyex.MethodsTest do
     test "returns -1 when not found" do
       assert Pyex.run!(~S["hello".rfind("xyz")]) == -1
     end
+
+    test "with start argument" do
+      assert Pyex.run!(~S["abcabcabc".rfind("abc", 4)]) == 6
+    end
+
+    test "with start and end arguments" do
+      assert Pyex.run!(~S["abcabcabc".rfind("abc", 1, 6)]) == 3
+    end
   end
 
   describe "string.rindex()" do
@@ -603,6 +639,15 @@ defmodule Pyex.MethodsTest do
 
     test "raises ValueError when not found" do
       {:error, %Error{message: msg}} = Pyex.run(~S["hello".rindex("xyz")])
+      assert msg =~ "ValueError: substring not found"
+    end
+
+    test "with start argument" do
+      assert Pyex.run!(~S["abcabcabc".rindex("abc", 4)]) == 6
+    end
+
+    test "with start and end, raises when not in range" do
+      {:error, %Error{message: msg}} = Pyex.run(~S["abcabc".rindex("abc", 1, 3)])
       assert msg =~ "ValueError: substring not found"
     end
   end
