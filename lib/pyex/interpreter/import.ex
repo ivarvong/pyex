@@ -92,11 +92,49 @@ defmodule Pyex.Interpreter.Import do
   @spec resolve_builtin_module(String.t(), Ctx.t()) ::
           {:ok, Pyex.Stdlib.Module.module_value()} | :unknown_module
   defp resolve_builtin_module("os", ctx) do
-    {:ok, %{"environ" => ctx.env}}
+    {:ok,
+     %{
+       "environ" => ctx.env,
+       "listdir" => {:builtin, &os_listdir/1}
+     }}
   end
 
   defp resolve_builtin_module(name, _ctx) do
     Pyex.Stdlib.fetch(name)
+  end
+
+  @spec os_listdir([Interpreter.pyvalue()]) ::
+          {:ctx_call, (Pyex.Env.t(), Ctx.t() -> {term(), Pyex.Env.t(), Ctx.t()})}
+          | {:exception, String.t()}
+  defp os_listdir([]) do
+    os_listdir([""])
+  end
+
+  defp os_listdir([path]) when is_binary(path) do
+    {:ctx_call,
+     fn env, ctx ->
+       case ctx.filesystem do
+         nil ->
+           {{:exception, "OSError: no filesystem configured"}, env, ctx}
+
+         fs ->
+           case fs.__struct__.list_dir(fs, path) do
+             {:ok, entries} ->
+               {entries, env, ctx}
+
+             {:error, msg} ->
+               {{:exception, msg}, env, ctx}
+           end
+       end
+     end}
+  end
+
+  defp os_listdir([_arg]) do
+    {:exception, "TypeError: listdir: path should be string"}
+  end
+
+  defp os_listdir(_args) do
+    {:exception, "TypeError: listdir expected at most 1 argument"}
   end
 
   @spec resolve_filesystem_module(String.t(), Env.t(), Ctx.t()) ::
