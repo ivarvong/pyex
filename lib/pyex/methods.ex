@@ -342,10 +342,24 @@ defmodule Pyex.Methods do
 
   @spec str_find(String.t(), [Interpreter.pyvalue()]) :: integer()
   defp str_find(s, [sub]) when is_binary(sub) do
-    case :binary.match(s, sub) do
+    str_find(s, [sub, 0])
+  end
+
+  defp str_find(s, [sub, start]) when is_binary(sub) and is_integer(start) do
+    str_find(s, [sub, start, String.length(s)])
+  end
+
+  defp str_find(s, [sub, start, stop])
+       when is_binary(sub) and is_integer(start) and is_integer(stop) do
+    len = String.length(s)
+    norm_start = normalize_index(start, len)
+    norm_stop = normalize_index(stop, len)
+    slice = String.slice(s, norm_start, max(norm_stop - norm_start, 0))
+
+    case :binary.match(slice, sub) do
       {byte_pos, _len} ->
-        byte_prefix = binary_part(s, 0, byte_pos)
-        String.length(byte_prefix)
+        byte_prefix = binary_part(slice, 0, byte_pos)
+        String.length(byte_prefix) + norm_start
 
       :nomatch ->
         -1
@@ -509,26 +523,63 @@ defmodule Pyex.Methods do
   @spec str_index(String.t(), [Interpreter.pyvalue()]) ::
           integer() | {:exception, String.t()}
   defp str_index(s, [sub]) when is_binary(sub) do
-    case :binary.match(s, sub) do
-      {pos, _len} -> pos
-      :nomatch -> {:exception, "ValueError: substring not found"}
+    str_index(s, [sub, 0])
+  end
+
+  defp str_index(s, [sub, start]) when is_binary(sub) and is_integer(start) do
+    str_index(s, [sub, start, String.length(s)])
+  end
+
+  defp str_index(s, [sub, start, stop])
+       when is_binary(sub) and is_integer(start) and is_integer(stop) do
+    case str_find(s, [sub, start, stop]) do
+      -1 -> {:exception, "ValueError: substring not found"}
+      idx -> idx
     end
   end
 
   @spec str_rfind(String.t(), [Interpreter.pyvalue()]) :: integer()
   defp str_rfind(s, [sub]) when is_binary(sub) do
-    case :binary.matches(s, sub) do
-      [] -> -1
-      matches -> matches |> List.last() |> elem(0)
+    str_rfind(s, [sub, 0])
+  end
+
+  defp str_rfind(s, [sub, start]) when is_binary(sub) and is_integer(start) do
+    str_rfind(s, [sub, start, String.length(s)])
+  end
+
+  defp str_rfind(s, [sub, start, stop])
+       when is_binary(sub) and is_integer(start) and is_integer(stop) do
+    len = String.length(s)
+    norm_start = normalize_index(start, len)
+    norm_stop = normalize_index(stop, len)
+    slice = String.slice(s, norm_start, max(norm_stop - norm_start, 0))
+
+    case :binary.matches(slice, sub) do
+      [] ->
+        -1
+
+      matches ->
+        {byte_pos, _len} = List.last(matches)
+        byte_prefix = binary_part(slice, 0, byte_pos)
+        String.length(byte_prefix) + norm_start
     end
   end
 
   @spec str_rindex(String.t(), [Interpreter.pyvalue()]) ::
           integer() | {:exception, String.t()}
   defp str_rindex(s, [sub]) when is_binary(sub) do
-    case :binary.matches(s, sub) do
-      [] -> {:exception, "ValueError: substring not found"}
-      matches -> matches |> List.last() |> elem(0)
+    str_rindex(s, [sub, 0])
+  end
+
+  defp str_rindex(s, [sub, start]) when is_binary(sub) and is_integer(start) do
+    str_rindex(s, [sub, start, String.length(s)])
+  end
+
+  defp str_rindex(s, [sub, start, stop])
+       when is_binary(sub) and is_integer(start) and is_integer(stop) do
+    case str_rfind(s, [sub, start, stop]) do
+      -1 -> {:exception, "ValueError: substring not found"}
+      idx -> idx
     end
   end
 
@@ -1083,4 +1134,8 @@ defmodule Pyex.Methods do
   end
 
   defp pandas_dataframe_property(_, _), do: :error
+
+  @spec normalize_index(integer(), non_neg_integer()) :: non_neg_integer()
+  defp normalize_index(i, len) when i < 0, do: max(len + i, 0)
+  defp normalize_index(i, len), do: min(i, len)
 end
