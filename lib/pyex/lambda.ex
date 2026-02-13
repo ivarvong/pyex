@@ -576,18 +576,19 @@ defmodule Pyex.Lambda do
     Enum.reduce_while(params, {:ok, base_env}, fn param, {:ok, env} ->
       param_name = elem(param, 0)
       default = elem(param, 1)
+      type_hint = if tuple_size(param) == 3, do: elem(param, 2), else: nil
 
       cond do
         param_name == "request" ->
           {:cont, {:ok, Env.put(env, "request", request_obj)}}
 
         Map.has_key?(path_params, param_name) ->
-          {:cont,
-           {:ok, Env.put(env, param_name, coerce_param(Map.fetch!(path_params, param_name)))}}
+          raw = Map.fetch!(path_params, param_name)
+          {:cont, {:ok, Env.put(env, param_name, coerce_param(raw, type_hint))}}
 
         Map.has_key?(query_params, param_name) ->
-          {:cont,
-           {:ok, Env.put(env, param_name, coerce_param(Map.fetch!(query_params, param_name)))}}
+          raw = Map.fetch!(query_params, param_name)
+          {:cont, {:ok, Env.put(env, param_name, coerce_param(raw, type_hint))}}
 
         default != nil ->
           {val, _env, _ctx} = Interpreter.eval(default, env, ctx)
@@ -645,18 +646,26 @@ defmodule Pyex.Lambda do
     }
   end
 
-  @spec coerce_param(String.t()) :: Interpreter.pyvalue()
-  defp coerce_param(value) when is_binary(value) do
-    case Float.parse(value) do
-      {f, ""} ->
-        if trunc(f) == f and not String.contains?(value, "."),
-          do: trunc(f),
-          else: f
+  @spec coerce_param(String.t(), String.t() | nil) :: Interpreter.pyvalue()
+  defp coerce_param(value, nil) when is_binary(value), do: value
 
-      _ ->
-        value
+  defp coerce_param(value, "str") when is_binary(value), do: value
+
+  defp coerce_param(value, "int") when is_binary(value) do
+    case Integer.parse(value) do
+      {n, ""} -> n
+      _ -> value
     end
   end
+
+  defp coerce_param(value, "float") when is_binary(value) do
+    case Float.parse(value) do
+      {f, ""} -> f
+      _ -> value
+    end
+  end
+
+  defp coerce_param(value, _type) when is_binary(value), do: value
 
   @spec resolve_pydantic_body(Pyex.Parser.param(), request(), Env.t()) ::
           {:ok, Interpreter.pyvalue()} | {:error, String.t()} | :not_pydantic

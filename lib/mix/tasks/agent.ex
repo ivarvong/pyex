@@ -28,7 +28,11 @@ defmodule Mix.Tasks.Agent do
 
     IO.puts("Prompt: #{prompt}\n")
 
-    case Pyex.Agent.run(prompt) do
+    api_key =
+      System.get_env("ANTHROPIC_API_KEY") ||
+        raise "ANTHROPIC_API_KEY not set -- export it or add to .env"
+
+    case Pyex.Agent.run(prompt, api_key: api_key) do
       {:ok, final, state} ->
         IO.puts("\n=== Final Response ===")
         IO.puts(final)

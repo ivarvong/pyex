@@ -1,6 +1,8 @@
 defmodule Pyex.Stdlib.ItertoolsTest do
   use ExUnit.Case, async: true
 
+  alias Pyex.Error
+
   describe "chain" do
     test "chains multiple iterables" do
       result =
@@ -562,6 +564,68 @@ defmodule Pyex.Stdlib.ItertoolsTest do
         """)
 
       assert result == [1, 1, 1, 2, 2]
+    end
+  end
+
+  describe "DoS protection" do
+    test "product rejects combinatorial explosion" do
+      assert {:error, %Error{message: msg}} =
+               Pyex.run("""
+               from itertools import product
+               list(product(range(100), range(100), range(100)))
+               """)
+
+      assert msg =~ "MemoryError"
+    end
+
+    test "permutations rejects large output" do
+      assert {:error, %Error{message: msg}} =
+               Pyex.run("""
+               from itertools import permutations
+               list(permutations(range(20)))
+               """)
+
+      assert msg =~ "MemoryError"
+    end
+
+    test "combinations rejects large output" do
+      assert {:error, %Error{message: msg}} =
+               Pyex.run("""
+               from itertools import combinations
+               list(combinations(range(100), 10))
+               """)
+
+      assert msg =~ "MemoryError"
+    end
+
+    test "combinations_with_replacement rejects large output" do
+      assert {:error, %Error{message: msg}} =
+               Pyex.run("""
+               from itertools import combinations_with_replacement
+               list(combinations_with_replacement(range(50), 10))
+               """)
+
+      assert msg =~ "MemoryError"
+    end
+
+    test "repeat with explicit n is capped" do
+      result =
+        Pyex.run!("""
+        from itertools import repeat
+        len(list(repeat(0, 2_000_000)))
+        """)
+
+      assert result == 1_000_000
+    end
+
+    test "small combinatoric operations still work" do
+      result =
+        Pyex.run!("""
+        from itertools import product
+        list(product([1, 2], [3, 4]))
+        """)
+
+      assert result == [{:tuple, [1, 3]}, {:tuple, [1, 4]}, {:tuple, [2, 3]}, {:tuple, [2, 4]}]
     end
   end
 end

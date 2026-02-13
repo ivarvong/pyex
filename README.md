@@ -240,14 +240,116 @@ Source  ->  Pyex.Lexer  ->  Pyex.Parser  ->  Pyex.Interpreter
 No processes, no message passing, no global state. The interpreter is a
 pure function: `(ast, env, ctx) -> (value, env, ctx)`.
 
-## Tests
+## Verification
 
-2,400+ tests, 160 property-based tests, 262 CPython conformance tests.
+2,577 tests and 160 property-based tests across 63 files, organized into
+five layers that reinforce each other.
 
 ```bash
-mix test
-mix dialyzer
+mix test          # ~150s, all layers
+mix dialyzer      # static types
 ```
+
+### Layer 1: Pipeline unit tests
+
+Each stage of the interpreter pipeline has isolated tests. The lexer
+tests tokenize strings and assert token sequences. The parser tests
+feed tokens and assert AST node shapes. These catch regressions at
+the lowest level without running Python end-to-end.
+
+`test/pyex/lexer_test.exs` (62 tests), `test/pyex/parser_test.exs`
+(83 tests)
+
+### Layer 2: Feature tests
+
+The bulk of the suite. Each Python feature has a dedicated file that
+runs real Python through `Pyex.run!` and asserts on the return value.
+Classes, generators, comprehensions, try/except, match/case, augmented
+assignment, and string/list/dict methods all have standalone files.
+Error boundary tests verify that bad input produces the right
+`Pyex.Error` with the right kind, message, and line number -- error
+quality matters because LLMs use error messages to self-correct.
+
+`test/pyex/interpreter_test.exs` (282 tests),
+`test/pyex/builtins_test.exs` (153 tests),
+`test/pyex/methods_test.exs` (120 tests),
+`test/pyex/classes_test.exs` (60 tests),
+`test/pyex/error_boundary_test.exs` (67 tests),
+23 stdlib test files, and others
+
+### Layer 3: CPython conformance
+
+335 hand-written snippets run through both Pyex and CPython (via
+`System.cmd("python3", ...)`). Each snippet uses `print(repr(...))`
+so output is compared as canonical Python strings. If `python3` isn't
+on PATH, these skip gracefully.
+
+A separate file (54 tests) verifies exception types: when Pyex raises
+`TypeError`, CPython raises `TypeError` too.
+
+`test/pyex/conformance_test.exs` (335 tests),
+`test/pyex/error_conformance_test.exs` (54 tests)
+
+### Layer 4: Property-based testing and fuzzing
+
+Three files use StreamData to generate random inputs and assert
+invariants rather than specific values.
+
+**Robustness properties** (39 properties): generate random valid Python
+programs -- arithmetic, collections, classes, generators, comprehensions,
+stdlib calls -- and assert Pyex never crashes. It may return an error,
+but it must never raise an Elixir exception. Also feeds random bytes to
+the lexer and parser to verify they reject garbage gracefully.
+
+**Differential fuzzing** (79 properties): generate random Python programs,
+run through both Pyex and CPython, assert identical output. When both
+error, asserts they raise the same exception type. This is the strongest
+correctness guarantee -- it finds edge cases no human would write.
+
+**Math oracle** (42 properties): generate random numeric datasets, compute
+statistics (sum, mean, median, variance, stddev) in Python, cross-check
+against Polars via Explorer. A three-way oracle: Elixir generates data,
+Python computes, Polars verifies.
+
+`test/pyex/property_test.exs`,
+`test/pyex/differential_fuzz_test.exs`,
+`test/pyex/math_oracle_test.exs`
+
+### Layer 5: Integration and sandbox tests
+
+End-to-end tests that exercise the full stack including sandbox
+controls. These use `Pyex.Ctx` to configure compute timeouts,
+network policies, filesystem backends, and capability gates, then
+run realistic programs against them.
+
+The Lambda tests boot FastAPI apps and dispatch HTTP requests,
+including streaming responses via generators. Capability tests verify
+that boto3, SQL, and network access are denied by default and produce
+clear error messages when unconfigured. Filesystem tests cover both
+the Memory backend and the S3 backend (42 Bypass-mocked unit tests
+plus 8 real R2 integration tests, excluded by default). The README
+tests run every code example from this file.
+
+`test/pyex_test.exs`, `test/pyex/lambda_test.exs`,
+`test/pyex/streaming_test.exs`, `test/pyex/capabilities_test.exs`,
+`test/pyex/filesystem/s3_test.exs`, `test/pyex/readme_test.exs`,
+`test/pyex/llm_programs_test.exs`
+
+### How the layers work together
+
+A bug in string slicing would be caught by the unit test for slicing
+(layer 2), by any conformance test that slices a string (layer 3), and
+by differential fuzzing if it generates a slice expression (layer 4).
+A security issue like unbounded `itertools.product` would be caught by
+the DoS protection tests (layer 2) and by the sandbox integration
+tests (layer 5). The layers overlap deliberately -- each one catches
+classes of bugs the others might miss.
+
+### Static analysis
+
+Dialyzer runs on every change. All public functions have `@spec`
+annotations. The `.dialyzer_ignore.exs` file suppresses 30 known
+warnings from NimbleParsec-generated code; real warnings are zero.
 
 ## Development
 

@@ -7,6 +7,8 @@ defmodule Pyex.Stdlib.Json do
 
   @behaviour Pyex.Stdlib.Module
 
+  @max_indent 32
+
   @doc """
   Returns the module value -- a map with callable attributes.
   """
@@ -33,19 +35,28 @@ defmodule Pyex.Stdlib.Json do
         ) :: String.t() | {:exception, String.t()}
   defp do_dumps([value], kwargs) do
     indent = Map.get(kwargs, "indent")
-    opts = if is_integer(indent) and indent > 0, do: [pretty: true], else: []
 
-    case Jason.encode(to_json(value), opts) do
-      {:ok, json} ->
-        if is_integer(indent) and indent > 0 do
-          reindent(json, indent)
-        else
-          json
+    cond do
+      is_integer(indent) and indent > @max_indent ->
+        {:exception, "ValueError: indent must be <= #{@max_indent}, got #{indent}"}
+
+      is_integer(indent) and indent > 0 ->
+        case Jason.encode(to_json(value), pretty: true) do
+          {:ok, json} -> reindent(json, indent)
+          {:error, reason} -> encode_error(reason)
         end
 
-      {:error, reason} ->
-        {:exception, "TypeError: Object of type is not JSON serializable: #{inspect(reason)}"}
+      true ->
+        case Jason.encode(to_json(value)) do
+          {:ok, json} -> json
+          {:error, reason} -> encode_error(reason)
+        end
     end
+  end
+
+  @spec encode_error(term()) :: {:exception, String.t()}
+  defp encode_error(reason) do
+    {:exception, "TypeError: Object of type is not JSON serializable: #{inspect(reason)}"}
   end
 
   @spec to_json(Pyex.Interpreter.pyvalue()) :: term()

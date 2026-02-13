@@ -1,6 +1,8 @@
 defmodule Pyex.Stdlib.JsonTest do
   use ExUnit.Case, async: true
 
+  alias Pyex.Error
+
   describe "json.loads" do
     test "parses a JSON array" do
       result =
@@ -161,6 +163,30 @@ defmodule Pyex.Stdlib.JsonTest do
         """)
 
       assert result == true
+    end
+  end
+
+  describe "indent amplification protection" do
+    test "rejects indent > 32" do
+      assert {:error, %Error{message: msg}} =
+               Pyex.run("""
+               import json
+               json.dumps({"a": 1}, indent=1000000)
+               """)
+
+      assert msg =~ "ValueError"
+      assert msg =~ "indent must be <= 32"
+    end
+
+    test "indent at boundary works" do
+      result =
+        Pyex.run!("""
+        import json
+        json.dumps({"a": 1}, indent=32)
+        """)
+
+      assert is_binary(result)
+      assert result =~ "\"a\""
     end
   end
 end

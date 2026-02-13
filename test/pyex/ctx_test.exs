@@ -114,4 +114,25 @@ defmodule Pyex.CtxTest do
       assert {:ok, 4950, _} = Pyex.run(code, ctx)
     end
   end
+
+  describe "event log cap" do
+    test "record/3 stops appending events after max_log_events" do
+      ctx = Ctx.new()
+
+      ctx =
+        Enum.reduce(1..100_001, ctx, fn i, acc ->
+          Ctx.record(acc, :assign, {:x, i})
+        end)
+
+      assert ctx.step == 100_001
+      assert length(ctx.log) == 100_000
+    end
+
+    test "step keeps incrementing past cap" do
+      ctx = %{Ctx.new() | step: 100_000}
+      ctx = Ctx.record(ctx, :assign, {:x, 1})
+      assert ctx.step == 100_001
+      assert ctx.log == []
+    end
+  end
 end

@@ -582,4 +582,74 @@ defmodule Pyex.Stdlib.Boto3Test do
       Agent.stop(store)
     end
   end
+
+  describe "SSRF protection" do
+    test "boto3 operations check network policy when set", %{port: port} do
+      ctx =
+        Pyex.Ctx.new(
+          boto3: true,
+          network: [
+            allowed_hosts: ["example.com"],
+            allowed_methods: ["GET", "PUT", "DELETE"]
+          ]
+        )
+
+      {:error, error} =
+        Pyex.run(
+          """
+          import boto3
+          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3.put_object(Bucket='bucket', Key='test.txt', Body='hello')
+          """,
+          ctx
+        )
+
+      assert error.message =~ "NetworkError"
+    end
+
+    test "boto3 works when endpoint matches network policy", %{bypass: bypass, port: port} do
+      Bypass.expect_once(bypass, "PUT", "/bucket/test.txt", fn conn ->
+        Plug.Conn.resp(conn, 200, "")
+      end)
+
+      ctx =
+        Pyex.Ctx.new(
+          boto3: true,
+          network: [
+            allowed_hosts: ["localhost"],
+            allowed_methods: ["GET", "PUT", "DELETE"]
+          ]
+        )
+
+      {:ok, result, _} =
+        Pyex.run(
+          """
+          import boto3
+          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3.put_object(Bucket='bucket', Key='test.txt', Body='hello')
+          """,
+          ctx
+        )
+
+      assert result["ResponseMetadata"]["HTTPStatusCode"] == 200
+    end
+
+    test "boto3 works without network policy (no SSRF check)", %{bypass: bypass, port: port} do
+      Bypass.expect_once(bypass, "PUT", "/bucket/test.txt", fn conn ->
+        Plug.Conn.resp(conn, 200, "")
+      end)
+
+      {:ok, result, _} =
+        Pyex.run(
+          """
+          import boto3
+          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3.put_object(Bucket='bucket', Key='test.txt', Body='hello')
+          """,
+          Pyex.Ctx.new(boto3: true)
+        )
+
+      assert result["ResponseMetadata"]["HTTPStatusCode"] == 200
+    end
+  end
 end
