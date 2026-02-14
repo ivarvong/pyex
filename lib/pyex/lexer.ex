@@ -454,6 +454,7 @@ defmodule Pyex.Lexer do
       operator
     ])
 
+  @doc false
   defparsec(:tokenize_raw, repeat(token) |> eos())
 
   @keywords ~w(def return if elif else and or not True False None while for in break continue pass import from try except finally raise as is lambda del assert global nonlocal class with yield async await)

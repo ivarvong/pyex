@@ -130,7 +130,7 @@ defmodule Pyex.Interpreter.Helpers do
   Returns whether a Python value is truthy (pure version).
 
   Does not handle `__bool__` dunder dispatch — use
-  `Pyex.Interpreter.eval_truthy/3` for instance truthiness.
+  `eval_truthy/3` in the interpreter for instance truthiness.
   """
   @spec truthy?(Pyex.Interpreter.pyvalue()) :: boolean()
   def truthy?(false), do: false

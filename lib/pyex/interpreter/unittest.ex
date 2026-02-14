@@ -113,10 +113,8 @@ defmodule Pyex.Interpreter.Unittest do
       {:ok, {:function, _, _, _, _} = func} ->
         case Interpreter.call_function({:bound_method, instance, func}, [], %{}, env, ctx) do
           {{:exception, _} = signal, _env, ctx} -> {signal, env, ctx}
-          {:mutate, _updated_self, {:exception, _} = signal, ctx} -> {signal, env, ctx}
-          {:mutate, updated_self, _val, ctx} -> {updated_self, env, ctx}
-          {_val, _env, ctx, _} -> {instance, env, ctx}
-          {_val, _env, ctx} -> {instance, env, ctx}
+          {:mutate, _updated_self, {:exception, _} = signal, _env, ctx} -> {signal, env, ctx}
+          {:mutate, updated_self, _val, new_env, ctx} -> {updated_self, new_env, ctx}
         end
 
       _ ->
@@ -131,9 +129,7 @@ defmodule Pyex.Interpreter.Unittest do
       {:ok, {:function, _, _, _, _} = func} ->
         case Interpreter.call_function({:bound_method, instance, func}, [], %{}, env, ctx) do
           {{:exception, _}, _env, ctx} -> {instance, env, ctx}
-          {:mutate, updated_self, _val, ctx} -> {updated_self, env, ctx}
-          {_val, _env, ctx, _} -> {instance, env, ctx}
-          {_val, _env, ctx} -> {instance, env, ctx}
+          {:mutate, updated_self, _val, new_env, ctx} -> {updated_self, new_env, ctx}
         end
 
       _ ->
@@ -153,20 +149,14 @@ defmodule Pyex.Interpreter.Unittest do
           {{:exception, msg}, env, ctx} ->
             {{:error, msg}, env, ctx}
 
-          {:mutate, _updated_self, {:exception, "AssertionError" <> _ = msg}, ctx} ->
+          {:mutate, _updated_self, {:exception, "AssertionError" <> _ = msg}, _env, ctx} ->
             {{:fail, msg}, env, ctx}
 
-          {:mutate, _updated_self, {:exception, msg}, ctx} ->
+          {:mutate, _updated_self, {:exception, msg}, _env, ctx} ->
             {{:error, msg}, env, ctx}
 
-          {:mutate, _updated_self, _return_val, ctx} ->
-            {:ok, env, ctx}
-
-          {_val, env, ctx, _updated_func} ->
-            {:ok, env, ctx}
-
-          {_val, env, ctx} ->
-            {:ok, env, ctx}
+          {:mutate, _updated_self, _return_val, new_env, ctx} ->
+            {:ok, new_env, ctx}
         end
 
       _ ->

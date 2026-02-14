@@ -8,14 +8,12 @@ defmodule Pyex.Stdlib.Requests do
   `.status_code`, `.ok`, `.headers`, and `.json()` attributes,
   matching the real `requests.Response` interface.
 
-  All HTTP calls are instrumented with OpenTelemetry spans using
-  the semantic conventions for HTTP clients. I/O time is excluded
-  from the compute budget via `{:io_call, fn}` signals.
+  All HTTP calls emit `:telemetry` events (`[:pyex, :request, :start]`
+  and `[:pyex, :request, :stop]`). I/O time is excluded from the
+  compute budget via `{:io_call, fn}` signals.
   """
 
   @behaviour Pyex.Stdlib.Module
-
-  require OpenTelemetry.Tracer, as: Tracer
 
   @doc """
   Returns the module value -- a map with callable attributes.
@@ -95,21 +93,40 @@ defmodule Pyex.Stdlib.Requests do
            {{:exception, reason}, env, ctx}
 
          :ok ->
-           result =
-             Tracer.with_span "http.request",
-                              %{attributes: %{"http.method" => method_str, "http.url" => url}} do
-               case Req.request(req_opts) do
-                 {:ok, resp} ->
-                   response = build_response(resp)
-                   Tracer.set_attribute("http.status_code", resp.status)
-                   Tracer.set_attribute("http.response_body_size", byte_size(response["text"]))
-                   response
+           start_mono = System.monotonic_time()
+           telemetry_meta = %{method: method_str, url: url}
 
-                 {:error, reason} ->
-                   Tracer.set_attribute("error", true)
-                   Tracer.set_attribute("error.message", inspect(reason))
-                   {:exception, "requests.#{method} failed: #{inspect(reason)}"}
-               end
+           :telemetry.execute(
+             [:pyex, :request, :start],
+             %{system_time: System.system_time()},
+             telemetry_meta
+           )
+
+           result =
+             case Req.request(req_opts) do
+               {:ok, resp} ->
+                 response = build_response(resp)
+                 duration = System.monotonic_time() - start_mono
+
+                 :telemetry.execute([:pyex, :request, :stop], %{duration: duration}, %{
+                   method: method_str,
+                   url: url,
+                   status: resp.status,
+                   response_body_size: byte_size(response["text"])
+                 })
+
+                 response
+
+               {:error, reason} ->
+                 duration = System.monotonic_time() - start_mono
+
+                 :telemetry.execute([:pyex, :request, :stop], %{duration: duration}, %{
+                   method: method_str,
+                   url: url,
+                   error: inspect(reason)
+                 })
+
+                 {:exception, "requests.#{method} failed: #{inspect(reason)}"}
              end
 
            {result, env, ctx}

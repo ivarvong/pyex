@@ -42,9 +42,7 @@ defmodule Pyex.MixProject do
       {:nimble_parsec, "~> 1.4"},
       {:req, "~> 0.5"},
       {:postgrex, "~> 0.22", optional: true},
-      {:opentelemetry_api, "~> 1.5"},
-      {:opentelemetry, "~> 1.7"},
-      {:opentelemetry_exporter, "~> 1.10"},
+      {:telemetry, "~> 0.4 or ~> 1.0"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
       {:explorer, "~> 0.10", optional: true},
       {:stream_data, "~> 1.1", only: :test},
@@ -58,43 +56,36 @@ defmodule Pyex.MixProject do
   defp docs do
     [
       main: "Pyex",
-      extras: ["README.md", "LICENSE"],
+      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
       source_ref: "v#{@version}",
       groups_for_modules: [
-        "Core Pipeline": [
+        "Core API": [
           Pyex,
-          Pyex.Lexer,
-          Pyex.Parser,
-          Pyex.Interpreter
-        ],
-        Runtime: [
           Pyex.Ctx,
-          Pyex.Env,
           Pyex.Error,
-          Pyex.Builtins,
-          Pyex.Methods
-        ],
-        "Lambda / Web": [
-          Pyex.Lambda,
-          Pyex.Stdlib.FastAPI
+          Pyex.Lambda
         ],
         "Stdlib Modules": [
-          Pyex.Stdlib,
-          Pyex.Stdlib.Module,
+          Pyex.Stdlib.Base64,
           Pyex.Stdlib.Boto3,
           Pyex.Stdlib.Collections,
           Pyex.Stdlib.Csv,
           Pyex.Stdlib.Datetime,
+          Pyex.Stdlib.FastAPI,
+          Pyex.Stdlib.Hashlib,
+          Pyex.Stdlib.Hmac,
           Pyex.Stdlib.Html,
           Pyex.Stdlib.Itertools,
           Pyex.Stdlib.Jinja2,
           Pyex.Stdlib.Json,
           Pyex.Stdlib.Markdown,
           Pyex.Stdlib.Math,
+          Pyex.Stdlib.Pandas,
           Pyex.Stdlib.Pydantic,
           Pyex.Stdlib.Random,
           Pyex.Stdlib.Re,
           Pyex.Stdlib.Requests,
+          Pyex.Stdlib.Secrets,
           Pyex.Stdlib.Sql,
           Pyex.Stdlib.Time,
           Pyex.Stdlib.Unittest,
@@ -105,15 +96,21 @@ defmodule Pyex.MixProject do
           Pyex.Filesystem.Memory,
           Pyex.Filesystem.S3
         ],
-        "Interpreter Internals": [
+        Internals: [
+          Pyex.Interpreter,
+          Pyex.Lexer,
+          Pyex.Parser,
+          Pyex.Env,
+          Pyex.Builtins,
+          Pyex.Methods,
+          Pyex.Stdlib,
+          Pyex.Stdlib.Module,
           Pyex.Interpreter.Format,
           Pyex.Interpreter.Helpers,
           Pyex.Interpreter.Import,
           Pyex.Interpreter.Iteration,
           Pyex.Interpreter.Match,
-          Pyex.Interpreter.Unittest
-        ],
-        Observability: [
+          Pyex.Interpreter.Unittest,
           Pyex.Trace
         ]
       ]
@@ -124,7 +121,7 @@ defmodule Pyex.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib .formatter.exs mix.exs README.md LICENSE)
+      files: ~w(lib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 end

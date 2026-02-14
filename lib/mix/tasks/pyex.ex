@@ -25,6 +25,8 @@ defmodule Mix.Tasks.Pyex do
   end
 
   defp run_file(path) do
+    trace = Pyex.Trace.attach()
+
     case File.read(path) do
       {:ok, code} ->
         env =
@@ -48,7 +50,6 @@ defmodule Mix.Tasks.Pyex do
         Mix.shell().error("Cannot read #{path}: #{:file.format_error(reason)}")
     end
 
-    Process.sleep(50)
-    Pyex.Trace.flush()
+    Pyex.Trace.flush(trace)
   end
 end

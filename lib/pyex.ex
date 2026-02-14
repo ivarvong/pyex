@@ -1,6 +1,13 @@
 defmodule Pyex do
   @moduledoc """
-  Run LLM-generated Python inside your Elixir app.
+  A Python 3 interpreter written in Elixir.
+
+  Pyex lexes, parses, and evaluates Python source code entirely
+  within the BEAM -- no external runtime, no NIFs, no ports.
+  It is designed as a capabilities-based sandbox for running
+  LLM-generated compute safely: every I/O operation (network,
+  filesystem, database) is denied by default and must be
+  explicitly granted through `Pyex.Ctx` options.
 
   ## Quick start
 
@@ -30,8 +37,6 @@ defmodule Pyex do
   """
 
   alias Pyex.{Builtins, Ctx, Error, Lexer, Parser, Interpreter}
-
-  require OpenTelemetry.Tracer, as: Tracer
 
   @doc """
   Compiles a Python source string to an AST.
@@ -100,18 +105,32 @@ defmodule Pyex do
   end
 
   def run(ast, %Ctx{} = ctx) when is_tuple(ast) do
-    Tracer.with_span "pyex.run", %{} do
-      ctx = %{ctx | compute_ns: 0, compute_started_at: System.monotonic_time(:nanosecond)}
-      result = Interpreter.run_with_ctx(ast, Builtins.env(), ctx)
+    start_mono = System.monotonic_time()
 
-      case result do
-        {:ok, value, _env, final_ctx} ->
-          Tracer.set_attribute("pyex.compute_us", Ctx.compute_time_us(final_ctx))
-          {:ok, value, final_ctx}
+    :telemetry.execute([:pyex, :run, :start], %{system_time: System.system_time()}, %{})
 
-        {:error, msg} ->
-          {:error, Error.from_message(msg)}
-      end
+    ctx = %{ctx | compute_ns: 0, compute_started_at: System.monotonic_time(:nanosecond)}
+    result = Interpreter.run_with_ctx(ast, Builtins.env(), ctx)
+
+    case result do
+      {:ok, value, _env, final_ctx} ->
+        duration = System.monotonic_time() - start_mono
+
+        :telemetry.execute([:pyex, :run, :stop], %{duration: duration}, %{
+          compute_us: Ctx.compute_time_us(final_ctx)
+        })
+
+        {:ok, value, final_ctx}
+
+      {:error, msg} ->
+        duration = System.monotonic_time() - start_mono
+        error = Error.from_message(msg)
+
+        :telemetry.execute([:pyex, :run, :exception], %{duration: duration}, %{
+          error: error
+        })
+
+        {:error, error}
     end
   end
 
