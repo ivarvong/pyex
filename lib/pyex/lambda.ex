@@ -367,21 +367,23 @@ defmodule Pyex.Lambda do
     events_before = length(ctx.log)
     compute_us_before = Ctx.compute_time_us(ctx)
 
-    try do
-      {result, new_ctx, updated_handler} = call_handler(handler, path_params, request, ctx)
-      telem = build_telemetry(t0, events_before, compute_us_before, new_ctx)
-      {:ok, Map.put(unwrap_response(result), :telemetry, telem), new_ctx, updated_handler}
-    rescue
-      e ->
-        telem = build_telemetry(t0, events_before, compute_us_before, ctx)
+    {result, new_ctx, updated_handler} = call_handler(handler, path_params, request, ctx)
+
+    case result do
+      {:exception, msg} ->
+        telem = build_telemetry(t0, events_before, compute_us_before, new_ctx)
 
         {:ok,
          %{
            status: 500,
            headers: %{"content-type" => "application/json"},
-           body: %{"detail" => Exception.message(e)},
+           body: %{"detail" => msg},
            telemetry: telem
-         }, ctx, handler}
+         }, new_ctx, updated_handler}
+
+      _ ->
+        telem = build_telemetry(t0, events_before, compute_us_before, new_ctx)
+        {:ok, Map.put(unwrap_response(result), :telemetry, telem), new_ctx, updated_handler}
     end
   end
 
@@ -484,7 +486,7 @@ defmodule Pyex.Lambda do
 
         case result do
           {:returned, value} -> {value, new_ctx, updated_handler}
-          {:exception, msg} -> raise msg
+          {:exception, msg} -> {{:exception, msg}, new_ctx, updated_handler}
           value -> {value, new_ctx, updated_handler}
         end
 

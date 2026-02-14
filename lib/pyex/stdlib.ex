@@ -30,7 +30,7 @@ defmodule Pyex.Stdlib do
     "boto3" => Pyex.Stdlib.Boto3,
     "hashlib" => Pyex.Stdlib.Hashlib,
     "hmac" => Pyex.Stdlib.Hmac,
-    "base64" => Pyex.Stdlib.Base64Encode,
+    "base64" => Pyex.Stdlib.Base64,
     "secrets" => Pyex.Stdlib.Secrets,
     "pandas" => Pyex.Stdlib.Pandas
   }

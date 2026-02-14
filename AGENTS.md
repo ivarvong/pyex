@@ -88,10 +88,6 @@ write arbitrary Python -- it must be rock solid.
 - `Pyex.Filesystem.Memory` -- in-memory map, fully serializable for suspend/resume
 - `Pyex.Filesystem.S3` -- S3-backed via Req with AWS sigv4
 
-### Agent
-
-- `Pyex.Agent` -- LLM agent loop using Claude via Anthropic API
-
 ## Scope
 - Build a decent stdlib over time
 - Do NOT try to support existing Python libraries
