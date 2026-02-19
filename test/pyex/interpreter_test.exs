@@ -367,6 +367,79 @@ defmodule Pyex.InterpreterTest do
         Pyex.run!("import nonexistent")
       end
     end
+
+    test "comma-separated imports" do
+      result =
+        Pyex.run!("""
+        import os, json
+        (type(os).__name__, type(json).__name__)
+        """)
+
+      assert result == {:tuple, ["dict", "dict"]}
+    end
+
+    test "comma-separated imports with aliases" do
+      result =
+        Pyex.run!("""
+        import os as operating_system, json as json_lib
+        (type(operating_system).__name__, type(json_lib).__name__)
+        """)
+
+      assert result == {:tuple, ["dict", "dict"]}
+    end
+  end
+
+  describe "os module" do
+    test "os.path.join" do
+      result =
+        Pyex.run!("""
+        import os
+        os.path.join("posts", "hello.md")
+        """)
+
+      assert result == "posts/hello.md"
+    end
+
+    test "os.path.basename" do
+      result =
+        Pyex.run!("""
+        import os
+        os.path.basename("posts/hello.md")
+        """)
+
+      assert result == "hello.md"
+    end
+
+    test "os.path.dirname" do
+      result =
+        Pyex.run!("""
+        import os
+        os.path.dirname("posts/hello.md")
+        """)
+
+      assert result == "posts"
+    end
+
+    test "os.path.splitext" do
+      result =
+        Pyex.run!("""
+        import os
+        os.path.splitext("hello.md")
+        """)
+
+      assert result == {:tuple, ["hello", ".md"]}
+    end
+
+    test "os.makedirs" do
+      result =
+        Pyex.run!("""
+        import os
+        os.makedirs("public/posts", exist_ok=True)
+        "ok"
+        """)
+
+      assert result == "ok"
+    end
   end
 
   describe "error handling" do

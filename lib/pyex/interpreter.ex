@@ -166,6 +166,10 @@ defmodule Pyex.Interpreter do
 
       {decorator, env, ctx} ->
         case call_function(decorator, [func], %{}, env, ctx) do
+          {:mutate, _new_object, return_value, new_env, ctx} ->
+            ctx = Ctx.record(ctx, :assign, {name, :decorated})
+            {nil, Env.smart_put(new_env, name, return_value), ctx}
+
           {:mutate, _new_object, return_value, ctx} ->
             ctx = Ctx.record(ctx, :assign, {name, :decorated})
             {nil, Env.smart_put(env, name, return_value), ctx}
@@ -700,36 +704,31 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  def eval({:import, _, [module_name]}, env, ctx) do
-    case Import.resolve_module(module_name, env, ctx) do
-      {:ok, module_value, ctx} ->
-        ctx = Ctx.record(ctx, :assign, {module_name, :module})
-        {nil, Env.put(env, module_name, module_value), ctx}
+  def eval({:import, _, imports}, env, ctx) when is_list(imports) do
+    Enum.reduce_while(imports, {nil, env, ctx}, fn import_spec, {_, env, ctx} ->
+      {module_name, alias_name} =
+        case import_spec do
+          {m, a} -> {m, a}
+          m when is_binary(m) -> {m, nil}
+        end
 
-      {:import_error, msg, ctx} ->
-        {{:exception, msg}, env, ctx}
+      bind_as = alias_name || module_name
 
-      {:unknown_module, ctx} ->
-        {{:exception,
-          "ImportError: no module named '#{module_name}'#{Import.import_hint(module_name)}"}, env,
-         ctx}
-    end
-  end
+      case Import.resolve_module(module_name, env, ctx) do
+        {:ok, module_value, ctx} ->
+          ctx = Ctx.record(ctx, :assign, {bind_as, :module})
+          {:cont, {nil, Env.put(env, bind_as, module_value), ctx}}
 
-  def eval({:import, _, [module_name, alias_name]}, env, ctx) do
-    case Import.resolve_module(module_name, env, ctx) do
-      {:ok, module_value, ctx} ->
-        ctx = Ctx.record(ctx, :assign, {alias_name, :module})
-        {nil, Env.put(env, alias_name, module_value), ctx}
+        {:import_error, msg, ctx} ->
+          {:halt, {{:exception, msg}, env, ctx}}
 
-      {:import_error, msg, ctx} ->
-        {{:exception, msg}, env, ctx}
-
-      {:unknown_module, ctx} ->
-        {{:exception,
-          "ImportError: no module named '#{module_name}'#{Import.import_hint(module_name)}"}, env,
-         ctx}
-    end
+        {:unknown_module, ctx} ->
+          {:halt,
+           {{:exception,
+             "ImportError: no module named '#{module_name}'#{Import.import_hint(module_name)}"},
+            env, ctx}}
+      end
+    end)
   end
 
   def eval({:from_import, _, [module_name, names]}, env, ctx) do
@@ -926,6 +925,9 @@ defmodule Pyex.Interpreter do
 
           {args, kwargs, env, ctx} ->
             case call_function(func, args, kwargs, env, ctx) do
+              {:mutate, new_object, return_value, new_env, ctx} ->
+                {return_value, Env.put_at_source(new_env, var_name, new_object), ctx}
+
               {:mutate, new_object, return_value, ctx} ->
                 {return_value, Env.put_at_source(env, var_name, new_object), ctx}
 
@@ -956,6 +958,10 @@ defmodule Pyex.Interpreter do
 
           {args, kwargs, env, ctx} ->
             case call_function(func, args, kwargs, env, ctx) do
+              {:mutate, new_object, return_value, new_env, ctx} ->
+                new_env = mutate_target(func_expr, new_object, new_env, ctx)
+                {return_value, new_env, ctx}
+
               {:mutate, new_object, return_value, ctx} ->
                 env = mutate_target(func_expr, new_object, env, ctx)
                 {return_value, env, ctx}
@@ -1422,6 +1428,7 @@ defmodule Pyex.Interpreter do
           {pyvalue(), Env.t(), Ctx.t()}
           | {pyvalue(), Env.t(), Ctx.t(), pyvalue()}
           | {:mutate, pyvalue(), pyvalue(), Ctx.t()}
+          | {:mutate, pyvalue(), pyvalue(), Env.t(), Ctx.t()}
           | {{:register_route, String.t(), String.t(), pyvalue()}, Env.t(), Ctx.t()}
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
 
@@ -2005,7 +2012,7 @@ defmodule Pyex.Interpreter do
       {call_env, ctx} ->
         ctx = Ctx.record(ctx, :call_enter, {length(method_args)})
         {result, post_call_env, ctx} = eval_statements(body, call_env, ctx)
-        _propagated_env = Env.propagate_scopes(env, fresh_closure, post_call_env)
+        env = Env.propagate_scopes(env, fresh_closure, post_call_env)
         return_val = Helpers.unwrap(result)
 
         updated_self =
@@ -2015,7 +2022,7 @@ defmodule Pyex.Interpreter do
           end
 
         ctx = Ctx.record(ctx, :call_exit, {return_val})
-        {:mutate, updated_self, return_val, ctx}
+        {:mutate, updated_self, return_val, env, ctx}
     end
   end
 
@@ -4051,6 +4058,9 @@ defmodule Pyex.Interpreter do
     case resolve_class_attr(class, method) do
       {:ok, {:function, _, _, _, _} = func} ->
         case call_function({:bound_method, instance, func}, args, %{}, env, ctx) do
+          {:mutate, new_obj, return_val, new_env, ctx} ->
+            {:ok, new_obj, return_val, new_env, ctx}
+
           {:mutate, new_obj, return_val, ctx} ->
             {:ok, new_obj, return_val, env, ctx}
 

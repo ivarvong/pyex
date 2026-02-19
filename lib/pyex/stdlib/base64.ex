@@ -1,4 +1,4 @@
-defmodule Pyex.Stdlib.Base64Encode do
+defmodule Pyex.Stdlib.Base64 do
   @moduledoc """
   Python `base64` module for Base16, Base32, and Base64 encoding/decoding.
 

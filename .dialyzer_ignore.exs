@@ -12,6 +12,10 @@
   # unwrap_response and unwrap_stream_response return partial response maps (without telemetry).
   # The telemetry field is added by the caller via Map.put, which Dialyzer cannot track.
   {"lib/pyex/lambda.ex", :invalid_contract},
+  # call_handler returns {:exception, msg} as a signal alongside normal pyvalues.
+  # Dialyzer cannot see {:exception, _} in the pyvalue() type since it is a
+  # control-flow signal, not a Python value. The pattern match is reachable at runtime.
+  {"lib/pyex/lambda.ex", :pattern_match},
   # MapSet is an opaque type. Dialyzer complains when it appears in struct fields
   # because it cannot see through the opaque boundary. The capabilities MapSet is
   # used correctly via MapSet.member?/2 and MapSet.new/1 -- these are false positives.

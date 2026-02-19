@@ -15,8 +15,6 @@ defmodule Pyex.Stdlib.Sql do
 
   @behaviour Pyex.Stdlib.Module
 
-  require OpenTelemetry.Tracer, as: Tracer
-
   @doc """
   Returns the module value -- a map with callable attributes.
   """
@@ -60,63 +58,93 @@ defmodule Pyex.Stdlib.Sql do
         ) ::
           {term(), Pyex.Env.t(), Pyex.Ctx.t()}
   defp run_query(sql, params, url, env, ctx) do
-    Tracer.with_span "sql.query", %{attributes: %{"db.statement" => sql}} do
-      case parse_url(url) do
-        {:ok, opts} ->
-          conn =
-            Tracer.with_span "sql.connect",
-                             %{attributes: %{"db.system" => "postgresql"}} do
-              Postgrex.start_link(opts)
+    start_mono = System.monotonic_time()
+    telemetry_meta = %{statement: sql}
+
+    :telemetry.execute(
+      [:pyex, :query, :start],
+      %{system_time: System.system_time()},
+      telemetry_meta
+    )
+
+    case parse_url(url) do
+      {:ok, opts} ->
+        conn = Postgrex.start_link(opts)
+
+        case conn do
+          {:ok, conn} ->
+            try do
+              pg_params = Enum.map(params, &to_pg/1)
+              result = Postgrex.query(conn, sql, pg_params, timeout: 15_000)
+
+              case result do
+                {:ok, %Postgrex.Result{columns: nil}} ->
+                  duration = System.monotonic_time() - start_mono
+
+                  :telemetry.execute([:pyex, :query, :stop], %{duration: duration}, %{
+                    statement: sql,
+                    rows_returned: 0
+                  })
+
+                  ctx = Pyex.Ctx.record(ctx, :side_effect, {:sql_query, sql})
+                  {[], env, ctx}
+
+                {:ok, %Postgrex.Result{columns: cols, rows: rows, num_rows: n}} ->
+                  duration = System.monotonic_time() - start_mono
+
+                  :telemetry.execute([:pyex, :query, :stop], %{duration: duration}, %{
+                    statement: sql,
+                    rows_returned: n
+                  })
+
+                  result = Enum.map(rows, fn row -> row_to_dict(cols, row) end)
+                  ctx = Pyex.Ctx.record(ctx, :side_effect, {:sql_query, sql})
+                  {result, env, ctx}
+
+                {:error, %Postgrex.Error{postgres: %{message: msg}}} ->
+                  duration = System.monotonic_time() - start_mono
+
+                  :telemetry.execute([:pyex, :query, :stop], %{duration: duration}, %{
+                    statement: sql,
+                    error: msg
+                  })
+
+                  {{:exception, "sql.DatabaseError: #{msg}"}, env, ctx}
+
+                {:error, reason} ->
+                  duration = System.monotonic_time() - start_mono
+
+                  :telemetry.execute([:pyex, :query, :stop], %{duration: duration}, %{
+                    statement: sql,
+                    error: inspect(reason)
+                  })
+
+                  {{:exception, "sql.DatabaseError: #{inspect(reason)}"}, env, ctx}
+              end
+            after
+              GenServer.stop(conn)
             end
 
-          case conn do
-            {:ok, conn} ->
-              try do
-                pg_params = Enum.map(params, &to_pg/1)
+          {:error, reason} ->
+            duration = System.monotonic_time() - start_mono
 
-                result =
-                  Tracer.with_span "sql.execute",
-                                   %{
-                                     attributes: %{
-                                       "db.statement" => sql,
-                                       "db.params_count" => length(pg_params)
-                                     }
-                                   } do
-                    Postgrex.query(conn, sql, pg_params, timeout: 15_000)
-                  end
+            :telemetry.execute([:pyex, :query, :stop], %{duration: duration}, %{
+              statement: sql,
+              error: inspect(reason)
+            })
 
-                case result do
-                  {:ok, %Postgrex.Result{columns: nil}} ->
-                    ctx = Pyex.Ctx.record(ctx, :side_effect, {:sql_query, sql})
-                    {[], env, ctx}
+            {{:exception, "sql.ConnectionError: #{inspect(reason)}"}, env, ctx}
+        end
 
-                  {:ok, %Postgrex.Result{columns: cols, rows: rows, num_rows: n}} ->
-                    Tracer.set_attribute("db.rows_returned", n)
-                    result = Enum.map(rows, fn row -> row_to_dict(cols, row) end)
-                    ctx = Pyex.Ctx.record(ctx, :side_effect, {:sql_query, sql})
-                    {result, env, ctx}
+      {:error, msg} ->
+        duration = System.monotonic_time() - start_mono
 
-                  {:error, %Postgrex.Error{postgres: %{message: msg}}} ->
-                    Tracer.set_attribute("error", true)
-                    {{:exception, "sql.DatabaseError: #{msg}"}, env, ctx}
+        :telemetry.execute([:pyex, :query, :stop], %{duration: duration}, %{
+          statement: sql,
+          error: msg
+        })
 
-                  {:error, reason} ->
-                    Tracer.set_attribute("error", true)
-                    {{:exception, "sql.DatabaseError: #{inspect(reason)}"}, env, ctx}
-                end
-              after
-                GenServer.stop(conn)
-              end
-
-            {:error, reason} ->
-              Tracer.set_attribute("error", true)
-              {{:exception, "sql.ConnectionError: #{inspect(reason)}"}, env, ctx}
-          end
-
-        {:error, msg} ->
-          Tracer.set_attribute("error", true)
-          {{:exception, msg}, env, ctx}
-      end
+        {{:exception, msg}, env, ctx}
     end
   end
 
