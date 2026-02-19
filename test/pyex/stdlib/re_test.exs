@@ -19,11 +19,24 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        m = re.match("(\\\\w+)@(\\\\w+)", "user@host")
+        m = re.match("(\\w+)@(\\w+)", "user@host")
         [m.group(0), m.group(1), m.group(2)]
         """)
 
       assert result == ["user@host", "user", "host"]
+    end
+
+    test "match with raw string pattern" do
+      # Issue #9: walrus operator was failing due to raw string escape issue
+      # This test ensures raw string patterns work correctly with \w
+      result =
+        Pyex.run!(~S"""
+        import re
+        m = re.match(r"(\w+)", "hello world")
+        m.group(1)
+        """)
+
+      assert result == "hello"
     end
 
     test "returns None when no match at beginning" do
@@ -63,7 +76,7 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        m = re.search("(\\\\w+)@(\\\\w+)", "user@host")
+        m = re.search("(\\w+)@(\\w+)", "user@host")
         m.group(0)
         """)
 
@@ -120,7 +133,7 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        re.split("\\\\s+", "hello   world  foo")
+        re.split("\\s+", "hello   world  foo")
         """)
 
       assert result == ["hello", "world", "foo"]
@@ -132,7 +145,7 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        m = re.search("(\\\\w+)@(\\\\w+)", "user@host.com")
+        m = re.search("(\\w+)@(\\w+)", "user@host.com")
         m.group(1)
         """)
 
@@ -143,7 +156,7 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        m = re.search("(\\\\w+)@(\\\\w+)", "user@host.com")
+        m = re.search("(\\w+)@(\\w+)", "user@host.com")
         m.group(2)
         """)
 
@@ -156,7 +169,7 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        m = re.match("\\\\d+-\\\\d+", "123-456 stuff")
+        m = re.match("\\d+-\\d+", "123-456 stuff")
         m.group()
         """)
 
@@ -190,7 +203,7 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        re.findall("(\\\\d+)", "abc 123 def 456 ghi 789")
+        re.findall("(\\d+)", "abc 123 def 456 ghi 789")
         """)
 
       assert result == ["123", "456", "789"]
@@ -212,7 +225,7 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        re.sub("\\\\d", "#", "phone: 123-456-7890")
+        re.sub("\\d", "#", "phone: 123-456-7890")
         """)
 
       assert result == "phone: ###-###-####"
@@ -231,12 +244,115 @@ defmodule Pyex.Stdlib.ReTest do
     end
   end
 
+  describe "re.compile" do
+    test "compile returns pattern object" do
+      result =
+        Pyex.run!("""
+        import re
+        pattern = re.compile(r"\\d+")
+        pattern.findall("a1b2c3")
+        """)
+
+      assert result == ["1", "2", "3"]
+    end
+
+    test "compiled pattern match method" do
+      result =
+        Pyex.run!("""
+        import re
+        pattern = re.compile(r"(\\w+)")
+        m = pattern.match("hello world")
+        m.group(1)
+        """)
+
+      assert result == "hello"
+    end
+
+    test "compiled pattern search method" do
+      result =
+        Pyex.run!("""
+        import re
+        pattern = re.compile(r"world")
+        m = pattern.search("hello world")
+        m.group()
+        """)
+
+      assert result == "world"
+    end
+
+    test "compiled pattern sub method" do
+      result =
+        Pyex.run!("""
+        import re
+        pattern = re.compile(r"\\d+")
+        pattern.sub("NUM", "abc 123 def 456")
+        """)
+
+      assert result == "abc NUM def NUM"
+    end
+
+    test "compiled pattern split method" do
+      result =
+        Pyex.run!("""
+        import re
+        pattern = re.compile(r"[,;]+")
+        pattern.split("a,b;;c,d")
+        """)
+
+      assert result == ["a", "b", "c", "d"]
+    end
+  end
+
+  describe "re flags" do
+    test "re.IGNORECASE flag" do
+      result =
+        Pyex.run!("""
+        import re
+        re.findall(r"hello", "Hello World", re.IGNORECASE)
+        """)
+
+      assert result == ["Hello"]
+    end
+
+    test "re.DOTALL flag" do
+      # Use raw string to avoid issues with newlines in heredoc
+      code = ~S"""
+      import re
+      re.findall(r"a.b", "a\nb", re.DOTALL)
+      """
+
+      result = Pyex.run!(code)
+      assert result == ["a\nb"]
+    end
+
+    test "re.MULTILINE flag" do
+      result =
+        Pyex.run!("""
+        import re
+        re.findall(r"^hello", "hello\\nhello", re.MULTILINE)
+        """)
+
+      assert result == ["hello", "hello"]
+    end
+
+    test "compile with flags" do
+      result =
+        Pyex.run!("""
+        import re
+        pattern = re.compile(r"hello", re.IGNORECASE)
+        pattern.findall("Hello World")
+        """)
+
+      assert result == ["Hello"]
+    end
+  end
+
   describe "ReDoS protection" do
     test "normal regex operations work with timeout protection" do
       result =
         Pyex.run!("""
         import re
-        m = re.search("(\\\\d+)", "abc123def")
+        m = re.search("(\\d+)", "abc123def")
         m.group(1)
         """)
 
@@ -247,7 +363,7 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        m = re.match("([a-z]+)@([a-z]+)\\\\.com", "user@example.com")
+        m = re.match("([a-z]+)@([a-z]+)\\.com", "user@example.com")
         [m.group(1), m.group(2)]
         """)
 
@@ -258,7 +374,7 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        re.findall("\\\\d+", "a1b22c333")
+        re.findall("\\d+", "a1b22c333")
         """)
 
       assert result == ["1", "22", "333"]
@@ -268,7 +384,7 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        re.sub("\\\\s+", "-", "hello   world   foo")
+        re.sub("\\s+", "-", "hello   world   foo")
         """)
 
       assert result == "hello-world-foo"
@@ -278,7 +394,7 @@ defmodule Pyex.Stdlib.ReTest do
       result =
         Pyex.run!("""
         import re
-        re.split(",\\\\s*", "a, b,c,  d")
+        re.split(",\\s*", "a, b,c,  d")
         """)
 
       assert result == ["a", "b", "c", "d"]

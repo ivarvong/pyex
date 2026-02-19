@@ -92,7 +92,23 @@ defmodule Pyex.Interpreter.Import do
   @spec resolve_builtin_module(String.t(), Ctx.t()) ::
           {:ok, Pyex.Stdlib.Module.module_value()} | :unknown_module
   defp resolve_builtin_module("os", ctx) do
-    {:ok, %{"environ" => ctx.env}}
+    path_module = %{
+      "join" => {:builtin, &os_path_join/1},
+      "exists" => {:builtin, &os_path_exists/1},
+      "basename" => {:builtin, &os_path_basename/1},
+      "dirname" => {:builtin, &os_path_dirname/1},
+      "splitext" => {:builtin, &os_path_splitext/1},
+      "isfile" => {:builtin, &os_path_isfile/1},
+      "isdir" => {:builtin, &os_path_isdir/1}
+    }
+
+    {:ok,
+     %{
+       "environ" => ctx.env,
+       "path" => path_module,
+       "makedirs" => {:builtin, &os_makedirs/1},
+       "listdir" => {:builtin, &os_listdir/1}
+     }}
   end
 
   defp resolve_builtin_module(name, _ctx) do
@@ -152,5 +168,60 @@ defmodule Pyex.Interpreter.Import do
     |> Env.all_bindings()
     |> Enum.reject(fn {name, _} -> String.starts_with?(name, "__") end)
     |> Map.new()
+  end
+
+  # os.path module functions
+  defp os_path_join([a, b]) when is_binary(a) and is_binary(b) do
+    Path.join(a, b)
+  end
+
+  defp os_path_join([a, b, c]) when is_binary(a) and is_binary(b) and is_binary(c) do
+    Path.join([a, b, c])
+  end
+
+  defp os_path_exists([path]) when is_binary(path) do
+    # For now, always return False since we don't have real filesystem access
+    false
+  end
+
+  defp os_path_basename([path]) when is_binary(path) do
+    Path.basename(path)
+  end
+
+  defp os_path_dirname([path]) when is_binary(path) do
+    Path.dirname(path)
+  end
+
+  defp os_path_splitext([path]) when is_binary(path) do
+    # Split path into base and extension
+    case Regex.run(~r/^(.*)(\.[^.]+)$/, path) do
+      [_, base, ext] -> {:tuple, [base, ext]}
+      nil -> {:tuple, [path, ""]}
+    end
+  end
+
+  defp os_path_isfile([path]) when is_binary(path) do
+    # For now, always return False
+    false
+  end
+
+  defp os_path_isdir([path]) when is_binary(path) do
+    # For now, always return False
+    false
+  end
+
+  defp os_makedirs([path]) when is_binary(path) do
+    # For now, just return nil (no-op)
+    nil
+  end
+
+  defp os_makedirs([path, kwargs]) when is_binary(path) and is_map(kwargs) do
+    # Handle exist_ok parameter (ignored for now)
+    nil
+  end
+
+  defp os_listdir([path]) when is_binary(path) do
+    # For now, return empty list
+    []
   end
 end

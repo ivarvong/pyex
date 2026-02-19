@@ -963,17 +963,66 @@ defmodule Pyex.Parser do
   defp parse_import([{:name, line, first} | rest], _line) do
     {module_name, rest} = parse_dotted_name(first, rest)
 
+    # Parse first module (possibly with alias)
+    {first_import, rest} =
+      case rest do
+        [{:keyword, _, "as"}, {:name, _, alias_name} | rest] ->
+          {{module_name, alias_name}, rest}
+
+        _ ->
+          {{module_name, nil}, rest}
+      end
+
+    # Check for comma-separated imports
     case rest do
-      [{:keyword, _, "as"}, {:name, _, alias_name} | rest] ->
-        {:ok, {:import, [line: line], [module_name, alias_name]}, drop_newline(rest)}
+      [{:op, _, :comma} | rest] ->
+        # Parse additional imports
+        case parse_import_list(rest, [first_import]) do
+          {:ok, imports, rest} ->
+            {:ok, {:import, [line: line], imports}, drop_newline(rest)}
+
+          {:error, _} = error ->
+            error
+        end
 
       _ ->
-        {:ok, {:import, [line: line], [module_name]}, drop_newline(rest)}
+        {:ok, {:import, [line: line], [first_import]}, drop_newline(rest)}
     end
   end
 
   defp parse_import(tokens, line) do
     {:error, "expected module name after 'import' on line #{line} at #{token_line(tokens)}"}
+  end
+
+  @spec parse_import_list([Lexer.token()], [{String.t(), String.t() | nil}]) ::
+          {:ok, [{String.t(), String.t() | nil}], [Lexer.token()]} | {:error, String.t()}
+  defp parse_import_list(tokens, acc) do
+    case tokens do
+      [{:name, _, name} | rest] ->
+        {module_name, rest} = parse_dotted_name(name, rest)
+
+        {import_spec, rest} =
+          case rest do
+            [{:keyword, _, "as"}, {:name, _, alias_name} | rest] ->
+              {{module_name, alias_name}, rest}
+
+            _ ->
+              {{module_name, nil}, rest}
+          end
+
+        new_acc = [import_spec | acc]
+
+        case rest do
+          [{:op, _, :comma} | rest] ->
+            parse_import_list(rest, new_acc)
+
+          _ ->
+            {:ok, Enum.reverse(new_acc), rest}
+        end
+
+      _ ->
+        {:error, "expected module name after ',' at #{token_line(tokens)}"}
+    end
   end
 
   @spec parse_from_import([Lexer.token()], pos_integer()) :: parse_result()

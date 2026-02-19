@@ -704,36 +704,31 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  def eval({:import, _, [module_name]}, env, ctx) do
-    case Import.resolve_module(module_name, env, ctx) do
-      {:ok, module_value, ctx} ->
-        ctx = Ctx.record(ctx, :assign, {module_name, :module})
-        {nil, Env.put(env, module_name, module_value), ctx}
+  def eval({:import, _, imports}, env, ctx) when is_list(imports) do
+    Enum.reduce_while(imports, {nil, env, ctx}, fn import_spec, {_, env, ctx} ->
+      {module_name, alias_name} =
+        case import_spec do
+          {m, a} -> {m, a}
+          m when is_binary(m) -> {m, nil}
+        end
 
-      {:import_error, msg, ctx} ->
-        {{:exception, msg}, env, ctx}
+      bind_as = alias_name || module_name
 
-      {:unknown_module, ctx} ->
-        {{:exception,
-          "ImportError: no module named '#{module_name}'#{Import.import_hint(module_name)}"}, env,
-         ctx}
-    end
-  end
+      case Import.resolve_module(module_name, env, ctx) do
+        {:ok, module_value, ctx} ->
+          ctx = Ctx.record(ctx, :assign, {bind_as, :module})
+          {:cont, {nil, Env.put(env, bind_as, module_value), ctx}}
 
-  def eval({:import, _, [module_name, alias_name]}, env, ctx) do
-    case Import.resolve_module(module_name, env, ctx) do
-      {:ok, module_value, ctx} ->
-        ctx = Ctx.record(ctx, :assign, {alias_name, :module})
-        {nil, Env.put(env, alias_name, module_value), ctx}
+        {:import_error, msg, ctx} ->
+          {:halt, {{:exception, msg}, env, ctx}}
 
-      {:import_error, msg, ctx} ->
-        {{:exception, msg}, env, ctx}
-
-      {:unknown_module, ctx} ->
-        {{:exception,
-          "ImportError: no module named '#{module_name}'#{Import.import_hint(module_name)}"}, env,
-         ctx}
-    end
+        {:unknown_module, ctx} ->
+          {:halt,
+           {{:exception,
+             "ImportError: no module named '#{module_name}'#{Import.import_hint(module_name)}"},
+            env, ctx}}
+      end
+    end)
   end
 
   def eval({:from_import, _, [module_name, names]}, env, ctx) do
