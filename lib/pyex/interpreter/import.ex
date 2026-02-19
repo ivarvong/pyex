@@ -115,6 +115,40 @@ defmodule Pyex.Interpreter.Import do
     Pyex.Stdlib.fetch(name)
   end
 
+  @spec os_listdir([Interpreter.pyvalue()]) ::
+          {:ctx_call, (Pyex.Env.t(), Ctx.t() -> {term(), Pyex.Env.t(), Ctx.t()})}
+          | {:exception, String.t()}
+  defp os_listdir([]) do
+    os_listdir([""])
+  end
+
+  defp os_listdir([path]) when is_binary(path) do
+    {:ctx_call,
+     fn env, ctx ->
+       case ctx.filesystem do
+         nil ->
+           {{:exception, "OSError: no filesystem configured"}, env, ctx}
+
+         fs ->
+           case fs.__struct__.list_dir(fs, path) do
+             {:ok, entries} ->
+               {entries, env, ctx}
+
+             {:error, msg} ->
+               {{:exception, msg}, env, ctx}
+           end
+       end
+     end}
+  end
+
+  defp os_listdir([_arg]) do
+    {:exception, "TypeError: listdir: path should be string"}
+  end
+
+  defp os_listdir(_args) do
+    {:exception, "TypeError: listdir expected at most 1 argument"}
+  end
+
   @spec resolve_filesystem_module(String.t(), Env.t(), Ctx.t()) ::
           {:ok, Pyex.Stdlib.Module.module_value(), Ctx.t()}
           | {:unknown_module, Ctx.t()}
@@ -216,12 +250,6 @@ defmodule Pyex.Interpreter.Import do
   end
 
   defp os_makedirs([path, kwargs]) when is_binary(path) and is_map(kwargs) do
-    # Handle exist_ok parameter (ignored for now)
     nil
-  end
-
-  defp os_listdir([path]) when is_binary(path) do
-    # For now, return empty list
-    []
   end
 end
