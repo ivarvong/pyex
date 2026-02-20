@@ -210,7 +210,7 @@ defmodule Pyex.Lambda do
     case match(routes, request) do
       {:ok, handler, path_params} ->
         t0 = System.monotonic_time(:microsecond)
-        events_before = length(ctx.log)
+        events_before = ctx.event_count
         compute_us_before = Ctx.compute_time_us(ctx)
         stream_ctx = %{ctx | generator_mode: :defer}
 
@@ -364,7 +364,7 @@ defmodule Pyex.Lambda do
         ) :: {:ok, response(), Ctx.t(), Interpreter.pyvalue()}
   defp execute_with_ctx(handler, path_params, request, ctx) do
     t0 = System.monotonic_time(:microsecond)
-    events_before = length(ctx.log)
+    events_before = ctx.event_count
     compute_us_before = Ctx.compute_time_us(ctx)
 
     {result, new_ctx, updated_handler} = call_handler(handler, path_params, request, ctx)
@@ -710,17 +710,12 @@ defmodule Pyex.Lambda do
   defp build_telemetry(t0, events_before, compute_us_before, ctx) do
     t1 = System.monotonic_time(:microsecond)
     compute_us_after = Ctx.compute_time_us(ctx)
-    events_after = length(ctx.log)
-    new_event_count = max(events_after - events_before, 0)
-
-    new_events = Enum.take(ctx.log, new_event_count)
-    file_ops = Enum.count(new_events, fn {type, _, _} -> type == :file_op end)
 
     %{
       compute_us: max(compute_us_after - compute_us_before, 0),
       total_us: t1 - t0,
-      event_count: new_event_count,
-      file_ops: file_ops
+      event_count: max(ctx.event_count - events_before, 0),
+      file_ops: ctx.file_ops
     }
   end
 

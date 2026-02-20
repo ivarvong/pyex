@@ -200,16 +200,8 @@ defmodule Pyex.FilesystemTest do
 
       {_value, ctx} = run_with_fs!(code, fs)
 
-      file_events =
-        Ctx.events(ctx)
-        |> Enum.filter(fn {type, _, _} -> type == :file_op end)
-
-      assert length(file_events) >= 3
-
-      ops = Enum.map(file_events, fn {_, _, data} -> elem(data, 0) end)
-      assert :open in ops
-      assert :read in ops
-      assert :close in ops
+      # File operations are tracked via counters, not event log
+      assert ctx.file_ops >= 3
     end
 
     test "no filesystem configured returns error" do

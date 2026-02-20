@@ -7,28 +7,27 @@ defmodule Pyex.CtxTest do
     test "creates a live context" do
       ctx = Ctx.new()
       assert ctx.mode == :live
-      assert ctx.log == []
-      assert ctx.step == 0
+      assert ctx.output_buffer == []
     end
   end
 
   describe "record/3" do
-    test "appends events in live mode" do
+    test "captures output events in live mode" do
+      ctx =
+        Ctx.new()
+        |> Ctx.record(:output, "hello")
+        |> Ctx.record(:output, "world")
+
+      assert ctx.output_buffer == ["world", "hello"]
+    end
+
+    test "ignores non-output events in live mode" do
       ctx =
         Ctx.new()
         |> Ctx.record(:assign, {"x", 1})
-        |> Ctx.record(:assign, {"y", 2})
+        |> Ctx.record(:branch, {:if, true})
 
-      assert length(Ctx.events(ctx)) == 2
-      assert ctx.step == 2
-    end
-
-    test "events have type, step, and data" do
-      ctx = Ctx.new() |> Ctx.record(:branch, {:if, true})
-      [{type, step, data}] = Ctx.events(ctx)
-      assert type == :branch
-      assert step == 0
-      assert data == {:if, true}
+      assert ctx.output_buffer == []
     end
   end
 
@@ -115,24 +114,19 @@ defmodule Pyex.CtxTest do
     end
   end
 
-  describe "event log cap" do
-    test "record/3 stops appending events after max_log_events" do
-      ctx = Ctx.new()
-
+  describe "output capture" do
+    test "output/1 returns captured print output" do
       ctx =
-        Enum.reduce(1..100_001, ctx, fn i, acc ->
-          Ctx.record(acc, :assign, {:x, i})
-        end)
+        Ctx.new()
+        |> Ctx.record(:output, "hello")
+        |> Ctx.record(:output, "world")
 
-      assert ctx.step == 100_001
-      assert length(ctx.log) == 100_000
+      assert Ctx.output(ctx) == "hello\nworld"
     end
 
-    test "step keeps incrementing past cap" do
-      ctx = %{Ctx.new() | step: 100_000}
-      ctx = Ctx.record(ctx, :assign, {:x, 1})
-      assert ctx.step == 100_001
-      assert ctx.log == []
+    test "output/1 returns empty string when no output" do
+      ctx = Ctx.new()
+      assert Ctx.output(ctx) == ""
     end
   end
 end

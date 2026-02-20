@@ -83,10 +83,11 @@ defmodule Pyex.Ctx do
           exception_instance: term(),
           current_line: non_neg_integer() | nil,
           call_depth: non_neg_integer(),
-          max_call_depth: non_neg_integer()
+          max_call_depth: non_neg_integer(),
+          output_buffer: [String.t()],
+          event_count: non_neg_integer(),
+          file_ops: non_neg_integer()
         }
-
-  @max_log_events 100_000
 
   defstruct mode: :live,
             log: [],
@@ -99,6 +100,9 @@ defmodule Pyex.Ctx do
             imported_modules: %{},
             timeout_ns: nil,
             compute_ns: 0,
+            output_buffer: [],
+            event_count: 0,
+            file_ops: 0,
             compute_started_at: nil,
             profile: nil,
             generator_mode: nil,
@@ -438,18 +442,23 @@ defmodule Pyex.Ctx do
 
   @doc """
   Records an event in live mode. Returns the updated context.
+
+  Note: Full event logging is disabled to reduce memory allocation.
+  Only counters and output events are tracked.
   """
   @spec record(t(), event_type(), term()) :: t()
   def record(%__MODULE__{mode: :noop} = ctx, _type, _data), do: ctx
 
-  def record(%__MODULE__{mode: :live, step: step} = ctx, _type, _data)
-      when step >= @max_log_events do
-    %{ctx | step: step + 1}
+  def record(%__MODULE__{mode: :live} = ctx, :output, line) do
+    %{ctx | output_buffer: [line | ctx.output_buffer], event_count: ctx.event_count + 1}
   end
 
-  def record(%__MODULE__{mode: :live} = ctx, type, data) do
-    event = {type, ctx.step, data}
-    %{ctx | log: [event | ctx.log], step: ctx.step + 1}
+  def record(%__MODULE__{mode: :live} = ctx, :file_op, _data) do
+    %{ctx | event_count: ctx.event_count + 1, file_ops: ctx.file_ops + 1}
+  end
+
+  def record(%__MODULE__{mode: :live} = ctx, _type, _data) do
+    %{ctx | event_count: ctx.event_count + 1}
   end
 
   @doc """
@@ -461,18 +470,13 @@ defmodule Pyex.Ctx do
   @doc """
   Returns all captured print output as a single string.
 
-  Extracts `:output` events from the log and joins them
-  with newlines, matching how Python's `print()` separates
-  lines.
+  Joins captured output lines with newlines, matching how
+  Python's `print()` separates lines.
   """
   @spec output(t()) :: String.t()
-  def output(%__MODULE__{} = ctx) do
-    ctx
-    |> events()
-    |> Enum.flat_map(fn
-      {:output, _step, line} -> [line]
-      _ -> []
-    end)
+  def output(%__MODULE__{output_buffer: buffer}) do
+    buffer
+    |> Enum.reverse()
     |> Enum.join("\n")
   end
 
