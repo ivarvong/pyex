@@ -561,4 +561,386 @@ defmodule PyexTest do
       assert Pyex.output(ctx) == ""
     end
   end
+
+  describe "ctx.duration_ms" do
+    test "is set after a successful run" do
+      {:ok, _val, ctx} = Pyex.run("1 + 1")
+      assert is_float(ctx.duration_ms)
+      assert ctx.duration_ms >= 0.0
+    end
+
+    test "reflects actual elapsed time" do
+      {:ok, _val, ctx} =
+        Pyex.run("""
+        x = 0
+        for i in range(10000):
+            x = x + i
+        x
+        """)
+
+      assert ctx.duration_ms > 0.0
+      assert ctx.duration_ms < 5_000.0
+    end
+
+    test "is nil on a fresh ctx before running" do
+      ctx = Pyex.Ctx.new()
+      assert ctx.duration_ms == nil
+    end
+
+    test "is longer for more work" do
+      {:ok, _, ctx_small} = Pyex.run("sum(range(100))")
+      {:ok, _, ctx_large} = Pyex.run("sum(range(100000))")
+      assert ctx_large.duration_ms > ctx_small.duration_ms
+    end
+  end
+
+  describe "end-to-end: static site generator" do
+    @ssg_fs %{
+      "config.yaml" => """
+      ---
+      site_name: My Blog
+      author: Ada
+      ---
+      """,
+      "posts/hello-world.md" => """
+      ---
+      title: Hello World
+      date: 2026-01-15
+      tags:
+        - intro
+        - elixir
+      ---
+      Welcome to the site. This is the **first** post.
+      """,
+      "posts/deep-dive.md" => """
+      ---
+      title: A Deep Dive
+      date: 2026-02-10
+      tags:
+        - tutorial
+      ---
+      Let's explore something *interesting* in depth.
+      """,
+      "posts/release-notes.md" => """
+      ---
+      title: Release Notes v2
+      date: 2026-03-05
+      tags:
+        - release
+        - changelog
+      ---
+      Several bugs **fixed**. Performance improved across the board.
+      """,
+      "templates/layout.html" => ~S"""
+      <!doctype html>
+      <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <title>{{ title }} | {{ site_name }}</title>
+        <link rel="stylesheet" href="/style.css">
+      </head>
+      <body>
+        <header><a href="/">{{ site_name }}</a></header>
+        <main>{{ content | safe }}</main>
+        <footer>&copy; {{ author }}</footer>
+      </body>
+      </html>
+      """,
+      "templates/post.html" => ~S"""
+      <article>
+        <h1>{{ title }}</h1>
+        <time>{{ date }}</time>
+        <ul class="tags">{% for tag in tags %}<li><a href="/tags/{{ tag }}">{{ tag }}</a></li>{% endfor %}</ul>
+        <div class="body">{{ body | safe }}</div>
+      </article>
+      """,
+      "templates/index.html" => ~S"""
+      <h1>{{ site_name }}</h1>
+      <p>By {{ author }}</p>
+      <ul>
+        {% for post in posts %}
+        <li><a href="/{{ post.slug }}">{{ post.title }}</a> &mdash; <time>{{ post.date }}</time></li>
+        {% endfor %}
+      </ul>
+      """,
+      "templates/tag.html" => ~S"""
+      <h1>Posts tagged &ldquo;{{ tag }}&rdquo;</h1>
+      <ul>
+        {% for post in posts %}
+        <li><a href="/{{ post.slug }}">{{ post.title }}</a> &mdash; <time>{{ post.date }}</time></li>
+        {% endfor %}
+      </ul>
+      """
+    }
+
+    @ssg_script ~S"""
+    import json
+    import os
+    import time
+    import yaml
+    import markdown
+    from datetime import date
+    from jinja2 import Template
+    from pydantic import BaseModel
+
+    class Config(BaseModel):
+        site_name: str
+        author: str
+
+    class Post(BaseModel):
+        title: str
+        slug: str
+        date: date
+        tags: list
+        body: str
+        body_html: str
+
+    def parse_frontmatter(text):
+        parts = text.split("---\n", 2)
+        if len(parts) < 3:
+            raise ValueError("missing frontmatter")
+        return yaml.safe_load(parts[1]), parts[2].strip()
+
+    build_start = time.monotonic()
+
+    # --- load config and templates ---
+
+    with open("config.yaml") as f:
+        config = Config(**parse_frontmatter(f.read())[0])
+
+    with open("templates/layout.html") as f:
+        layout_tmpl = Template(f.read())
+    with open("templates/post.html") as f:
+        post_tmpl = Template(f.read())
+    with open("templates/index.html") as f:
+        index_tmpl = Template(f.read())
+    with open("templates/tag.html") as f:
+        tag_tmpl = Template(f.read())
+
+    # --- load and render posts ---
+
+    posts = []
+    for filename in sorted(os.listdir("posts")):
+        slug = os.path.splitext(filename)[0]
+        with open(os.path.join("posts", filename)) as f:
+            meta, body = parse_frontmatter(f.read())
+        posts.append(Post(
+            title=meta["title"],
+            slug=slug,
+            date=meta["date"],
+            tags=meta["tags"],
+            body=body,
+            body_html=markdown.markdown(body)
+        ))
+
+    posts = sorted(posts, key=lambda p: p.date, reverse=True)
+
+    # build tag -> [post] index (sorted newest-first within each tag)
+    tag_index = {}
+    for post in posts:
+        for tag in post.tags:
+            if tag not in tag_index:
+                tag_index[tag] = []
+            tag_index[tag].append(post)
+
+    # --- write output ---
+
+    pages_written = 0
+
+    for post in posts:
+        with open(post.slug + ".html", "w") as f:
+            f.write(layout_tmpl.render(
+                title=post.title,
+                site_name=config.site_name,
+                author=config.author,
+                content=post_tmpl.render(
+                    title=post.title,
+                    date=post.date,
+                    tags=post.tags,
+                    body=post.body_html
+                )
+            ))
+        pages_written = pages_written + 1
+
+    with open("index.html", "w") as f:
+        f.write(layout_tmpl.render(
+            title="Home",
+            site_name=config.site_name,
+            author=config.author,
+            content=index_tmpl.render(
+                site_name=config.site_name,
+                author=config.author,
+                posts=posts
+            )
+        ))
+    pages_written = pages_written + 1
+
+    os.makedirs("tags")
+    for tag, tagged_posts in tag_index.items():
+        with open(os.path.join("tags", tag + ".html"), "w") as f:
+            f.write(layout_tmpl.render(
+                title="Tag: " + tag,
+                site_name=config.site_name,
+                author=config.author,
+                content=tag_tmpl.render(tag=tag, posts=tagged_posts)
+            ))
+        pages_written = pages_written + 1
+
+    build_elapsed_ms = (time.monotonic() - build_start) * 1000
+
+    report = {
+        "site_name": config.site_name,
+        "posts": len(posts),
+        "tags": len(tag_index),
+        "pages": pages_written,
+        "tag_names": sorted(tag_index.keys()),
+        "build_ms": build_elapsed_ms
+    }
+
+    with open("build.json", "w") as f:
+        f.write(json.dumps(report))
+
+    len(posts)
+    """
+
+    @ssg_css """
+    body { font-family: sans-serif; max-width: 800px; margin: 0 auto; }
+    header { border-bottom: 1px solid #ccc; }
+    ul.tags li { background: #eee; padding: 0.2rem 0.6rem; border-radius: 4px; }
+    """
+
+    test "generates HTML pages from markdown posts with frontmatter via pydantic, jinja2 templates, and css" do
+      fs = Pyex.Filesystem.Memory.new(Map.put(@ssg_fs, "style.css", @ssg_css))
+
+      # Compile once so the warmup and timed runs share the same AST.
+      {:ok, ast} = Pyex.compile(@ssg_script)
+
+      # Warmup: one run to let the BEAM JIT compile all touched interpreter clauses.
+      {:ok, post_count, ctx} = Pyex.run(ast, filesystem: fs)
+
+      assert post_count == 3
+
+      {:ok, index} = Pyex.Filesystem.Memory.read(ctx.filesystem, "index.html")
+      {:ok, hello} = Pyex.Filesystem.Memory.read(ctx.filesystem, "hello-world.html")
+      {:ok, dive} = Pyex.Filesystem.Memory.read(ctx.filesystem, "deep-dive.html")
+      {:ok, notes} = Pyex.Filesystem.Memory.read(ctx.filesystem, "release-notes.html")
+
+      # layout chrome on every page
+      for page <- [index, hello, dive, notes] do
+        assert page =~ ~s(<link rel="stylesheet" href="/style.css">)
+        assert page =~ ~s(<a href="/">My Blog</a>)
+        assert page =~ "&copy; Ada"
+      end
+
+      # index: sorted newest-first, all three posts linked
+      assert index =~ "<title>Home | My Blog</title>"
+      assert index =~ ~s(<a href="/release-notes">Release Notes v2</a>)
+      assert index =~ ~s(<a href="/deep-dive">A Deep Dive</a>)
+      assert index =~ ~s(<a href="/hello-world">Hello World</a>)
+
+      [release_pos, dive_pos, hello_pos] = [
+        :binary.match(index, "Release Notes v2") |> elem(0),
+        :binary.match(index, "A Deep Dive") |> elem(0),
+        :binary.match(index, "Hello World") |> elem(0)
+      ]
+
+      assert release_pos < dive_pos
+      assert dive_pos < hello_pos
+
+      # post pages: title in <title>, date, tags linked, markdown body rendered to HTML
+      assert hello =~ "<title>Hello World | My Blog</title>"
+      assert hello =~ "<h1>Hello World</h1>"
+      assert hello =~ "<time>2026-01-15</time>"
+      assert hello =~ ~s(<a href="/tags/intro">intro</a>)
+      assert hello =~ ~s(<a href="/tags/elixir">elixir</a>)
+      assert hello =~ "<strong>first</strong>"
+
+      assert dive =~ "<title>A Deep Dive | My Blog</title>"
+      assert dive =~ "<em>interesting</em>"
+      assert dive =~ ~s(<a href="/tags/tutorial">tutorial</a>)
+
+      assert notes =~ "<title>Release Notes v2 | My Blog</title>"
+      assert notes =~ "<strong>fixed</strong>"
+      assert notes =~ ~s(<a href="/tags/release">release</a>)
+      assert notes =~ ~s(<a href="/tags/changelog">changelog</a>)
+
+      # tag pages exist and list the right posts
+      {:ok, tag_intro} = Pyex.Filesystem.Memory.read(ctx.filesystem, "tags/intro.html")
+      {:ok, tag_elixir} = Pyex.Filesystem.Memory.read(ctx.filesystem, "tags/elixir.html")
+      {:ok, tag_tutorial} = Pyex.Filesystem.Memory.read(ctx.filesystem, "tags/tutorial.html")
+      {:ok, tag_release} = Pyex.Filesystem.Memory.read(ctx.filesystem, "tags/release.html")
+      {:ok, tag_changelog} = Pyex.Filesystem.Memory.read(ctx.filesystem, "tags/changelog.html")
+
+      assert tag_intro =~ "<title>Tag: intro | My Blog</title>"
+      assert tag_intro =~ ~s(Posts tagged)
+      assert tag_intro =~ ~s(<a href="/hello-world">Hello World</a>)
+      refute tag_intro =~ "A Deep Dive"
+      refute tag_intro =~ "Release Notes"
+
+      assert tag_elixir =~ ~s(<a href="/hello-world">Hello World</a>)
+
+      assert tag_tutorial =~ ~s(<a href="/deep-dive">A Deep Dive</a>)
+      refute tag_tutorial =~ "Hello World"
+
+      assert tag_release =~ ~s(<a href="/release-notes">Release Notes v2</a>)
+      assert tag_changelog =~ ~s(<a href="/release-notes">Release Notes v2</a>)
+
+      # layout chrome on tag pages too
+      for tag_page <- [tag_intro, tag_elixir, tag_tutorial, tag_release, tag_changelog] do
+        assert tag_page =~ ~s(<link rel="stylesheet" href="/style.css">)
+        assert tag_page =~ ~s(<a href="/">My Blog</a>)
+        assert tag_page =~ "&copy; Ada"
+      end
+
+      # build report
+      {:ok, report_json} = Pyex.Filesystem.Memory.read(ctx.filesystem, "build.json")
+      report = Jason.decode!(report_json)
+
+      assert report["site_name"] == "My Blog"
+      assert report["posts"] == 3
+      assert report["tags"] == 5
+      assert report["pages"] == 9
+      assert report["tag_names"] == ["changelog", "elixir", "intro", "release", "tutorial"]
+      assert is_float(report["build_ms"])
+      assert report["build_ms"] > 0
+
+      # Timing: 50 iterations with a fresh filesystem each time, using
+      # microsecond-resolution Elixir monotonic clock rather than the
+      # 1ms-quantized time.monotonic inside the script.
+      n_iters = 50
+
+      iter_times_us =
+        for _ <- 1..n_iters do
+          fresh_fs = Pyex.Filesystem.Memory.new(Map.put(@ssg_fs, "style.css", @ssg_css))
+          t0 = System.monotonic_time(:microsecond)
+          {:ok, _, _} = Pyex.run(ast, filesystem: fresh_fs)
+          System.monotonic_time(:microsecond) - t0
+        end
+
+      sorted_us = Enum.sort(iter_times_us)
+      p10_ms = Enum.at(sorted_us, div(n_iters, 10)) / 1000.0
+      p50_ms = Enum.at(sorted_us, div(n_iters, 2)) / 1000.0
+      p90_ms = Enum.at(sorted_us, div(n_iters * 9, 10)) / 1000.0
+
+      # ctx.duration_ms from the warmup run (interpret-only, excludes compile)
+      ctx_ms = ctx.duration_ms
+
+      IO.puts("""
+
+      SSG timing (#{n_iters} warm iterations, pre-compiled AST)
+        p10  : #{:erlang.float_to_binary(p10_ms, decimals: 3)} ms
+        p50  : #{:erlang.float_to_binary(p50_ms, decimals: 3)} ms
+        p90  : #{:erlang.float_to_binary(p90_ms, decimals: 3)} ms
+        ctx.duration_ms (warmup, interpret only) : #{:erlang.float_to_binary(ctx_ms, decimals: 3)} ms
+      """)
+
+      # p50 should be reasonable; p90 allows for scheduler jitter
+      assert p50_ms < 10.0, "warm p50 #{p50_ms}ms should be under 10ms"
+      assert p90_ms < 50.0, "warm p90 #{p90_ms}ms should be under 50ms"
+
+      # ctx_ms from the warmup run is interpretation time only, so it should
+      # be in the same ballpark as our timed iterations
+      assert ctx_ms < 50.0, "ctx.duration_ms #{ctx_ms}ms should be under 50ms"
+    end
+  end
 end

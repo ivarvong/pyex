@@ -201,6 +201,48 @@ defmodule Pyex.Stdlib.Pydantic do
     if optional?(type), do: {:ok, nil}, else: {:error, "none is not an allowed value"}
   end
 
+  defp coerce(value, {:class, "date", _, _}, _class) do
+    cond do
+      match?({:instance, {:class, "date", _, _}, _}, value) ->
+        {:ok, value}
+
+      is_binary(value) ->
+        case Date.from_iso8601(value) do
+          {:ok, d} -> {:ok, Pyex.Stdlib.Datetime.make_date(d)}
+          {:error, _} -> {:error, "value is not a valid date"}
+        end
+
+      true ->
+        {:error, "value is not a valid date"}
+    end
+  end
+
+  defp coerce(value, {:class, "datetime", _, _}, _class) do
+    cond do
+      match?({:instance, {:class, "datetime", _, _}, _}, value) ->
+        {:ok, value}
+
+      is_binary(value) ->
+        case NaiveDateTime.from_iso8601(value) do
+          {:ok, ndt} ->
+            {:ok, Pyex.Stdlib.Datetime.make_datetime(DateTime.from_naive!(ndt, "Etc/UTC"))}
+
+          {:error, _} ->
+            case Date.from_iso8601(value) do
+              {:ok, d} ->
+                ndt = NaiveDateTime.new!(d, ~T[00:00:00])
+                {:ok, Pyex.Stdlib.Datetime.make_datetime(DateTime.from_naive!(ndt, "Etc/UTC"))}
+
+              {:error, _} ->
+                {:error, "value is not a valid datetime"}
+            end
+        end
+
+      true ->
+        {:error, "value is not a valid datetime"}
+    end
+  end
+
   defp coerce(value, {:class, _, _, _} = model_class, _class) do
     cond do
       is_map(value) and not is_struct(value) ->

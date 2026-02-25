@@ -32,7 +32,8 @@ defmodule Pyex.Stdlib do
     "hmac" => Pyex.Stdlib.Hmac,
     "base64" => Pyex.Stdlib.Base64,
     "secrets" => Pyex.Stdlib.Secrets,
-    "pandas" => Pyex.Stdlib.Pandas
+    "pandas" => Pyex.Stdlib.Pandas,
+    "yaml" => Pyex.Stdlib.Yaml
   }
 
   @doc """

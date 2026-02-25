@@ -70,7 +70,8 @@ defmodule Pyex.Ctx do
           max_call_depth: non_neg_integer(),
           output_buffer: [String.t()],
           event_count: non_neg_integer(),
-          file_ops: non_neg_integer()
+          file_ops: non_neg_integer(),
+          duration_ms: float() | nil
         }
 
   defstruct filesystem: nil,
@@ -95,7 +96,8 @@ defmodule Pyex.Ctx do
             exception_instance: nil,
             current_line: nil,
             call_depth: 0,
-            max_call_depth: 500
+            max_call_depth: 500,
+            duration_ms: nil
 
   @doc """
   Creates a fresh live context that records all events.

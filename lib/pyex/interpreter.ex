@@ -3948,13 +3948,33 @@ defmodule Pyex.Interpreter do
 
     case keys_result do
       {:ok, pairs, env, ctx} ->
-        sorted = pairs |> Enum.reverse() |> Enum.sort_by(&elem(&1, 1)) |> Enum.map(&elem(&1, 0))
+        sorted =
+          pairs
+          |> Enum.reverse()
+          |> Enum.sort_by(fn {_item, key} -> key end, &pyvalue_lte/2)
+          |> Enum.map(&elem(&1, 0))
+
         {:ok, sorted, env, ctx}
 
       {signal, env, ctx} ->
         {signal, env, ctx}
     end
   end
+
+  @spec pyvalue_lte(pyvalue(), pyvalue()) :: boolean()
+  defp pyvalue_lte(
+         {:instance, _, %{"__dt__" => %DateTime{} = a}},
+         {:instance, _, %{"__dt__" => %DateTime{} = b}}
+       ),
+       do: DateTime.compare(a, b) != :gt
+
+  defp pyvalue_lte(
+         {:instance, _, %{"__date__" => %Date{} = a}},
+         {:instance, _, %{"__date__" => %Date{} = b}}
+       ),
+       do: Date.compare(a, b) != :gt
+
+  defp pyvalue_lte(a, b), do: a <= b
 
   @spec mutate_target(Parser.ast_node(), pyvalue(), Env.t(), Ctx.t()) :: Env.t()
   defp mutate_target({:getattr, _, [{:var, _, [var_name]}, _method]}, new_object, env, _ctx) do

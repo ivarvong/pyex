@@ -115,17 +115,19 @@ defmodule Pyex do
     case result do
       {:ok, value, _env, final_ctx} ->
         duration_ms =
-          System.convert_time_unit(System.monotonic_time() - start_mono, :native, :millisecond)
+          System.convert_time_unit(System.monotonic_time() - start_mono, :native, :microsecond) /
+            1000.0
 
         :telemetry.execute([:pyex, :run, :stop], %{duration_ms: duration_ms}, %{
           compute: Ctx.compute_time(final_ctx)
         })
 
-        {:ok, Interpreter.Helpers.to_python_view(value), final_ctx}
+        {:ok, Interpreter.Helpers.to_python_view(value), %{final_ctx | duration_ms: duration_ms}}
 
       {:error, msg} ->
         duration_ms =
-          System.convert_time_unit(System.monotonic_time() - start_mono, :native, :millisecond)
+          System.convert_time_unit(System.monotonic_time() - start_mono, :native, :microsecond) /
+            1000.0
 
         error = Error.from_message(msg)
 

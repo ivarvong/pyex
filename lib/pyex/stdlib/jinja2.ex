@@ -520,6 +520,20 @@ defmodule Pyex.Stdlib.Jinja2 do
   defp to_str(list) when is_list(list), do: inspect(list)
   defp to_str(map) when is_map(map), do: inspect(map)
   defp to_str({:tuple, items}), do: "(#{Enum.map_join(items, ", ", &to_str/1)})"
+
+  defp to_str({:instance, {:class, _, _, class_attrs}, _} = inst) do
+    case Map.fetch(class_attrs, "__str__") do
+      {:ok, {:builtin, f}} ->
+        case f.([inst]) do
+          s when is_binary(s) -> s
+          _ -> ""
+        end
+
+      _ ->
+        ""
+    end
+  end
+
   defp to_str(_), do: ""
 
   @spec to_list(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]

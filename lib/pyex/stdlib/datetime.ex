@@ -75,7 +75,8 @@ defmodule Pyex.Stdlib.Datetime do
     {:class, "date", [],
      Map.merge(date_dunders(), %{
        "__init__" => {:builtin_kw, &date_init/2},
-       "today" => {:builtin, &date_today/1}
+       "today" => {:builtin, &date_today/1},
+       "fromisoformat" => {:builtin, &date_fromisoformat/1}
      })}
   end
 
@@ -253,6 +254,18 @@ defmodule Pyex.Stdlib.Datetime do
     {:exception, "TypeError: an integer or float is required, got #{py_type_name(ts)}"}
   end
 
+  @spec date_fromisoformat([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp date_fromisoformat([s]) when is_binary(s) do
+    case Date.from_iso8601(s) do
+      {:ok, d} -> make_date(d)
+      {:error, _} -> {:exception, "ValueError: Invalid isoformat string: '#{s}'"}
+    end
+  end
+
+  defp date_fromisoformat(_args) do
+    {:exception, "TypeError: fromisoformat() argument must be a string"}
+  end
+
   @spec date_today([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp date_today([]), do: make_date(Date.utc_today())
 
@@ -320,8 +333,9 @@ defmodule Pyex.Stdlib.Datetime do
      }}
   end
 
+  @doc false
   @spec make_datetime(DateTime.t()) :: Pyex.Interpreter.pyvalue()
-  defp make_datetime(dt) do
+  def make_datetime(dt) do
     dt = DateTime.truncate(dt, :second)
     iso = dt |> DateTime.to_naive() |> NaiveDateTime.to_iso8601()
     {us, _} = dt.microsecond
@@ -344,8 +358,9 @@ defmodule Pyex.Stdlib.Datetime do
      }}
   end
 
+  @doc false
   @spec make_date(Date.t()) :: Pyex.Interpreter.pyvalue()
-  defp make_date(d) do
+  def make_date(d) do
     iso = Date.to_iso8601(d)
 
     {:instance, date_class(),

@@ -1213,4 +1213,110 @@ defmodule Pyex.Stdlib.PydanticTest do
       assert result == ["Hello World", "Alice", "a@b.com"]
     end
   end
+
+  describe "date and datetime field coercion" do
+    test "coerces ISO string to date" do
+      result =
+        run!("""
+        from datetime import date
+        from pydantic import BaseModel
+
+        class Event(BaseModel):
+            name: str
+            on: date
+
+        e = Event(name="launch", on="2026-03-05")
+        (e.on.year, e.on.month, e.on.day)
+        """)
+
+      assert result == {:tuple, [2026, 3, 5]}
+    end
+
+    test "accepts a date instance directly" do
+      result =
+        run!("""
+        from datetime import date
+        from pydantic import BaseModel
+
+        class Event(BaseModel):
+            on: date
+
+        d = date(2026, 1, 15)
+        e = Event(on=d)
+        e.on.isoformat()
+        """)
+
+      assert result == "2026-01-15"
+    end
+
+    test "coerces ISO string to datetime" do
+      result =
+        run!("""
+        from datetime import datetime
+        from pydantic import BaseModel
+
+        class Log(BaseModel):
+            message: str
+            at: datetime
+
+        entry = Log(message="started", at="2026-03-05T10:30:00")
+        (entry.at.year, entry.at.hour, entry.at.minute)
+        """)
+
+      assert result == {:tuple, [2026, 10, 30]}
+    end
+
+    test "coerces date-only string to datetime" do
+      result =
+        run!("""
+        from datetime import datetime
+        from pydantic import BaseModel
+
+        class Log(BaseModel):
+            at: datetime
+
+        entry = Log(at="2026-03-05")
+        entry.at.isoformat()
+        """)
+
+      assert result == "2026-03-05T00:00:00"
+    end
+
+    test "date field rejects invalid string" do
+      msg =
+        run_error("""
+        from datetime import date
+        from pydantic import BaseModel
+
+        class Event(BaseModel):
+            on: date
+
+        Event(on="not-a-date")
+        """)
+
+      assert msg =~ "ValidationError"
+      assert msg =~ "on"
+    end
+
+    test "date field supports comparison after coercion" do
+      result =
+        run!("""
+        from datetime import date
+        from pydantic import BaseModel
+
+        class Post(BaseModel):
+            title: str
+            date: date
+
+        posts = [
+            Post(title="c", date="2026-03-01"),
+            Post(title="a", date="2026-01-01"),
+            Post(title="b", date="2026-02-01"),
+        ]
+        [p.title for p in sorted(posts, key=lambda p: p.date)]
+        """)
+
+      assert result == ["a", "b", "c"]
+    end
+  end
 end
