@@ -24,10 +24,22 @@ defmodule Pyex.Stdlib.Json do
   @spec do_loads([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp do_loads([string]) when is_binary(string) do
     case Jason.decode(string) do
-      {:ok, value} -> value
+      {:ok, value} -> from_json(value)
       {:error, reason} -> {:exception, "json.loads failed: #{inspect(reason)}"}
     end
   end
+
+  @spec from_json(term()) :: Pyex.Interpreter.pyvalue()
+  defp from_json(list) when is_list(list) do
+    items = Enum.map(list, &from_json/1)
+    {:py_list, Enum.reverse(items), length(items)}
+  end
+
+  defp from_json(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {k, from_json(v)} end)
+  end
+
+  defp from_json(other), do: other
 
   @spec do_dumps(
           [Pyex.Interpreter.pyvalue()],
@@ -63,6 +75,7 @@ defmodule Pyex.Stdlib.Json do
   defp to_json({:tuple, items}), do: Enum.map(items, &to_json/1)
   defp to_json({:set, s}), do: s |> MapSet.to_list() |> Enum.map(&to_json/1)
   defp to_json({:frozenset, s}), do: s |> MapSet.to_list() |> Enum.map(&to_json/1)
+  defp to_json({:py_list, reversed, _}), do: reversed |> Enum.reverse() |> Enum.map(&to_json/1)
   defp to_json(list) when is_list(list), do: Enum.map(list, &to_json/1)
 
   defp to_json(map) when is_map(map) do

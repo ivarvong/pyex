@@ -29,6 +29,10 @@ defmodule Pyex.Stdlib.Sql do
   @spec do_query([Pyex.Interpreter.pyvalue()]) ::
           {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
           | {:exception, String.t()}
+  defp do_query([sql, {:py_list, params, _}]) when is_binary(sql) and is_list(params) do
+    do_query([sql, Enum.reverse(params)])
+  end
+
   defp do_query([sql, params]) when is_binary(sql) and is_list(params) do
     Pyex.Ctx.guarded_io_call(:sql, fn env, ctx ->
       case Map.fetch(ctx.env, "DATABASE_URL") do
@@ -86,7 +90,6 @@ defmodule Pyex.Stdlib.Sql do
                     rows_returned: 0
                   })
 
-                  ctx = Pyex.Ctx.record(ctx, :side_effect, {:sql_query, sql})
                   {[], env, ctx}
 
                 {:ok, %Postgrex.Result{columns: cols, rows: rows, num_rows: n}} ->
@@ -98,7 +101,6 @@ defmodule Pyex.Stdlib.Sql do
                   })
 
                   result = Enum.map(rows, fn row -> row_to_dict(cols, row) end)
-                  ctx = Pyex.Ctx.record(ctx, :side_effect, {:sql_query, sql})
                   {result, env, ctx}
 
                 {:error, %Postgrex.Error{postgres: %{message: msg}}} ->
@@ -193,7 +195,7 @@ defmodule Pyex.Stdlib.Sql do
   defp to_pg(nil), do: nil
   defp to_pg(val) when is_binary(val), do: val
   defp to_pg(val) when is_integer(val), do: val
-  defp to_pg(val) when is_float(val), do: val
+  defp to_pg(val) when is_float(val), do: Decimal.from_float(val)
   defp to_pg(true), do: true
   defp to_pg(false), do: false
   defp to_pg(val), do: to_string(val)

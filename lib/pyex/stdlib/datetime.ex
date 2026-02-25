@@ -6,6 +6,11 @@ defmodule Pyex.Stdlib.Datetime do
   as proper class instances with full arithmetic, comparison, and
   formatting support.
 
+  Internally, `datetime.datetime` instances are backed by Elixir `DateTime`
+  structs in the UTC timezone. This means `now()` and `utcnow()` both return
+  the current UTC time, and `timestamp()` / `fromtimestamp()` round-trip
+  cleanly without any naive-to-UTC conversion.
+
   ## Constructors
 
       datetime.datetime(2024, 1, 15, 10, 30, 0)
@@ -29,6 +34,9 @@ defmodule Pyex.Stdlib.Datetime do
       datetime.datetime.utcnow()
       datetime.datetime.fromisoformat("2024-01-15T10:30:00")
       datetime.datetime.strptime("2024-01-15", "%Y-%m-%d")
+      datetime.datetime.fromtimestamp(1_700_000_000)
+      datetime.datetime.fromtimestamp(1_700_000_000.5)
+      datetime.datetime.utcfromtimestamp(1_700_000_000)
       datetime.date.today()
   """
 
@@ -54,7 +62,9 @@ defmodule Pyex.Stdlib.Datetime do
        "now" => {:builtin, &datetime_now/1},
        "utcnow" => {:builtin, &datetime_utcnow/1},
        "fromisoformat" => {:builtin, &datetime_fromisoformat/1},
-       "strptime" => {:builtin, &datetime_strptime/1}
+       "strptime" => {:builtin, &datetime_strptime/1},
+       "fromtimestamp" => {:builtin, &datetime_fromtimestamp/1},
+       "utcfromtimestamp" => {:builtin, &datetime_fromtimestamp/1}
      })}
   end
 
@@ -65,7 +75,8 @@ defmodule Pyex.Stdlib.Datetime do
     {:class, "date", [],
      Map.merge(date_dunders(), %{
        "__init__" => {:builtin_kw, &date_init/2},
-       "today" => {:builtin, &date_today/1}
+       "today" => {:builtin, &date_today/1},
+       "fromisoformat" => {:builtin, &date_fromisoformat/1}
      })}
   end
 
@@ -160,9 +171,12 @@ defmodule Pyex.Stdlib.Datetime do
     if not is_integer(year) or not is_integer(month) or not is_integer(day) do
       {:exception, "TypeError: an integer is required for year, month, day"}
     else
-      case NaiveDateTime.new(year, month, day, hour, minute, second, {microsecond, 6}) do
-        {:ok, ndt} -> make_datetime(ndt)
-        {:error, _} -> {:exception, "ValueError: invalid datetime arguments"}
+      with {:ok, date} <- Date.new(year, month, day),
+           {:ok, time} <- Time.new(hour, minute, second, {microsecond, 6}),
+           {:ok, dt} <- DateTime.new(date, time, "Etc/UTC") do
+        make_datetime(dt)
+      else
+        _ -> {:exception, "ValueError: invalid datetime arguments"}
       end
     end
   end
@@ -193,21 +207,27 @@ defmodule Pyex.Stdlib.Datetime do
   end
 
   @spec datetime_now([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
-  defp datetime_now([]), do: make_datetime(NaiveDateTime.utc_now())
+  defp datetime_now([]), do: make_datetime(DateTime.utc_now(:second))
 
   @spec datetime_utcnow([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
-  defp datetime_utcnow([]), do: make_datetime(NaiveDateTime.utc_now())
+  defp datetime_utcnow([]), do: make_datetime(DateTime.utc_now(:second))
 
   @spec datetime_fromisoformat([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp datetime_fromisoformat([s]) when is_binary(s) do
-    case NaiveDateTime.from_iso8601(s) do
-      {:ok, ndt} ->
-        make_datetime(ndt)
+    case DateTime.from_iso8601(s) do
+      {:ok, dt, _offset} ->
+        make_datetime(DateTime.shift_zone!(dt, "Etc/UTC"))
 
       {:error, _} ->
-        case Date.from_iso8601(s) do
-          {:ok, d} -> make_date(d)
-          {:error, _} -> {:exception, "ValueError: Invalid isoformat string: '#{s}'"}
+        case NaiveDateTime.from_iso8601(s) do
+          {:ok, ndt} ->
+            make_datetime(DateTime.from_naive!(ndt, "Etc/UTC"))
+
+          {:error, _} ->
+            case Date.from_iso8601(s) do
+              {:ok, d} -> make_date(d)
+              {:error, _} -> {:exception, "ValueError: Invalid isoformat string: '#{s}'"}
+            end
         end
     end
   end
@@ -215,9 +235,35 @@ defmodule Pyex.Stdlib.Datetime do
   @spec datetime_strptime([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp datetime_strptime([s, fmt]) when is_binary(s) and is_binary(fmt) do
     case parse_strptime(s, fmt) do
-      {:ok, ndt} -> make_datetime(ndt)
+      {:ok, dt} -> make_datetime(dt)
       {:error, msg} -> {:exception, "ValueError: #{msg}"}
     end
+  end
+
+  @spec datetime_fromtimestamp([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp datetime_fromtimestamp([ts]) when is_number(ts) do
+    microseconds = round(ts * 1_000_000)
+
+    case DateTime.from_unix(microseconds, :microsecond) do
+      {:ok, dt} -> make_datetime(DateTime.truncate(dt, :second))
+      {:error, _} -> {:exception, "ValueError: timestamp out of range for platform datetime"}
+    end
+  end
+
+  defp datetime_fromtimestamp([ts]) do
+    {:exception, "TypeError: an integer or float is required, got #{py_type_name(ts)}"}
+  end
+
+  @spec date_fromisoformat([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp date_fromisoformat([s]) when is_binary(s) do
+    case Date.from_iso8601(s) do
+      {:ok, d} -> make_date(d)
+      {:error, _} -> {:exception, "ValueError: Invalid isoformat string: '#{s}'"}
+    end
+  end
+
+  defp date_fromisoformat(_args) do
+    {:exception, "TypeError: fromisoformat() argument must be a string"}
   end
 
   @spec date_today([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
@@ -287,32 +333,34 @@ defmodule Pyex.Stdlib.Datetime do
      }}
   end
 
-  @spec make_datetime(NaiveDateTime.t()) :: Pyex.Interpreter.pyvalue()
-  defp make_datetime(ndt) do
-    ndt = NaiveDateTime.truncate(ndt, :second)
-    iso = NaiveDateTime.to_iso8601(ndt)
-    {us, _} = ndt.microsecond
+  @doc false
+  @spec make_datetime(DateTime.t()) :: Pyex.Interpreter.pyvalue()
+  def make_datetime(dt) do
+    dt = DateTime.truncate(dt, :second)
+    iso = dt |> DateTime.to_naive() |> NaiveDateTime.to_iso8601()
+    {us, _} = dt.microsecond
 
     {:instance, datetime_class(),
      %{
-       "year" => ndt.year,
-       "month" => ndt.month,
-       "day" => ndt.day,
-       "hour" => ndt.hour,
-       "minute" => ndt.minute,
-       "second" => ndt.second,
+       "year" => dt.year,
+       "month" => dt.month,
+       "day" => dt.day,
+       "hour" => dt.hour,
+       "minute" => dt.minute,
+       "second" => dt.second,
        "microsecond" => us,
        "isoformat" => {:builtin, fn [] -> iso end},
-       "strftime" => {:builtin_kw, &strftime_method(ndt, &1, &2)},
-       "timestamp" => {:builtin, fn [] -> ndt_to_timestamp(ndt) end},
-       "replace" => {:builtin_kw, &dt_replace(ndt, &1, &2)},
-       "date" => {:builtin, fn [] -> make_date(NaiveDateTime.to_date(ndt)) end},
-       "__ndt__" => ndt
+       "strftime" => {:builtin_kw, &strftime_method(dt, &1, &2)},
+       "timestamp" => {:builtin, fn [] -> dt_to_timestamp(dt) end},
+       "replace" => {:builtin_kw, &dt_replace(dt, &1, &2)},
+       "date" => {:builtin, fn [] -> make_date(DateTime.to_date(dt)) end},
+       "__dt__" => dt
      }}
   end
 
+  @doc false
   @spec make_date(Date.t()) :: Pyex.Interpreter.pyvalue()
-  defp make_date(d) do
+  def make_date(d) do
     iso = Date.to_iso8601(d)
 
     {:instance, date_class(),
@@ -327,19 +375,17 @@ defmodule Pyex.Stdlib.Datetime do
      }}
   end
 
-  @spec ndt_to_timestamp(NaiveDateTime.t()) :: float()
-  defp ndt_to_timestamp(ndt) do
-    {:ok, dt} = DateTime.from_naive(ndt, "Etc/UTC")
-
+  @spec dt_to_timestamp(DateTime.t()) :: float()
+  defp dt_to_timestamp(dt) do
     dt
     |> DateTime.to_unix(:millisecond)
     |> Kernel./(1000.0)
   end
 
-  @spec strftime_method(NaiveDateTime.t(), [Pyex.Interpreter.pyvalue()], map()) ::
+  @spec strftime_method(DateTime.t(), [Pyex.Interpreter.pyvalue()], map()) ::
           Pyex.Interpreter.pyvalue()
-  defp strftime_method(ndt, [fmt], _kwargs) when is_binary(fmt) do
-    format_strftime(ndt.year, ndt.month, ndt.day, ndt.hour, ndt.minute, ndt.second, fmt)
+  defp strftime_method(dt, [fmt], _kwargs) when is_binary(fmt) do
+    format_strftime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, fmt)
   end
 
   @spec date_strftime_method(Date.t(), [Pyex.Interpreter.pyvalue()], map()) ::
@@ -467,19 +513,22 @@ defmodule Pyex.Stdlib.Datetime do
     Date.diff(d, jan1) + 1
   end
 
-  @spec dt_replace(NaiveDateTime.t(), [Pyex.Interpreter.pyvalue()], map()) ::
+  @spec dt_replace(DateTime.t(), [Pyex.Interpreter.pyvalue()], map()) ::
           Pyex.Interpreter.pyvalue()
-  defp dt_replace(ndt, _args, kwargs) do
-    year = Map.get(kwargs, "year", ndt.year)
-    month = Map.get(kwargs, "month", ndt.month)
-    day = Map.get(kwargs, "day", ndt.day)
-    hour = Map.get(kwargs, "hour", ndt.hour)
-    minute = Map.get(kwargs, "minute", ndt.minute)
-    second = Map.get(kwargs, "second", ndt.second)
+  defp dt_replace(dt, _args, kwargs) do
+    year = Map.get(kwargs, "year", dt.year)
+    month = Map.get(kwargs, "month", dt.month)
+    day = Map.get(kwargs, "day", dt.day)
+    hour = Map.get(kwargs, "hour", dt.hour)
+    minute = Map.get(kwargs, "minute", dt.minute)
+    second = Map.get(kwargs, "second", dt.second)
 
-    case NaiveDateTime.new(year, month, day, hour, minute, second) do
-      {:ok, new_ndt} -> make_datetime(new_ndt)
-      {:error, _} -> {:exception, "ValueError: invalid replacement values"}
+    with {:ok, date} <- Date.new(year, month, day),
+         {:ok, time} <- Time.new(hour, minute, second),
+         {:ok, new_dt} <- DateTime.new(date, time, "Etc/UTC") do
+      make_datetime(new_dt)
+    else
+      _ -> {:exception, "ValueError: invalid replacement values"}
     end
   end
 
@@ -497,8 +546,8 @@ defmodule Pyex.Stdlib.Datetime do
   end
 
   @spec dt_str(Pyex.Interpreter.pyvalue()) :: String.t()
-  defp dt_str({:instance, _, %{"__ndt__" => ndt}}) do
-    NaiveDateTime.to_iso8601(ndt)
+  defp dt_str({:instance, _, %{"__dt__" => dt}}) do
+    dt |> DateTime.to_naive() |> NaiveDateTime.to_iso8601()
   end
 
   defp dt_str(_), do: "datetime.datetime(...)"
@@ -564,9 +613,9 @@ defmodule Pyex.Stdlib.Datetime do
 
   defp td_repr_args(_), do: "0"
 
-  @spec extract_ndt(Pyex.Interpreter.pyvalue()) :: NaiveDateTime.t() | nil
-  defp extract_ndt({:instance, {:class, "datetime", _, _}, %{"__ndt__" => ndt}}), do: ndt
-  defp extract_ndt(_), do: nil
+  @spec extract_dt(Pyex.Interpreter.pyvalue()) :: DateTime.t() | nil
+  defp extract_dt({:instance, {:class, "datetime", _, _}, %{"__dt__" => dt}}), do: dt
+  defp extract_dt(_), do: nil
 
   @spec extract_date(Pyex.Interpreter.pyvalue()) :: Date.t() | nil
   defp extract_date({:instance, {:class, "date", _, _}, %{"__date__" => d}}), do: d
@@ -586,16 +635,16 @@ defmodule Pyex.Stdlib.Datetime do
 
   @spec dt_eq(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) :: boolean()
   defp dt_eq(a, b) do
-    case {extract_ndt(a), extract_ndt(b)} do
-      {%NaiveDateTime{} = na, %NaiveDateTime{} = nb} -> NaiveDateTime.compare(na, nb) == :eq
+    case {extract_dt(a), extract_dt(b)} do
+      {%DateTime{} = da, %DateTime{} = db} -> DateTime.compare(da, db) == :eq
       _ -> false
     end
   end
 
   @spec dt_cmp(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) :: :lt | :eq | :gt
   defp dt_cmp(a, b) do
-    case {extract_ndt(a), extract_ndt(b)} do
-      {%NaiveDateTime{} = na, %NaiveDateTime{} = nb} -> NaiveDateTime.compare(na, nb)
+    case {extract_dt(a), extract_dt(b)} do
+      {%DateTime{} = da, %DateTime{} = db} -> DateTime.compare(da, db)
       _ -> :eq
     end
   end
@@ -603,9 +652,9 @@ defmodule Pyex.Stdlib.Datetime do
   @spec dt_add(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
           Pyex.Interpreter.pyvalue()
   defp dt_add(dt, td) do
-    case {extract_ndt(dt), extract_total_seconds(td)} do
-      {%NaiveDateTime{} = ndt, ts} when is_number(ts) ->
-        make_datetime(NaiveDateTime.add(ndt, trunc(ts * 1_000_000), :microsecond))
+    case {extract_dt(dt), extract_total_seconds(td)} do
+      {%DateTime{} = a, ts} when is_number(ts) ->
+        make_datetime(DateTime.add(a, round(ts * 1_000_000), :microsecond))
 
       _ ->
         {:exception,
@@ -616,19 +665,19 @@ defmodule Pyex.Stdlib.Datetime do
   @spec dt_sub(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
           Pyex.Interpreter.pyvalue()
   defp dt_sub(dt, other) do
-    ndt = extract_ndt(dt)
+    a = extract_dt(dt)
 
     cond do
-      ndt == nil ->
+      a == nil ->
         {:exception, "TypeError: unsupported operand type(s) for -"}
 
       is_timedelta?(other) ->
         ts = extract_total_seconds(other)
-        make_datetime(NaiveDateTime.add(ndt, trunc(-ts * 1_000_000), :microsecond))
+        make_datetime(DateTime.add(a, round(-ts * 1_000_000), :microsecond))
 
-      extract_ndt(other) != nil ->
-        other_ndt = extract_ndt(other)
-        diff_seconds = NaiveDateTime.diff(ndt, other_ndt, :second)
+      extract_dt(other) != nil ->
+        b = extract_dt(other)
+        diff_seconds = DateTime.diff(a, b, :second)
         normalize_timedelta(diff_seconds)
 
       true ->
@@ -780,7 +829,7 @@ defmodule Pyex.Stdlib.Datetime do
   defp py_type_name(nil), do: "NoneType"
   defp py_type_name(_), do: "object"
 
-  @spec parse_strptime(String.t(), String.t()) :: {:ok, NaiveDateTime.t()} | {:error, String.t()}
+  @spec parse_strptime(String.t(), String.t()) :: {:ok, DateTime.t()} | {:error, String.t()}
   defp parse_strptime(string, format) do
     regex_str =
       format
@@ -811,9 +860,12 @@ defmodule Pyex.Stdlib.Datetime do
             minute = parse_cap_int(caps, "minute", 0)
             second = parse_cap_int(caps, "second", 0)
 
-            case NaiveDateTime.new(year, month, day, hour, minute, second) do
-              {:ok, ndt} -> {:ok, ndt}
-              {:error, _} -> {:error, "invalid parsed datetime values"}
+            with {:ok, date} <- Date.new(year, month, day),
+                 {:ok, time} <- Time.new(hour, minute, second),
+                 {:ok, dt} <- DateTime.new(date, time, "Etc/UTC") do
+              {:ok, dt}
+            else
+              _ -> {:error, "invalid parsed datetime values"}
             end
         end
 

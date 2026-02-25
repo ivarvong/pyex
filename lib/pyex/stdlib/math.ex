@@ -197,8 +197,17 @@ defmodule Pyex.Stdlib.Math do
 
   # ── summation / product ───────────────────────────────────────
 
+  defp do_fsum([{:py_list, reversed, _}]) do
+    Enum.reduce(reversed, 0.0, fn x, acc when is_number(x) -> acc + x end)
+  end
+
   defp do_fsum([items]) when is_list(items) do
     Enum.reduce(items, 0.0, fn x, acc when is_number(x) -> acc + x end)
+  end
+
+  defp do_prod([{:py_list, reversed, _}], kwargs) do
+    start = Map.get(kwargs, "start", 1)
+    Enum.reduce(reversed, start, fn x, acc when is_number(x) -> acc * x end)
   end
 
   defp do_prod([items], kwargs) when is_list(items) do

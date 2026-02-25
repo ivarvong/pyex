@@ -48,8 +48,8 @@ defmodule Pyex.Lambda do
         }
 
   @type telemetry :: %{
-          compute_us: non_neg_integer(),
-          total_us: non_neg_integer(),
+          compute: non_neg_integer(),
+          total: non_neg_integer(),
           event_count: non_neg_integer(),
           file_ops: non_neg_integer()
         }
@@ -209,15 +209,15 @@ defmodule Pyex.Lambda do
   def handle_stream(%{routes: routes, env: _env, ctx: ctx} = app, request) do
     case match(routes, request) do
       {:ok, handler, path_params} ->
-        t0 = System.monotonic_time(:microsecond)
+        t0 = System.monotonic_time(:millisecond)
         events_before = ctx.event_count
-        compute_us_before = Ctx.compute_time_us(ctx)
+        compute_before = Ctx.compute_time(ctx)
         stream_ctx = %{ctx | generator_mode: :defer}
 
         case call_handler_safe(handler, path_params, request, stream_ctx) do
           {:ok, result, new_ctx, updated_handler} ->
             response = unwrap_stream_response(result)
-            telem = build_telemetry(t0, events_before, compute_us_before, new_ctx)
+            telem = build_telemetry(t0, events_before, compute_before, new_ctx)
             meta = %{status: response.status, headers: response.headers, telemetry: telem}
 
             chunks =
@@ -233,7 +233,7 @@ defmodule Pyex.Lambda do
             {:ok, Map.put(meta, :chunks, chunks), %{app | ctx: new_ctx, routes: new_routes}}
 
           {:error, msg, new_ctx, updated_handler} ->
-            telem = build_telemetry(t0, events_before, compute_us_before, new_ctx)
+            telem = build_telemetry(t0, events_before, compute_before, new_ctx)
 
             error_body =
               case Jason.encode(%{"detail" => msg}) do
@@ -261,7 +261,7 @@ defmodule Pyex.Lambda do
   defp interpret(source, ctx) do
     case Pyex.compile(source) do
       {:ok, ast} ->
-        ctx = %{ctx | compute_ns: 0, compute_started_at: System.monotonic_time(:nanosecond)}
+        ctx = %{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
 
         case Interpreter.run_with_ctx(ast, Builtins.env(), ctx) do
           {:ok, _value, env, ctx} -> {:ok, env, ctx}
@@ -363,15 +363,15 @@ defmodule Pyex.Lambda do
           Ctx.t()
         ) :: {:ok, response(), Ctx.t(), Interpreter.pyvalue()}
   defp execute_with_ctx(handler, path_params, request, ctx) do
-    t0 = System.monotonic_time(:microsecond)
+    t0 = System.monotonic_time(:millisecond)
     events_before = ctx.event_count
-    compute_us_before = Ctx.compute_time_us(ctx)
+    compute_before = Ctx.compute_time(ctx)
 
     {result, new_ctx, updated_handler} = call_handler(handler, path_params, request, ctx)
 
     case result do
       {:exception, msg} ->
-        telem = build_telemetry(t0, events_before, compute_us_before, new_ctx)
+        telem = build_telemetry(t0, events_before, compute_before, new_ctx)
 
         {:ok,
          %{
@@ -382,7 +382,7 @@ defmodule Pyex.Lambda do
          }, new_ctx, updated_handler}
 
       _ ->
-        telem = build_telemetry(t0, events_before, compute_us_before, new_ctx)
+        telem = build_telemetry(t0, events_before, compute_before, new_ctx)
         {:ok, Map.put(unwrap_response(result), :telemetry, telem), new_ctx, updated_handler}
     end
   end
@@ -402,7 +402,7 @@ defmodule Pyex.Lambda do
     %{
       status: Map.get(resp, "status_code", 200),
       headers: Map.get(resp, "headers", %{"content-type" => "application/json"}),
-      body: Map.get(resp, "body")
+      body: Interpreter.Helpers.to_python_view(Map.get(resp, "body"))
     }
   end
 
@@ -410,7 +410,7 @@ defmodule Pyex.Lambda do
     %{
       status: 200,
       headers: %{"content-type" => "application/json"},
-      body: result
+      body: Interpreter.Helpers.to_python_view(result)
     }
   end
 
@@ -706,14 +706,14 @@ defmodule Pyex.Lambda do
     end
   end
 
-  @spec build_telemetry(integer(), non_neg_integer(), non_neg_integer(), Ctx.t()) :: telemetry()
-  defp build_telemetry(t0, events_before, compute_us_before, ctx) do
-    t1 = System.monotonic_time(:microsecond)
-    compute_us_after = Ctx.compute_time_us(ctx)
+  @spec build_telemetry(integer(), non_neg_integer(), float(), Ctx.t()) :: telemetry()
+  defp build_telemetry(t0, events_before, compute_before, ctx) do
+    t1 = System.monotonic_time(:millisecond)
+    compute_after = Ctx.compute_time(ctx)
 
     %{
-      compute_us: max(compute_us_after - compute_us_before, 0),
-      total_us: t1 - t0,
+      compute: max(round(compute_after - compute_before), 0),
+      total: t1 - t0,
       event_count: max(ctx.event_count - events_before, 0),
       file_ops: ctx.file_ops
     }

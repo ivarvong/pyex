@@ -49,6 +49,7 @@ defmodule Pyex.Stdlib.Itertools do
   end
 
   @spec materialize(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]
+  defp materialize({:py_list, reversed, _}), do: Enum.reverse(reversed)
   defp materialize(list) when is_list(list), do: list
   defp materialize({:tuple, items}), do: items
   defp materialize({:generator, items}), do: items
@@ -356,6 +357,10 @@ defmodule Pyex.Stdlib.Itertools do
   @spec py_add(Interpreter.pyvalue(), Interpreter.pyvalue()) :: Interpreter.pyvalue()
   defp py_add(a, b) when is_number(a) and is_number(b), do: a + b
   defp py_add(a, b) when is_binary(a) and is_binary(b), do: a <> b
+
+  defp py_add({:py_list, ar, al}, {:py_list, br, bl}),
+    do: {:py_list, Enum.reverse(Enum.reverse(ar) ++ Enum.reverse(br)), al + bl}
+
   defp py_add(a, b) when is_list(a) and is_list(b), do: a ++ b
 
   defp py_add({:tuple, a}, {:tuple, b}), do: {:tuple, a ++ b}

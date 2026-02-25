@@ -48,7 +48,7 @@ defmodule Pyex.DifferentialFuzzTest do
 
   defp run_pyex(code) do
     case Pyex.run(code, Pyex.Ctx.new(timeout_ms: 2_000)) do
-      {:ok, _, ctx} -> {:ok, String.trim(Pyex.output(ctx))}
+      {:ok, _, ctx} -> {:ok, ctx |> Pyex.output() |> IO.iodata_to_binary() |> String.trim()}
       {:error, err} -> {:error, err.exception_type || err.kind}
     end
   end

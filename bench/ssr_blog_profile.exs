@@ -372,7 +372,8 @@ if boot_profile do
   boot_profile.call_counts
   |> Enum.sort_by(fn {_, count} -> -count end)
   |> Enum.each(fn {name, count} ->
-    us = Map.get(boot_profile.call_us, name, 0)
+    ms = Map.get(boot_profile.call, name, 0)
+    us = ms * 1000
 
     IO.puts(
       "  #{String.pad_trailing(name, 30)} #{String.pad_leading(Integer.to_string(count), 5)}x  #{String.pad_leading(Integer.to_string(us), 8)}μs"
@@ -391,10 +392,8 @@ endpoints = [
 ]
 
 for {label, request} <- endpoints do
-  profile_ctx = %{app.ctx | profile: %{line_counts: %{}, call_counts: %{}, call_us: %{}}}
+  profile_ctx = %{app.ctx | profile: %{line_counts: %{}, call_counts: %{}, call: %{}}}
   profile_app = %{app | ctx: profile_ctx}
-
-  Interpreter.init_profile(profile_ctx)
 
   {us, {:ok, resp, _updated_app}} =
     :timer.tc(fn ->
@@ -404,16 +403,17 @@ for {label, request} <- endpoints do
   profile = %{
     line_counts: Process.get(:pyex_line_counts, %{}),
     call_counts: Process.get(:pyex_call_counts, %{}),
-    call_us: Process.get(:pyex_call_us, %{})
+    call: Process.get(:pyex_call, %{})
   }
 
   Process.delete(:pyex_profile)
   Process.delete(:pyex_line_counts)
   Process.delete(:pyex_call_counts)
-  Process.delete(:pyex_call_us)
+  Process.delete(:pyex_call)
 
   total_calls = Enum.sum(Map.values(profile.call_counts))
-  total_func_us = Enum.sum(Map.values(profile.call_us))
+  total_func_ms = Enum.sum(Map.values(profile.call))
+  total_func_us = total_func_ms * 1000
   total_lines = Enum.sum(Map.values(profile.line_counts))
 
   IO.puts("\n--- #{label} (#{resp.status}) ---")
@@ -434,9 +434,10 @@ for {label, request} <- endpoints do
     IO.puts("  " <> String.duplicate("-", 68))
 
     profile.call_counts
-    |> Enum.sort_by(fn {name, _} -> -Map.get(profile.call_us, name, 0) end)
+    |> Enum.sort_by(fn {name, _} -> -Map.get(profile.call, name, 0) * 1000 end)
     |> Enum.each(fn {name, count} ->
-      us_total = Map.get(profile.call_us, name, 0)
+      ms_total = Map.get(profile.call, name, 0)
+      us_total = ms_total * 1000
       avg = if count > 0, do: Float.round(us_total / count, 1), else: 0.0
       pct = if total_func_us > 0, do: Float.round(us_total / total_func_us * 100, 1), else: 0.0
 

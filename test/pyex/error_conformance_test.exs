@@ -519,7 +519,7 @@ defmodule Pyex.ErrorConformanceTest do
 
   defp run_pyex(code) do
     case Pyex.run(code) do
-      {:ok, _, ctx} -> String.trim(Pyex.output(ctx))
+      {:ok, _, ctx} -> ctx |> Pyex.output() |> IO.iodata_to_binary() |> String.trim()
       {:error, err} -> "PYEX_ERROR: #{err.message}"
     end
   end

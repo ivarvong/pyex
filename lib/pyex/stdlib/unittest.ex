@@ -213,6 +213,7 @@ defmodule Pyex.Stdlib.Unittest do
   end
 
   @spec member?(Interpreter.pyvalue(), Interpreter.pyvalue()) :: boolean()
+  defp member?(item, {:py_list, reversed, _}), do: item in reversed
   defp member?(item, list) when is_list(list), do: item in list
   defp member?(item, {:tuple, items}), do: item in items
   defp member?(item, {:set, s}), do: MapSet.member?(s, item)

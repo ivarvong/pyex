@@ -171,7 +171,7 @@ IO.puts("--- Profiling: payment_intent.succeeded ---")
 IO.puts("")
 
 profile_ctx = make_ctx.(payment_body, sign.(payment_body))
-profile_ctx = %{profile_ctx | profile: %{line_counts: %{}, call_counts: %{}, call_us: %{}}}
+profile_ctx = %{profile_ctx | profile: %{line_counts: %{}, call_counts: %{}, call: %{}}}
 
 {us, {:ok, result, ctx_with_profile}} =
   :timer.tc(fn ->
@@ -181,7 +181,8 @@ profile_ctx = %{profile_ctx | profile: %{line_counts: %{}, call_counts: %{}, cal
 profile = ctx_with_profile.profile
 
 total_calls = Enum.sum(Map.values(profile.call_counts))
-total_func_us = Enum.sum(Map.values(profile.call_us))
+total_func_ms = Enum.sum(Map.values(profile.call))
+total_func_us = total_func_ms * 1000
 total_lines = Enum.sum(Map.values(profile.line_counts))
 
 IO.puts("Wall time: #{Float.round(us / 1000, 2)} ms")
@@ -200,14 +201,15 @@ if map_size(profile.call_counts) > 0 do
   IO.puts("  " <> String.duplicate("-", 68))
 
   profile.call_counts
-  |> Enum.sort_by(fn {name, _} -> -Map.get(profile.call_us, name, 0) end)
+  |> Enum.sort_by(fn {name, _} -> -Map.get(profile.call, name, 0) * 1000 end)
   |> Enum.each(fn {name, count} ->
-    us_total = Map.get(profile.call_us, name, 0)
+    ms_total = Map.get(profile.call, name, 0)
+    us_total = ms_total * 1000
     avg = if count > 0, do: Float.round(us_total / count, 1), else: 0.0
     pct = if total_func_us > 0, do: Float.round(us_total / total_func_us * 100, 1), else: 0.0
 
     IO.puts(
-      "  #{String.pad_trailing(name, 30)} #{String.pad_leading(Integer.to_string(count), 6)}  #{String.pad_leading(Integer.to_string(us_total), 10)}  #{String.pad_leading(Float.to_string(avg), 8)}  #{String.pad_leading("#{pct}%", 8)}"
+      "  #{String.pad_trailing(name, 30)} #{String.pad_leading(Integer.to_string(count), 6)}  #{String.pad_leading(Float.to_string(us_total), 10)}  #{String.pad_leading(Float.to_string(avg), 8)}  #{String.pad_leading("#{pct}%", 8)}"
     )
   end)
 end

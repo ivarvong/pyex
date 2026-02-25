@@ -32,5 +32,11 @@
   # bound_kw/2 wraps a method function with receiver binding. Dialyzer traces
   # through the single call site (list_sort/3) and infers the args pattern must
   # be [], but the anonymous function accepts any args list. False positive.
-  {"lib/pyex/methods.ex", :no_return}
+  {"lib/pyex/methods.ex", :no_return},
+  # Dialyzer cannot see that {:py_list, _, _} is a valid Interpreter.pyvalue().
+  # The bound/2 and bound_kw/2 calls with py_list receivers are safe at runtime.
+  {"lib/pyex/methods.ex", :call},
+  # Dialyzer cannot infer that {:py_list, _, _} is in Interpreter.pyvalue() union
+  # at jinja2.ex call sites. The pattern matches are reachable at runtime.
+  {"lib/pyex/stdlib/jinja2.ex", :pattern_match}
 ]

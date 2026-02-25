@@ -47,6 +47,9 @@ defmodule Pyex.Stdlib.Csv do
           optional(String.t()) => Pyex.Interpreter.pyvalue()
         }) ::
           Pyex.Interpreter.pyvalue()
+  defp do_reader([{:py_list, reversed, _}], kwargs),
+    do: do_reader([Enum.reverse(reversed)], kwargs)
+
   defp do_reader([lines], kwargs) when is_list(lines) do
     delimiter = Map.get(kwargs, "delimiter", ",")
     quotechar = Map.get(kwargs, "quotechar", "\"")
@@ -79,6 +82,9 @@ defmodule Pyex.Stdlib.Csv do
           optional(String.t()) => Pyex.Interpreter.pyvalue()
         }) ::
           Pyex.Interpreter.pyvalue()
+  defp do_dict_reader([{:py_list, reversed, _}], kwargs),
+    do: do_dict_reader([Enum.reverse(reversed)], kwargs)
+
   defp do_dict_reader([lines], kwargs) when is_list(lines) do
     delimiter = Map.get(kwargs, "delimiter", ",")
     quotechar = Map.get(kwargs, "quotechar", "\"")
@@ -127,6 +133,16 @@ defmodule Pyex.Stdlib.Csv do
     case fieldnames do
       nil ->
         do_dict_reader_auto_headers(lines, delimiter, quotechar, restkey, restval)
+
+      {:py_list, reversed, _} ->
+        do_dict_reader_with_headers(
+          lines,
+          Enum.reverse(reversed),
+          delimiter,
+          quotechar,
+          restkey,
+          restval
+        )
 
       names when is_list(names) ->
         do_dict_reader_with_headers(lines, names, delimiter, quotechar, restkey, restval)
@@ -243,6 +259,16 @@ defmodule Pyex.Stdlib.Csv do
     lineterminator = Map.get(kwargs, "lineterminator", "\r\n")
 
     writerow_fn = fn
+      [{:py_list, reversed, _}] ->
+        format_and_maybe_write(
+          Enum.reverse(reversed),
+          handle_id,
+          delimiter,
+          quotechar,
+          quoting,
+          lineterminator
+        )
+
       [row] when is_list(row) ->
         format_and_maybe_write(row, handle_id, delimiter, quotechar, quoting, lineterminator)
 
@@ -254,9 +280,48 @@ defmodule Pyex.Stdlib.Csv do
     end
 
     writerows_fn = fn
+      [{:py_list, reversed, _}] ->
+        do_writerows_fn = fn rows ->
+          items_list =
+            Enum.map(rows, fn
+              {:py_list, r, _} -> Enum.reverse(r)
+              row when is_list(row) -> row
+              {:tuple, items} -> items
+              _ -> :bad
+            end)
+
+          if Enum.any?(items_list, &(&1 == :bad)) do
+            {:exception, "csv.Error: iterable expected"}
+          else
+            lines =
+              Enum.map(items_list, fn items ->
+                format_csv_row(items, delimiter, quotechar, quoting, lineterminator)
+              end)
+
+            combined = Enum.join(lines)
+
+            case handle_id do
+              nil ->
+                combined
+
+              id ->
+                {:ctx_call,
+                 fn env, ctx ->
+                   case Pyex.Ctx.write_handle(ctx, id, combined) do
+                     {:ok, ctx} -> {combined, env, ctx}
+                     {:error, msg} -> {{:exception, msg}, env, ctx}
+                   end
+                 end}
+            end
+          end
+        end
+
+        do_writerows_fn.(Enum.reverse(reversed))
+
       [rows] when is_list(rows) ->
         items_list =
           Enum.map(rows, fn
+            {:py_list, r, _} -> Enum.reverse(r)
             row when is_list(row) -> row
             {:tuple, items} -> items
             _ -> :bad
@@ -327,6 +392,15 @@ defmodule Pyex.Stdlib.Csv do
           optional(String.t()) => Pyex.Interpreter.pyvalue()
         }) ::
           Pyex.Interpreter.pyvalue()
+  defp do_dict_writer([{:py_list, reversed, _}], kwargs),
+    do: do_dict_writer([Enum.reverse(reversed)], kwargs)
+
+  defp do_dict_writer([{:file_handle, _} = fh, {:py_list, reversed, _}], kwargs),
+    do: do_dict_writer([fh, Enum.reverse(reversed)], kwargs)
+
+  defp do_dict_writer([{:py_list, reversed, _}, {:file_handle, _} = fh], kwargs),
+    do: do_dict_writer([Enum.reverse(reversed), fh], kwargs)
+
   defp do_dict_writer([fieldnames], kwargs) when is_list(fieldnames) do
     build_dict_writer(nil, fieldnames, kwargs)
   end
@@ -401,6 +475,57 @@ defmodule Pyex.Stdlib.Csv do
     end
 
     writerows_fn = fn
+      [{:py_list, _reversed, _} = py_list] ->
+        rows = Pyex.Interpreter.Helpers.to_python_view(py_list)
+
+        result =
+          rows
+          |> Enum.map(fn
+            {:py_list, _, _} = inner ->
+              dict_rows = Pyex.Interpreter.Helpers.to_python_view(inner)
+
+              case check_extras(dict_rows, fieldnames, extrasaction) do
+                {:exception, _} = err -> err
+                :ok -> Enum.map(fieldnames, fn name -> Map.get(dict_rows, name, restval) end)
+              end
+
+            %{} = dict ->
+              case check_extras(dict, fieldnames, extrasaction) do
+                {:exception, _} = err -> err
+                :ok -> Enum.map(fieldnames, fn name -> Map.get(dict, name, restval) end)
+              end
+
+            _ ->
+              {:exception, "csv.Error: dict expected"}
+          end)
+
+        case Enum.find(result, &match?({:exception, _}, &1)) do
+          {:exception, _} = err ->
+            err
+
+          nil ->
+            lines =
+              Enum.map(result, fn values ->
+                format_csv_row(values, delimiter, quotechar, quoting, lineterminator)
+              end)
+
+            combined = Enum.join(lines)
+
+            case handle_id do
+              nil ->
+                combined
+
+              id ->
+                {:ctx_call,
+                 fn env, ctx ->
+                   case Pyex.Ctx.write_handle(ctx, id, combined) do
+                     {:ok, ctx} -> {combined, env, ctx}
+                     {:error, msg} -> {{:exception, msg}, env, ctx}
+                   end
+                 end}
+            end
+        end
+
       [rows] when is_list(rows) ->
         result =
           rows

@@ -237,7 +237,7 @@ defmodule Pyex.FilesystemImportTest do
           }
         )
 
-      assert Pyex.output(ctx) =~ "module loaded"
+      assert ctx |> Pyex.output() |> IO.iodata_to_binary() =~ "module loaded"
     end
 
     test "module-level code executes only once with caching" do
@@ -254,7 +254,7 @@ defmodule Pyex.FilesystemImportTest do
           }
         )
 
-      assert Pyex.output(ctx) |> String.split("\n") |> length() == 1
+      assert ctx |> Pyex.output() |> IO.iodata_to_binary() |> String.split("\n") |> length() == 1
     end
   end
 
@@ -478,7 +478,7 @@ defmodule Pyex.FilesystemImportTest do
           }
         )
 
-      assert Pyex.output(ctx) =~ "localhost:5432"
+      assert ctx |> Pyex.output() |> IO.iodata_to_binary() =~ "localhost:5432"
     end
   end
 end

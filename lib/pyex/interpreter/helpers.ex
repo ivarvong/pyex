@@ -23,6 +23,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type(val) when is_binary(val), do: "str"
   def py_type(val) when is_boolean(val), do: "bool"
   def py_type(nil), do: "NoneType"
+  def py_type({:py_list, _, _}), do: "list"
   def py_type(val) when is_list(val), do: "list"
   def py_type(val) when is_map(val), do: "dict"
   def py_type({:tuple, _}), do: "tuple"
@@ -139,6 +140,7 @@ defmodule Pyex.Interpreter.Helpers do
   def truthy?(+0.0), do: false
   def truthy?(""), do: false
   def truthy?([]), do: false
+  def truthy?({:py_list, _, 0}), do: false
   def truthy?(map) when map == %{}, do: false
   def truthy?({:tuple, []}), do: false
   def truthy?({:set, s}), do: MapSet.size(s) > 0
@@ -157,9 +159,9 @@ defmodule Pyex.Interpreter.Helpers do
 
   @doc false
   @spec unwrap(Pyex.Interpreter.pyvalue() | {atom(), term()}) :: Pyex.Interpreter.pyvalue()
-  def unwrap({:returned, value}), do: value
+  def unwrap({:returned, value}), do: to_python_view(value)
   def unwrap({:exception, _} = signal), do: signal
-  def unwrap(value), do: value
+  def unwrap(value), do: to_python_view(value)
 
   @doc false
   @spec unwrap_def(Parser.ast_node()) :: Parser.ast_node()
@@ -173,6 +175,29 @@ defmodule Pyex.Interpreter.Helpers do
   def root_var_name({:getattr, _, [expr, _]}), do: root_var_name(expr)
   def root_var_name({:call, _, [expr, _]}), do: root_var_name(expr)
   def root_var_name(_), do: :error
+
+  @doc """
+  Converts internal representation to user-visible Python value.
+  Transforms reverse-storage lists back to regular lists.
+  """
+  @spec to_python_view(term()) :: term()
+  def to_python_view({:py_list, reversed, _len}),
+    do: reversed |> Enum.reverse() |> Enum.map(&to_python_view/1)
+
+  def to_python_view({:tuple, items}), do: {:tuple, Enum.map(items, &to_python_view/1)}
+  def to_python_view({:set, s}), do: {:set, s}
+  def to_python_view({:frozenset, s}), do: {:frozenset, s}
+  def to_python_view({:dict, d}), do: {:dict, d}
+  def to_python_view({:range, start, stop, step}), do: {:range, start, stop, step}
+  def to_python_view({:generator, items}), do: {:generator, Enum.map(items, &to_python_view/1)}
+  def to_python_view({:instance, class, fields}), do: {:instance, class, fields}
+  def to_python_view({:iterator, _} = it), do: it
+  def to_python_view(list) when is_list(list), do: Enum.map(list, &to_python_view/1)
+
+  def to_python_view(map) when is_map(map),
+    do: Map.new(map, fn {k, v} -> {k, to_python_view(v)} end)
+
+  def to_python_view(val), do: val
 
   @doc false
   @spec bool_to_int(boolean() | number()) :: number()

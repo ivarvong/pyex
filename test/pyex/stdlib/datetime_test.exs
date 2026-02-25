@@ -868,4 +868,246 @@ defmodule Pyex.Stdlib.DatetimeTest do
       assert result == "Duration: 2 days, 5:30:00"
     end
   end
+
+  describe "datetime.datetime.fromtimestamp" do
+    test "known unix timestamp returns correct datetime" do
+      result =
+        Pyex.run!("""
+        import datetime
+        dt = datetime.datetime.fromtimestamp(0)
+        [dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second]
+        """)
+
+      assert result == [1970, 1, 1, 0, 0, 0]
+    end
+
+    test "integer seconds" do
+      result =
+        Pyex.run!("""
+        import datetime
+        dt = datetime.datetime.fromtimestamp(1700000000)
+        dt.year >= 2023
+        """)
+
+      assert result == true
+    end
+
+    test "float seconds with sub-second precision" do
+      result =
+        Pyex.run!("""
+        import datetime
+        dt = datetime.datetime.fromtimestamp(1700000000.5)
+        dt.year >= 2023
+        """)
+
+      assert result == true
+    end
+
+    test "roundtrip: fromtimestamp(timestamp()) == original" do
+      result =
+        Pyex.run!("""
+        import datetime
+        original = datetime.datetime(2024, 6, 15, 12, 30, 45)
+        ts = original.timestamp()
+        recovered = datetime.datetime.fromtimestamp(ts)
+        [recovered.year, recovered.month, recovered.day,
+         recovered.hour, recovered.minute, recovered.second]
+        """)
+
+      assert result == [2024, 6, 15, 12, 30, 45]
+    end
+
+    test "type error on non-number" do
+      result =
+        Pyex.run("""
+        import datetime
+        datetime.datetime.fromtimestamp("not a number")
+        """)
+
+      assert {:error, %Pyex.Error{kind: :python}} = result
+    end
+  end
+
+  describe "datetime.datetime.utcfromtimestamp" do
+    test "epoch returns 1970-01-01T00:00:00" do
+      result =
+        Pyex.run!("""
+        import datetime
+        dt = datetime.datetime.utcfromtimestamp(0)
+        [dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second]
+        """)
+
+      assert result == [1970, 1, 1, 0, 0, 0]
+    end
+
+    test "matches fromtimestamp for UTC timestamps" do
+      result =
+        Pyex.run!("""
+        import datetime
+        ts = 1700000000
+        dt1 = datetime.datetime.fromtimestamp(ts)
+        dt2 = datetime.datetime.utcfromtimestamp(ts)
+        dt1 == dt2
+        """)
+
+      assert result == true
+    end
+
+    test "roundtrip via utcfromtimestamp" do
+      result =
+        Pyex.run!("""
+        import datetime
+        original = datetime.datetime(2023, 11, 14, 22, 13, 20)
+        ts = original.timestamp()
+        recovered = datetime.datetime.utcfromtimestamp(ts)
+        str(recovered)
+        """)
+
+      assert result == "2023-11-14T22:13:20"
+    end
+
+    test "from datetime import works for both methods" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime.utcfromtimestamp(0)
+        dt.isoformat()
+        """)
+
+      assert result == "1970-01-01T00:00:00"
+    end
+  end
+
+  describe "datetime.date.fromisoformat" do
+    test "parses a date string" do
+      result =
+        Pyex.run!("""
+        from datetime import date
+        d = date.fromisoformat("2024-03-15")
+        (d.year, d.month, d.day)
+        """)
+
+      assert result == {:tuple, [2024, 3, 15]}
+    end
+
+    test "isoformat round-trips" do
+      result =
+        Pyex.run!("""
+        from datetime import date
+        date.fromisoformat("2026-01-15").isoformat()
+        """)
+
+      assert result == "2026-01-15"
+    end
+
+    test "raises on invalid string" do
+      assert {:error, %Pyex.Error{message: msg}} =
+               Pyex.run("""
+               from datetime import date
+               date.fromisoformat("not-a-date")
+               """)
+
+      assert msg =~ "ValueError"
+    end
+
+    test "raises on non-string argument" do
+      assert {:error, %Pyex.Error{message: msg}} =
+               Pyex.run("""
+               from datetime import date
+               date.fromisoformat(20240101)
+               """)
+
+      assert msg =~ "TypeError"
+    end
+
+    test "supports comparisons" do
+      result =
+        Pyex.run!("""
+        from datetime import date
+        a = date.fromisoformat("2024-01-01")
+        b = date.fromisoformat("2024-06-15")
+        (a < b, a > b, a == b)
+        """)
+
+      assert result == {:tuple, [true, false, false]}
+    end
+  end
+
+  describe "sorted() with date/datetime key functions" do
+    test "sorts strings by date key ascending" do
+      result =
+        Pyex.run!("""
+        from datetime import date
+        strs = ["2026-03-05", "2026-01-15", "2026-02-10"]
+        sorted(strs, key=lambda s: date.fromisoformat(s))
+        """)
+
+      assert result == ["2026-01-15", "2026-02-10", "2026-03-05"]
+    end
+
+    test "sorts strings by date key descending" do
+      result =
+        Pyex.run!("""
+        from datetime import date
+        strs = ["2026-03-05", "2026-01-15", "2026-02-10"]
+        sorted(strs, key=lambda s: date.fromisoformat(s), reverse=True)
+        """)
+
+      assert result == ["2026-03-05", "2026-02-10", "2026-01-15"]
+    end
+
+    test "sorts objects by date field" do
+      result =
+        Pyex.run!("""
+        from datetime import date
+        from pydantic import BaseModel
+
+        class Event(BaseModel):
+            name: str
+            on: str
+
+        events = [
+            Event(name="c", on="2026-03-01"),
+            Event(name="a", on="2026-01-01"),
+            Event(name="b", on="2026-02-01"),
+        ]
+        [e.name for e in sorted(events, key=lambda e: date.fromisoformat(e.on))]
+        """)
+
+      assert result == ["a", "b", "c"]
+    end
+
+    test "sorts strings by datetime key ascending" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        strs = ["2026-03-05T12:00:00", "2026-01-15T08:00:00", "2026-02-10T23:59:00"]
+        sorted(strs, key=lambda s: datetime.fromisoformat(s))
+        """)
+
+      assert result == ["2026-01-15T08:00:00", "2026-02-10T23:59:00", "2026-03-05T12:00:00"]
+    end
+
+    test "sorts strings by datetime key descending" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        strs = ["2026-03-05T12:00:00", "2026-01-15T08:00:00", "2026-02-10T23:59:00"]
+        sorted(strs, key=lambda s: datetime.fromisoformat(s), reverse=True)
+        """)
+
+      assert result == ["2026-03-05T12:00:00", "2026-02-10T23:59:00", "2026-01-15T08:00:00"]
+    end
+
+    test "stable sort preserves order of equal keys" do
+      result =
+        Pyex.run!("""
+        from datetime import date
+        pairs = [("b", "2026-01-01"), ("a", "2026-01-01"), ("c", "2026-02-01")]
+        [name for name, _ in sorted(pairs, key=lambda p: date.fromisoformat(p[1]))]
+        """)
+
+      assert result == ["b", "a", "c"]
+    end
+  end
 end

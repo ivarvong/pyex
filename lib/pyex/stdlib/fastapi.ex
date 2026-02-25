@@ -118,6 +118,10 @@ defmodule Pyex.Stdlib.FastAPI do
           [String.t()] | {:generator_suspended, term(), term(), Pyex.Env.t()}
   defp extract_chunks({:generator_suspended, _, _, _} = suspended), do: suspended
   defp extract_chunks({:generator, items}), do: Enum.map(items, &to_string/1)
+
+  defp extract_chunks({:py_list, reversed, _}),
+    do: reversed |> Enum.reverse() |> Enum.map(&to_string/1)
+
   defp extract_chunks(list) when is_list(list), do: Enum.map(list, &to_string/1)
   defp extract_chunks({:tuple, items}), do: Enum.map(items, &to_string/1)
   defp extract_chunks(str) when is_binary(str), do: [str]

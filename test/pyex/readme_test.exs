@@ -246,7 +246,7 @@ defmodule Pyex.ReadmeTest do
   describe "print output" do
     test "for loop with print produces 0\\n1\\n2" do
       {:ok, _val, ctx} = Pyex.run("for i in range(3):\n    print(i)")
-      assert Pyex.output(ctx) == "0\n1\n2"
+      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "0\n1\n2"
     end
   end
 

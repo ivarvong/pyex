@@ -368,7 +368,7 @@ defmodule Pyex.Stdlib.Jinja2 do
           Interpreter.pyvalue()
   def render(tree, kwargs) do
     env = build_env(kwargs)
-    ctx = %Ctx{mode: :noop}
+    ctx = %Ctx{}
 
     case render_nodes(tree, env, ctx) do
       {:ok, parts} -> IO.iodata_to_binary(parts)
@@ -467,6 +467,7 @@ defmodule Pyex.Stdlib.Jinja2 do
 
   @spec unpack(Interpreter.pyvalue(), non_neg_integer()) :: [Interpreter.pyvalue()]
   defp unpack({:tuple, items}, _n), do: items
+  defp unpack({:py_list, reversed, _}, _n), do: Enum.reverse(reversed)
   defp unpack(list, _n) when is_list(list), do: list
   defp unpack(val, n), do: List.duplicate(val, n)
 
@@ -519,9 +520,24 @@ defmodule Pyex.Stdlib.Jinja2 do
   defp to_str(list) when is_list(list), do: inspect(list)
   defp to_str(map) when is_map(map), do: inspect(map)
   defp to_str({:tuple, items}), do: "(#{Enum.map_join(items, ", ", &to_str/1)})"
+
+  defp to_str({:instance, {:class, _, _, class_attrs}, _} = inst) do
+    case Map.fetch(class_attrs, "__str__") do
+      {:ok, {:builtin, f}} ->
+        case f.([inst]) do
+          s when is_binary(s) -> s
+          _ -> ""
+        end
+
+      _ ->
+        ""
+    end
+  end
+
   defp to_str(_), do: ""
 
   @spec to_list(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]
+  defp to_list({:py_list, reversed, _}), do: Enum.reverse(reversed)
   defp to_list(list) when is_list(list), do: list
   defp to_list(map) when is_map(map), do: Map.keys(Builtins.visible_dict(map))
   defp to_list({:tuple, items}), do: items
@@ -537,6 +553,7 @@ defmodule Pyex.Stdlib.Jinja2 do
   defp truthy?(+0.0), do: false
   defp truthy?(""), do: false
   defp truthy?([]), do: false
+  defp truthy?({:py_list, _, 0}), do: false
   defp truthy?(map) when is_map(map) and map_size(map) == 0, do: false
   defp truthy?(_), do: true
 

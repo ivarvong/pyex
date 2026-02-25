@@ -22,20 +22,7 @@ defmodule Pyex.Ctx do
       {:ok, app} = Lambda.boot(source, ctx: ctx)
   """
 
-  @type event_type ::
-          :assign
-          | :branch
-          | :loop_iter
-          | :call_enter
-          | :call_exit
-          | :side_effect
-          | :exception
-          | :file_op
-          | :output
-
-  @type event :: {event_type(), non_neg_integer(), term()}
-
-  @type mode :: :live | :noop
+  @type event_type :: :output | :file_op | :loop
 
   @type file_handle :: %{
           path: String.t(),
@@ -46,7 +33,7 @@ defmodule Pyex.Ctx do
   @type profile_data :: %{
           line_counts: %{optional(pos_integer()) => pos_integer()},
           call_counts: %{optional(String.t()) => pos_integer()},
-          call_us: %{optional(String.t()) => non_neg_integer()}
+          call: %{optional(String.t()) => float()}
         }
 
   @type network_config :: %{
@@ -61,17 +48,14 @@ defmodule Pyex.Ctx do
   @type generator_mode :: :accumulate | :defer | :defer_inner | nil
 
   @type t :: %__MODULE__{
-          mode: mode(),
-          log: [event()],
-          step: non_neg_integer(),
           filesystem: term(),
           handles: %{optional(non_neg_integer()) => file_handle()},
           next_handle: non_neg_integer(),
           env: %{optional(String.t()) => String.t()},
           modules: %{optional(String.t()) => Pyex.Stdlib.Module.module_value()},
           imported_modules: %{optional(String.t()) => Pyex.Stdlib.Module.module_value()},
-          timeout_ns: non_neg_integer() | nil,
-          compute_ns: non_neg_integer(),
+          timeout: non_neg_integer() | nil,
+          compute: float(),
           compute_started_at: integer() | nil,
           profile: profile_data() | nil,
           generator_mode: generator_mode(),
@@ -86,20 +70,18 @@ defmodule Pyex.Ctx do
           max_call_depth: non_neg_integer(),
           output_buffer: [String.t()],
           event_count: non_neg_integer(),
-          file_ops: non_neg_integer()
+          file_ops: non_neg_integer(),
+          duration_ms: float() | nil
         }
 
-  defstruct mode: :live,
-            log: [],
-            step: 0,
-            filesystem: nil,
+  defstruct filesystem: nil,
             handles: %{},
             next_handle: 0,
             env: %{},
             modules: %{},
             imported_modules: %{},
-            timeout_ns: nil,
-            compute_ns: 0,
+            timeout: nil,
+            compute: 0.0,
             output_buffer: [],
             event_count: 0,
             file_ops: 0,
@@ -114,7 +96,8 @@ defmodule Pyex.Ctx do
             exception_instance: nil,
             current_line: nil,
             call_depth: 0,
-            max_call_depth: 500
+            max_call_depth: 500,
+            duration_ms: nil
 
   @doc """
   Creates a fresh live context that records all events.
@@ -176,15 +159,15 @@ defmodule Pyex.Ctx do
     env = Keyword.get(opts, :env, %{})
     modules = Keyword.get(opts, :modules, %{}) |> normalize_modules()
 
-    timeout_ns =
+    timeout =
       case Keyword.get(opts, :timeout_ms) do
         nil -> nil
-        ms when is_integer(ms) -> ms * 1_000_000
+        ms when is_integer(ms) -> ms
       end
 
     profile =
       if Keyword.get(opts, :profile, false),
-        do: %{line_counts: %{}, call_counts: %{}, call_us: %{}},
+        do: %{line_counts: %{}, call_counts: %{}, call: %{}},
         else: nil
 
     network = normalize_network(Keyword.get(opts, :network))
@@ -194,9 +177,9 @@ defmodule Pyex.Ctx do
       filesystem: fs,
       env: env,
       modules: modules,
-      timeout_ns: timeout_ns,
-      compute_ns: 0,
-      compute_started_at: System.monotonic_time(:nanosecond),
+      timeout: timeout,
+      compute: 0.0,
+      compute_started_at: System.monotonic_time(),
       profile: profile,
       network: network,
       capabilities: capabilities
@@ -382,19 +365,21 @@ defmodule Pyex.Ctx do
   or `{:exceeded, elapsed_ms}` if the budget is exhausted.
   I/O time is excluded from the computation.
   """
-  @spec check_deadline(t()) :: :ok | {:exceeded, non_neg_integer()}
-  def check_deadline(%__MODULE__{mode: :noop}), do: :ok
-  def check_deadline(%__MODULE__{timeout_ns: nil}), do: :ok
+  @spec check_deadline(t()) :: :ok | {:exceeded, float()}
+  def check_deadline(%__MODULE__{timeout: nil}), do: :ok
 
   def check_deadline(%__MODULE__{
-        timeout_ns: timeout_ns,
-        compute_ns: acc,
+        timeout: timeout,
+        compute: acc_us,
         compute_started_at: started
       }) do
-    elapsed = acc + (System.monotonic_time(:nanosecond) - (started || 0))
+    now = System.monotonic_time()
+    started_native = started || now
+    elapsed_us = acc_us + native_to_microseconds(now - started_native)
+    elapsed_ms = elapsed_us / 1000
 
-    if elapsed >= timeout_ns do
-      {:exceeded, div(elapsed - timeout_ns, 1_000_000)}
+    if elapsed_ms >= timeout do
+      {:exceeded, elapsed_ms - timeout}
     else
       :ok
     end
@@ -403,81 +388,95 @@ defmodule Pyex.Ctx do
   @doc """
   Pauses the compute clock before an I/O operation.
 
-  Snapshots the elapsed compute time into `compute_ns` and
-  clears `compute_started_at` so time spent in I/O is not counted.
+  Snapshots the elapsed compute time into `compute` (in microseconds)
+  and clears `compute_started_at` so time spent in I/O is not counted.
   """
   @spec pause_compute(t()) :: t()
-  def pause_compute(%__MODULE__{mode: :noop} = ctx), do: ctx
   def pause_compute(%__MODULE__{compute_started_at: nil} = ctx), do: ctx
 
-  def pause_compute(%__MODULE__{compute_ns: acc, compute_started_at: started} = ctx) do
-    elapsed = System.monotonic_time(:nanosecond) - started
-    %{ctx | compute_ns: acc + elapsed, compute_started_at: nil}
+  def pause_compute(%__MODULE__{compute: acc_us, compute_started_at: started} = ctx) do
+    elapsed_us = acc_us + native_to_microseconds(System.monotonic_time() - started)
+    %{ctx | compute: elapsed_us, compute_started_at: nil}
   end
 
   @doc """
   Resumes the compute clock after an I/O operation completes.
   """
   @spec resume_compute(t()) :: t()
-  def resume_compute(%__MODULE__{mode: :noop} = ctx), do: ctx
-
   def resume_compute(%__MODULE__{compute_started_at: nil} = ctx) do
-    %{ctx | compute_started_at: System.monotonic_time(:nanosecond)}
+    %{ctx | compute_started_at: System.monotonic_time()}
   end
 
   def resume_compute(ctx), do: ctx
 
   @doc """
-  Returns the total accumulated compute time in microseconds.
+  Returns the total accumulated compute time in milliseconds.
   """
-  @spec compute_time_us(t()) :: non_neg_integer()
-  def compute_time_us(%__MODULE__{compute_ns: acc, compute_started_at: nil}) do
-    div(acc, 1_000)
+  @spec compute_time(t()) :: float()
+  def compute_time(%__MODULE__{compute: acc_us, compute_started_at: nil}) do
+    acc_us / 1000
   end
 
-  def compute_time_us(%__MODULE__{compute_ns: acc, compute_started_at: started}) do
-    elapsed = System.monotonic_time(:nanosecond) - started
-    div(acc + elapsed, 1_000)
+  def compute_time(%__MODULE__{compute: acc_us, compute_started_at: started}) do
+    elapsed_us = acc_us + native_to_microseconds(System.monotonic_time() - started)
+    elapsed_us / 1000
+  end
+
+  @spec native_to_microseconds(integer()) :: integer()
+  defp native_to_microseconds(native) do
+    System.convert_time_unit(native, :native, :microsecond)
   end
 
   @doc """
-  Records an event in live mode. Returns the updated context.
+  Records output or file operation events. Returns the updated context.
 
-  Note: Full event logging is disabled to reduce memory allocation.
-  Only counters and output events are tracked.
+  Note: Only :output and :file_op events are tracked for counting
+  purposes. The actual event data is not stored to reduce memory allocation.
   """
   @spec record(t(), event_type(), term()) :: t()
-  def record(%__MODULE__{mode: :noop} = ctx, _type, _data), do: ctx
-
-  def record(%__MODULE__{mode: :live} = ctx, :output, line) do
+  def record(ctx, :output, line) do
     %{ctx | output_buffer: [line | ctx.output_buffer], event_count: ctx.event_count + 1}
   end
 
-  def record(%__MODULE__{mode: :live} = ctx, :file_op, _data) do
+  def record(ctx, :file_op, _data) do
     %{ctx | event_count: ctx.event_count + 1, file_ops: ctx.file_ops + 1}
   end
 
-  def record(%__MODULE__{mode: :live} = ctx, _type, _data) do
+  def record(ctx, :loop, _data) do
     %{ctx | event_count: ctx.event_count + 1}
   end
 
   @doc """
-  Returns the full event log.
-  """
-  @spec events(t()) :: [event()]
-  def events(%__MODULE__{log: log}), do: Enum.reverse(log)
+  Returns all captured print output as an iolist.
 
-  @doc """
-  Returns all captured print output as a single string.
+  The buffer stores lines in reverse order (newest first). This
+  function builds an iolist with newlines interleaved, avoiding
+  the cost of string concatenation until the iolist is flattened.
 
-  Joins captured output lines with newlines, matching how
-  Python's `print()` separates lines.
+  ## Example
+
+      {:ok, _val, ctx} = Pyex.run("print('hello')")
+      ["hello"] = Pyex.output(ctx)
+
+      {:ok, _val, ctx} = Pyex.run("print('a')\nprint('b')")
+      ["a", "\n", "b"] = Pyex.output(ctx)
   """
-  @spec output(t()) :: String.t()
+  @spec output(t()) :: iolist()
+  def output(%__MODULE__{output_buffer: []}), do: []
+
   def output(%__MODULE__{output_buffer: buffer}) do
+    # Buffer is in reverse order (newest first), so reverse it
+    # and build an iolist with newlines between lines.
     buffer
     |> Enum.reverse()
-    |> Enum.join("\n")
+    |> build_iolist()
+  end
+
+  @spec build_iolist([String.t()]) :: iolist()
+  defp build_iolist([line]), do: [line]
+
+  defp build_iolist([first | rest]) do
+    [first, "\n" | build_iolist(rest)]
   end
 
   @doc """

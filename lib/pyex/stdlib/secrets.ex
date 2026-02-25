@@ -105,6 +105,14 @@ defmodule Pyex.Stdlib.Secrets do
   end
 
   @spec do_choice([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp do_choice([{:py_list, _, 0}]) do
+    {:exception, "IndexError: Cannot choose from an empty sequence"}
+  end
+
+  defp do_choice([{:py_list, reversed, _len}]) do
+    Enum.random(reversed)
+  end
+
   defp do_choice([sequence]) when is_list(sequence) and length(sequence) > 0 do
     Enum.random(sequence)
   end

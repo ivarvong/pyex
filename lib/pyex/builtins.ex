@@ -123,6 +123,7 @@ defmodule Pyex.Builtins do
 
   @spec builtin_len([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
+  defp builtin_len([{:py_list, _reversed, len}]), do: len
   defp builtin_len([val]) when is_list(val), do: length(val)
 
   defp builtin_len([val]) when is_binary(val) do
@@ -207,6 +208,9 @@ defmodule Pyex.Builtins do
           {:ok, [Interpreter.pyvalue()]} | {:pass, Interpreter.pyvalue()} | :error
   def materialize_iterable(val) do
     case val do
+      {:py_list, reversed, _} ->
+        {:ok, Enum.reverse(reversed)}
+
       list when is_list(list) ->
         {:ok, list}
 
@@ -412,6 +416,7 @@ defmodule Pyex.Builtins do
 
   @spec extract_minmax_items([Interpreter.pyvalue()]) ::
           {:ok, [Interpreter.pyvalue()]} | {:error, String.t()}
+  defp extract_minmax_items([{:py_list, reversed, _}]), do: {:ok, Enum.reverse(reversed)}
   defp extract_minmax_items([list]) when is_list(list), do: {:ok, list}
   defp extract_minmax_items([{:generator, items}]), do: {:ok, items}
 
@@ -434,6 +439,7 @@ defmodule Pyex.Builtins do
   defp extract_minmax_items(_), do: {:error, "TypeError: expected iterable argument"}
 
   @spec builtin_sum([Interpreter.pyvalue()]) :: number() | {:iter_sum, Interpreter.pyvalue()}
+  defp builtin_sum([{:py_list, reversed, _}]), do: Enum.sum(Enum.reverse(reversed))
   defp builtin_sum([list]) when is_list(list), do: Enum.sum(list)
   defp builtin_sum([{:generator, items}]), do: Enum.sum(items)
 
@@ -454,6 +460,9 @@ defmodule Pyex.Builtins do
   defp builtin_sorted(args, kwargs) do
     items =
       case args do
+        [{:py_list, reversed, _}] ->
+          Enum.reverse(reversed)
+
         [list] when is_list(list) ->
           list
 
@@ -511,6 +520,8 @@ defmodule Pyex.Builtins do
   end
 
   @spec builtin_reversed([Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]
+  # Already reversed internally!
+  defp builtin_reversed([{:py_list, reversed, _}]), do: reversed
   defp builtin_reversed([list]) when is_list(list), do: Enum.reverse(list)
   defp builtin_reversed([{:generator, items}]), do: Enum.reverse(items)
 
@@ -538,6 +549,9 @@ defmodule Pyex.Builtins do
 
     items =
       case iterable do
+        {:py_list, reversed, _} ->
+          Enum.reverse(reversed)
+
         list when is_list(list) ->
           list
 
@@ -600,6 +614,7 @@ defmodule Pyex.Builtins do
   end
 
   @spec to_list(Interpreter.pyvalue()) :: {:ok, [Interpreter.pyvalue()]} | :error
+  defp to_list({:py_list, reversed, _}), do: {:ok, Enum.reverse(reversed)}
   defp to_list(list) when is_list(list), do: {:ok, list}
 
   defp to_list({:range, _, _, _} = r) do
@@ -625,6 +640,7 @@ defmodule Pyex.Builtins do
   @spec builtin_list([Interpreter.pyvalue()]) ::
           [Interpreter.pyvalue()] | {:iter_to_list, Interpreter.pyvalue()}
   defp builtin_list([]), do: []
+  defp builtin_list([{:py_list, reversed, _}]), do: Enum.reverse(reversed)
   defp builtin_list([list]) when is_list(list), do: list
 
   defp builtin_list([string]) when is_binary(string) do
@@ -663,6 +679,16 @@ defmodule Pyex.Builtins do
   end
 
   defp builtin_dict([list]) when is_list(list) do
+    Enum.reduce(list, %{}, fn
+      {:tuple, [k, v]}, acc -> Map.put(acc, k, v)
+      [k, v], acc -> Map.put(acc, k, v)
+      _, acc -> acc
+    end)
+  end
+
+  defp builtin_dict([{:py_list, reversed, _}]) do
+    list = Enum.reverse(reversed)
+
     Enum.reduce(list, %{}, fn
       {:tuple, [k, v]}, acc -> Map.put(acc, k, v)
       [k, v], acc -> Map.put(acc, k, v)
@@ -734,6 +760,7 @@ defmodule Pyex.Builtins do
   @spec builtin_tuple([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
   defp builtin_tuple([]), do: {:tuple, []}
+  defp builtin_tuple([{:py_list, reversed, _}]), do: {:tuple, Enum.reverse(reversed)}
   defp builtin_tuple([list]) when is_list(list), do: {:tuple, list}
   defp builtin_tuple([{:tuple, _} = t]), do: t
 
@@ -755,6 +782,7 @@ defmodule Pyex.Builtins do
   @spec builtin_set([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
   defp builtin_set([]), do: {:set, MapSet.new()}
+  defp builtin_set([{:py_list, reversed, _}]), do: {:set, MapSet.new(Enum.reverse(reversed))}
   defp builtin_set([list]) when is_list(list), do: {:set, MapSet.new(list)}
   defp builtin_set([{:tuple, items}]), do: {:set, MapSet.new(items)}
   defp builtin_set([{:set, _} = s]), do: s
@@ -775,6 +803,10 @@ defmodule Pyex.Builtins do
   @spec builtin_frozenset([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
   defp builtin_frozenset([]), do: {:frozenset, MapSet.new()}
+
+  defp builtin_frozenset([{:py_list, reversed, _}]),
+    do: {:frozenset, MapSet.new(Enum.reverse(reversed))}
+
   defp builtin_frozenset([list]) when is_list(list), do: {:frozenset, MapSet.new(list)}
   defp builtin_frozenset([{:tuple, items}]), do: {:frozenset, MapSet.new(items)}
   defp builtin_frozenset([{:set, s}]), do: {:frozenset, s}
@@ -846,6 +878,7 @@ defmodule Pyex.Builtins do
   end
 
   @spec builtin_any([Interpreter.pyvalue()]) :: boolean() | {:exception, String.t()}
+  defp builtin_any([{:py_list, reversed, _}]), do: Enum.any?(Enum.reverse(reversed), &truthy?/1)
   defp builtin_any([list]) when is_list(list), do: Enum.any?(list, &truthy?/1)
   defp builtin_any([{:tuple, items}]), do: Enum.any?(items, &truthy?/1)
   defp builtin_any([{:generator, items}]), do: Enum.any?(items, &truthy?/1)
@@ -861,6 +894,7 @@ defmodule Pyex.Builtins do
     do: {:exception, "TypeError: argument of type '#{pytype(val)}' is not iterable"}
 
   @spec builtin_all([Interpreter.pyvalue()]) :: boolean() | {:exception, String.t()}
+  defp builtin_all([{:py_list, reversed, _}]), do: Enum.all?(Enum.reverse(reversed), &truthy?/1)
   defp builtin_all([list]) when is_list(list), do: Enum.all?(list, &truthy?/1)
   defp builtin_all([{:tuple, items}]), do: Enum.all?(items, &truthy?/1)
   defp builtin_all([{:generator, items}]), do: Enum.all?(items, &truthy?/1)
@@ -1297,6 +1331,7 @@ defmodule Pyex.Builtins do
   def truthy?(+0.0), do: false
   def truthy?(""), do: false
   def truthy?([]), do: false
+  def truthy?({:py_list, _, 0}), do: false
   def truthy?(map) when map == %{}, do: false
   def truthy?({:tuple, []}), do: false
   def truthy?({:set, s}), do: MapSet.size(s) > 0
@@ -1313,6 +1348,7 @@ defmodule Pyex.Builtins do
   defp pytype(val) when is_binary(val), do: "str"
   defp pytype(val) when is_boolean(val), do: "bool"
   defp pytype(nil), do: "NoneType"
+  defp pytype({:py_list, _, _}), do: "list"
   defp pytype(val) when is_list(val), do: "list"
   defp pytype(val) when is_map(val), do: "dict"
   defp pytype({:tuple, _}), do: "tuple"
@@ -1340,6 +1376,11 @@ defmodule Pyex.Builtins do
   def py_repr(:neg_infinity), do: "-inf"
   def py_repr(:nan), do: "nan"
   def py_repr(val) when is_float(val), do: Float.to_string(val)
+
+  def py_repr({:py_list, reversed, _len}) do
+    inner = reversed |> Enum.reverse() |> Enum.map(&py_repr_quoted/1) |> Enum.join(", ")
+    "[#{inner}]"
+  end
 
   def py_repr(val) when is_list(val) do
     inner = val |> Enum.map(&py_repr_quoted/1) |> Enum.join(", ")

@@ -42,6 +42,7 @@ defmodule Pyex.MixProject do
       {:nimble_parsec, "~> 1.4"},
       {:req, "~> 0.5"},
       {:postgrex, "~> 0.22", optional: true},
+      {:yaml_elixir, "~> 2.12", only: :test},
       {:telemetry, "~> 0.4 or ~> 1.0"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
       {:explorer, "~> 0.10", optional: true},
@@ -89,7 +90,9 @@ defmodule Pyex.MixProject do
           Pyex.Stdlib.Sql,
           Pyex.Stdlib.Time,
           Pyex.Stdlib.Unittest,
-          Pyex.Stdlib.Uuid
+          Pyex.Stdlib.Uuid,
+          Pyex.Stdlib.Yaml,
+          Pyex.Stdlib.YamlParser
         ],
         Filesystem: [
           Pyex.Filesystem,
