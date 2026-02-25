@@ -53,6 +53,14 @@ defmodule Pyex.Methods do
     end
   end
 
+  def resolve({:py_list, _, _} = object, attr) do
+    case list_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      {:ok_kw, method_fn} -> {:ok, {:builtin_kw, bound_kw(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
   def resolve({:file_handle, id}, attr) do
     case file_method(attr, id) do
       {:ok, method_fn} -> {:ok, {:builtin, method_fn}}
@@ -113,6 +121,7 @@ defmodule Pyex.Methods do
   """
   @spec method_names(Interpreter.pyvalue()) :: [String.t()]
   def method_names(val) when is_binary(val), do: @string_methods
+  def method_names({:py_list, _, _}), do: @list_methods
   def method_names(val) when is_list(val), do: @list_methods
   def method_names(val) when is_map(val), do: @dict_methods
   def method_names({:set, _}), do: @set_methods
@@ -317,6 +326,7 @@ defmodule Pyex.Methods do
   end
 
   @spec str_join(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  defp str_join(s, [{:py_list, reversed, _}]), do: reversed |> Enum.reverse() |> Enum.join(s)
   defp str_join(s, [list]) when is_list(list), do: Enum.join(list, s)
   defp str_join(s, [{:generator, items}]), do: Enum.join(items, s)
   defp str_join(s, [{:tuple, items}]), do: Enum.join(items, s)
@@ -720,52 +730,144 @@ defmodule Pyex.Methods do
   @spec dict_copy(map(), [Interpreter.pyvalue()]) :: map()
   defp dict_copy(map, []), do: map
 
-  @spec list_append([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
-          {:mutate, [Interpreter.pyvalue()], nil}
-  defp list_append(list, [item]), do: {:mutate, list ++ [item], nil}
+  @spec list_append({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
+          {:mutate, {:py_list, [term()], non_neg_integer()}, nil}
+  defp list_append({:py_list, reversed, len}, [item]),
+    do: {:mutate, {:py_list, [item | reversed], len + 1}, nil}
 
-  @spec list_extend([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
-          {:mutate, [Interpreter.pyvalue()], nil} | {:exception, String.t()}
-  defp list_extend(list, [other]) when is_list(other), do: {:mutate, list ++ other, nil}
-  defp list_extend(list, [{:tuple, items}]), do: {:mutate, list ++ items, nil}
-  defp list_extend(list, [{:set, s}]), do: {:mutate, list ++ MapSet.to_list(s), nil}
-  defp list_extend(list, [{:frozenset, s}]), do: {:mutate, list ++ MapSet.to_list(s), nil}
-  defp list_extend(list, [{:generator, items}]), do: {:mutate, list ++ items, nil}
+  # Fallback for legacy list format (during transition)
+  defp list_append(list, [item]) when is_list(list),
+    do: {:mutate, list ++ [item], nil}
 
-  defp list_extend(list, [str]) when is_binary(str),
-    do: {:mutate, list ++ String.codepoints(str), nil}
+  @spec list_extend({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
+          {:mutate, {:py_list, [term()], non_neg_integer()}, nil} | {:exception, String.t()}
+  # Fast path: extend with another py_list (just prepend their reversed storage)
+  defp list_extend({:py_list, reversed, len}, [{:py_list, other_reversed, other_len}])
+       when is_list(other_reversed),
+       do: {:mutate, {:py_list, other_reversed ++ reversed, len + other_len}, nil}
 
-  defp list_extend(list, [map]) when is_map(map),
-    do: {:mutate, list ++ Map.keys(Builtins.visible_dict(map)), nil}
+  defp list_extend({:py_list, reversed, len}, [other]) when is_list(other),
+    do: {:mutate, {:py_list, Enum.reverse(other) ++ reversed, len + length(other)}, nil}
 
-  defp list_extend(list, [{:range, _, _, _} = r]) do
+  defp list_extend({:py_list, reversed, len}, [{:tuple, items}]),
+    do: {:mutate, {:py_list, Enum.reverse(items) ++ reversed, len + length(items)}, nil}
+
+  defp list_extend({:py_list, reversed, len}, [{:set, s}]),
+    do:
+      {:mutate, {:py_list, Enum.reverse(MapSet.to_list(s)) ++ reversed, len + MapSet.size(s)},
+       nil}
+
+  defp list_extend({:py_list, reversed, len}, [{:frozenset, s}]),
+    do:
+      {:mutate, {:py_list, Enum.reverse(MapSet.to_list(s)) ++ reversed, len + MapSet.size(s)},
+       nil}
+
+  defp list_extend({:py_list, reversed, len}, [{:generator, items}]),
+    do: {:mutate, {:py_list, Enum.reverse(items) ++ reversed, len + length(items)}, nil}
+
+  defp list_extend({:py_list, reversed, len}, [str]) when is_binary(str),
+    do:
+      {:mutate,
+       {:py_list, Enum.reverse(String.codepoints(str)) ++ reversed, len + String.length(str)},
+       nil}
+
+  defp list_extend({:py_list, reversed, len}, [map]) when is_map(map),
+    do:
+      {:mutate,
+       {:py_list, Enum.reverse(Map.keys(Builtins.visible_dict(map))) ++ reversed,
+        len + map_size(map)}, nil}
+
+  defp list_extend({:py_list, reversed, len}, [{:range, _, _, _} = r]) do
     case Builtins.range_to_list(r) do
       {:exception, _} = err -> err
-      items -> {:mutate, list ++ items, nil}
+      items -> {:mutate, {:py_list, Enum.reverse(items) ++ reversed, len + length(items)}, nil}
     end
   end
 
-  @spec list_insert([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
-          {:mutate, [Interpreter.pyvalue()], nil}
-  defp list_insert(list, [index, item]) when is_integer(index) do
+  # Fallback for legacy list format
+  defp list_extend(list, [other]) when is_list(list) and is_list(other),
+    do: {:mutate, list ++ other, nil}
+
+  defp list_extend(list, [{:tuple, items}]) when is_list(list),
+    do: {:mutate, list ++ items, nil}
+
+  @spec list_insert({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
+          {:mutate, {:py_list, [term()], non_neg_integer()}, nil}
+  defp list_insert({:py_list, reversed, len}, [index, item]) when is_integer(index) do
+    # Transform Python index to storage index
+    real_index =
+      if index < 0 do
+        max(-index - 1, 0)
+      else
+        len - index
+      end
+      # Clamp to valid range
+      |> min(len)
+
+    {before, rest} = Enum.split(reversed, real_index)
+    {:mutate, {:py_list, before ++ [item | rest], len + 1}, nil}
+  end
+
+  defp list_insert(list, [index, item]) when is_list(list) and is_integer(index) do
     {:mutate, List.insert_at(list, index, item), nil}
   end
 
-  @spec list_remove([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
-          {:mutate, [Interpreter.pyvalue()], nil}
-  defp list_remove(list, [item]) do
+  @spec list_remove({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
+          {:mutate, {:py_list, [term()], non_neg_integer()}, nil}
+  defp list_remove({:py_list, reversed, len}, [item]) do
+    items = Enum.reverse(reversed)
+
+    case Enum.find_index(items, &(&1 == item)) do
+      nil ->
+        {:exception, "ValueError: list.remove(x): x not in list"}
+
+      idx ->
+        new_items = List.delete_at(items, idx)
+        {:mutate, {:py_list, Enum.reverse(new_items), len - 1}, nil}
+    end
+  end
+
+  defp list_remove(list, [item]) when is_list(list) do
     case Enum.find_index(list, &(&1 == item)) do
       nil -> {:exception, "ValueError: list.remove(x): x not in list"}
       idx -> {:mutate, List.delete_at(list, idx), nil}
     end
   end
 
-  @spec list_pop([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
-          {:mutate, [Interpreter.pyvalue()], Interpreter.pyvalue()}
+  @spec list_pop({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
+          {:mutate, {:py_list, [term()], non_neg_integer()}, Interpreter.pyvalue()}
+          | {:exception, String.t()}
+  defp list_pop({:py_list, [], 0}, _), do: {:exception, "IndexError: pop from empty list"}
+
+  defp list_pop({:py_list, [head | tail], len}, []),
+    do: {:mutate, {:py_list, tail, len - 1}, head}
+
+  defp list_pop({:py_list, reversed, len}, [index]) when is_integer(index) do
+    # Transform Python index to storage index
+    real_index =
+      if index < 0 do
+        # Python negative: -1 → 0 (first in reversed), -2 → 1, etc.
+        -index - 1
+      else
+        # Python positive: 0 → len-1 (last in reversed), 1 → len-2, etc.
+        len - 1 - index
+      end
+
+    if real_index < 0 or real_index >= len do
+      {:exception, "IndexError: pop index out of range"}
+    else
+      value = Enum.at(reversed, real_index)
+      {before, [_ | rest]} = Enum.split(reversed, real_index)
+      new_reversed = before ++ rest
+      {:mutate, {:py_list, new_reversed, len - 1}, value}
+    end
+  end
+
+  # Fallback for legacy list format
   defp list_pop([], _), do: {:exception, "IndexError: pop from empty list"}
   defp list_pop(list, []), do: list_pop(list, [-1])
 
-  defp list_pop(list, [index]) when is_integer(index) do
+  defp list_pop(list, [index]) when is_list(list) and is_integer(index) do
     len = length(list)
     idx = if index < 0, do: len + index, else: index
 
@@ -777,10 +879,24 @@ defmodule Pyex.Methods do
     end
   end
 
-  @spec list_sort([Interpreter.pyvalue()], [Interpreter.pyvalue()], map()) ::
-          {:mutate, [Interpreter.pyvalue()], nil}
-          | {:list_sort_call, [Interpreter.pyvalue()], Interpreter.pyvalue() | nil, boolean()}
-  defp list_sort(list, [], kwargs) do
+  @spec list_sort({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()], map()) ::
+          {:mutate, {:py_list, [term()], non_neg_integer()}, nil}
+          | {:list_sort_call, [term()], Interpreter.pyvalue() | nil, boolean()}
+  defp list_sort({:py_list, reversed, len}, [], kwargs) do
+    key_fn = Map.get(kwargs, "key")
+    reverse = Map.get(kwargs, "reverse", false)
+
+    if key_fn == nil do
+      # Storage is reversed: ascending Python order = descending storage order
+      order = if reverse == true, do: :asc, else: :desc
+      sorted_storage = Enum.sort(reversed, order)
+      {:mutate, {:py_list, sorted_storage, len}, nil}
+    else
+      {:list_sort_call, reversed, key_fn, reverse == true}
+    end
+  end
+
+  defp list_sort(list, [], kwargs) when is_list(list) do
     key_fn = Map.get(kwargs, "key")
     reverse = Map.get(kwargs, "reverse", false)
 
@@ -791,29 +907,51 @@ defmodule Pyex.Methods do
     end
   end
 
-  @spec list_reverse([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
-          {:mutate, [Interpreter.pyvalue()], nil}
-  defp list_reverse(list, []), do: {:mutate, Enum.reverse(list), nil}
+  @spec list_reverse({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
+          {:mutate, {:py_list, [term()], non_neg_integer()}, nil}
+  defp list_reverse({:py_list, reversed, len}, []),
+    do: {:mutate, {:py_list, Enum.reverse(reversed), len}, nil}
 
-  @spec list_clear([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
-          {:mutate, [Interpreter.pyvalue()], nil}
-  defp list_clear(_list, []), do: {:mutate, [], nil}
+  defp list_reverse(list, []) when is_list(list),
+    do: {:mutate, Enum.reverse(list), nil}
 
-  @spec list_index([Interpreter.pyvalue()], [Interpreter.pyvalue()]) :: integer()
-  defp list_index(list, [item]) do
+  @spec list_clear({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
+          {:mutate, {:py_list, [term()], non_neg_integer()}, nil}
+  defp list_clear({:py_list, _, _}, []), do: {:mutate, {:py_list, [], 0}, nil}
+  defp list_clear(list, []) when is_list(list), do: {:mutate, [], nil}
+
+  @spec list_index({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
+          integer() | {:exception, String.t()}
+  defp list_index({:py_list, reversed, _len}, [item]) do
+    items = Enum.reverse(reversed)
+
+    case Enum.find_index(items, &(&1 == item)) do
+      nil -> {:exception, "ValueError: #{inspect(item)} is not in list"}
+      idx -> idx
+    end
+  end
+
+  defp list_index(list, [item]) when is_list(list) do
     case Enum.find_index(list, &(&1 == item)) do
       nil -> {:exception, "ValueError: #{inspect(item)} is not in list"}
       idx -> idx
     end
   end
 
-  @spec list_count([Interpreter.pyvalue()], [Interpreter.pyvalue()]) :: non_neg_integer()
-  defp list_count(list, [item]) do
+  @spec list_count({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
+          non_neg_integer()
+  defp list_count({:py_list, reversed, _}, [item]) do
+    Enum.count(reversed, &(&1 == item))
+  end
+
+  defp list_count(list, [item]) when is_list(list) do
     Enum.count(list, &(&1 == item))
   end
 
-  @spec list_copy([Interpreter.pyvalue()], [Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]
-  defp list_copy(list, []), do: list
+  @spec list_copy({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
+          {:py_list, [term()], non_neg_integer()}
+  defp list_copy({:py_list, reversed, len}, []), do: {:py_list, reversed, len}
+  defp list_copy(list, []) when is_list(list), do: list
 
   @spec tuple_method(String.t()) ::
           {:ok, (Interpreter.pyvalue(), [Interpreter.pyvalue()] -> Interpreter.pyvalue())}

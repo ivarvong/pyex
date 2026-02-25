@@ -64,7 +64,7 @@ for {name, source} <- programs do
           {:ok, tokens} = Lexer.tokenize(source)
           {:ok, ast} = Parser.parse(tokens)
           ctx = Ctx.new()
-          ctx = %{ctx | compute_ns: 0, compute_started_at: System.monotonic_time(:nanosecond)}
+          ctx = %{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
           Interpreter.run_with_ctx(ast, env, ctx)
         end
       end),
@@ -78,7 +78,7 @@ for {name, source} <- programs do
     elem(
       :timer.tc(fn ->
         for _ <- 1..n do
-          Interpreter.run_with_ctx(ast, env, %Ctx{mode: :live})
+          Interpreter.run_with_ctx(ast, env, %Ctx{})
         end
       end),
       0
@@ -113,26 +113,23 @@ record_us =
   elem(
     :timer.tc(fn ->
       for _ <- 1..100_000 do
-        ctx = %Ctx{mode: :live, step: 0, log: []}
-        ctx = Ctx.record(ctx, :assign, {:x})
-        ctx = Ctx.record(ctx, :branch, {true})
-        ctx = Ctx.record(ctx, :loop_iter, {1})
-        ctx = Ctx.record(ctx, :assign, {:y})
-        ctx = Ctx.record(ctx, :call_enter, {1})
-        Ctx.record(ctx, :call_exit, {42})
+        ctx = Ctx.new()
+        ctx = Ctx.record(ctx, :output, "hello")
+        ctx = Ctx.record(ctx, :output, "world")
+        ctx = Ctx.record(ctx, :file_op, {:open, "/tmp/test", :read})
       end
     end),
     0
   )
 
 IO.puts(
-  "6 Ctx.record calls x100k: #{record_us}μs total, #{Float.round(record_us / 100_000, 2)}μs per batch of 6"
+  "3 Ctx.record calls x100k: #{record_us}μs total, #{Float.round(record_us / 100_000, 2)}μs per batch of 3"
 )
 
 check_us =
   elem(
     :timer.tc(fn ->
-      ctx = %Ctx{mode: :live, timeout_ns: nil}
+      ctx = %Ctx{timeout: nil}
 
       for _ <- 1..100_000 do
         Ctx.check_deadline(ctx)
@@ -149,10 +146,9 @@ check_active_us =
   elem(
     :timer.tc(fn ->
       ctx = %Ctx{
-        mode: :live,
-        timeout_ns: 60_000_000_000,
-        compute_ns: 0,
-        compute_started_at: System.monotonic_time(:nanosecond)
+        timeout: 60_000,
+        compute: 0.0,
+        compute_started_at: System.monotonic_time()
       }
 
       for _ <- 1..100_000 do

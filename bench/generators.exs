@@ -2,8 +2,8 @@ alias Pyex.Ctx
 
 ctx = %{
   Ctx.new(timeout_ms: 200)
-  | compute_ns: 0,
-    compute_started_at: System.monotonic_time(:nanosecond)
+  | compute: 0.0,
+    compute_started_at: System.monotonic_time()
 }
 
 programs = %{
@@ -76,7 +76,7 @@ IO.puts("=== Individual program benchmarks ===\n")
 for {name, code} <- Enum.sort(programs) do
   times =
     for _ <- 1..100 do
-      fresh = %{ctx | compute_ns: 0, compute_started_at: System.monotonic_time(:nanosecond)}
+      fresh = %{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
       t0 = System.monotonic_time(:microsecond)
       Pyex.run(code, fresh)
       System.monotonic_time(:microsecond) - t0
@@ -112,7 +112,7 @@ for {name, code} <- [
 
   interpret_times =
     for _ <- 1..100 do
-      fresh = %{ctx | compute_ns: 0, compute_started_at: System.monotonic_time(:nanosecond)}
+      fresh = %{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
       t0 = System.monotonic_time(:microsecond)
       Pyex.run(ast, fresh)
       System.monotonic_time(:microsecond) - t0
@@ -136,7 +136,7 @@ t0 = System.monotonic_time(:millisecond)
 
 for _ <- 1..500 do
   code = Enum.random(all_programs)
-  fresh = %{ctx | compute_ns: 0, compute_started_at: System.monotonic_time(:nanosecond)}
+  fresh = %{ctx | compute: 0, compute_started_at: System.monotonic_time(:millisecond)}
   Pyex.run(code, fresh)
 end
 

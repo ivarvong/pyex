@@ -109,24 +109,27 @@ defmodule Pyex do
 
     :telemetry.execute([:pyex, :run, :start], %{system_time: System.system_time()}, %{})
 
-    ctx = %{ctx | compute_ns: 0, compute_started_at: System.monotonic_time(:nanosecond)}
+    ctx = %{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
     result = Interpreter.run_with_ctx(ast, Builtins.env(), ctx)
 
     case result do
       {:ok, value, _env, final_ctx} ->
-        duration = System.monotonic_time() - start_mono
+        duration_ms =
+          System.convert_time_unit(System.monotonic_time() - start_mono, :native, :millisecond)
 
-        :telemetry.execute([:pyex, :run, :stop], %{duration: duration}, %{
-          compute_us: Ctx.compute_time_us(final_ctx)
+        :telemetry.execute([:pyex, :run, :stop], %{duration_ms: duration_ms}, %{
+          compute: Ctx.compute_time(final_ctx)
         })
 
-        {:ok, value, final_ctx}
+        {:ok, Interpreter.Helpers.to_python_view(value), final_ctx}
 
       {:error, msg} ->
-        duration = System.monotonic_time() - start_mono
+        duration_ms =
+          System.convert_time_unit(System.monotonic_time() - start_mono, :native, :millisecond)
+
         error = Error.from_message(msg)
 
-        :telemetry.execute([:pyex, :run, :exception], %{duration: duration}, %{
+        :telemetry.execute([:pyex, :run, :exception], %{duration_ms: duration_ms}, %{
           error: error
         })
 
@@ -161,13 +164,16 @@ defmodule Pyex do
   Returns all captured print output as a single string.
 
   Python's `print()` records each line as an `:output` event
-  in the context. This function extracts and joins them.
+  in the context. This function extracts and joins them with newlines.
 
   ## Example
 
       {:ok, _val, ctx} = Pyex.run("print('hello')")
       "hello" = Pyex.output(ctx)
+
+      {:ok, _val, ctx} = Pyex.run("print('line1')\nprint('line2')")
+      "line1\nline2" = Pyex.output(ctx)
   """
   @spec output(Ctx.t()) :: String.t()
-  def output(%Ctx{} = ctx), do: Ctx.output(ctx)
+  def output(%Ctx{} = ctx), do: ctx |> Ctx.output() |> IO.iodata_to_binary()
 end

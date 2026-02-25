@@ -79,6 +79,10 @@ defmodule Pyex.Stdlib.Pandas do
   end
 
   @spec do_series([term()]) :: {:pandas_series, Explorer.Series.t()}
+  defp do_series([{:py_list, reversed, _}]) do
+    {:pandas_series, Explorer.Series.from_list(coerce_values(Enum.reverse(reversed)))}
+  end
+
   defp do_series([values]) when is_list(values) do
     {:pandas_series, Explorer.Series.from_list(coerce_values(values))}
   end
@@ -87,11 +91,16 @@ defmodule Pyex.Stdlib.Pandas do
   defp do_dataframe([dict]) when is_map(dict) do
     columns =
       Enum.map(dict, fn {name, values} ->
-        {name, coerce_values(values)}
+        {name, coerce_values(normalize_list(values))}
       end)
 
     {:pandas_dataframe, Explorer.DataFrame.new(columns)}
   end
+
+  @spec normalize_list(term()) :: [term()]
+  defp normalize_list({:py_list, reversed, _}), do: Enum.reverse(reversed)
+  defp normalize_list(list) when is_list(list), do: list
+  defp normalize_list(other), do: [other]
 
   @spec coerce_values([term()]) :: [number()] | [String.t()]
   defp coerce_values(values) do

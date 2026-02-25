@@ -553,7 +553,7 @@ defmodule PyexTest do
   describe "Pyex.output/1" do
     test "captures print output" do
       {:ok, _val, ctx} = Pyex.run("print('hello')\nprint('world')")
-      assert Pyex.output(ctx) == "hello\nworld"
+      assert IO.iodata_to_binary(Pyex.output(ctx)) == "hello\nworld"
     end
 
     test "returns empty string when no output" do

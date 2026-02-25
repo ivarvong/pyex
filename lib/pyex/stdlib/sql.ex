@@ -86,7 +86,6 @@ defmodule Pyex.Stdlib.Sql do
                     rows_returned: 0
                   })
 
-                  ctx = Pyex.Ctx.record(ctx, :side_effect, {:sql_query, sql})
                   {[], env, ctx}
 
                 {:ok, %Postgrex.Result{columns: cols, rows: rows, num_rows: n}} ->
@@ -98,7 +97,6 @@ defmodule Pyex.Stdlib.Sql do
                   })
 
                   result = Enum.map(rows, fn row -> row_to_dict(cols, row) end)
-                  ctx = Pyex.Ctx.record(ctx, :side_effect, {:sql_query, sql})
                   {result, env, ctx}
 
                 {:error, %Postgrex.Error{postgres: %{message: msg}}} ->

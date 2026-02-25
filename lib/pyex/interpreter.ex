@@ -102,7 +102,7 @@ defmodule Pyex.Interpreter do
   """
   @spec run(Parser.ast_node()) :: {:ok, pyvalue()} | {:error, String.t()}
   def run(ast) do
-    case eval(ast, Builtins.env(), %Ctx{mode: :noop}) do
+    case eval(ast, Builtins.env(), %Ctx{}) do
       {{:exception, msg}, _env, ctx} -> {:error, Helpers.format_error(msg, ctx)}
       {result, _env, _ctx} -> {:ok, Helpers.unwrap(result)}
     end
@@ -145,7 +145,6 @@ defmodule Pyex.Interpreter do
 
   def eval({:def, _, [name, params, body]}, env, ctx) do
     func = {:function, name, params, body, env}
-    ctx = Ctx.record(ctx, :assign, {name, :function})
     {nil, Env.smart_put(env, name, func), ctx}
   end
 
@@ -167,28 +166,22 @@ defmodule Pyex.Interpreter do
       {decorator, env, ctx} ->
         case call_function(decorator, [func], %{}, env, ctx) do
           {:mutate, _new_object, return_value, new_env, ctx} ->
-            ctx = Ctx.record(ctx, :assign, {name, :decorated})
             {nil, Env.smart_put(new_env, name, return_value), ctx}
 
           {:mutate, _new_object, return_value, ctx} ->
-            ctx = Ctx.record(ctx, :assign, {name, :decorated})
             {nil, Env.smart_put(env, name, return_value), ctx}
 
           {{:register_route, method, path, handler}, env, ctx} ->
             env = register_route(decorator_expr, method, path, handler, env)
-            ctx = Ctx.record(ctx, :assign, {name, :decorated})
-            ctx = Ctx.record(ctx, :side_effect, {:register_route, method, path})
             {nil, Env.smart_put(env, name, handler), ctx}
 
           {{:exception, _} = signal, env, ctx} ->
             {signal, env, ctx}
 
           {result, env, ctx, _updated_func} ->
-            ctx = Ctx.record(ctx, :assign, {name, :decorated})
             {nil, Env.smart_put(env, name, result), ctx}
 
           {result, env, ctx} ->
-            ctx = Ctx.record(ctx, :assign, {name, :decorated})
             {nil, Env.smart_put(env, name, result), ctx}
         end
     end
@@ -300,7 +293,6 @@ defmodule Pyex.Interpreter do
         end)
 
       class_val = {:class, name, bases, class_attrs}
-      ctx = Ctx.record(ctx, :assign, {name, :class})
       {nil, Env.smart_put(env, name, class_val), ctx}
     end
   end
@@ -352,7 +344,6 @@ defmodule Pyex.Interpreter do
         {signal, env, ctx}
 
       {value, env, ctx} ->
-        ctx = Ctx.record(ctx, :assign, {name, value})
         {value, Env.smart_put(env, name, value), ctx}
     end
   end
@@ -383,7 +374,6 @@ defmodule Pyex.Interpreter do
 
         resolved = resolve_annotation(type_str, env)
         env = Env.smart_put(env, "__annotations__", Map.put(annotations, name, resolved))
-        ctx = Ctx.record(ctx, :assign, {name, value})
         {value, Env.smart_put(env, name, value), ctx}
     end
   end
@@ -406,7 +396,6 @@ defmodule Pyex.Interpreter do
       {value, env, ctx} ->
         {env, ctx} =
           Enum.reduce(names, {env, ctx}, fn name, {env, ctx} ->
-            ctx = Ctx.record(ctx, :assign, {name, value})
             {Env.smart_put(env, name, value), ctx}
           end)
 
@@ -420,11 +409,10 @@ defmodule Pyex.Interpreter do
         {signal, env, ctx}
 
       {values, env, ctx} ->
-        case unpack_iterable_safe(values, names) do
+        case unpack_iterable_safe(Enum.reverse(values), names) do
           {:ok, pairs} ->
             {env, ctx} =
               Enum.reduce(pairs, {env, ctx}, fn {name, val}, {env, ctx} ->
-                ctx = Ctx.record(ctx, :assign, {name, val})
                 {Env.smart_put(env, name, val), ctx}
               end)
 
@@ -477,6 +465,11 @@ defmodule Pyex.Interpreter do
       case container do
         %{} = map ->
           updated = Map.put(map, key, val)
+          setattr_nested(target_expr, updated, env, ctx)
+
+        {:py_list, reversed, len} when is_integer(key) ->
+          real_idx = if key < 0, do: len + key, else: key
+          updated = {:py_list, List.replace_at(reversed, len - 1 - real_idx, val), len}
           setattr_nested(target_expr, updated, env, ctx)
 
         list when is_list(list) and is_integer(key) ->
@@ -576,12 +569,15 @@ defmodule Pyex.Interpreter do
       case container do
         %{} = map ->
           updated = Map.put(map, key, val)
-          ctx = Ctx.record(ctx, :assign, {name, :subscript})
+          {val, Env.put_at_source(env, name, updated), ctx}
+
+        {:py_list, reversed, len} when is_integer(key) ->
+          real_idx = if key < 0, do: len + key, else: key
+          updated = {:py_list, List.replace_at(reversed, len - 1 - real_idx, val), len}
           {val, Env.put_at_source(env, name, updated), ctx}
 
         list when is_list(list) and is_integer(key) ->
           updated = List.replace_at(list, key, val)
-          ctx = Ctx.record(ctx, :assign, {name, :subscript})
           {val, Env.put_at_source(env, name, updated), ctx}
 
         {:instance, _, _} = inst ->
@@ -716,7 +712,6 @@ defmodule Pyex.Interpreter do
 
       case Import.resolve_module(module_name, env, ctx) do
         {:ok, module_value, ctx} ->
-          ctx = Ctx.record(ctx, :assign, {bind_as, :module})
           {:cont, {nil, Env.put(env, bind_as, module_value), ctx}}
 
         {:import_error, msg, ctx} ->
@@ -739,7 +734,6 @@ defmodule Pyex.Interpreter do
 
           case Map.fetch(module_value, name) do
             {:ok, value} ->
-              ctx = Ctx.record(ctx, :assign, {bind_as, :from_import})
               {:cont, {nil, Env.put(env, bind_as, value), ctx}}
 
             :error ->
@@ -842,6 +836,20 @@ defmodule Pyex.Interpreter do
 
           {key, env, ctx} ->
             {nil, Env.put(env, var_name, Map.delete(obj, key)), ctx}
+        end
+
+      {:ok, {:py_list, reversed, len}} ->
+        case eval(key_expr, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {signal, env, ctx}
+
+          {idx, env, ctx} when is_integer(idx) ->
+            real_idx = if idx < 0, do: len + idx, else: idx
+            new_reversed = List.delete_at(reversed, len - 1 - real_idx)
+            {nil, Env.put(env, var_name, {:py_list, new_reversed, len - 1}), ctx}
+
+          {_, env, ctx} ->
+            {{:exception, "TypeError: list indices must be integers"}, env, ctx}
         end
 
       {:ok, obj} when is_list(obj) ->
@@ -1132,7 +1140,8 @@ defmodule Pyex.Interpreter do
   def eval({:tuple, _, [elements]}, env, ctx) do
     case eval_list(elements, env, ctx) do
       {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-      {values, env, ctx} -> {{:tuple, values}, env, ctx}
+      # eval_list returns reversed order, so reverse back for tuples
+      {values, env, ctx} -> {{:tuple, Enum.reverse(values)}, env, ctx}
     end
   end
 
@@ -1154,8 +1163,12 @@ defmodule Pyex.Interpreter do
 
   def eval({:list_comp, _, [expr, clauses]}, env, ctx) do
     case eval_comp_clauses(:list, expr, clauses, [], env, ctx) do
-      {result, env, ctx} when is_list(result) -> {Enum.reverse(result), env, ctx}
-      other -> other
+      {result, env, ctx} when is_list(result) ->
+        items = Enum.reverse(result)
+        {{:py_list, Enum.reverse(items), length(items)}, env, ctx}
+
+      other ->
+        other
     end
   end
 
@@ -1178,7 +1191,11 @@ defmodule Pyex.Interpreter do
   end
 
   def eval({:list, _, [elements]}, env, ctx) do
-    eval_list(elements, env, ctx)
+    case eval_list(elements, env, ctx) do
+      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+      # Store in reverse order for O(1) append
+      {values, env, ctx} -> {{:py_list, values, length(values)}, env, ctx}
+    end
   end
 
   def eval({:dict, _, [entries]}, env, ctx) do
@@ -1378,16 +1395,16 @@ defmodule Pyex.Interpreter do
   defp init_profile(%Ctx{profile: nil} = ctx), do: ctx
 
   defp init_profile(%Ctx{} = ctx) do
-    %{ctx | profile: %{line_counts: %{}, call_counts: %{}, call_us: %{}}}
+    %{ctx | profile: %{line_counts: %{}, call_counts: %{}, call: %{}}}
   end
 
-  @spec profile_record_call(Ctx.t(), String.t(), non_neg_integer()) :: Ctx.t()
-  defp profile_record_call(%Ctx{profile: nil} = ctx, _name, _elapsed_us), do: ctx
+  @spec profile_record_call(Ctx.t(), String.t(), float()) :: Ctx.t()
+  defp profile_record_call(%Ctx{profile: nil} = ctx, _name, _elapsed_ms), do: ctx
 
-  defp profile_record_call(%Ctx{profile: profile} = ctx, name, elapsed_us) do
+  defp profile_record_call(%Ctx{profile: profile} = ctx, name, elapsed_ms) do
     call_counts = Map.update(profile.call_counts, name, 1, &(&1 + 1))
-    call_us = Map.update(profile.call_us, name, elapsed_us, &(&1 + elapsed_us))
-    %{ctx | profile: %{profile | call_counts: call_counts, call_us: call_us}}
+    call = Map.update(profile.call, name, elapsed_ms, &(&1 + elapsed_ms))
+    %{ctx | profile: %{profile | call_counts: call_counts, call: call}}
   end
 
   @spec track_line(Parser.ast_node(), Ctx.t()) :: Ctx.t()
@@ -1447,11 +1464,7 @@ defmodule Pyex.Interpreter do
     if ctx.call_depth >= ctx.max_call_depth do
       {{:exception, "RecursionError: maximum recursion depth exceeded"}, env, ctx}
     else
-      ctx =
-        %{
-          Ctx.record(ctx, :call_enter, {length(args) + map_size(kwargs)})
-          | call_depth: ctx.call_depth + 1
-        }
+      ctx = %{ctx | call_depth: ctx.call_depth + 1}
 
       fresh_closure = Env.put_global_scope(closure_env, Env.global_scope(env))
       base_env = Env.push_scope(Env.put(fresh_closure, name, func))
@@ -1472,39 +1485,35 @@ defmodule Pyex.Interpreter do
 
                   case eval_statements(body, call_env, gen_ctx) do
                     {{:yielded, val, cont}, gen_env, gen_ctx} ->
-                      ctx =
-                        Ctx.record(
-                          %{
-                            ctx
-                            | compute_ns: gen_ctx.compute_ns,
-                              compute_started_at: gen_ctx.compute_started_at
-                          },
-                          :call_exit,
-                          {:generator}
-                        )
+                      ctx = %{
+                        ctx
+                        | compute: gen_ctx.compute,
+                          compute_started_at: gen_ctx.compute_started_at,
+                          event_count: gen_ctx.event_count,
+                          file_ops: gen_ctx.file_ops
+                      }
 
                       {{:generator_suspended, val, cont, gen_env}, env, ctx}
 
                     {{:exception, _} = signal, _post_env, gen_ctx} ->
                       ctx = %{
                         ctx
-                        | compute_ns: gen_ctx.compute_ns,
-                          compute_started_at: gen_ctx.compute_started_at
+                        | compute: gen_ctx.compute,
+                          compute_started_at: gen_ctx.compute_started_at,
+                          event_count: gen_ctx.event_count,
+                          file_ops: gen_ctx.file_ops
                       }
 
                       {signal, env, ctx}
 
                     {_, _post_env, gen_ctx} ->
-                      ctx =
-                        Ctx.record(
-                          %{
-                            ctx
-                            | compute_ns: gen_ctx.compute_ns,
-                              compute_started_at: gen_ctx.compute_started_at
-                          },
-                          :call_exit,
-                          {:generator}
-                        )
+                      ctx = %{
+                        ctx
+                        | compute: gen_ctx.compute,
+                          compute_started_at: gen_ctx.compute_started_at,
+                          event_count: gen_ctx.event_count,
+                          file_ops: gen_ctx.file_ops
+                      }
 
                       {{:generator, []}, env, ctx}
                   end
@@ -1515,18 +1524,15 @@ defmodule Pyex.Interpreter do
                   {result, _post_call_env, gen_ctx} = eval_statements(body, call_env, gen_ctx)
                   yields = Enum.reverse(gen_ctx.generator_acc || [])
 
-                  ctx =
-                    Ctx.record(
-                      %{
-                        ctx
-                        | compute_ns: gen_ctx.compute_ns,
-                          compute_started_at: gen_ctx.compute_started_at,
-                          generator_mode: ctx.generator_mode,
-                          generator_acc: prev_acc
-                      },
-                      :call_exit,
-                      {:generator}
-                    )
+                  ctx = %{
+                    ctx
+                    | compute: gen_ctx.compute,
+                      compute_started_at: gen_ctx.compute_started_at,
+                      generator_mode: ctx.generator_mode,
+                      generator_acc: prev_acc,
+                      event_count: gen_ctx.event_count,
+                      file_ops: gen_ctx.file_ops
+                  }
 
                   case result do
                     {:exception, "TimeoutError:" <> _ = msg} ->
@@ -1543,7 +1549,6 @@ defmodule Pyex.Interpreter do
               {result, post_call_env, ctx} = eval_statements(body, call_env, ctx)
               env = Env.propagate_scopes(env, fresh_closure, post_call_env)
               return_val = Helpers.unwrap(result)
-              ctx = Ctx.record(ctx, :call_exit, {return_val})
 
               if Helpers.has_scope_declarations?(post_call_env) do
                 return_val = Helpers.refresh_closure(return_val, post_call_env)
@@ -1557,8 +1562,9 @@ defmodule Pyex.Interpreter do
 
           result =
             if t0 do
-              elapsed = System.monotonic_time(:microsecond) - t0
-              update_profile_in_result(result, name, elapsed)
+              elapsed_us = System.monotonic_time(:microsecond) - t0
+              elapsed_ms = elapsed_us / 1000.0
+              update_profile_in_result(result, name, elapsed_ms)
             else
               result
             end
@@ -1591,7 +1597,6 @@ defmodule Pyex.Interpreter do
         {result, env, ctx}
 
       {:mutate, new_object, return_value} ->
-        ctx = Ctx.record(ctx, :side_effect, {:mutate})
         {:mutate, new_object, return_value, ctx}
 
       {:method_call, instance, func, method_args} ->
@@ -1760,7 +1765,6 @@ defmodule Pyex.Interpreter do
         {signal, env, ctx}
 
       value ->
-        ctx = Ctx.record(ctx, :side_effect, {:builtin_call, value})
         {value, env, ctx}
     end
   end
@@ -1786,7 +1790,6 @@ defmodule Pyex.Interpreter do
         {signal, env, ctx}
 
       {:mutate, new_object, return_value} ->
-        ctx = Ctx.record(ctx, :side_effect, {:mutate})
         {:mutate, new_object, return_value, ctx}
 
       {:io_call, io_fun} ->
@@ -1838,7 +1841,6 @@ defmodule Pyex.Interpreter do
         Iteration.eval_filterfalse(predicate, items, env, ctx)
 
       result ->
-        ctx = Ctx.record(ctx, :side_effect, {:builtin_call, result})
         {result, env, ctx}
     end
   end
@@ -1900,7 +1902,6 @@ defmodule Pyex.Interpreter do
 
   def call_function({:class, name, _bases, _class_attrs} = class, args, kwargs, env, ctx) do
     instance = {:instance, class, %{}}
-    ctx = Ctx.record(ctx, :call_enter, {length(args)})
 
     case resolve_class_attr_with_owner(class, "__init__") do
       {:ok, {:function, init_name, params, body, closure_env}, defining_class} ->
@@ -1929,7 +1930,6 @@ defmodule Pyex.Interpreter do
                     _ -> instance
                   end
 
-                ctx = Ctx.record(ctx, :call_exit, {final_self})
                 {final_self, env, ctx}
             end
         end
@@ -1937,7 +1937,6 @@ defmodule Pyex.Interpreter do
       {:ok, {:builtin_kw, fun}, _defining_class} ->
         case fun.([instance | args], kwargs) do
           {:instance, _, _} = updated_instance ->
-            ctx = Ctx.record(ctx, :call_exit, {updated_instance})
             {updated_instance, env, ctx}
 
           {:exception, _} = signal ->
@@ -1946,7 +1945,6 @@ defmodule Pyex.Interpreter do
 
       :error ->
         if args == [] do
-          ctx = Ctx.record(ctx, :call_exit, {instance})
           {instance, env, ctx}
         else
           {{:exception, "TypeError: #{name}() takes 0 arguments but #{length(args)} were given"},
@@ -1970,13 +1968,13 @@ defmodule Pyex.Interpreter do
     {{:exception, "TypeError: '#{Helpers.py_type(val)}' object is not callable"}, env, ctx}
   end
 
-  @spec update_profile_in_result(call_result(), String.t(), non_neg_integer()) :: call_result()
-  defp update_profile_in_result({val, env, ctx}, name, elapsed_us) do
-    {val, env, profile_record_call(ctx, name, elapsed_us)}
+  @spec update_profile_in_result(call_result(), String.t(), float()) :: call_result()
+  defp update_profile_in_result({val, env, ctx}, name, elapsed_ms) do
+    {val, env, profile_record_call(ctx, name, elapsed_ms)}
   end
 
-  defp update_profile_in_result({val, env, ctx, extra}, name, elapsed_us) do
-    {val, env, profile_record_call(ctx, name, elapsed_us), extra}
+  defp update_profile_in_result({val, env, ctx, extra}, name, elapsed_ms) do
+    {val, env, profile_record_call(ctx, name, elapsed_ms), extra}
   end
 
   @spec call_bound_method(
@@ -2010,7 +2008,6 @@ defmodule Pyex.Interpreter do
         {{:exception, msg}, env, ctx}
 
       {call_env, ctx} ->
-        ctx = Ctx.record(ctx, :call_enter, {length(method_args)})
         {result, post_call_env, ctx} = eval_statements(body, call_env, ctx)
         env = Env.propagate_scopes(env, fresh_closure, post_call_env)
         return_val = Helpers.unwrap(result)
@@ -2021,7 +2018,6 @@ defmodule Pyex.Interpreter do
             _ -> instance
           end
 
-        ctx = Ctx.record(ctx, :call_exit, {return_val})
         {:mutate, updated_self, return_val, env, ctx}
     end
   end
@@ -2184,7 +2180,8 @@ defmodule Pyex.Interpreter do
       end
     end)
     |> case do
-      {values, env, ctx} when is_list(values) -> {Enum.reverse(values), env, ctx}
+      # Return reversed list (stored in reverse order for O(1) append)
+      {values, env, ctx} when is_list(values) -> {values, env, ctx}
       {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
     end
   end
@@ -2197,7 +2194,6 @@ defmodule Pyex.Interpreter do
   defp eval_if_clauses([], env, ctx), do: {nil, env, ctx}
 
   defp eval_if_clauses([{:else, body} | _], env, ctx) do
-    ctx = Ctx.record(ctx, :branch, {:else})
     eval_statements(body, env, ctx)
   end
 
@@ -2208,7 +2204,6 @@ defmodule Pyex.Interpreter do
 
       {value, env, ctx} ->
         {taken, env, ctx} = eval_truthy(value, env, ctx)
-        ctx = Ctx.record(ctx, :branch, {:if, taken})
 
         if taken do
           eval_statements(body, env, ctx)
@@ -2242,7 +2237,6 @@ defmodule Pyex.Interpreter do
 
       {value, env, ctx} ->
         {taken, env, ctx} = eval_truthy(value, env, ctx)
-        ctx = Ctx.record(ctx, :loop_iter, {:while, taken})
 
         if taken do
           case eval_statements(body, env, ctx) do
@@ -2289,12 +2283,12 @@ defmodule Pyex.Interpreter do
         {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
 
       :ok ->
+        ctx = Ctx.record(ctx, :loop, nil)
+
         case unpack_for_item(var_names, item) do
           {:ok, bindings} ->
             env =
               Enum.reduce(bindings, env, fn {name, val}, env -> Env.smart_put(env, name, val) end)
-
-            ctx = Ctx.record(ctx, :loop_iter, {:for, var_names, item})
 
             case eval_statements(body, env, ctx) do
               {{:returned, _} = signal, env, ctx} ->
@@ -2329,8 +2323,8 @@ defmodule Pyex.Interpreter do
         {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
 
       :ok ->
+        ctx = Ctx.record(ctx, :loop, nil)
         env = Env.smart_put(env, var_name, item)
-        ctx = Ctx.record(ctx, :loop_iter, {:for, var_name, item})
 
         case eval_statements(body, env, ctx) do
           {{:returned, _} = signal, env, ctx} ->
@@ -2377,6 +2371,10 @@ defmodule Pyex.Interpreter do
   @spec unpack_for_item([String.t()], pyvalue()) ::
           {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
   defp unpack_for_item(names, {:tuple, items}), do: unpack_for_list(names, items)
+
+  defp unpack_for_item(names, {:py_list, reversed, _}),
+    do: unpack_for_list(names, Enum.reverse(reversed))
+
   defp unpack_for_item(names, items) when is_list(items), do: unpack_for_list(names, items)
 
   defp unpack_for_item(_names, val),
@@ -2405,7 +2403,6 @@ defmodule Pyex.Interpreter do
     result =
       case eval_statements(body, env, ctx) do
         {{:exception, msg}, body_env, ctx} ->
-          ctx = Ctx.record(ctx, :exception, {msg})
           match_handler(handlers, msg, body_env, ctx)
 
         {val, env, ctx} ->
@@ -2486,6 +2483,24 @@ defmodule Pyex.Interpreter do
     case object do
       %{^key => value} ->
         {value, env, ctx}
+
+      {:py_list, reversed, len} when is_integer(key) ->
+        # Transform Python index to storage index
+        # Python index i = storage index (len-1-i)
+        # Python index -1 (last) = storage index 0 (first in reversed)
+        index =
+          if key < 0 do
+            # Python negative: -1 → 0, -2 → 1, etc.
+            -key - 1
+          else
+            len - 1 - key
+          end
+
+        if key < -len or key >= len do
+          {{:exception, "IndexError: list index out of range"}, env, ctx}
+        else
+          {Enum.at(reversed, index), env, ctx}
+        end
 
       list when is_list(list) and is_integer(key) ->
         len = length(list)
@@ -2600,6 +2615,16 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  defp get_subscript_value({:py_list, reversed, len}, key) when is_integer(key) do
+    idx = if key < 0, do: len + key, else: key
+
+    if idx < 0 or idx >= len do
+      {:exception, "IndexError: list index out of range"}
+    else
+      Enum.at(reversed, len - 1 - idx)
+    end
+  end
+
   defp get_subscript_value(obj, key) when is_list(obj) and is_integer(key) do
     len = length(obj)
     idx = if key < 0, do: len + key, else: key
@@ -2616,6 +2641,12 @@ defmodule Pyex.Interpreter do
   @spec set_subscript_value(pyvalue(), pyvalue(), pyvalue()) :: pyvalue()
   defp set_subscript_value(obj, key, val) when is_map(obj), do: Map.put(obj, key, val)
 
+  defp set_subscript_value({:py_list, reversed, len}, key, val) when is_integer(key) do
+    idx = if key < 0, do: len + key, else: key
+    new_reversed = List.replace_at(reversed, len - 1 - idx, val)
+    {:py_list, new_reversed, len}
+  end
+
   defp set_subscript_value(obj, key, val) when is_list(obj) and is_integer(key) do
     idx = if key < 0, do: length(obj) + key, else: key
     List.replace_at(obj, idx, val)
@@ -2624,6 +2655,12 @@ defmodule Pyex.Interpreter do
   @spec eval_slice(pyvalue(), pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
   defp eval_slice(object, start, stop, step, env, ctx) do
     case object do
+      {:py_list, reversed, _} ->
+        case py_slice(Enum.reverse(reversed), start, stop, step) do
+          {:exception, msg} -> {{:exception, msg}, env, ctx}
+          result -> {{:py_list, Enum.reverse(result), length(result)}, env, ctx}
+        end
+
       list when is_list(list) ->
         case py_slice(list, start, stop, step) do
           {:exception, msg} -> {{:exception, msg}, env, ctx}
@@ -2809,6 +2846,7 @@ defmodule Pyex.Interpreter do
 
   @spec unhashable?(pyvalue()) :: boolean()
   defp unhashable?(val) when is_list(val), do: true
+  defp unhashable?({:py_list, _, _}), do: true
   defp unhashable?({:set, _}), do: true
   defp unhashable?(_), do: false
 
@@ -2845,7 +2883,8 @@ defmodule Pyex.Interpreter do
           {{:exception, _} = signal, env, ctx} ->
             {signal, env, ctx}
 
-          {values, env, ctx} ->
+          {rev_values, env, ctx} ->
+            values = Enum.reverse(rev_values)
             msg = format_exc_msg(exc_name, values)
 
             case call_function(class, values, %{}, env, ctx) do
@@ -2865,7 +2904,8 @@ defmodule Pyex.Interpreter do
           {{:exception, _} = signal, env, ctx} ->
             {signal, env, ctx}
 
-          {values, env, ctx} ->
+          {rev_values, env, ctx} ->
+            values = Enum.reverse(rev_values)
             msg = format_exc_msg(exc_name, values)
             {{:exception, msg}, env, ctx}
         end
@@ -2955,6 +2995,9 @@ defmodule Pyex.Interpreter do
 
   @spec to_iterable(pyvalue(), Env.t(), Ctx.t()) ::
           {:ok, [pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
+  defp to_iterable({:py_list, reversed, _len}, env, ctx),
+    do: {:ok, Enum.reverse(reversed), env, ctx}
+
   defp to_iterable(list, env, ctx) when is_list(list), do: {:ok, list, env, ctx}
   defp to_iterable(str, env, ctx) when is_binary(str), do: {:ok, String.codepoints(str), env, ctx}
 
@@ -3025,6 +3068,9 @@ defmodule Pyex.Interpreter do
           {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
   defp unpack_iterable_safe([single], names) do
     case single do
+      {:py_list, reversed, _} ->
+        check_unpack_length(Enum.reverse(reversed), names)
+
       list when is_list(list) ->
         check_unpack_length(list, names)
 
@@ -3321,6 +3367,22 @@ defmodule Pyex.Interpreter do
   defp safe_binop(op, l, r), do: safe_binop_dispatch(op, l, r)
 
   defp safe_binop_dispatch(:plus, l, r) when is_binary(l) and is_binary(r), do: l <> r
+
+  defp safe_binop_dispatch(:plus, {:py_list, lr, ll}, {:py_list, rr, rl}) do
+    items = Enum.reverse(lr) ++ Enum.reverse(rr)
+    {:py_list, Enum.reverse(items), ll + rl}
+  end
+
+  defp safe_binop_dispatch(:plus, {:py_list, lr, ll}, r) when is_list(r) do
+    items = Enum.reverse(lr) ++ r
+    {:py_list, Enum.reverse(items), ll + length(r)}
+  end
+
+  defp safe_binop_dispatch(:plus, l, {:py_list, rr, rl}) when is_list(l) do
+    items = l ++ Enum.reverse(rr)
+    {:py_list, Enum.reverse(items), length(l) + rl}
+  end
+
   defp safe_binop_dispatch(:plus, l, r) when is_list(l) and is_list(r), do: l ++ r
   defp safe_binop_dispatch(:plus, {:tuple, l}, {:tuple, r}), do: {:tuple, l ++ r}
   defp safe_binop_dispatch(:plus, l, r) when is_number(l) and is_number(r), do: l + r
@@ -3367,6 +3429,20 @@ defmodule Pyex.Interpreter do
 
   defp safe_binop_dispatch(:star, l, r) when is_list(l) and is_integer(r),
     do: Helpers.repeat_list(l, r)
+
+  defp safe_binop_dispatch(:star, {:py_list, reversed, len}, r) when is_integer(r) do
+    case Helpers.repeat_list(Enum.reverse(reversed), r) do
+      {:exception, _} = err -> err
+      items -> {:py_list, Enum.reverse(items), len * max(r, 0)}
+    end
+  end
+
+  defp safe_binop_dispatch(:star, l, {:py_list, reversed, len}) when is_integer(l) do
+    case Helpers.repeat_list(Enum.reverse(reversed), l) do
+      {:exception, _} = err -> err
+      items -> {:py_list, Enum.reverse(items), len * max(l, 0)}
+    end
+  end
 
   defp safe_binop_dispatch(:star, {:tuple, items}, r) when is_integer(r) do
     case Helpers.repeat_list(items, r) do
@@ -3460,13 +3536,33 @@ defmodule Pyex.Interpreter do
       {:exception,
        "TypeError: unsupported operand type(s) for **: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
 
+  defp safe_binop_dispatch(:eq, {:py_list, lr, _}, {:py_list, rr, _}),
+    do: Enum.reverse(lr) == Enum.reverse(rr)
+
+  defp safe_binop_dispatch(:eq, {:py_list, reversed, _}, r) when is_list(r),
+    do: Enum.reverse(reversed) == r
+
+  defp safe_binop_dispatch(:eq, l, {:py_list, reversed, _}) when is_list(l),
+    do: l == Enum.reverse(reversed)
+
   defp safe_binop_dispatch(:eq, l, r), do: l == r
+
+  defp safe_binop_dispatch(:neq, {:py_list, lr, _}, {:py_list, rr, _}),
+    do: Enum.reverse(lr) != Enum.reverse(rr)
+
+  defp safe_binop_dispatch(:neq, {:py_list, reversed, _}, r) when is_list(r),
+    do: Enum.reverse(reversed) != r
+
+  defp safe_binop_dispatch(:neq, l, {:py_list, reversed, _}) when is_list(l),
+    do: l != Enum.reverse(reversed)
+
   defp safe_binop_dispatch(:neq, l, r), do: l != r
   defp safe_binop_dispatch(:lt, l, r), do: ordering_compare(:lt, l, r)
   defp safe_binop_dispatch(:gt, l, r), do: ordering_compare(:gt, l, r)
   defp safe_binop_dispatch(:lte, l, r), do: ordering_compare(:lte, l, r)
   defp safe_binop_dispatch(:gte, l, r), do: ordering_compare(:gte, l, r)
   defp safe_binop_dispatch(:in, l, {:tuple, items}), do: l in items
+  defp safe_binop_dispatch(:in, l, {:py_list, reversed, _}), do: l in reversed
   defp safe_binop_dispatch(:in, l, r) when is_list(r), do: l in r
 
   defp safe_binop_dispatch(:in, l, r) when is_binary(l) and is_binary(r),
@@ -3579,6 +3675,16 @@ defmodule Pyex.Interpreter do
   defp ordering_compare(op, l, r) when is_number(l) and is_number(r), do: ord_cmp(op, l, r)
   defp ordering_compare(op, l, r) when is_binary(l) and is_binary(r), do: ord_cmp(op, l, r)
   defp ordering_compare(op, l, r) when is_list(l) and is_list(r), do: ord_cmp(op, l, r)
+
+  defp ordering_compare(op, {:py_list, lr, _}, {:py_list, rr, _}),
+    do: ord_cmp(op, Enum.reverse(lr), Enum.reverse(rr))
+
+  defp ordering_compare(op, {:py_list, lr, _}, r) when is_list(r),
+    do: ord_cmp(op, Enum.reverse(lr), r)
+
+  defp ordering_compare(op, l, {:py_list, rr, _}) when is_list(l),
+    do: ord_cmp(op, l, Enum.reverse(rr))
+
   defp ordering_compare(op, {:tuple, a}, {:tuple, b}), do: ord_cmp(op, a, b)
 
   defp ordering_compare(op, l, r) when is_boolean(l) and is_number(r),

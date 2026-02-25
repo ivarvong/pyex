@@ -14,7 +14,7 @@ defmodule Pyex.PropertyTest do
   @timeout_ctx Ctx.new(timeout_ms: 200)
 
   defp fresh_ctx do
-    %{@timeout_ctx | compute_ns: 0, compute_started_at: System.monotonic_time(:nanosecond)}
+    %{@timeout_ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
   end
 
   defp assert_no_crash(result) do
@@ -304,8 +304,8 @@ defmodule Pyex.PropertyTest do
              {:ok, ast} <- Parser.parse(tokens) do
           ctx = %{
             @timeout_ctx
-            | compute_ns: 0,
-              compute_started_at: System.monotonic_time(:nanosecond)
+            | compute: 0.0,
+              compute_started_at: System.monotonic_time()
           }
 
           result = Interpreter.run_with_ctx(ast, Builtins.env(), ctx)

@@ -36,6 +36,13 @@ defmodule Pyex.Stdlib.Random do
 
   @spec do_choice([Pyex.Interpreter.pyvalue()]) ::
           Pyex.Interpreter.pyvalue() | {:exception, String.t()}
+  defp do_choice([{:py_list, _, 0}]),
+    do: {:exception, "IndexError: Cannot choose from an empty sequence"}
+
+  defp do_choice([{:py_list, reversed, _len}]) do
+    Enum.random(reversed)
+  end
+
   defp do_choice([list]) when is_list(list) and list != [] do
     Enum.random(list)
   end
@@ -47,7 +54,12 @@ defmodule Pyex.Stdlib.Random do
     str |> String.codepoints() |> Enum.random()
   end
 
-  @spec do_shuffle([Pyex.Interpreter.pyvalue()]) :: [Pyex.Interpreter.pyvalue()]
+  @spec do_shuffle([Pyex.Interpreter.pyvalue()]) ::
+          Pyex.Interpreter.pyvalue() | {:exception, String.t()}
+  defp do_shuffle([{:py_list, reversed, len}]) do
+    {:py_list, Enum.shuffle(reversed), len}
+  end
+
   defp do_shuffle([list]) when is_list(list), do: Enum.shuffle(list)
 
   @spec do_uniform([Pyex.Interpreter.pyvalue()]) :: float()
@@ -71,7 +83,16 @@ defmodule Pyex.Stdlib.Random do
   end
 
   @spec do_sample([Pyex.Interpreter.pyvalue()]) ::
-          [Pyex.Interpreter.pyvalue()] | {:exception, String.t()}
+          Pyex.Interpreter.pyvalue() | {:exception, String.t()}
+  defp do_sample([{:py_list, reversed, len}, k]) when is_integer(k) and k >= 0 do
+    if k > len do
+      {:exception, "ValueError: Sample larger than population"}
+    else
+      sampled = Enum.take_random(reversed, k)
+      {:py_list, sampled, length(sampled)}
+    end
+  end
+
   defp do_sample([list, k]) when is_list(list) and is_integer(k) and k >= 0 do
     if k > length(list) do
       {:exception, "ValueError: Sample larger than population"}

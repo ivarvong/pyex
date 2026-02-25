@@ -257,6 +257,10 @@ defmodule Pyex.Stdlib.Pydantic do
     end
   end
 
+  defp coerce({:py_list, reversed, _}, "List[" <> rest, class) do
+    coerce(Enum.reverse(reversed), "List[" <> rest, class)
+  end
+
   defp coerce(value, "List[" <> rest, class) do
     inner = String.trim_trailing(rest, "]")
 

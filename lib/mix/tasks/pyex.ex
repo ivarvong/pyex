@@ -29,11 +29,7 @@ defmodule Mix.Tasks.Pyex do
 
     case File.read(path) do
       {:ok, code} ->
-        env =
-          System.get_env()
-          |> Map.new(fn {k, v} -> {k, v} end)
-
-        ctx = Pyex.Ctx.new(env: env)
+        ctx = Pyex.Ctx.new()
 
         case Pyex.run(code, ctx) do
           {:ok, nil, _ctx} ->

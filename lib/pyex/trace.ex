@@ -159,7 +159,7 @@ defmodule Pyex.Trace do
   @spec build_attrs(atom(), map()) :: map()
   defp build_attrs(:run, meta) do
     meta
-    |> Map.take([:compute_us])
+    |> Map.take([:compute])
     |> Map.new(fn {k, v} -> {"pyex.#{k}", v} end)
   end
 
@@ -225,21 +225,21 @@ defmodule Pyex.Trace do
 
     run_span = Enum.find(spans, &(&1.name == "pyex.run"))
 
-    compute_us =
+    compute_ms =
       case run_span do
-        %{attrs: %{"pyex.compute_us" => us}} when is_integer(us) -> us
+        %{attrs: %{"pyex.compute" => ms}} when is_integer(ms) -> ms
         _ -> nil
       end
 
     cond do
-      run_span != nil and compute_us != nil ->
+      run_span != nil and compute_ms != nil ->
         wall_us = run_span.duration_us
 
         io_part =
           if io_us > 0, do: " · io #{format_duration_raw(io_us)}", else: ""
 
         IO.puts(
-          "\e[36m── compute #{format_duration_raw(compute_us)}" <>
+          "\e[36m── compute #{format_duration_raw(compute_ms * 1000)}" <>
             "#{io_part} · wall #{format_duration_raw(wall_us)} ──\e[0m"
         )
 

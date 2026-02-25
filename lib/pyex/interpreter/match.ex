@@ -39,14 +39,12 @@ defmodule Pyex.Interpreter.Match do
               {taken, env, ctx} = Interpreter.eval_truthy(guard_val, env, ctx)
 
               if taken do
-                ctx = Ctx.record(ctx, :branch, {:match, true})
                 Interpreter.eval_statements(body, env, ctx)
               else
                 eval_match_cases(subject, rest, env, ctx)
               end
           end
         else
-          ctx = Ctx.record(ctx, :branch, {:match, true})
           Interpreter.eval_statements(body, env, ctx)
         end
 
@@ -77,6 +75,7 @@ defmodule Pyex.Interpreter.Match do
   defp match_pattern(subject, {:match_sequence, _, patterns}, env, ctx) do
     items =
       case subject do
+        {:py_list, reversed, _} -> Enum.reverse(reversed)
         list when is_list(list) -> list
         {:tuple, elems} -> elems
         _ -> nil

@@ -868,4 +868,113 @@ defmodule Pyex.Stdlib.DatetimeTest do
       assert result == "Duration: 2 days, 5:30:00"
     end
   end
+
+  describe "datetime.datetime.fromtimestamp" do
+    test "known unix timestamp returns correct datetime" do
+      result =
+        Pyex.run!("""
+        import datetime
+        dt = datetime.datetime.fromtimestamp(0)
+        [dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second]
+        """)
+
+      assert result == [1970, 1, 1, 0, 0, 0]
+    end
+
+    test "integer seconds" do
+      result =
+        Pyex.run!("""
+        import datetime
+        dt = datetime.datetime.fromtimestamp(1700000000)
+        dt.year >= 2023
+        """)
+
+      assert result == true
+    end
+
+    test "float seconds with sub-second precision" do
+      result =
+        Pyex.run!("""
+        import datetime
+        dt = datetime.datetime.fromtimestamp(1700000000.5)
+        dt.year >= 2023
+        """)
+
+      assert result == true
+    end
+
+    test "roundtrip: fromtimestamp(timestamp()) == original" do
+      result =
+        Pyex.run!("""
+        import datetime
+        original = datetime.datetime(2024, 6, 15, 12, 30, 45)
+        ts = original.timestamp()
+        recovered = datetime.datetime.fromtimestamp(ts)
+        [recovered.year, recovered.month, recovered.day,
+         recovered.hour, recovered.minute, recovered.second]
+        """)
+
+      assert result == [2024, 6, 15, 12, 30, 45]
+    end
+
+    test "type error on non-number" do
+      result =
+        Pyex.run("""
+        import datetime
+        datetime.datetime.fromtimestamp("not a number")
+        """)
+
+      assert {:error, %Pyex.Error{kind: :python}} = result
+    end
+  end
+
+  describe "datetime.datetime.utcfromtimestamp" do
+    test "epoch returns 1970-01-01T00:00:00" do
+      result =
+        Pyex.run!("""
+        import datetime
+        dt = datetime.datetime.utcfromtimestamp(0)
+        [dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second]
+        """)
+
+      assert result == [1970, 1, 1, 0, 0, 0]
+    end
+
+    test "matches fromtimestamp for UTC timestamps" do
+      result =
+        Pyex.run!("""
+        import datetime
+        ts = 1700000000
+        dt1 = datetime.datetime.fromtimestamp(ts)
+        dt2 = datetime.datetime.utcfromtimestamp(ts)
+        dt1 == dt2
+        """)
+
+      assert result == true
+    end
+
+    test "roundtrip via utcfromtimestamp" do
+      result =
+        Pyex.run!("""
+        import datetime
+        original = datetime.datetime(2023, 11, 14, 22, 13, 20)
+        ts = original.timestamp()
+        recovered = datetime.datetime.utcfromtimestamp(ts)
+        str(recovered)
+        """)
+
+      assert result == "2023-11-14T22:13:20"
+    end
+
+    test "from datetime import works for both methods" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime.utcfromtimestamp(0)
+        dt.isoformat()
+        """)
+
+      assert result == "1970-01-01T00:00:00"
+    end
+  end
 end

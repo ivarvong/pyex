@@ -31,6 +31,15 @@ defmodule Pyex.Stdlib.Collections do
     counter_with_methods(%{})
   end
 
+  defp counter([{:py_list, reversed, _}]) do
+    counts =
+      Enum.reduce(reversed, %{}, fn item, acc ->
+        Map.update(acc, item, 1, &(&1 + 1))
+      end)
+
+    counter_with_methods(counts)
+  end
+
   defp counter([list]) when is_list(list) do
     counts =
       Enum.reduce(list, %{}, fn item, acc ->
@@ -95,6 +104,27 @@ defmodule Pyex.Stdlib.Collections do
   @spec ordered_dict([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp ordered_dict([]) do
     %{}
+  end
+
+  defp ordered_dict([{:py_list, reversed, _}]) do
+    reversed
+    |> Enum.reverse()
+    |> Enum.reduce(%{}, fn
+      {:tuple, [k, v]}, acc ->
+        Map.put(acc, k, v)
+
+      {:py_list, r, _}, acc ->
+        case Enum.reverse(r) do
+          [k, v] -> Map.put(acc, k, v)
+          _ -> acc
+        end
+
+      [k, v], acc ->
+        Map.put(acc, k, v)
+
+      _, acc ->
+        acc
+    end)
   end
 
   defp ordered_dict([list]) when is_list(list) do

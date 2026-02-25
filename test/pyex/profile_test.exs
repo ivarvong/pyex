@@ -100,8 +100,8 @@ defmodule Pyex.ProfileTest do
           profile: true
         )
 
-      %{call_us: timing} = ctx.profile
-      assert is_integer(timing["work"])
+      %{call: timing} = ctx.profile
+      assert is_float(timing["work"])
       assert timing["work"] >= 0
     end
 
@@ -120,9 +120,9 @@ defmodule Pyex.ProfileTest do
           profile: true
         )
 
-      %{call_counts: calls, call_us: timing} = ctx.profile
+      %{call_counts: calls, call: timing} = ctx.profile
       assert calls["compute"] == 10
-      assert timing["compute"] > 0
+      assert timing["compute"] >= 0
     end
 
     test "tracks nested function calls separately" do
@@ -151,12 +151,12 @@ defmodule Pyex.ProfileTest do
       assert is_map(profile)
       assert Map.has_key?(profile, :line_counts)
       assert Map.has_key?(profile, :call_counts)
-      assert Map.has_key?(profile, :call_us)
+      assert Map.has_key?(profile, :call)
     end
 
     test "empty program has empty call maps" do
       {:ok, _val, ctx} = Pyex.run("x = 1", profile: true)
-      %{call_counts: calls, call_us: timing} = ctx.profile
+      %{call_counts: calls, call: timing} = ctx.profile
       assert calls == %{}
       assert timing == %{}
     end

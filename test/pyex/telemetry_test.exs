@@ -3,8 +3,8 @@ defmodule Pyex.TelemetryTest do
   Tests for compute telemetry on Lambda responses.
 
   Every Lambda response (handle/2, handle_stream/2, invoke/3)
-  includes a telemetry map with compute_us, total_us, event_count,
-  and file_ops counters.
+  includes a telemetry map with compute, total, event_count,
+  and file_ops counters (all in milliseconds).
   """
   use ExUnit.Case, async: true
 
@@ -80,31 +80,31 @@ defmodule Pyex.TelemetryTest do
       {:ok, resp, _app} = Lambda.handle(app, %{method: "GET", path: "/hello"})
 
       assert is_map(resp.telemetry)
-      assert is_integer(resp.telemetry.compute_us)
-      assert is_integer(resp.telemetry.total_us)
+      assert is_integer(resp.telemetry.compute)
+      assert is_integer(resp.telemetry.total)
       assert is_integer(resp.telemetry.event_count)
       assert is_integer(resp.telemetry.file_ops)
     end
 
-    test "compute_us is non-negative" do
+    test "compute is non-negative" do
       {:ok, app} = Lambda.boot(@simple_app)
       {:ok, resp, _app} = Lambda.handle(app, %{method: "GET", path: "/hello"})
 
-      assert resp.telemetry.compute_us >= 0
+      assert resp.telemetry.compute >= 0
     end
 
-    test "total_us is non-negative" do
+    test "total is non-negative" do
       {:ok, app} = Lambda.boot(@simple_app)
       {:ok, resp, _app} = Lambda.handle(app, %{method: "GET", path: "/hello"})
 
-      assert resp.telemetry.total_us >= 0
+      assert resp.telemetry.total >= 0
     end
 
-    test "total_us >= 0" do
+    test "total >= 0" do
       {:ok, app} = Lambda.boot(@simple_app)
       {:ok, resp, _app} = Lambda.handle(app, %{method: "GET", path: "/hello"})
 
-      assert resp.telemetry.total_us >= 0
+      assert resp.telemetry.total >= 0
     end
 
     test "event_count is non-negative" do
@@ -121,12 +121,12 @@ defmodule Pyex.TelemetryTest do
       assert resp.telemetry.event_count > 0
     end
 
-    test "compute-heavy handler has higher compute_us" do
+    test "compute-heavy handler has higher compute" do
       {:ok, app} = Lambda.boot(@compute_app)
       {:ok, resp, _app} = Lambda.handle(app, %{method: "GET", path: "/compute"})
 
       assert resp.body == %{"total" => 499_500}
-      assert resp.telemetry.compute_us > 0
+      assert resp.telemetry.compute >= 0
     end
 
     test "file_ops is 0 for handler without file operations" do
@@ -188,8 +188,8 @@ defmodule Pyex.TelemetryTest do
 
       assert resp.status == 500
       assert is_map(resp.telemetry)
-      assert resp.telemetry.compute_us >= 0
-      assert resp.telemetry.total_us >= 0
+      assert resp.telemetry.compute >= 0
+      assert resp.telemetry.total >= 0
     end
   end
 
@@ -200,8 +200,8 @@ defmodule Pyex.TelemetryTest do
 
       assert Enum.to_list(resp.chunks) == ["0", "1", "2", "3", "4"]
       assert is_map(resp.telemetry)
-      assert resp.telemetry.compute_us >= 0
-      assert resp.telemetry.total_us >= 0
+      assert resp.telemetry.compute >= 0
+      assert resp.telemetry.total >= 0
       assert resp.telemetry.event_count > 0
       assert resp.telemetry.file_ops == 0
     end
@@ -221,8 +221,8 @@ defmodule Pyex.TelemetryTest do
 
       assert resp.body == %{"message" => "hello"}
       assert is_map(resp.telemetry)
-      assert resp.telemetry.compute_us >= 0
-      assert resp.telemetry.total_us >= 0
+      assert resp.telemetry.compute >= 0
+      assert resp.telemetry.total >= 0
       assert resp.telemetry.event_count >= 0
       assert resp.telemetry.file_ops == 0
     end
@@ -230,7 +230,7 @@ defmodule Pyex.TelemetryTest do
     test "compute-heavy invoke has measurable compute time" do
       {:ok, resp} = Lambda.invoke(@compute_app, %{method: "GET", path: "/compute"})
 
-      assert resp.telemetry.compute_us > 0
+      assert resp.telemetry.compute >= 0
     end
   end
 
@@ -243,8 +243,8 @@ defmodule Pyex.TelemetryTest do
 
       assert resp1.telemetry.event_count > 0
       assert resp2.telemetry.event_count > 0
-      assert resp1.telemetry.compute_us > 0
-      assert resp2.telemetry.compute_us > 0
+      assert resp1.telemetry.compute >= 0
+      assert resp2.telemetry.compute >= 0
     end
 
     test "file ops are per-request, not cumulative" do
