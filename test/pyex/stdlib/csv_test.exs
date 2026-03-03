@@ -678,6 +678,24 @@ defmodule Pyex.Stdlib.CsvTest do
                Pyex.Filesystem.Memory.read(ctx.filesystem, "output.csv")
     end
 
+    test "csv.DictWriter with fieldnames as keyword argument" do
+      {:ok, _result, ctx} =
+        Pyex.run(
+          """
+          import csv
+          f = open("output.csv", "w")
+          writer = csv.DictWriter(f, fieldnames=["name", "age"])
+          writer.writeheader()
+          writer.writerow({"name": "Alice", "age": "30"})
+          f.close()
+          """,
+          @fs_opts
+        )
+
+      assert {:ok, "name,age\r\nAlice,30\r\n"} =
+               Pyex.Filesystem.Memory.read(ctx.filesystem, "output.csv")
+    end
+
     test "full file roundtrip: write then read" do
       result =
         Pyex.run!(

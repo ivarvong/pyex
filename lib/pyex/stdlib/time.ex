@@ -30,7 +30,7 @@ defmodule Pyex.Stdlib.Time do
 
   @spec do_time([Pyex.Interpreter.pyvalue()]) :: float()
   defp do_time([]) do
-    :os.system_time(:millisecond) / 1000.0
+    :os.system_time(:nanosecond) / 1.0e9
   end
 
   @spec do_time_ns([Pyex.Interpreter.pyvalue()]) :: integer()
@@ -40,7 +40,7 @@ defmodule Pyex.Stdlib.Time do
 
   @spec do_monotonic([Pyex.Interpreter.pyvalue()]) :: float()
   defp do_monotonic([]) do
-    :erlang.monotonic_time(:millisecond) / 1000.0
+    :erlang.monotonic_time(:nanosecond) / 1.0e9
   end
 
   @spec do_monotonic_ns([Pyex.Interpreter.pyvalue()]) :: integer()

@@ -392,25 +392,35 @@ defmodule Pyex.Stdlib.Csv do
           optional(String.t()) => Pyex.Interpreter.pyvalue()
         }) ::
           Pyex.Interpreter.pyvalue()
+  # Unwrap py_list arguments, then re-dispatch
   defp do_dict_writer([{:py_list, reversed, _}], kwargs),
     do: do_dict_writer([Enum.reverse(reversed)], kwargs)
 
   defp do_dict_writer([{:file_handle, _} = fh, {:py_list, reversed, _}], kwargs),
     do: do_dict_writer([fh, Enum.reverse(reversed)], kwargs)
 
-  defp do_dict_writer([{:py_list, reversed, _}, {:file_handle, _} = fh], kwargs),
-    do: do_dict_writer([Enum.reverse(reversed), fh], kwargs)
-
-  defp do_dict_writer([fieldnames], kwargs) when is_list(fieldnames) do
-    build_dict_writer(nil, fieldnames, kwargs)
-  end
-
+  # CPython signature: csv.DictWriter(csvfile, fieldnames, ...)
+  # Two positional args: file handle first, fieldnames second
   defp do_dict_writer([{:file_handle, _} = fh, fieldnames], kwargs) when is_list(fieldnames) do
     build_dict_writer(fh, fieldnames, kwargs)
   end
 
-  defp do_dict_writer([fieldnames, {:file_handle, _} = fh], kwargs) when is_list(fieldnames) do
-    build_dict_writer(fh, fieldnames, kwargs)
+  # Single positional arg: file handle only, fieldnames from kwarg
+  defp do_dict_writer(
+         [{:file_handle, _} = fh],
+         %{"fieldnames" => {:py_list, reversed, _}} = kwargs
+       ) do
+    do_dict_writer([fh], Map.put(kwargs, "fieldnames", Enum.reverse(reversed)))
+  end
+
+  defp do_dict_writer([{:file_handle, _} = fh], %{"fieldnames" => fieldnames} = kwargs)
+       when is_list(fieldnames) do
+    build_dict_writer(fh, fieldnames, Map.delete(kwargs, "fieldnames"))
+  end
+
+  # Single positional arg: fieldnames only (no file handle)
+  defp do_dict_writer([fieldnames], kwargs) when is_list(fieldnames) do
+    build_dict_writer(nil, fieldnames, kwargs)
   end
 
   defp do_dict_writer(_, _kwargs) do
