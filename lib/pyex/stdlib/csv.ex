@@ -406,7 +406,10 @@ defmodule Pyex.Stdlib.Csv do
   end
 
   # Single positional arg: file handle only, fieldnames from kwarg
-  defp do_dict_writer([{:file_handle, _} = fh], %{"fieldnames" => {:py_list, reversed, _}} = kwargs) do
+  defp do_dict_writer(
+         [{:file_handle, _} = fh],
+         %{"fieldnames" => {:py_list, reversed, _}} = kwargs
+       ) do
     do_dict_writer([fh], Map.put(kwargs, "fieldnames", Enum.reverse(reversed)))
   end
 
