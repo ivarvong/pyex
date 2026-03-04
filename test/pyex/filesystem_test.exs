@@ -213,6 +213,203 @@ defmodule Pyex.FilesystemTest do
     end
   end
 
+  describe "with open() context manager" do
+    test "with open() for writing flushes on block exit" do
+      code = """
+      with open("output.csv", "w") as f:
+          f.write("hello")
+      g = open("output.csv", "r")
+      result = g.read()
+      g.close()
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code)
+      assert value == "hello"
+    end
+
+    test "with open() for reading" do
+      fs = Memory.new(%{"data.txt" => "file content"})
+
+      code = """
+      with open("data.txt", "r") as f:
+          result = f.read()
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == "file content"
+    end
+
+    test "with open() closes handle on normal exit" do
+      code = """
+      with open("test.txt", "w") as f:
+          f.write("data")
+      """
+
+      {_value, ctx} = run_with_fs!(code)
+      assert ctx.handles == %{}
+    end
+
+    test "with open() closes handle on exception" do
+      code = """
+      try:
+          with open("test.txt", "w") as f:
+              f.write("data")
+              raise ValueError("oops")
+      except ValueError:
+          pass
+      """
+
+      {_value, ctx} = run_with_fs!(code)
+      assert ctx.handles == %{}
+    end
+
+    test "with open() flushes buffer on exception" do
+      code = """
+      try:
+          with open("test.txt", "w") as f:
+              f.write("written before error")
+              raise ValueError("oops")
+      except ValueError:
+          pass
+      g = open("test.txt", "r")
+      result = g.read()
+      g.close()
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code)
+      assert value == "written before error"
+    end
+
+    test "with open() for append mode" do
+      fs = Memory.new(%{"log.txt" => "line1,"})
+
+      code = """
+      with open("log.txt", "a") as f:
+          f.write("line2")
+      g = open("log.txt", "r")
+      result = g.read()
+      g.close()
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == "line1,line2"
+    end
+
+    test "with open() multiple writes accumulate" do
+      code = """
+      with open("out.txt", "w") as f:
+          f.write("a")
+          f.write("b")
+          f.write("c")
+      g = open("out.txt", "r")
+      result = g.read()
+      g.close()
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code)
+      assert value == "abc"
+    end
+
+    test "nested with open() statements" do
+      fs = Memory.new(%{"input.txt" => "source data"})
+
+      code = """
+      with open("input.txt", "r") as src:
+          data = src.read()
+      with open("output.txt", "w") as dst:
+          dst.write(data)
+      g = open("output.txt", "r")
+      result = g.read()
+      g.close()
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == "source data"
+    end
+
+    test "with open() without as clause" do
+      code = """
+      with open("test.txt", "w"):
+          pass
+      """
+
+      {_value, ctx} = run_with_fs!(code)
+      assert ctx.handles == %{}
+    end
+
+    test "with open() file is usable inside block" do
+      fs = Memory.new(%{"nums.txt" => "12345"})
+
+      code = """
+      with open("nums.txt", "r") as f:
+          content = f.read()
+          length = len(content)
+      (content, length)
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == {:tuple, ["12345", 5]}
+    end
+
+    test "variable assigned inside with block persists after" do
+      fs = Memory.new(%{"data.txt" => "hello"})
+
+      code = """
+      with open("data.txt", "r") as f:
+          captured = f.read()
+      captured
+      """
+
+      {value, _ctx} = run_with_fs!(code, fs)
+      assert value == "hello"
+    end
+
+    test "with open() write then read in sequence" do
+      code = """
+      with open("file.txt", "w") as f:
+          f.write("round trip")
+      with open("file.txt", "r") as f:
+          result = f.read()
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code)
+      assert value == "round trip"
+    end
+
+    test "with open() exception does not suppress by default" do
+      code = """
+      result = "no error"
+      try:
+          with open("test.txt", "w") as f:
+              raise TypeError("boom")
+      except TypeError:
+          result = "caught"
+      result
+      """
+
+      {value, _ctx} = run_with_fs!(code)
+      assert value == "caught"
+    end
+
+    test "with open() __exit__ does not suppress exceptions (matches CPython)" do
+      code = """
+      with open("test.txt", "w") as f:
+          f.write("data")
+          raise ValueError("should propagate")
+      """
+
+      assert {:error, msg} = run_with_fs!(code)
+      assert msg =~ "ValueError"
+    end
+  end
+
   describe "os.listdir" do
     test "lists files in root directory" do
       fs = Memory.new(%{"a.txt" => "aaa", "b.txt" => "bbb"})
