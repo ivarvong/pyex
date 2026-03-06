@@ -487,6 +487,7 @@ defmodule Pyex.Lexer do
               :ok ->
                 tokens =
                   tokens
+                  |> merge_adjacent_strings()
                   |> suppress_bracketed_newlines()
                   |> process_indentation()
 
@@ -861,6 +862,23 @@ defmodule Pyex.Lexer do
 
   @open_brackets [:lparen, :lbracket, :lbrace]
   @close_brackets [:rparen, :rbracket, :rbrace]
+
+  # Merge adjacent string tokens (Python implicit string concatenation).
+  # e.g. 'hello' ' ' 'world' → 'hello world'
+  @spec merge_adjacent_strings([raw_token() | token()]) :: [raw_token() | token()]
+  defp merge_adjacent_strings([]), do: []
+
+  defp merge_adjacent_strings([{:string, line, s1}, {:string, _, s2} | rest]) do
+    merge_adjacent_strings([{:string, line, s1 <> s2} | rest])
+  end
+
+  defp merge_adjacent_strings([{:string, line, s1}, {:newline_raw, _}, {:string, _, s2} | rest]) do
+    merge_adjacent_strings([{:string, line, s1 <> s2} | rest])
+  end
+
+  defp merge_adjacent_strings([token | rest]) do
+    [token | merge_adjacent_strings(rest)]
+  end
 
   @spec suppress_bracketed_newlines([raw_token() | token()]) :: [raw_token() | token()]
   defp suppress_bracketed_newlines(tokens) do

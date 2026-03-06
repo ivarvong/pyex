@@ -867,6 +867,25 @@ defmodule Pyex.Stdlib.DatetimeTest do
 
       assert result == "Duration: 2 days, 5:30:00"
     end
+
+    test "generator-based date_range" do
+      result =
+        Pyex.run!("""
+        from datetime import date, timedelta
+
+        def date_range(start, end, step=timedelta(days=1)):
+            current = start
+            while current <= end:
+                yield current
+                current += step
+
+        [str(d) for d in date_range(date(2024, 1, 1), date(2024, 1, 31))]
+        """)
+
+      assert length(result) == 31
+      assert hd(result) == "2024-01-01"
+      assert List.last(result) == "2024-01-31"
+    end
   end
 
   describe "datetime.datetime.fromtimestamp" do

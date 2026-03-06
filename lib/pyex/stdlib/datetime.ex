@@ -354,6 +354,7 @@ defmodule Pyex.Stdlib.Datetime do
        "timestamp" => {:builtin, fn [] -> dt_to_timestamp(dt) end},
        "replace" => {:builtin_kw, &dt_replace(dt, &1, &2)},
        "date" => {:builtin, fn [] -> make_date(DateTime.to_date(dt)) end},
+       "weekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(dt)) - 1 end},
        "__dt__" => dt
      }}
   end
@@ -371,6 +372,7 @@ defmodule Pyex.Stdlib.Datetime do
        "isoformat" => {:builtin, fn [] -> iso end},
        "strftime" => {:builtin_kw, &date_strftime_method(d, &1, &2)},
        "replace" => {:builtin_kw, &d_replace(d, &1, &2)},
+       "weekday" => {:builtin, fn [] -> Date.day_of_week(d) - 1 end},
        "__date__" => d
      }}
   end

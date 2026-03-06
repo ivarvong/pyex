@@ -918,21 +918,11 @@ defmodule PyexTest do
         end
 
       sorted_us = Enum.sort(iter_times_us)
-      p10_ms = Enum.at(sorted_us, div(n_iters, 10)) / 1000.0
       p50_ms = Enum.at(sorted_us, div(n_iters, 2)) / 1000.0
       p90_ms = Enum.at(sorted_us, div(n_iters * 9, 10)) / 1000.0
 
       # ctx.duration_ms from the warmup run (interpret-only, excludes compile)
       ctx_ms = ctx.duration_ms
-
-      IO.puts("""
-
-      SSG timing (#{n_iters} warm iterations, pre-compiled AST)
-        p10  : #{:erlang.float_to_binary(p10_ms, decimals: 3)} ms
-        p50  : #{:erlang.float_to_binary(p50_ms, decimals: 3)} ms
-        p90  : #{:erlang.float_to_binary(p90_ms, decimals: 3)} ms
-        ctx.duration_ms (warmup, interpret only) : #{:erlang.float_to_binary(ctx_ms, decimals: 3)} ms
-      """)
 
       # p50 should be reasonable; p90 allows for scheduler jitter
       assert p50_ms < 10.0, "warm p50 #{p50_ms}ms should be under 10ms"

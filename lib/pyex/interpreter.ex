@@ -143,6 +143,10 @@ defmodule Pyex.Interpreter do
     eval_statements(statements, env, ctx)
   end
 
+  def eval({:block, _, [statements]}, env, ctx) do
+    eval_statements(statements, env, ctx)
+  end
+
   def eval({:def, _, [name, params, body]}, env, ctx) do
     func = {:function, name, params, body, env}
     {nil, Env.smart_put(env, name, func), ctx}
@@ -967,11 +971,14 @@ defmodule Pyex.Interpreter do
           {args, kwargs, env, ctx} ->
             case call_function(func, args, kwargs, env, ctx) do
               {:mutate, new_object, return_value, new_env, ctx} ->
-                new_env = mutate_target(func_expr, new_object, new_env, ctx)
+                # For builtins like setattr, the first arg_expr is the target
+                target = mutate_target_expr(func_expr, arg_exprs)
+                new_env = mutate_target(target, new_object, new_env, ctx)
                 {return_value, new_env, ctx}
 
               {:mutate, new_object, return_value, ctx} ->
-                env = mutate_target(func_expr, new_object, env, ctx)
+                target = mutate_target_expr(func_expr, arg_exprs)
+                env = mutate_target(target, new_object, env, ctx)
                 {return_value, env, ctx}
 
               {{:exception, _} = signal, env, ctx} ->
@@ -2907,6 +2914,11 @@ defmodule Pyex.Interpreter do
           {rev_values, env, ctx} ->
             values = Enum.reverse(rev_values)
             msg = format_exc_msg(exc_name, values)
+
+            instance =
+              {:instance, {:class, exc_name, [], %{}}, %{"args" => {:tuple, values}}}
+
+            ctx = %{ctx | exception_instance: instance}
             {{:exception, msg}, env, ctx}
         end
     end
@@ -3385,6 +3397,11 @@ defmodule Pyex.Interpreter do
 
   defp safe_binop_dispatch(:plus, l, r) when is_list(l) and is_list(r), do: l ++ r
   defp safe_binop_dispatch(:plus, {:tuple, l}, {:tuple, r}), do: {:tuple, l ++ r}
+
+  defp safe_binop_dispatch(:plus, %{"__counter__" => true} = l, %{"__counter__" => true} = r) do
+    Pyex.Stdlib.Collections.counter_add(l, r)
+  end
+
   defp safe_binop_dispatch(:plus, l, r) when is_number(l) and is_number(r), do: l + r
 
   defp safe_binop_dispatch(:plus, l, r),
@@ -3975,6 +3992,14 @@ defmodule Pyex.Interpreter do
        do: Date.compare(a, b) != :gt
 
   defp pyvalue_lte(a, b), do: a <= b
+
+  # For setattr(obj, attr, val), the first arg_expr is the mutation target.
+  # For everything else (method calls, callable instances), func_expr is the target.
+  defp mutate_target_expr({:var, _, ["setattr"]}, [first_arg | _]) do
+    first_arg
+  end
+
+  defp mutate_target_expr(func_expr, _arg_exprs), do: func_expr
 
   @spec mutate_target(Parser.ast_node(), pyvalue(), Env.t(), Ctx.t()) :: Env.t()
   defp mutate_target({:getattr, _, [{:var, _, [var_name]}, _method]}, new_object, env, _ctx) do
