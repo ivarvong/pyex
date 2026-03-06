@@ -20,18 +20,22 @@ defmodule Pyex.Stdlib.Collections do
   @spec module_value() :: Pyex.Stdlib.Module.module_value()
   def module_value do
     %{
-      "Counter" => {:builtin, &counter/1},
+      "Counter" => {:builtin_kw, &counter/2},
       "defaultdict" => {:builtin, &defaultdict/1},
       "OrderedDict" => {:builtin, &ordered_dict/1}
     }
   end
 
-  @spec counter([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
-  defp counter([]) do
+  @spec counter([Pyex.Interpreter.pyvalue()], map()) :: Pyex.Interpreter.pyvalue()
+  defp counter([], kwargs) when map_size(kwargs) > 0 do
+    counter_with_methods(kwargs)
+  end
+
+  defp counter([], _kwargs) do
     counter_with_methods(%{})
   end
 
-  defp counter([{:py_list, reversed, _}]) do
+  defp counter([{:py_list, reversed, _}], _kwargs) do
     counts =
       Enum.reduce(reversed, %{}, fn item, acc ->
         Map.update(acc, item, 1, &(&1 + 1))
@@ -40,7 +44,7 @@ defmodule Pyex.Stdlib.Collections do
     counter_with_methods(counts)
   end
 
-  defp counter([list]) when is_list(list) do
+  defp counter([list], _kwargs) when is_list(list) do
     counts =
       Enum.reduce(list, %{}, fn item, acc ->
         Map.update(acc, item, 1, &(&1 + 1))
@@ -49,7 +53,7 @@ defmodule Pyex.Stdlib.Collections do
     counter_with_methods(counts)
   end
 
-  defp counter([str]) when is_binary(str) do
+  defp counter([str], _kwargs) when is_binary(str) do
     counts =
       str
       |> String.codepoints()
@@ -60,8 +64,27 @@ defmodule Pyex.Stdlib.Collections do
     counter_with_methods(counts)
   end
 
-  defp counter([%{} = dict]) do
+  defp counter([%{} = dict], _kwargs) do
     counter_with_methods(dict)
+  end
+
+  @doc "Add two Counters, keeping only positive counts (CPython semantics)."
+  @spec counter_add(map(), map()) :: map()
+  def counter_add(a, b) do
+    va = Pyex.Builtins.visible_dict(a)
+    vb = Pyex.Builtins.visible_dict(b)
+
+    keys =
+      (Map.keys(va) ++ Map.keys(vb))
+      |> Enum.uniq()
+
+    counts =
+      Enum.reduce(keys, %{}, fn k, acc ->
+        sum = Map.get(va, k, 0) + Map.get(vb, k, 0)
+        if sum > 0, do: Map.put(acc, k, sum), else: acc
+      end)
+
+    counter_with_methods(counts)
   end
 
   @spec counter_with_methods(%{optional(Pyex.Interpreter.pyvalue()) => integer()}) ::
@@ -81,6 +104,7 @@ defmodule Pyex.Stdlib.Collections do
     end
 
     Map.merge(counts, %{
+      "__counter__" => true,
       "most_common" => {:builtin, most_common_fn},
       "elements" =>
         {:builtin,

@@ -351,14 +351,6 @@ defmodule Pyex.Stdlib.YamlParserTest do
     {us_ours, _} = :timer.tc(fn -> for _ <- 1..n, do: YamlParser.parse(yaml) end)
     {us_yamerl, _} = :timer.tc(fn -> for _ <- 1..n, do: :yamerl_constr.string(yaml) end)
 
-    IO.puts("""
-
-    YAML parse benchmark (#{n} iterations):
-      YamlParser (ours) : #{Float.round(us_ours / n, 2)} µs/op
-      yamerl_constr     : #{Float.round(us_yamerl / n, 2)} µs/op
-      speedup           : #{Float.round(us_yamerl / us_ours, 1)}x
-    """)
-
     assert us_ours < us_yamerl, "our parser should be faster than yamerl_constr"
   end
 end

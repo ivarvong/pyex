@@ -69,7 +69,7 @@ defmodule Pyex.Builtins do
       {"sum", &builtin_sum/1},
       {"sorted", {:kw, &builtin_sorted/2}},
       {"reversed", &builtin_reversed/1},
-      {"enumerate", &builtin_enumerate/1},
+      {"enumerate", {:kw, &builtin_enumerate/2}},
       {"zip", &builtin_zip/1},
       {"isinstance", &builtin_isinstance/1},
       {"issubclass", &builtin_issubclass/1},
@@ -196,7 +196,11 @@ defmodule Pyex.Builtins do
   @doc false
   @spec visible_dict(map()) :: map()
   def visible_dict(map) when is_map(map) do
-    Map.delete(map, "__defaultdict_factory__")
+    map
+    |> Map.delete("__defaultdict_factory__")
+    |> Map.delete("__counter__")
+    |> Map.delete("most_common")
+    |> Map.delete("elements")
   end
 
   @doc """
@@ -537,12 +541,12 @@ defmodule Pyex.Builtins do
   defp builtin_reversed([str]) when is_binary(str),
     do: str |> String.codepoints() |> Enum.reverse()
 
-  @spec builtin_enumerate([Interpreter.pyvalue()]) ::
+  @spec builtin_enumerate([Interpreter.pyvalue()], map()) ::
           [{:tuple, [Interpreter.pyvalue()]}] | {:exception, String.t()}
-  defp builtin_enumerate(args) do
+  defp builtin_enumerate(args, kwargs) do
     {iterable, start} =
       case args do
-        [it] -> {it, 0}
+        [it] -> {it, Map.get(kwargs, "start", 0)}
         [it, s] when is_integer(s) -> {it, s}
         _ -> {nil, 0}
       end
@@ -837,7 +841,8 @@ defmodule Pyex.Builtins do
 
   defp builtin_round([val, ndigits]) when is_number(val) and is_integer(ndigits) do
     factor = :math.pow(10, ndigits)
-    round(val * factor) / factor
+    scaled = val * factor
+    bankers_round(scaled) / factor
   end
 
   defp builtin_round([_]),
@@ -845,6 +850,26 @@ defmodule Pyex.Builtins do
 
   defp builtin_round([_, _]),
     do: {:exception, "TypeError: type has no __round__ method"}
+
+  # Python uses banker's rounding (round-half-to-even).
+  @spec bankers_round(float()) :: integer()
+  defp bankers_round(x) when x < 0, do: -bankers_round(-x)
+
+  defp bankers_round(x) do
+    fi = trunc(x)
+    frac = x - fi
+
+    cond do
+      abs(frac - 0.5) < 1.0e-9 ->
+        if rem(fi, 2) == 0, do: fi, else: fi + 1
+
+      frac > 0.5 ->
+        fi + 1
+
+      true ->
+        fi
+    end
+  end
 
   @spec builtin_input([Interpreter.pyvalue()]) :: {:exception, String.t()}
   defp builtin_input(_args) do
@@ -1116,6 +1141,10 @@ defmodule Pyex.Builtins do
 
   defp builtin_hasattr([obj, attr]) when is_map(obj) and is_binary(attr) do
     Map.has_key?(obj, attr)
+  end
+
+  defp builtin_hasattr([obj, attr]) when is_binary(attr) do
+    Pyex.Methods.resolve(obj, attr) != :error
   end
 
   defp builtin_hasattr([_, _]), do: false

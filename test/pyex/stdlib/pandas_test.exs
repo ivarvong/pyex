@@ -344,14 +344,6 @@ defmodule Pyex.Stdlib.PandasTest do
       {naive_us, _} = :timer.tc(fn -> Pyex.run!(naive_code, opts) end)
       {pandas_us, _} = :timer.tc(fn -> Pyex.run!(pandas_code, opts) end)
 
-      speedup = naive_us / max(pandas_us, 1)
-
-      if System.get_env("PYEX_BENCH") do
-        IO.puts(
-          "\n  Golden cross 300 days: naive=#{fmt(naive_us)} pandas=#{fmt(pandas_us)} speedup=#{Float.round(speedup, 1)}x"
-        )
-      end
-
       assert pandas_us < naive_us,
              "pandas (#{fmt(pandas_us)}) should be faster than naive (#{fmt(naive_us)})"
     end

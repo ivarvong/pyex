@@ -41,6 +41,7 @@ defmodule Pyex.Methods do
   def resolve(object, attr) when is_binary(object) do
     case string_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      {:ok_kw, method_fn} -> {:ok, {:builtin_kw, bound_kw(method_fn, object)}}
       :error -> :error
     end
   end
@@ -159,7 +160,7 @@ defmodule Pyex.Methods do
   defp string_method("endswith"), do: {:ok, &str_endswith/2}
   defp string_method("find"), do: {:ok, &str_find/2}
   defp string_method("count"), do: {:ok, &str_count/2}
-  defp string_method("format"), do: {:ok, &str_format/2}
+  defp string_method("format"), do: {:ok_kw, &str_format/3}
   defp string_method("isdigit"), do: {:ok, &str_isdigit/2}
   defp string_method("isalpha"), do: {:ok, &str_isalpha/2}
   defp string_method("title"), do: {:ok, &str_title/2}
@@ -381,15 +382,22 @@ defmodule Pyex.Methods do
     length(String.split(s, sub)) - 1
   end
 
-  @spec str_format(String.t(), [Interpreter.pyvalue()]) :: String.t()
-  defp str_format(s, args) do
-    args
-    |> Enum.with_index()
-    |> Enum.reduce(s, fn {arg, idx}, acc ->
-      formatted = Builtins.py_repr(arg)
+  @spec str_format(String.t(), [Interpreter.pyvalue()], map()) :: String.t()
+  defp str_format(s, args, kwargs) do
+    # First pass: replace positional {0}, {1}, ... and auto-numbered {}
+    s =
+      args
+      |> Enum.with_index()
+      |> Enum.reduce(s, fn {arg, idx}, acc ->
+        formatted = Builtins.py_repr(arg)
 
-      String.replace(acc, "{#{idx}}", formatted, global: true)
-      |> String.replace("{}", formatted, global: false)
+        String.replace(acc, "{#{idx}}", formatted, global: true)
+        |> String.replace("{}", formatted, global: false)
+      end)
+
+    # Second pass: replace named {key} placeholders from kwargs
+    Enum.reduce(kwargs, s, fn {key, val}, acc ->
+      String.replace(acc, "{#{key}}", Builtins.py_repr(val), global: true)
     end)
   end
 

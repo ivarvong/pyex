@@ -531,13 +531,7 @@ defmodule Pyex.Parser do
             try_nested_subscript_assign(nested_rest, line, target)
 
           [{:op, _, :rbracket}, {:op, _, :assign} | rest] ->
-            case parse_expression(rest) do
-              {:ok, val, rest} ->
-                {:ok, {:subscript_assign, [line: line], [name, key, val]}, drop_newline(rest)}
-
-              {:error, _} = error ->
-                error
-            end
+            parse_subscript_assign_value(rest, line, [{name, key}])
 
           [{:op, _, :rbracket}, {:op, _, aug_op} | rest]
           when is_map_key(@aug_assign_ops, aug_op) ->
@@ -558,6 +552,63 @@ defmodule Pyex.Parser do
 
       {:error, _} ->
         :not_assign
+    end
+  end
+
+  # Parse the value side of a subscript assignment, handling chained targets like:
+  #   a[0] = a[1] = False  →  block(a[1] = False, a[0] = False)
+  # `targets` is a list of {name_or_target, key} tuples collected so far.
+  @spec parse_subscript_assign_value([Lexer.token()], pos_integer(), list()) ::
+          parse_result()
+  defp parse_subscript_assign_value(tokens, line, targets) do
+    case parse_expression(tokens) do
+      {:ok, val_expr, [{:op, _, :assign} | rest]} ->
+        # The parsed expression is actually another chained target.
+        # Extract the subscript target from the expression.
+        case val_expr do
+          {:subscript, _, [{:var, _, [next_name]}, next_key]} ->
+            parse_subscript_assign_value(rest, line, [{next_name, next_key} | targets])
+
+          {:var, _, [var_name]} ->
+            # Mixed chain like a[0] = b = val — desugar as block
+            case parse_expression(rest) do
+              {:ok, final_val, rest} ->
+                assigns =
+                  [
+                    {:assign, [line: line], [var_name, final_val]}
+                    | Enum.map(targets, fn {n, k} ->
+                        {:subscript_assign, [line: line], [n, k, final_val]}
+                      end)
+                  ]
+
+                {:ok, {:block, [line: line], [Enum.reverse(assigns)]}, drop_newline(rest)}
+
+              {:error, _} = error ->
+                error
+            end
+
+          _ ->
+            {:error, "unsupported chained assignment target"}
+        end
+
+      {:ok, val, rest} ->
+        # No more chaining — emit assignments
+        case targets do
+          [{single_name, single_key}] ->
+            {:ok, {:subscript_assign, [line: line], [single_name, single_key, val]},
+             drop_newline(rest)}
+
+          _ ->
+            assigns =
+              Enum.map(targets, fn {n, k} ->
+                {:subscript_assign, [line: line], [n, k, val]}
+              end)
+
+            {:ok, {:block, [line: line], [Enum.reverse(assigns)]}, drop_newline(rest)}
+        end
+
+      {:error, _} = error ->
+        error
     end
   end
 
