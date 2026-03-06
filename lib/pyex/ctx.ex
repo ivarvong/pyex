@@ -100,7 +100,7 @@ defmodule Pyex.Ctx do
             duration_ms: nil
 
   @doc """
-  Creates a fresh live context that records all events.
+  Creates a fresh live context that captures output and execution counters.
 
   Options:
   - `:filesystem` -- a filesystem backend struct (e.g. `Pyex.Filesystem.Memory.new()`).

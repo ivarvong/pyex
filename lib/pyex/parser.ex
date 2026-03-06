@@ -8,6 +8,11 @@ defmodule Pyex.Parser do
   """
 
   alias Pyex.Lexer
+  alias Pyex.Parser.Comprehensions
+  alias Pyex.Parser.ControlFlow
+  alias Pyex.Parser.Definitions
+  alias Pyex.Parser.Imports
+  alias Pyex.Parser.Match
 
   @type meta :: [line: pos_integer()]
 
@@ -75,10 +80,6 @@ defmodule Pyex.Parser do
           {String.t(), ast_node() | nil}
           | {String.t(), ast_node() | nil, String.t()}
 
-  @typep comp_clause ::
-           {:comp_for, String.t() | [String.t()], ast_node()}
-           | {:comp_if, ast_node()}
-
   @typep parse_result :: {:ok, ast_node(), [Lexer.token()]} | {:error, String.t()}
 
   @doc """
@@ -100,9 +101,14 @@ defmodule Pyex.Parser do
     end
   end
 
+  @doc false
+  @spec parse_block([Lexer.token()]) ::
+          {:ok, [ast_node()], [Lexer.token()]} | {:error, String.t()}
+  def parse_block(tokens), do: parse_block(tokens, [])
+
   @spec parse_block([Lexer.token()], [ast_node()]) ::
           {:ok, [ast_node()], [Lexer.token()]} | {:error, String.t()}
-  defp parse_block(tokens, acc \\ [])
+  defp parse_block(tokens, acc)
   defp parse_block([], acc), do: {:ok, Enum.reverse(acc), []}
   defp parse_block([:dedent | rest], acc), do: {:ok, Enum.reverse(acc), rest}
   defp parse_block([:newline | rest], acc), do: parse_block(rest, acc)
@@ -116,15 +122,15 @@ defmodule Pyex.Parser do
 
   @spec parse_statement([Lexer.token()]) :: parse_result()
   defp parse_statement([{:keyword, _line, "def"} | rest]) do
-    parse_function_def(rest)
+    Definitions.parse_function_def(rest)
   end
 
   defp parse_statement([{:keyword, _line, "class"} | rest]) do
-    parse_class_def(rest)
+    Definitions.parse_class_def(rest)
   end
 
   defp parse_statement([{:keyword, line, "with"} | rest]) do
-    parse_with(rest, line)
+    Definitions.parse_with(rest, line)
   end
 
   defp parse_statement([{:keyword, line, "return"} | rest]) do
@@ -169,27 +175,27 @@ defmodule Pyex.Parser do
   end
 
   defp parse_statement([{:keyword, _line, "if"} | rest]) do
-    parse_if(rest)
+    ControlFlow.parse_if(rest)
   end
 
   defp parse_statement([{:keyword, _line, "while"} | rest]) do
-    parse_while(rest)
+    ControlFlow.parse_while(rest)
   end
 
   defp parse_statement([{:keyword, _line, "for"} | rest]) do
-    parse_for(rest)
+    ControlFlow.parse_for(rest)
   end
 
   defp parse_statement([{:keyword, line, "from"} | rest]) do
-    parse_from_import(rest, line)
+    Imports.parse_from_import(rest, line)
   end
 
   defp parse_statement([{:keyword, line, "import"} | rest]) do
-    parse_import(rest, line)
+    Imports.parse_import(rest, line)
   end
 
   defp parse_statement([{:keyword, _line, "try"} | rest]) do
-    parse_try(rest)
+    ControlFlow.parse_try(rest)
   end
 
   defp parse_statement([{:keyword, line, "raise"} | rest]) do
@@ -313,7 +319,7 @@ defmodule Pyex.Parser do
   }
 
   defp parse_statement([{:name, line, "match"} | rest] = tokens) do
-    case try_match(rest, line) do
+    case Match.try_match(rest, line) do
       {:ok, _, _} = result -> result
       :not_match -> parse_name_statement(tokens, line, "match")
     end
@@ -653,922 +659,40 @@ defmodule Pyex.Parser do
     end
   end
 
-  @spec parse_function_def([Lexer.token()]) :: parse_result()
-  defp parse_function_def([{:name, line, name}, {:op, _, :lparen} | rest]) do
-    case parse_params(rest) do
-      {:ok, params, rest} ->
-        rest = skip_return_annotation(rest)
-
-        case rest do
-          [{:op, _, :colon}, :newline, :indent | rest] ->
-            case parse_block(rest) do
-              {:ok, body, rest} ->
-                {:ok, {:def, [line: line], [name, params, body]}, drop_newline(rest)}
-
-              {:error, _} = error ->
-                error
-            end
-
-          _ ->
-            {:error, "expected ':' after function definition on line #{line}"}
-        end
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp parse_function_def(tokens) do
-    {:error, "expected function name at #{token_line(tokens)}"}
-  end
-
-  @spec parse_with([Lexer.token()], pos_integer()) :: parse_result()
-  defp parse_with(rest, line) do
-    case parse_expression(rest) do
-      {:ok, expr,
-       [{:keyword, _, "as"}, {:name, _, name}, {:op, _, :colon}, :newline, :indent | rest]} ->
-        case parse_block(rest) do
-          {:ok, body, rest} ->
-            {:ok, {:with, [line: line], [expr, name, body]}, drop_newline(rest)}
-
-          {:error, _} = error ->
-            error
-        end
-
-      {:ok, expr, [{:op, _, :colon}, :newline, :indent | rest]} ->
-        case parse_block(rest) do
-          {:ok, body, rest} ->
-            {:ok, {:with, [line: line], [expr, nil, body]}, drop_newline(rest)}
-
-          {:error, _} = error ->
-            error
-        end
-
-      {:ok, _expr, _rest} ->
-        {:error, "expected ':' after with statement on line #{line}"}
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  @spec parse_class_def([Lexer.token()]) :: parse_result()
-  defp parse_class_def([{:name, line, name}, {:op, _, :lparen} | rest]) do
-    case parse_base_classes(rest) do
-      {:ok, bases, rest} ->
-        case rest do
-          [{:op, _, :colon}, :newline, :indent | rest] ->
-            case parse_block(rest) do
-              {:ok, body, rest} ->
-                {:ok, {:class, [line: line], [name, bases, body]}, drop_newline(rest)}
-
-              {:error, _} = error ->
-                error
-            end
-
-          _ ->
-            {:error, "expected ':' after class definition on line #{line}"}
-        end
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp parse_class_def([{:name, line, name}, {:op, _, :colon}, :newline, :indent | rest]) do
-    case parse_block(rest) do
-      {:ok, body, rest} ->
-        {:ok, {:class, [line: line], [name, [], body]}, drop_newline(rest)}
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp parse_class_def(tokens) do
-    {:error, "expected class name at #{token_line(tokens)}"}
-  end
-
-  @spec parse_base_classes([Lexer.token()], [String.t()]) ::
-          {:ok, [String.t()], [Lexer.token()]} | {:error, String.t()}
-  defp parse_base_classes(tokens, acc \\ [])
-  defp parse_base_classes([{:op, _, :rparen} | rest], acc), do: {:ok, Enum.reverse(acc), rest}
-
-  defp parse_base_classes([{:op, _, :comma} | rest], acc) do
-    parse_base_classes(rest, acc)
-  end
-
-  defp parse_base_classes([{:name, _, name}, {:op, _, :dot}, {:name, _, attr} | rest], acc) do
-    parse_base_classes(rest, [{:dotted, name, attr} | acc])
-  end
-
-  defp parse_base_classes([{:name, _, name} | rest], acc) do
-    parse_base_classes(rest, [name | acc])
-  end
-
-  defp parse_base_classes(tokens, _acc) do
-    {:error, "unexpected token in class bases at #{token_line(tokens)}"}
-  end
-
-  @spec parse_params([Lexer.token()], [param()]) ::
-          {:ok, [param()], [Lexer.token()]} | {:error, String.t()}
-  defp parse_params(tokens, acc \\ [])
-
-  defp parse_params([{:op, _, :rparen} | rest], acc) do
-    {:ok, Enum.reverse(acc), rest}
-  end
-
-  defp parse_params([{:op, _, :comma} | rest], acc) do
-    parse_params(rest, acc)
-  end
-
-  defp parse_params([{:name, _, name}, {:op, _, :colon} | rest], acc) do
-    {type_str, rest} = collect_type_annotation(rest)
-
-    case rest do
-      [{:op, _, :assign} | rest] ->
-        with {:ok, default, rest} <- parse_expression(rest) do
-          parse_params(rest, [{name, default, type_str} | acc])
-        end
-
-      _ ->
-        parse_params(rest, [{name, nil, type_str} | acc])
-    end
-  end
-
-  defp parse_params([{:name, _, name}, {:op, _, :assign} | rest], acc) do
-    with {:ok, default, rest} <- parse_expression(rest) do
-      parse_params(rest, [{name, default} | acc])
-    end
-  end
-
-  defp parse_params([{:op, _, :double_star}, {:name, _, name} | rest], acc) do
-    parse_params(rest, [{"**" <> name, nil} | acc])
-  end
-
-  defp parse_params([{:op, _, :star}, {:name, _, name} | rest], acc) do
-    parse_params(rest, [{"*" <> name, nil} | acc])
-  end
-
-  defp parse_params([{:name, _, name} | rest], acc) do
-    parse_params(rest, [{name, nil} | acc])
-  end
-
-  defp parse_params(tokens, _acc) do
-    {:error, "unexpected token in parameter list at #{token_line(tokens)}"}
-  end
-
-  @spec parse_if([Lexer.token()]) :: parse_result()
-  defp parse_if(tokens) do
-    with {:ok, condition, rest} <- parse_expression(tokens) do
-      case rest do
-        [{:op, _, :colon}, :newline, :indent | block_rest] ->
-          with {:ok, body, rest} <- parse_block(block_rest),
-               {:ok, else_clauses, rest} <- parse_elif_else(rest) do
-            line = node_line(condition)
-            {:ok, {:if, [line: line], [{condition, body} | else_clauses]}, drop_newline(rest)}
-          end
-
-        [{:op, _, :colon} | inline_rest] ->
-          with {:ok, stmt, rest} <- parse_inline_body(inline_rest) do
-            {:ok, else_clauses, rest} = parse_elif_else(rest)
-            line = node_line(condition)
-            {:ok, {:if, [line: line], [{condition, [stmt]} | else_clauses]}, drop_newline(rest)}
-          end
-
-        _ ->
-          {:error, "expected ':' after if at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  @spec parse_elif_else([Lexer.token()]) ::
-          {:ok, [{ast_node(), [ast_node()]} | {:else, [ast_node()]}], [Lexer.token()]}
-          | {:error, String.t()}
-  defp parse_elif_else([{:keyword, _, "elif"} | rest]) do
-    with {:ok, condition, rest} <- parse_expression(rest) do
-      case rest do
-        [{:op, _, :colon}, :newline, :indent | block_rest] ->
-          with {:ok, body, rest} <- parse_block(block_rest),
-               {:ok, more, rest} <- parse_elif_else(rest) do
-            {:ok, [{condition, body} | more], rest}
-          end
-
-        [{:op, _, :colon} | inline_rest] ->
-          with {:ok, stmt, rest} <- parse_inline_body(inline_rest) do
-            {:ok, more, rest} = parse_elif_else(rest)
-            {:ok, [{condition, [stmt]} | more], rest}
-          end
-
-        _ ->
-          {:error, "expected ':' after elif at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  defp parse_elif_else([{:keyword, _, "else"}, {:op, _, :colon}, :newline, :indent | rest]) do
-    case parse_block(rest) do
-      {:ok, body, rest} -> {:ok, [{:else, body}], rest}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp parse_elif_else([{:keyword, _, "else"}, {:op, _, :colon} | rest]) do
-    case parse_inline_body(rest) do
-      {:ok, stmt, rest} -> {:ok, [{:else, [stmt]}], rest}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp parse_elif_else(rest), do: {:ok, [], rest}
-
-  @spec parse_while([Lexer.token()]) :: parse_result()
-  defp parse_while(tokens) do
-    with {:ok, condition, rest} <- parse_expression(tokens),
-         {:ok, rest} <- expect_block_start(rest, "while") do
-      case parse_block(rest) do
-        {:ok, body, rest} ->
-          {:ok, else_body, rest} = parse_loop_else(rest)
-          line = node_line(condition)
-          {:ok, {:while, [line: line], [condition, body, else_body]}, drop_newline(rest)}
-
-        {:error, _} = error ->
-          error
-      end
-    end
-  end
-
-  @spec parse_for([Lexer.token()]) :: parse_result()
-  defp parse_for([{:name, line, first_name}, {:op, _, :comma} | rest]) do
-    case collect_for_vars(rest, [first_name]) do
-      {:ok, var_names, rest} ->
-        with {:ok, iterable, rest} <- parse_expression(rest),
-             {:ok, rest} <- expect_block_start(rest, "for") do
-          case parse_block(rest) do
-            {:ok, body, rest} ->
-              {:ok, else_body, rest} = parse_loop_else(rest)
-
-              {:ok, {:for, [line: line], [var_names, iterable, body, else_body]},
-               drop_newline(rest)}
-
-            {:error, _} = error ->
-              error
-          end
-        end
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp parse_for([{:name, line, var_name}, {:keyword, _, "in"} | rest]) do
-    with {:ok, iterable, rest} <- parse_expression(rest),
-         {:ok, rest} <- expect_block_start(rest, "for") do
-      case parse_block(rest) do
-        {:ok, body, rest} ->
-          {:ok, else_body, rest} = parse_loop_else(rest)
-          {:ok, {:for, [line: line], [var_name, iterable, body, else_body]}, drop_newline(rest)}
-
-        {:error, _} = error ->
-          error
-      end
-    end
-  end
-
-  defp parse_for(tokens) do
-    {:error, "expected variable name after 'for' at #{token_line(tokens)}"}
-  end
-
-  @spec parse_loop_else([Lexer.token()]) ::
-          {:ok, [ast_node()] | nil, [Lexer.token()]} | {:error, String.t()}
-  defp parse_loop_else([{:keyword, _, "else"}, {:op, _, :colon}, :newline, :indent | rest]) do
-    case parse_block(rest) do
-      {:ok, else_body, rest} -> {:ok, else_body, rest}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp parse_loop_else(rest), do: {:ok, nil, rest}
-
-  @spec collect_for_vars([Lexer.token()], [String.t()]) ::
-          {:ok, [String.t()], [Lexer.token()]} | {:error, String.t()}
-  defp collect_for_vars([{:name, _, name}, {:keyword, _, "in"} | rest], acc) do
-    {:ok, Enum.reverse([name | acc]), rest}
-  end
-
-  defp collect_for_vars([{:name, _, name}, {:op, _, :comma} | rest], acc) do
-    collect_for_vars(rest, [name | acc])
-  end
-
-  defp collect_for_vars(tokens, _acc) do
-    {:error, "expected variable name in for loop at #{token_line(tokens)}"}
-  end
-
-  @spec parse_comp_clauses([Lexer.token()], [comp_clause()]) ::
-          {:ok, [comp_clause()], [Lexer.token()]} | {:error, String.t()}
-  defp parse_comp_clauses([{:keyword, _, "if"} | rest], acc) do
-    with {:ok, filter, rest} <- parse_or(rest) do
-      parse_comp_clauses(rest, [{:comp_if, filter} | acc])
-    end
-  end
-
-  defp parse_comp_clauses([{:keyword, _, "for"} | rest], acc) do
-    parse_comp_for_clause(rest, acc)
-  end
-
-  defp parse_comp_clauses(rest, acc) do
-    {:ok, Enum.reverse(acc), rest}
-  end
-
-  @spec parse_comp_for_clause([Lexer.token()], [comp_clause()]) ::
-          {:ok, [comp_clause()], [Lexer.token()]} | {:error, String.t()}
-  defp parse_comp_for_clause(
-         [{:name, _, first_name}, {:op, _, :comma} | rest],
-         acc
-       ) do
-    case collect_for_vars(rest, [first_name]) do
-      {:ok, var_names, rest} ->
-        with {:ok, iterable, rest} <- parse_or(rest) do
-          parse_comp_clauses(rest, [{:comp_for, var_names, iterable} | acc])
-        end
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp parse_comp_for_clause(
-         [{:name, _, var_name}, {:keyword, _, "in"} | rest],
-         acc
-       ) do
-    with {:ok, iterable, rest} <- parse_or(rest) do
-      parse_comp_clauses(rest, [{:comp_for, var_name, iterable} | acc])
-    end
-  end
-
-  defp parse_comp_for_clause(tokens, _acc) do
-    {:error, "expected variable name after 'for' in comprehension at #{token_line(tokens)}"}
-  end
-
-  @spec parse_import([Lexer.token()], pos_integer()) :: parse_result()
-  defp parse_import([{:name, line, first} | rest], _line) do
-    {module_name, rest} = parse_dotted_name(first, rest)
-
-    # Parse first module (possibly with alias)
-    {first_import, rest} =
-      case rest do
-        [{:keyword, _, "as"}, {:name, _, alias_name} | rest] ->
-          {{module_name, alias_name}, rest}
-
-        _ ->
-          {{module_name, nil}, rest}
-      end
-
-    # Check for comma-separated imports
-    case rest do
-      [{:op, _, :comma} | rest] ->
-        # Parse additional imports
-        case parse_import_list(rest, [first_import]) do
-          {:ok, imports, rest} ->
-            {:ok, {:import, [line: line], imports}, drop_newline(rest)}
-
-          {:error, _} = error ->
-            error
-        end
-
-      _ ->
-        {:ok, {:import, [line: line], [first_import]}, drop_newline(rest)}
-    end
-  end
-
-  defp parse_import(tokens, line) do
-    {:error, "expected module name after 'import' on line #{line} at #{token_line(tokens)}"}
-  end
-
-  @spec parse_import_list([Lexer.token()], [{String.t(), String.t() | nil}]) ::
-          {:ok, [{String.t(), String.t() | nil}], [Lexer.token()]} | {:error, String.t()}
-  defp parse_import_list(tokens, acc) do
-    case tokens do
-      [{:name, _, name} | rest] ->
-        {module_name, rest} = parse_dotted_name(name, rest)
-
-        {import_spec, rest} =
-          case rest do
-            [{:keyword, _, "as"}, {:name, _, alias_name} | rest] ->
-              {{module_name, alias_name}, rest}
-
-            _ ->
-              {{module_name, nil}, rest}
-          end
-
-        new_acc = [import_spec | acc]
-
-        case rest do
-          [{:op, _, :comma} | rest] ->
-            parse_import_list(rest, new_acc)
-
-          _ ->
-            {:ok, Enum.reverse(new_acc), rest}
-        end
-
-      _ ->
-        {:error, "expected module name after ',' at #{token_line(tokens)}"}
-    end
-  end
-
-  @spec parse_from_import([Lexer.token()], pos_integer()) :: parse_result()
-  defp parse_from_import([{:name, _, first} | rest], line) do
-    {module_name, rest} = parse_dotted_name(first, rest)
-
-    case rest do
-      [{:keyword, _, "import"} | rest] ->
-        case parse_import_names(rest) do
-          {:ok, names, rest} ->
-            {:ok, {:from_import, [line: line], [module_name, names]}, drop_newline(rest)}
-
-          {:error, _} = error ->
-            error
-        end
-
-      _ ->
-        {:error, "expected 'import' after module name on line #{line} at #{token_line(rest)}"}
-    end
-  end
-
-  defp parse_from_import(tokens, line) do
-    {:error, "expected module name after 'from' on line #{line} at #{token_line(tokens)}"}
-  end
-
-  @spec parse_dotted_name(String.t(), [Lexer.token()]) :: {String.t(), [Lexer.token()]}
-  defp parse_dotted_name(acc, [{:op, _, :dot}, {:name, _, part} | rest]) do
-    parse_dotted_name(acc <> "." <> part, rest)
-  end
-
-  defp parse_dotted_name(acc, rest), do: {acc, rest}
-
-  @spec parse_import_names([Lexer.token()]) ::
-          {:ok, [{String.t(), String.t() | nil}], [Lexer.token()]} | {:error, String.t()}
-  defp parse_import_names(tokens, acc \\ [])
-
-  defp parse_import_names(
-         [{:name, _, name}, {:keyword, _, "as"}, {:name, _, alias_name} | rest],
-         acc
-       ) do
-    case rest do
-      [{:op, _, :comma} | rest] -> parse_import_names(rest, [{name, alias_name} | acc])
-      _ -> {:ok, Enum.reverse([{name, alias_name} | acc]), rest}
-    end
-  end
-
-  defp parse_import_names([{:name, _, name} | rest], acc) do
-    case rest do
-      [{:op, _, :comma} | rest] -> parse_import_names(rest, [{name, nil} | acc])
-      _ -> {:ok, Enum.reverse([{name, nil} | acc]), rest}
-    end
-  end
-
-  defp parse_import_names(tokens, _acc) do
-    {:error, "expected name after 'import' at #{token_line(tokens)}"}
-  end
-
-  @spec parse_try([Lexer.token()]) :: parse_result()
-  defp parse_try(tokens) do
-    with {:ok, rest} <- expect_block_start(tokens, "try"),
-         {:ok, body, rest} <- parse_block(rest),
-         {:ok, handlers, rest} <- parse_except_clauses(rest),
-         {:ok, else_body, rest} <- parse_try_else(rest),
-         {:ok, finally_body, rest} <- parse_try_finally(rest) do
-      line =
-        case body do
-          [{_, [line: l], _} | _] -> l
-          _ -> 1
-        end
-
-      {:ok, {:try, [line: line], [body, handlers, else_body, finally_body]}, drop_newline(rest)}
-    end
-  end
-
-  @spec parse_try_else([Lexer.token()]) ::
-          {:ok, [ast_node()] | nil, [Lexer.token()]} | {:error, String.t()}
-  defp parse_try_else([{:keyword, _, "else"}, {:op, _, :colon}, :newline, :indent | rest]) do
-    case parse_block(rest) do
-      {:ok, else_body, rest} -> {:ok, else_body, rest}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp parse_try_else(rest), do: {:ok, nil, rest}
-
-  @spec parse_try_finally([Lexer.token()]) ::
-          {:ok, [ast_node()] | nil, [Lexer.token()]} | {:error, String.t()}
-  defp parse_try_finally([{:keyword, _, "finally"}, {:op, _, :colon}, :newline, :indent | rest]) do
-    case parse_block(rest) do
-      {:ok, finally_body, rest} -> {:ok, finally_body, rest}
-      {:error, _} = error -> error
-    end
-  end
-
-  defp parse_try_finally(rest), do: {:ok, nil, rest}
-
-  @typep except_clause ::
-           {String.t() | [String.t()] | nil, String.t() | nil, [ast_node()]}
-
-  @spec parse_except_clauses([Lexer.token()], [except_clause()]) ::
-          {:ok, [except_clause()], [Lexer.token()]} | {:error, String.t()}
-  defp parse_except_clauses(tokens, acc \\ [])
-
-  defp parse_except_clauses([{:keyword, _, "except"} | rest], acc) do
-    case rest do
-      [{:op, _, :colon}, :newline, :indent | rest] ->
-        case parse_block(rest) do
-          {:ok, handler_body, rest} ->
-            clause = {nil, nil, handler_body}
-            parse_except_clauses(rest, [clause | acc])
-
-          {:error, _} = error ->
-            error
-        end
-
-      [{:op, _, :lparen} | paren_rest] ->
-        case collect_except_names(paren_rest, []) do
-          {:ok, names, [{:keyword, _, "as"}, {:name, _, var_name} | after_as]} ->
-            with {:ok, after_as} <- expect_block_start(after_as, "except"),
-                 {:ok, handler_body, after_as} <- parse_block(after_as) do
-              clause = {names, var_name, handler_body}
-              parse_except_clauses(after_as, [clause | acc])
-            end
-
-          {:ok, names, after_paren} ->
-            with {:ok, after_paren} <- expect_block_start(after_paren, "except"),
-                 {:ok, handler_body, after_paren} <- parse_block(after_paren) do
-              clause = {names, nil, handler_body}
-              parse_except_clauses(after_paren, [clause | acc])
-            end
-
-          {:error, _} = error ->
-            error
-        end
-
-      [{:name, _, exc_name}, {:keyword, _, "as"}, {:name, _, var_name} | rest] ->
-        with {:ok, rest} <- expect_block_start(rest, "except"),
-             {:ok, handler_body, rest} <- parse_block(rest) do
-          clause = {exc_name, var_name, handler_body}
-          parse_except_clauses(rest, [clause | acc])
-        end
-
-      [{:name, _, exc_name} | rest] ->
-        with {:ok, rest} <- expect_block_start(rest, "except"),
-             {:ok, handler_body, rest} <- parse_block(rest) do
-          clause = {exc_name, nil, handler_body}
-          parse_except_clauses(rest, [clause | acc])
-        end
-
-      _ ->
-        {:error, "expected ':' or exception name after 'except' at #{token_line(rest)}"}
-    end
-  end
-
-  defp parse_except_clauses(rest, acc) do
-    {:ok, Enum.reverse(acc), rest}
-  end
-
-  @spec collect_except_names([Lexer.token()], [String.t()]) ::
-          {:ok, [String.t()], [Lexer.token()]} | {:error, String.t()}
-  defp collect_except_names([{:name, _, name}, {:op, _, :rparen} | rest], acc) do
-    {:ok, Enum.reverse([name | acc]), rest}
-  end
-
-  defp collect_except_names([{:name, _, name}, {:op, _, :comma} | rest], acc) do
-    collect_except_names(rest, [name | acc])
-  end
-
-  defp collect_except_names(tokens, _acc) do
-    {:error, "expected exception name in except tuple at #{token_line(tokens)}"}
-  end
-
+  @doc false
   @spec expect_block_start([Lexer.token()], String.t()) ::
           {:ok, [Lexer.token()]} | {:error, String.t()}
-  defp expect_block_start([{:op, _, :colon}, :newline, :indent | rest], _ctx) do
+  def expect_block_start([{:op, _, :colon}, :newline, :indent | rest], _ctx) do
     {:ok, rest}
   end
 
-  defp expect_block_start(tokens, ctx) do
+  def expect_block_start(tokens, ctx) do
     {:error, "expected ':' after #{ctx} at #{token_line(tokens)}"}
   end
 
-  @typep match_pattern ::
-           {:match_wildcard, meta(), []}
-           | {:match_capture, meta(), [String.t()]}
-           | {:match_or, meta(), [match_pattern()]}
-           | {:match_sequence, meta(), [match_pattern()]}
-           | {:match_mapping, meta(), [{ast_node(), match_pattern()}]}
-           | {:match_class, meta(), [term()]}
-           | {:match_star, meta(), [String.t() | nil]}
-           | ast_node()
-
-  @typep match_case :: {match_pattern(), ast_node() | nil, [ast_node()]}
-
-  @spec try_match([Lexer.token()], pos_integer()) ::
-          {:ok, ast_node(), [Lexer.token()]} | :not_match
-  defp try_match(tokens, line) do
-    with {:ok, subject, [{:op, _, :colon}, :newline, :indent | rest]} <- parse_expression(tokens),
-         {:ok, cases, rest} <- parse_match_cases(rest) do
-      {:ok, {:match, [line: line], [subject, cases]}, drop_newline(rest)}
-    else
-      _ -> :not_match
-    end
-  end
-
-  @spec parse_match_cases([Lexer.token()], [match_case()]) ::
-          {:ok, [match_case()], [Lexer.token()]} | {:error, String.t()}
-  defp parse_match_cases(tokens, acc \\ [])
-
-  defp parse_match_cases([{:name, _, "case"} | rest], acc) do
-    with {:ok, pattern, rest} <- parse_match_pattern(rest),
-         {:ok, guard, rest} <- parse_match_guard(rest),
-         {:ok, rest} <- expect_block_start(rest, "case"),
-         {:ok, body, rest} <- parse_block(rest) do
-      parse_match_cases(rest, [{pattern, guard, body} | acc])
-    end
-  end
-
-  defp parse_match_cases([:dedent | rest], acc) do
-    {:ok, Enum.reverse(acc), rest}
-  end
-
-  defp parse_match_cases([:newline | rest], acc) do
-    parse_match_cases(rest, acc)
-  end
-
-  defp parse_match_cases(rest, acc) do
-    {:ok, Enum.reverse(acc), rest}
-  end
-
-  @spec parse_match_guard([Lexer.token()]) ::
-          {:ok, ast_node() | nil, [Lexer.token()]} | {:error, String.t()}
-  defp parse_match_guard([{:keyword, _, "if"} | rest]) do
-    with {:ok, guard_expr, rest} <- parse_expression(rest) do
-      {:ok, guard_expr, rest}
-    end
-  end
-
-  defp parse_match_guard(tokens), do: {:ok, nil, tokens}
-
-  @spec parse_match_pattern([Lexer.token()]) ::
-          {:ok, match_pattern(), [Lexer.token()]} | {:error, String.t()}
-  defp parse_match_pattern(tokens) do
-    with {:ok, pattern, rest} <- parse_match_pattern_atom(tokens) do
-      parse_match_or(pattern, rest)
-    end
-  end
-
-  @spec parse_match_or(match_pattern(), [Lexer.token()]) ::
-          {:ok, match_pattern(), [Lexer.token()]} | {:error, String.t()}
-  defp parse_match_or(left, [{:op, _, :pipe} | rest]) do
-    with {:ok, right, rest} <- parse_match_pattern_atom(rest) do
-      alts =
-        case left do
-          {:match_or, _, existing} -> existing ++ [right]
-          _ -> [left, right]
-        end
-
-      parse_match_or({:match_or, [line: node_line(left)], alts}, rest)
-    end
-  end
-
-  defp parse_match_or(pattern, rest), do: {:ok, pattern, rest}
-
-  @spec parse_match_pattern_atom([Lexer.token()]) ::
-          {:ok, match_pattern(), [Lexer.token()]} | {:error, String.t()}
-  defp parse_match_pattern_atom([{:name, line, "_"} | rest]) do
-    {:ok, {:match_wildcard, [line: line], []}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:keyword, line, "None"} | rest]) do
-    {:ok, {:lit, [line: line], [nil]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:keyword, line, "True"} | rest]) do
-    {:ok, {:lit, [line: line], [true]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:keyword, line, "False"} | rest]) do
-    {:ok, {:lit, [line: line], [false]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:integer, line, value} | rest]) do
-    {:ok, {:lit, [line: line], [value]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:float, line, value} | rest]) do
-    {:ok, {:lit, [line: line], [value]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:op, line, :minus}, {:integer, _, value} | rest]) do
-    {:ok, {:lit, [line: line], [-value]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:op, line, :minus}, {:float, _, value} | rest]) do
-    {:ok, {:lit, [line: line], [-value]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:string, line, value} | rest]) do
-    {:ok, {:lit, [line: line], [value]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:fstring, line, parts} | rest]) do
-    {:ok, {:fstring, [line: line], [parts]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:op, _, :star}, {:name, line, "_"} | rest]) do
-    {:ok, {:match_star, [line: line], [nil]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:op, _, :star}, {:name, line, name} | rest]) do
-    {:ok, {:match_star, [line: line], [name]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:op, line, :lbracket} | rest]) do
-    with {:ok, patterns, rest} <- parse_match_pattern_list(rest, []) do
-      {:ok, {:match_sequence, [line: line], patterns}, rest}
-    end
-  end
-
-  defp parse_match_pattern_atom([{:op, line, :lparen} | rest]) do
-    with {:ok, patterns, rest} <- parse_match_pattern_tuple(rest, []) do
-      {:ok, {:match_sequence, [line: line], patterns}, rest}
-    end
-  end
-
-  defp parse_match_pattern_atom([{:op, line, :lbrace} | rest]) do
-    with {:ok, pairs, rest} <- parse_match_mapping_entries(rest, []) do
-      {:ok, {:match_mapping, [line: line], pairs}, rest}
-    end
-  end
-
-  defp parse_match_pattern_atom([{:name, line, name}, {:op, _, :dot}, {:name, _, attr} | rest]) do
-    {:ok, {:getattr, [line: line], [{:var, [line: line], [name]}, attr]}, rest}
-  end
-
-  defp parse_match_pattern_atom([{:name, line, name}, {:op, _, :lparen} | rest]) do
-    with {:ok, pos_patterns, kw_patterns, rest} <- parse_match_class_args(rest, [], []) do
-      {:ok, {:match_class, [line: line], [name, pos_patterns, kw_patterns]}, rest}
-    end
-  end
-
-  defp parse_match_pattern_atom([{:name, line, name} | rest]) do
-    {:ok, {:match_capture, [line: line], [name]}, rest}
-  end
-
-  defp parse_match_pattern_atom(tokens) do
-    {:error, "unexpected token in match pattern at #{token_line(tokens)}"}
-  end
-
-  @spec parse_match_pattern_list([Lexer.token()], [match_pattern()]) ::
-          {:ok, [match_pattern()], [Lexer.token()]} | {:error, String.t()}
-  defp parse_match_pattern_list([{:op, _, :rbracket} | rest], acc) do
-    {:ok, Enum.reverse(acc), rest}
-  end
-
-  defp parse_match_pattern_list(tokens, acc) do
-    with {:ok, pattern, rest} <- parse_match_pattern(tokens) do
-      case rest do
-        [{:op, _, :comma} | rest] -> parse_match_pattern_list(rest, [pattern | acc])
-        [{:op, _, :rbracket} | rest] -> {:ok, Enum.reverse([pattern | acc]), rest}
-        _ -> {:error, "expected ',' or ']' in match pattern list at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  @spec parse_match_pattern_tuple([Lexer.token()], [match_pattern()]) ::
-          {:ok, [match_pattern()], [Lexer.token()]} | {:error, String.t()}
-  defp parse_match_pattern_tuple([{:op, _, :rparen} | rest], acc) do
-    {:ok, Enum.reverse(acc), rest}
-  end
-
-  defp parse_match_pattern_tuple(tokens, acc) do
-    with {:ok, pattern, rest} <- parse_match_pattern(tokens) do
-      case rest do
-        [{:op, _, :comma} | rest] -> parse_match_pattern_tuple(rest, [pattern | acc])
-        [{:op, _, :rparen} | rest] -> {:ok, Enum.reverse([pattern | acc]), rest}
-        _ -> {:error, "expected ',' or ')' in match pattern tuple at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  @spec parse_match_mapping_entries([Lexer.token()], [{ast_node(), match_pattern()}]) ::
-          {:ok, [{ast_node(), match_pattern()}], [Lexer.token()]} | {:error, String.t()}
-  defp parse_match_mapping_entries([{:op, _, :rbrace} | rest], acc) do
-    {:ok, Enum.reverse(acc), rest}
-  end
-
-  defp parse_match_mapping_entries(tokens, acc) do
-    with {:ok, key, [{:op, _, :colon} | rest]} <- parse_match_mapping_key(tokens),
-         {:ok, value_pattern, rest} <- parse_match_pattern(rest) do
-      case rest do
-        [{:op, _, :comma} | rest] ->
-          parse_match_mapping_entries(rest, [{key, value_pattern} | acc])
-
-        [{:op, _, :rbrace} | rest] ->
-          {:ok, Enum.reverse([{key, value_pattern} | acc]), rest}
-
-        _ ->
-          {:error, "expected ',' or '}' in match mapping at #{token_line(rest)}"}
-      end
-    else
-      {:ok, _, rest} -> {:error, "expected ':' in match mapping at #{token_line(rest)}"}
-      {:error, _} = error -> error
-    end
-  end
-
-  @spec parse_match_mapping_key([Lexer.token()]) ::
-          {:ok, ast_node(), [Lexer.token()]} | {:error, String.t()}
-  defp parse_match_mapping_key([{:string, line, value} | rest]) do
-    {:ok, {:lit, [line: line], [value]}, rest}
-  end
-
-  defp parse_match_mapping_key([{:integer, line, value} | rest]) do
-    {:ok, {:lit, [line: line], [value]}, rest}
-  end
-
-  defp parse_match_mapping_key([{:float, line, value} | rest]) do
-    {:ok, {:lit, [line: line], [value]}, rest}
-  end
-
-  defp parse_match_mapping_key([{:keyword, line, "None"} | rest]) do
-    {:ok, {:lit, [line: line], [nil]}, rest}
-  end
-
-  defp parse_match_mapping_key([{:keyword, line, "True"} | rest]) do
-    {:ok, {:lit, [line: line], [true]}, rest}
-  end
-
-  defp parse_match_mapping_key([{:keyword, line, "False"} | rest]) do
-    {:ok, {:lit, [line: line], [false]}, rest}
-  end
-
-  defp parse_match_mapping_key(tokens) do
-    {:error, "expected literal key in match mapping at #{token_line(tokens)}"}
-  end
-
-  @spec parse_match_class_args(
-          [Lexer.token()],
-          [match_pattern()],
-          [{String.t(), match_pattern()}]
-        ) ::
-          {:ok, [match_pattern()], [{String.t(), match_pattern()}], [Lexer.token()]}
-          | {:error, String.t()}
-  defp parse_match_class_args([{:op, _, :rparen} | rest], pos_acc, kw_acc) do
-    {:ok, Enum.reverse(pos_acc), Enum.reverse(kw_acc), rest}
-  end
-
-  defp parse_match_class_args(
-         [{:name, _, name}, {:op, _, :assign} | rest],
-         pos_acc,
-         kw_acc
-       ) do
-    with {:ok, pattern, rest} <- parse_match_pattern(rest) do
-      case rest do
-        [{:op, _, :comma} | rest] ->
-          parse_match_class_args(rest, pos_acc, [{name, pattern} | kw_acc])
-
-        [{:op, _, :rparen} | rest] ->
-          {:ok, Enum.reverse(pos_acc), Enum.reverse([{name, pattern} | kw_acc]), rest}
-
-        _ ->
-          {:error, "expected ',' or ')' in match class pattern at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  defp parse_match_class_args(tokens, pos_acc, kw_acc) do
-    with {:ok, pattern, rest} <- parse_match_pattern(tokens) do
-      case rest do
-        [{:op, _, :comma} | rest] ->
-          parse_match_class_args(rest, [pattern | pos_acc], kw_acc)
-
-        [{:op, _, :rparen} | rest] ->
-          {:ok, Enum.reverse([pattern | pos_acc]), Enum.reverse(kw_acc), rest}
-
-        _ ->
-          {:error, "expected ',' or ')' in match class pattern at #{token_line(rest)}"}
-      end
-    end
-  end
-
+  @doc false
   @spec parse_inline_body([Lexer.token()]) :: parse_result()
-  defp parse_inline_body(tokens) do
+  def parse_inline_body(tokens) do
     parse_statement(tokens)
   end
 
+  @doc false
+  @spec parse_or([Lexer.token()]) :: parse_result()
+  def parse_or(tokens) do
+    with {:ok, left, rest} <- parse_and(tokens) do
+      parse_or_rest(left, rest)
+    end
+  end
+
+  @doc false
   @spec parse_expression([Lexer.token()]) :: parse_result()
-  defp parse_expression([{:name, line, name}, {:op, _, :walrus} | rest]) do
+  def parse_expression([{:name, line, name}, {:op, _, :walrus} | rest]) do
     with {:ok, expr, rest} <- parse_expression(rest) do
       {:ok, {:walrus, [line: line], [name, expr]}, rest}
     end
   end
 
-  defp parse_expression(tokens) do
+  def parse_expression(tokens) do
     with {:ok, expr, rest} <- parse_or(tokens) do
       parse_ternary(expr, rest)
     end
@@ -1591,13 +715,6 @@ defmodule Pyex.Parser do
   end
 
   defp parse_ternary(expr, rest), do: {:ok, expr, rest}
-
-  @spec parse_or([Lexer.token()]) :: parse_result()
-  defp parse_or(tokens) do
-    with {:ok, left, rest} <- parse_and(tokens) do
-      parse_or_rest(left, rest)
-    end
-  end
 
   @spec parse_or_rest(ast_node(), [Lexer.token()]) :: parse_result()
   defp parse_or_rest(left, [{:keyword, _, "or"} | rest]) do
@@ -1969,7 +1086,7 @@ defmodule Pyex.Parser do
         [{:keyword, _, "for"} | for_rest] ->
           line = node_line(expr)
 
-          case parse_gen_expr_body(expr, for_rest, line) do
+          case Comprehensions.parse_gen_expr_body(expr, for_rest, line) do
             {:ok, gen_expr, [{:op, _, :rparen} | rest]} ->
               {:ok, Enum.reverse([gen_expr | acc]), rest}
 
@@ -1986,7 +1103,7 @@ defmodule Pyex.Parser do
               [{:keyword, _, "for"} | for_rest] ->
                 line = node_line(full_expr)
 
-                case parse_gen_expr_body(full_expr, for_rest, line) do
+                case Comprehensions.parse_gen_expr_body(full_expr, for_rest, line) do
                   {:ok, gen_expr, [{:op, _, :rparen} | rest]} ->
                     {:ok, Enum.reverse([gen_expr | acc]), rest}
 
@@ -2036,35 +1153,15 @@ defmodule Pyex.Parser do
   end
 
   defp parse_atom([{:op, line, :lparen} | rest]) do
-    case rest do
-      [{:op, _, :rparen} | rest] ->
-        {:ok, {:tuple, [line: line], [[]]}, rest}
-
-      _ ->
-        with {:ok, expr, rest} <- parse_expression(rest) do
-          case rest do
-            [{:keyword, _, "for"} | for_rest] ->
-              parse_gen_expr(expr, for_rest, line, :rparen)
-
-            [{:op, _, :comma} | rest] ->
-              parse_tuple_rest(rest, line, [expr])
-
-            [{:op, _, :rparen} | rest] ->
-              {:ok, expr, rest}
-
-            _ ->
-              {:error, "expected ')' at #{token_line(rest)}"}
-          end
-        end
-    end
+    Comprehensions.parse_parenthesized(rest, line)
   end
 
   defp parse_atom([{:op, line, :lbracket} | rest]) do
-    parse_list_literal(rest, line)
+    Comprehensions.parse_list_literal(rest, line)
   end
 
   defp parse_atom([{:op, line, :lbrace} | rest]) do
-    parse_dict_literal(rest, line)
+    Comprehensions.parse_dict_literal(rest, line)
   end
 
   defp parse_atom([{:keyword, line, "await"} | _]) do
@@ -2085,353 +1182,6 @@ defmodule Pyex.Parser do
 
   defp parse_atom(tokens) do
     {:error, "unexpected token at #{token_line(tokens)}: #{inspect_tokens(tokens)}"}
-  end
-
-  @spec parse_list_literal([Lexer.token()], pos_integer()) :: parse_result()
-  defp parse_list_literal([{:op, _, :rbracket} | rest], line) do
-    {:ok, {:list, [line: line], [[]]}, rest}
-  end
-
-  defp parse_list_literal(tokens, line) do
-    with {:ok, expr, rest} <- parse_or(tokens) do
-      case rest do
-        [{:keyword, _, "for"} | rest] ->
-          parse_list_comp(expr, rest, line)
-
-        [{:keyword, _, "if"} | _] = rest ->
-          with {:ok, full_expr, rest} <- parse_ternary(expr, rest) do
-            case rest do
-              [{:keyword, _, "for"} | for_rest] ->
-                parse_list_comp(full_expr, for_rest, line)
-
-              _ ->
-                parse_list_elements_rest(rest, line, [full_expr])
-            end
-          end
-
-        _ ->
-          parse_list_elements_rest(rest, line, [expr])
-      end
-    end
-  end
-
-  @spec parse_list_elements_rest([Lexer.token()], pos_integer(), [ast_node()]) :: parse_result()
-  defp parse_list_elements_rest(rest, line, acc) do
-    case rest do
-      [{:op, _, :comma} | rest] ->
-        parse_list_elements(rest, line, acc)
-
-      [{:op, _, :rbracket} | rest] ->
-        {:ok, {:list, [line: line], [Enum.reverse(acc)]}, rest}
-
-      _ ->
-        {:error, "expected ',' or ']' in list at #{token_line(rest)}"}
-    end
-  end
-
-  @spec parse_list_elements([Lexer.token()], pos_integer(), [ast_node()]) :: parse_result()
-  defp parse_list_elements([{:op, _, :rbracket} | rest], line, acc) do
-    {:ok, {:list, [line: line], [Enum.reverse(acc)]}, rest}
-  end
-
-  defp parse_list_elements(tokens, line, acc) do
-    with {:ok, expr, rest} <- parse_expression(tokens) do
-      case rest do
-        [{:op, _, :comma} | rest] ->
-          parse_list_elements(rest, line, [expr | acc])
-
-        [{:op, _, :rbracket} | rest] ->
-          {:ok, {:list, [line: line], [Enum.reverse([expr | acc])]}, rest}
-
-        _ ->
-          {:error, "expected ',' or ']' in list at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  @spec parse_list_comp(ast_node(), [Lexer.token()], pos_integer()) :: parse_result()
-  defp parse_list_comp(expr, [{:name, _, first_name}, {:op, _, :comma} | rest], line) do
-    case collect_for_vars(rest, [first_name]) do
-      {:ok, var_names, rest} ->
-        with {:ok, iterable, rest} <- parse_or(rest),
-             {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
-          all_clauses = [{:comp_for, var_names, iterable} | clauses]
-
-          case rest do
-            [{:op, _, :rbracket} | rest] ->
-              {:ok, {:list_comp, [line: line], [expr, all_clauses]}, rest}
-
-            _ ->
-              {:error, "expected ']' after list comprehension at #{token_line(rest)}"}
-          end
-        end
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp parse_list_comp(expr, [{:name, _, var_name}, {:keyword, _, "in"} | rest], line) do
-    with {:ok, iterable, rest} <- parse_or(rest),
-         {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
-      all_clauses = [{:comp_for, var_name, iterable} | clauses]
-
-      case rest do
-        [{:op, _, :rbracket} | rest] ->
-          {:ok, {:list_comp, [line: line], [expr, all_clauses]}, rest}
-
-        _ ->
-          {:error, "expected ']' after list comprehension at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  defp parse_list_comp(_expr, tokens, _line) do
-    {:error, "expected variable name after 'for' in list comprehension at #{token_line(tokens)}"}
-  end
-
-  @spec parse_gen_expr(ast_node(), [Lexer.token()], pos_integer(), :rparen) :: parse_result()
-  defp parse_gen_expr(expr, [{:name, _, first_name}, {:op, _, :comma} | rest], line, _closer) do
-    case collect_for_vars(rest, [first_name]) do
-      {:ok, var_names, rest} ->
-        with {:ok, iterable, rest} <- parse_or(rest),
-             {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
-          all_clauses = [{:comp_for, var_names, iterable} | clauses]
-
-          case rest do
-            [{:op, _, :rparen} | rest] ->
-              {:ok, {:gen_expr, [line: line], [expr, all_clauses]}, rest}
-
-            _ ->
-              {:error, "expected ')' after generator expression at #{token_line(rest)}"}
-          end
-        end
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp parse_gen_expr(expr, [{:name, _, var_name}, {:keyword, _, "in"} | rest], line, _closer) do
-    with {:ok, iterable, rest} <- parse_or(rest),
-         {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
-      all_clauses = [{:comp_for, var_name, iterable} | clauses]
-
-      case rest do
-        [{:op, _, :rparen} | rest] ->
-          {:ok, {:gen_expr, [line: line], [expr, all_clauses]}, rest}
-
-        _ ->
-          {:error, "expected ')' after generator expression at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  defp parse_gen_expr(_expr, tokens, _line, _closer) do
-    {:error,
-     "expected variable name after 'for' in generator expression at #{token_line(tokens)}"}
-  end
-
-  @spec parse_gen_expr_body(ast_node(), [Lexer.token()], pos_integer()) :: parse_result()
-  defp parse_gen_expr_body(
-         expr,
-         [{:name, _, first_name}, {:op, _, :comma} | rest],
-         line
-       ) do
-    case collect_for_vars(rest, [first_name]) do
-      {:ok, var_names, rest} ->
-        with {:ok, iterable, rest} <- parse_or(rest),
-             {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
-          all_clauses = [{:comp_for, var_names, iterable} | clauses]
-          {:ok, {:gen_expr, [line: line], [expr, all_clauses]}, rest}
-        end
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp parse_gen_expr_body(
-         expr,
-         [{:name, _, var_name}, {:keyword, _, "in"} | rest],
-         line
-       ) do
-    with {:ok, iterable, rest} <- parse_or(rest),
-         {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
-      all_clauses = [{:comp_for, var_name, iterable} | clauses]
-      {:ok, {:gen_expr, [line: line], [expr, all_clauses]}, rest}
-    end
-  end
-
-  defp parse_gen_expr_body(_expr, tokens, _line) do
-    {:error,
-     "expected variable name after 'for' in generator expression at #{token_line(tokens)}"}
-  end
-
-  @spec parse_dict_literal([Lexer.token()], pos_integer()) :: parse_result()
-  defp parse_dict_literal([{:op, _, :rbrace} | rest], line) do
-    {:ok, {:dict, [line: line], [[]]}, rest}
-  end
-
-  defp parse_dict_literal(tokens, line) do
-    parse_dict_entries(tokens, line, [])
-  end
-
-  @spec parse_dict_entries([Lexer.token()], pos_integer(), [{ast_node(), ast_node()}]) ::
-          parse_result()
-  defp parse_dict_entries(tokens, line, acc) do
-    with {:ok, key, rest} <- parse_or(tokens) do
-      case rest do
-        [{:op, _, :colon} | rest] ->
-          with {:ok, value, rest} <- parse_or(rest) do
-            case rest do
-              [{:keyword, _, "for"} | comp_rest] when acc == [] ->
-                parse_dict_comp(key, value, comp_rest, line)
-
-              _ ->
-                pair = {key, value}
-
-                case rest do
-                  [{:op, _, :comma}, {:op, _, :rbrace} | rest] ->
-                    {:ok, {:dict, [line: line], [Enum.reverse([pair | acc])]}, rest}
-
-                  [{:op, _, :comma} | rest] ->
-                    parse_dict_entries(rest, line, [pair | acc])
-
-                  [{:op, _, :rbrace} | rest] ->
-                    {:ok, {:dict, [line: line], [Enum.reverse([pair | acc])]}, rest}
-
-                  _ ->
-                    {:error, "expected ',' or '}' in dict at #{token_line(rest)}"}
-                end
-            end
-          end
-
-        [{:keyword, _, "for"} | comp_rest] when acc == [] ->
-          parse_set_comp(key, comp_rest, line)
-
-        [{:op, _, :comma} | set_rest] when acc == [] ->
-          parse_set_entries(set_rest, line, [key])
-
-        [{:op, _, :rbrace} | set_rest] when acc == [] ->
-          {:ok, {:set, [line: line], [[key]]}, set_rest}
-
-        _ ->
-          {:error, "expected ':' in dict entry at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  @spec parse_set_entries([Lexer.token()], pos_integer(), [ast_node()]) :: parse_result()
-  defp parse_set_entries([{:op, _, :rbrace} | rest], line, acc) do
-    {:ok, {:set, [line: line], [Enum.reverse(acc)]}, rest}
-  end
-
-  defp parse_set_entries(tokens, line, acc) do
-    with {:ok, elem, rest} <- parse_or(tokens) do
-      case rest do
-        [{:op, _, :comma} | rest] ->
-          parse_set_entries(rest, line, [elem | acc])
-
-        [{:op, _, :rbrace} | rest] ->
-          {:ok, {:set, [line: line], [Enum.reverse([elem | acc])]}, rest}
-
-        _ ->
-          {:error, "expected ',' or '}' in set literal at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  @spec parse_set_comp(ast_node(), [Lexer.token()], pos_integer()) :: parse_result()
-  defp parse_set_comp(expr, [{:name, _, first_name}, {:op, _, :comma} | rest], line) do
-    case collect_for_vars(rest, [first_name]) do
-      {:ok, var_names, rest} ->
-        with {:ok, iterable, rest} <- parse_or(rest),
-             {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
-          all_clauses = [{:comp_for, var_names, iterable} | clauses]
-
-          case rest do
-            [{:op, _, :rbrace} | rest] ->
-              {:ok, {:set_comp, [line: line], [expr, all_clauses]}, rest}
-
-            _ ->
-              {:error, "expected '}' after set comprehension at #{token_line(rest)}"}
-          end
-        end
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp parse_set_comp(expr, [{:name, _, var_name}, {:keyword, _, "in"} | rest], line) do
-    with {:ok, iterable, rest} <- parse_or(rest),
-         {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
-      all_clauses = [{:comp_for, var_name, iterable} | clauses]
-
-      case rest do
-        [{:op, _, :rbrace} | rest] ->
-          {:ok, {:set_comp, [line: line], [expr, all_clauses]}, rest}
-
-        _ ->
-          {:error, "expected '}' after set comprehension at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  defp parse_set_comp(_expr, tokens, _line) do
-    {:error, "expected variable name in set comprehension at #{token_line(tokens)}"}
-  end
-
-  @spec parse_dict_comp(ast_node(), ast_node(), [Lexer.token()], pos_integer()) :: parse_result()
-  defp parse_dict_comp(
-         key_expr,
-         val_expr,
-         [{:name, _, first_name}, {:op, _, :comma} | rest],
-         line
-       ) do
-    case collect_for_vars(rest, [first_name]) do
-      {:ok, var_names, rest} ->
-        with {:ok, iterable, rest} <- parse_or(rest),
-             {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
-          all_clauses = [{:comp_for, var_names, iterable} | clauses]
-
-          case rest do
-            [{:op, _, :rbrace} | rest] ->
-              {:ok, {:dict_comp, [line: line], [key_expr, val_expr, all_clauses]}, rest}
-
-            _ ->
-              {:error, "expected '}' after dict comprehension at #{token_line(rest)}"}
-          end
-        end
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp parse_dict_comp(
-         key_expr,
-         val_expr,
-         [{:name, _, var_name}, {:keyword, _, "in"} | rest],
-         line
-       ) do
-    with {:ok, iterable, rest} <- parse_or(rest),
-         {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
-      all_clauses = [{:comp_for, var_name, iterable} | clauses]
-
-      case rest do
-        [{:op, _, :rbrace} | rest] ->
-          {:ok, {:dict_comp, [line: line], [key_expr, val_expr, all_clauses]}, rest}
-
-        _ ->
-          {:error, "expected '}' after dict comprehension at #{token_line(rest)}"}
-      end
-    end
-  end
-
-  defp parse_dict_comp(_key_expr, _val_expr, tokens, _line) do
-    {:error, "expected variable name in dict comprehension at #{token_line(tokens)}"}
   end
 
   @spec try_multi_assign([Lexer.token()], pos_integer(), [String.t() | {:starred, String.t()}]) ::
@@ -2537,26 +1287,6 @@ defmodule Pyex.Parser do
     {:error, "unexpected token in lambda params at #{token_line(tokens)}"}
   end
 
-  @spec parse_tuple_rest([Lexer.token()], pos_integer(), [ast_node()]) :: parse_result()
-  defp parse_tuple_rest([{:op, _, :rparen} | rest], line, acc) do
-    {:ok, {:tuple, [line: line], [Enum.reverse(acc)]}, rest}
-  end
-
-  defp parse_tuple_rest(tokens, line, acc) do
-    with {:ok, expr, rest} <- parse_expression(tokens) do
-      case rest do
-        [{:op, _, :comma} | rest] ->
-          parse_tuple_rest(rest, line, [expr | acc])
-
-        [{:op, _, :rparen} | rest] ->
-          {:ok, {:tuple, [line: line], [Enum.reverse([expr | acc])]}, rest}
-
-        _ ->
-          {:error, "expected ',' or ')' in tuple at #{token_line(rest)}"}
-      end
-    end
-  end
-
   @spec parse_fstring_parts(String.t(), pos_integer()) ::
           {:ok, [{:lit, String.t()} | {:expr, ast_node()}]} | {:error, String.t()}
   defp parse_fstring_parts(template, line) do
@@ -2658,13 +1388,6 @@ defmodule Pyex.Parser do
   defp drop_newline([:newline | rest]), do: rest
   defp drop_newline(rest), do: rest
 
-  @spec skip_return_annotation([Lexer.token()]) :: [Lexer.token()]
-  defp skip_return_annotation([{:op, _, :minus}, {:op, _, :gt} | rest]) do
-    skip_type_annotation(rest)
-  end
-
-  defp skip_return_annotation(tokens), do: tokens
-
   @spec collect_type_annotation([Lexer.token()]) :: {String.t(), [Lexer.token()]}
   defp collect_type_annotation([{:name, _, name} | rest]) do
     {subscript, rest} = collect_type_subscript(rest)
@@ -2673,11 +1396,6 @@ defmodule Pyex.Parser do
 
   defp collect_type_annotation([{:keyword, _, "None"} | rest]), do: {"None", rest}
   defp collect_type_annotation(tokens), do: {"", tokens}
-
-  @spec skip_type_annotation([Lexer.token()]) :: [Lexer.token()]
-  defp skip_type_annotation([{:name, _, _} | rest]), do: skip_type_subscript(rest)
-  defp skip_type_annotation([{:keyword, _, "None"} | rest]), do: rest
-  defp skip_type_annotation(tokens), do: tokens
 
   @spec collect_type_subscript([Lexer.token()]) :: {String.t(), [Lexer.token()]}
   defp collect_type_subscript([{:op, _, :lbracket} | rest]) do
@@ -2715,24 +1433,14 @@ defmodule Pyex.Parser do
   defp collect_brackets([], _depth, acc),
     do: {acc |> Enum.reverse() |> Enum.join(), []}
 
-  @spec skip_type_subscript([Lexer.token()]) :: [Lexer.token()]
-  defp skip_type_subscript([{:op, _, :lbracket} | rest]), do: skip_brackets(rest, 1)
-  defp skip_type_subscript(tokens), do: tokens
-
-  @spec skip_brackets([Lexer.token()], non_neg_integer()) :: [Lexer.token()]
-  defp skip_brackets(tokens, 0), do: tokens
-  defp skip_brackets([{:op, _, :lbracket} | rest], depth), do: skip_brackets(rest, depth + 1)
-  defp skip_brackets([{:op, _, :rbracket} | rest], depth), do: skip_brackets(rest, depth - 1)
-  defp skip_brackets([_ | rest], depth), do: skip_brackets(rest, depth)
-  defp skip_brackets([], _depth), do: []
-
   @spec token_line([Lexer.token()]) :: String.t()
   defp token_line([{_, line, _} | _]), do: "line #{line}"
   defp token_line(_), do: "end of input"
 
+  @doc false
   @spec node_line(ast_node() | term()) :: pos_integer()
-  defp node_line({_, [line: line], _}), do: line
-  defp node_line(_), do: 1
+  def node_line({_, [line: line], _}), do: line
+  def node_line(_), do: 1
 
   @spec inspect_tokens([Lexer.token()]) :: String.t()
   defp inspect_tokens(tokens) do
