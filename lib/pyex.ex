@@ -3,7 +3,8 @@ defmodule Pyex do
   A Python 3 interpreter written in Elixir.
 
   Pyex lexes, parses, and evaluates Python source code entirely
-  within the BEAM -- no external runtime, no NIFs, no ports.
+  within the BEAM -- no external runtime, no ports, and no Python
+  runtime dependency.
   It is designed as a capabilities-based sandbox for running
   LLM-generated compute safely: every I/O operation (network,
   filesystem, database) is denied by default and must be
