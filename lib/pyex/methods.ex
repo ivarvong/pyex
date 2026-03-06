@@ -147,7 +147,9 @@ defmodule Pyex.Methods do
   end
 
   @spec string_method(String.t()) ::
-          {:ok, (String.t(), [Interpreter.pyvalue()] -> Interpreter.pyvalue())} | :error
+          {:ok, (String.t(), [Interpreter.pyvalue()] -> Interpreter.pyvalue())}
+          | {:ok_kw, (String.t(), [Interpreter.pyvalue()], map() -> Interpreter.pyvalue())}
+          | :error
   defp string_method("upper"), do: {:ok, &str_upper/2}
   defp string_method("lower"), do: {:ok, &str_lower/2}
   defp string_method("strip"), do: {:ok, &str_strip/2}
