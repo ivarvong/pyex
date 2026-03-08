@@ -1,7 +1,7 @@
 defmodule Pyex.Stdlib.RequestsTest do
   use ExUnit.Case
 
-  @network [dangerously_allow_full_internet_access: true]
+  @network [%{dangerously_allow_full_internet_access: true, methods: :all}]
 
   setup do
     bypass = Bypass.open()
@@ -416,7 +416,7 @@ defmodule Pyex.Stdlib.RequestsTest do
           response = requests.get("http://localhost:#{port}/api/data")
           response.status_code
           """,
-          network: [allowed_url_prefixes: ["http://localhost:#{port}/api/"]]
+          network: [%{allowed_url_prefix: "http://localhost:#{port}/api/"}]
         )
 
       assert result == 200
@@ -435,7 +435,7 @@ defmodule Pyex.Stdlib.RequestsTest do
           import requests
           requests.get("http://localhost:#{port}/secret")
           """,
-          network: [allowed_url_prefixes: ["https://api.example.com"]]
+          network: [%{allowed_url_prefix: "https://api.example.com/"}]
         )
       end
     end
@@ -455,7 +455,7 @@ defmodule Pyex.Stdlib.RequestsTest do
           response = requests.get("http://localhost:#{port}/data")
           response.status_code
           """,
-          network: [allowed_url_prefixes: [prefix]]
+          network: [%{allowed_url_prefix: prefix}]
         )
 
       assert result == 200
@@ -466,12 +466,12 @@ defmodule Pyex.Stdlib.RequestsTest do
           import requests
           requests.post("http://localhost:#{port}/data", json={})
           """,
-          network: [allowed_url_prefixes: [prefix]]
+          network: [%{allowed_url_prefix: prefix}]
         )
       end
     end
 
-    test "custom allowed_methods", %{bypass: bypass} do
+    test "custom methods per prefix", %{bypass: bypass} do
       Bypass.expect_once(bypass, "POST", "/api/data", fn conn ->
         {:ok, _body, conn} = Plug.Conn.read_body(conn)
         Plug.Conn.resp(conn, 201, "created")
@@ -487,15 +487,44 @@ defmodule Pyex.Stdlib.RequestsTest do
           response.status_code
           """,
           network: [
-            allowed_url_prefixes: ["http://localhost:#{port}/"],
-            allowed_methods: ["GET", "HEAD", "POST"]
+            %{allowed_url_prefix: "http://localhost:#{port}/", methods: ["GET", "HEAD", "POST"]}
           ]
         )
 
       assert result == 201
     end
 
-    test "dangerously_allow_full_internet_access allows everything", %{bypass: bypass} do
+    test "dangerously_allow_full_internet_access defaults to GET/HEAD", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "GET", "/data", fn conn ->
+        Plug.Conn.resp(conn, 200, "ok")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!(
+          """
+          import requests
+          response = requests.get("http://localhost:#{port}/data")
+          response.status_code
+          """,
+          network: [%{dangerously_allow_full_internet_access: true}]
+        )
+
+      assert result == 200
+
+      assert_raise RuntimeError, ~r/NetworkError.*HTTP method DELETE is not allowed/, fn ->
+        Pyex.run!(
+          """
+          import requests
+          requests.delete("http://localhost:#{port}/data")
+          """,
+          network: [%{dangerously_allow_full_internet_access: true}]
+        )
+      end
+    end
+
+    test "dangerously_allow_full_internet_access with methods: :all", %{bypass: bypass} do
       Bypass.expect_once(bypass, "DELETE", "/api/item/1", fn conn ->
         Plug.Conn.resp(conn, 204, "")
       end)
@@ -509,10 +538,40 @@ defmodule Pyex.Stdlib.RequestsTest do
           response = requests.delete("http://localhost:#{port}/api/item/1")
           response.status_code
           """,
-          network: [dangerously_allow_full_internet_access: true]
+          network: [%{dangerously_allow_full_internet_access: true, methods: :all}]
         )
 
       assert result == 204
+    end
+
+    test "dangerously_allow_full_internet_access with method restriction", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "GET", "/data", fn conn ->
+        Plug.Conn.resp(conn, 200, "ok")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!(
+          """
+          import requests
+          response = requests.get("http://localhost:#{port}/data")
+          response.status_code
+          """,
+          network: [%{dangerously_allow_full_internet_access: true, methods: ["GET"]}]
+        )
+
+      assert result == 200
+
+      assert_raise RuntimeError, ~r/NetworkError.*HTTP method POST is not allowed/, fn ->
+        Pyex.run!(
+          """
+          import requests
+          requests.post("http://localhost:#{port}/data", json={})
+          """,
+          network: [%{dangerously_allow_full_internet_access: true, methods: ["GET"]}]
+        )
+      end
     end
 
     test "multiple prefixes work", %{bypass: bypass} do
@@ -530,10 +589,8 @@ defmodule Pyex.Stdlib.RequestsTest do
           response.text
           """,
           network: [
-            allowed_url_prefixes: [
-              "http://localhost:#{port}/v1/",
-              "http://localhost:#{port}/v2/"
-            ]
+            %{allowed_url_prefix: "http://localhost:#{port}/v1/"},
+            %{allowed_url_prefix: "http://localhost:#{port}/v2/"}
           ]
         )
 
@@ -554,14 +611,14 @@ defmodule Pyex.Stdlib.RequestsTest do
           response = requests.head("http://localhost:#{port}/ping")
           response.status_code
           """,
-          network: [allowed_url_prefixes: ["http://localhost:#{port}/"]]
+          network: [%{allowed_url_prefix: "http://localhost:#{port}/"}]
         )
 
       assert result == 200
     end
 
-    test "empty config denies all URLs" do
-      assert_raise RuntimeError, ~r/NetworkError.*no allowed hosts or URL prefixes/, fn ->
+    test "empty rules list denies all URLs" do
+      assert_raise RuntimeError, ~r/NetworkError.*no network rules/, fn ->
         Pyex.run!(
           """
           import requests
@@ -571,148 +628,245 @@ defmodule Pyex.Stdlib.RequestsTest do
         )
       end
     end
-  end
 
-  describe "network access control: allowed_hosts" do
-    test "allows request to matching host", %{bypass: bypass} do
-      Bypass.expect_once(bypass, "GET", "/data", fn conn ->
-        Plug.Conn.resp(conn, 200, "ok")
+    test "mixed rules: dangerous GET + prefix POST with headers", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "GET", "/public", fn conn ->
+        Plug.Conn.resp(conn, 200, "public data")
+      end)
+
+      Bypass.expect_once(bypass, "POST", "/api/data", fn conn ->
+        [auth] = Plug.Conn.get_req_header(conn, "authorization")
+        assert auth == "Bearer test-key"
+        Plug.Conn.resp(conn, 201, "created")
       end)
 
       port = bypass.port
 
-      result =
-        Pyex.run!(
-          """
-          import requests
-          response = requests.get("http://localhost:#{port}/data")
-          response.status_code
-          """,
-          network: [allowed_hosts: ["localhost"]]
-        )
-
-      assert result == 200
-    end
-
-    test "denies request to non-matching host" do
-      assert_raise RuntimeError, ~r/NetworkError.*URL is not allowed/, fn ->
-        Pyex.run!(
-          """
-          import requests
-          requests.get("http://evil.com/data")
-          """,
-          network: [allowed_hosts: ["api.example.com"]]
-        )
-      end
-    end
-
-    test "rejects subdomains (exact match only)" do
-      assert_raise RuntimeError, ~r/NetworkError.*URL is not allowed/, fn ->
-        Pyex.run!(
-          """
-          import requests
-          requests.get("http://evil.api.example.com/data")
-          """,
-          network: [allowed_hosts: ["api.example.com"]]
-        )
-      end
-    end
-
-    test "host matching is case-insensitive" do
-      assert_raise RuntimeError, ~r/NetworkError.*URL is not allowed/, fn ->
-        Pyex.run!(
-          """
-          import requests
-          requests.get("http://evil.com/data")
-          """,
-          network: [allowed_hosts: ["API.EXAMPLE.COM"]]
-        )
-      end
-    end
-
-    test "multiple allowed hosts", %{bypass: bypass} do
-      Bypass.expect_once(bypass, "GET", "/data", fn conn ->
-        Plug.Conn.resp(conn, 200, "ok")
-      end)
-
-      port = bypass.port
-
-      result =
-        Pyex.run!(
-          """
-          import requests
-          response = requests.get("http://localhost:#{port}/data")
-          response.status_code
-          """,
-          network: [allowed_hosts: ["api.example.com", "localhost"]]
-        )
-
-      assert result == 200
-    end
-
-    test "allowed_methods still applies with allowed_hosts", %{bypass: bypass} do
-      port = bypass.port
-
-      assert_raise RuntimeError, ~r/NetworkError.*HTTP method POST is not allowed/, fn ->
-        Pyex.run!(
-          """
-          import requests
-          requests.post("http://localhost:#{port}/data", json={})
-          """,
-          network: [allowed_hosts: ["localhost"]]
-        )
-      end
-    end
-
-    test "allowed_hosts and allowed_url_prefixes work together", %{bypass: bypass} do
-      Bypass.expect_once(bypass, "GET", "/api/v1/data", fn conn ->
-        Plug.Conn.resp(conn, 200, "from prefix")
-      end)
-
-      Bypass.expect_once(bypass, "GET", "/other", fn conn ->
-        Plug.Conn.resp(conn, 200, "from host")
-      end)
-
-      port = bypass.port
-
-      opts = [
-        network: [
-          allowed_hosts: ["localhost"],
-          allowed_url_prefixes: ["http://localhost:#{port}/api/"]
-        ]
+      network = [
+        %{dangerously_allow_full_internet_access: true, methods: ["GET"]},
+        %{
+          allowed_url_prefix: "http://localhost:#{port}/api/",
+          methods: ["POST"],
+          headers: %{"authorization" => "Bearer test-key"}
+        }
       ]
 
       r1 =
         Pyex.run!(
           """
           import requests
-          requests.get("http://localhost:#{port}/api/v1/data").text
+          requests.get("http://localhost:#{port}/public").text
           """,
-          opts
+          network: network
         )
+
+      assert r1 == "public data"
 
       r2 =
         Pyex.run!(
           """
           import requests
-          requests.get("http://localhost:#{port}/other").text
+          requests.post("http://localhost:#{port}/api/data", json={}).status_code
           """,
-          opts
+          network: network
         )
 
-      assert r1 == "from prefix"
-      assert r2 == "from host"
+      assert r2 == 201
     end
+  end
 
-    test "prevents api.example.com.evil.com subdomain attack" do
-      assert_raise RuntimeError, ~r/NetworkError.*URL is not allowed/, fn ->
+  describe "credential injection" do
+    test "specific matching rule injects headers even when broader rule also matches", %{
+      bypass: bypass
+    } do
+      Bypass.expect_once(bypass, "POST", "/v1/chat", fn conn ->
+        [auth] = Plug.Conn.get_req_header(conn, "authorization")
+        assert auth == "Bearer injected"
+
+        Plug.Conn.resp(conn, 200, "ok")
+      end)
+
+      port = bypass.port
+
+      result =
         Pyex.run!(
           """
           import requests
-          requests.get("https://api.example.com.evil.com/data")
+          response = requests.post("http://localhost:#{port}/v1/chat", json={})
+          response.status_code
           """,
-          network: [allowed_hosts: ["api.example.com"]]
+          network: [
+            %{dangerously_allow_full_internet_access: true, methods: :all},
+            %{
+              allowed_url_prefix: "http://localhost:#{port}/v1/",
+              methods: ["POST"],
+              headers: %{"authorization" => "Bearer injected"}
+            }
+          ]
         )
+
+      assert result == 200
+    end
+
+    test "injects headers from network rule", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/v1/chat", fn conn ->
+        [auth] = Plug.Conn.get_req_header(conn, "authorization")
+        assert auth == "Bearer sk-injected"
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, ~s({"result": "ok"}))
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!(
+          """
+          import requests
+          response = requests.post("http://localhost:#{port}/v1/chat", json={"prompt": "hi"})
+          response.json()["result"]
+          """,
+          network: [
+            %{
+              allowed_url_prefix: "http://localhost:#{port}/v1/",
+              methods: ["POST"],
+              headers: %{"authorization" => "Bearer sk-injected"}
+            }
+          ]
+        )
+
+      assert result == "ok"
+    end
+
+    test "injected headers override user-provided headers", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/v1/chat", fn conn ->
+        [auth] = Plug.Conn.get_req_header(conn, "authorization")
+        # The injected header wins, not the Python-provided one
+        assert auth == "Bearer sk-from-config"
+
+        Plug.Conn.resp(conn, 200, "ok")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!(
+          """
+          import requests
+          response = requests.post(
+              "http://localhost:#{port}/v1/chat",
+              json={},
+              headers={"Authorization": "Bearer sk-from-python"}
+          )
+          response.status_code
+          """,
+          network: [
+            %{
+              allowed_url_prefix: "http://localhost:#{port}/v1/",
+              methods: ["POST"],
+              headers: %{"authorization" => "Bearer sk-from-config"}
+            }
+          ]
+        )
+
+      assert result == 200
+    end
+
+    test "multiple injected headers", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/v1/chat", fn conn ->
+        [key] = Plug.Conn.get_req_header(conn, "x-api-key")
+        [version] = Plug.Conn.get_req_header(conn, "anthropic-version")
+        assert key == "sk-ant-test"
+        assert version == "2024-10-22"
+
+        Plug.Conn.resp(conn, 200, "ok")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!(
+          """
+          import requests
+          response = requests.post("http://localhost:#{port}/v1/chat", json={})
+          response.status_code
+          """,
+          network: [
+            %{
+              allowed_url_prefix: "http://localhost:#{port}/v1/",
+              methods: ["POST"],
+              headers: %{
+                "x-api-key" => "sk-ant-test",
+                "anthropic-version" => "2024-10-22"
+              }
+            }
+          ]
+        )
+
+      assert result == 200
+    end
+
+    test "no headers injected for plain prefix rules", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "GET", "/data", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "authorization") == []
+        Plug.Conn.resp(conn, 200, "ok")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!(
+          """
+          import requests
+          requests.get("http://localhost:#{port}/data").status_code
+          """,
+          network: [%{allowed_url_prefix: "http://localhost:#{port}/"}]
+        )
+
+      assert result == 200
+    end
+
+    test "user headers preserved alongside injected headers", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/v1/chat", fn conn ->
+        [auth] = Plug.Conn.get_req_header(conn, "authorization")
+        [custom] = Plug.Conn.get_req_header(conn, "x-custom")
+        assert auth == "Bearer sk-injected"
+        assert custom == "user-value"
+
+        Plug.Conn.resp(conn, 200, "ok")
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!(
+          """
+          import requests
+          response = requests.post(
+              "http://localhost:#{port}/v1/chat",
+              json={},
+              headers={"X-Custom": "user-value"}
+          )
+          response.status_code
+          """,
+          network: [
+            %{
+              allowed_url_prefix: "http://localhost:#{port}/v1/",
+              methods: ["POST"],
+              headers: %{"authorization" => "Bearer sk-injected"}
+            }
+          ]
+        )
+
+      assert result == 200
+    end
+  end
+
+  describe "normalize_network validation" do
+    test "raises on rule without prefix or dangerous flag" do
+      assert_raise ArgumentError, ~r/must have :allowed_url_prefix/, fn ->
+        Pyex.run!("1 + 1", network: [%{methods: ["GET"]}])
       end
     end
   end

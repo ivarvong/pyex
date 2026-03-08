@@ -80,11 +80,8 @@ defmodule Pyex.Stdlib.Requests do
           %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
         ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
   defp do_request(method, url, kwargs) do
-    headers = build_headers(kwargs)
+    user_headers = build_headers(kwargs)
     method_str = method |> Atom.to_string() |> String.upcase()
-
-    req_opts =
-      [headers: headers, method: method, url: url, redirect: false] ++ body_opts(kwargs)
 
     {:io_call,
      fn env, ctx ->
@@ -92,7 +89,13 @@ defmodule Pyex.Stdlib.Requests do
          {:denied, reason} ->
            {{:exception, reason}, env, ctx}
 
-         :ok ->
+         {:ok, inject_headers} ->
+           # Injected headers override user-provided ones (host config wins)
+           headers = merge_headers(user_headers, inject_headers)
+
+           req_opts =
+             [headers: headers, method: method, url: url, redirect: false] ++ body_opts(kwargs)
+
            start_mono = System.monotonic_time()
            telemetry_meta = %{method: method_str, url: url}
 
@@ -132,6 +135,18 @@ defmodule Pyex.Stdlib.Requests do
            {result, env, ctx}
        end
      end}
+  end
+
+  @spec merge_headers([{String.t(), String.t()}], [{String.t(), String.t()}]) :: [
+          {String.t(), String.t()}
+        ]
+  defp merge_headers(user_headers, []), do: user_headers
+
+  defp merge_headers(user_headers, inject_headers) do
+    inject_keys = MapSet.new(inject_headers, fn {k, _} -> String.downcase(k) end)
+
+    filtered = Enum.reject(user_headers, fn {k, _} -> String.downcase(k) in inject_keys end)
+    filtered ++ inject_headers
   end
 
   @spec body_opts(%{optional(String.t()) => Pyex.Interpreter.pyvalue()}) :: keyword()

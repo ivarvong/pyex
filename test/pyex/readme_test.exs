@@ -148,14 +148,14 @@ defmodule Pyex.ReadmeTest do
       assert msg =~ "network access is disabled"
     end
 
-    test "allowed_hosts permits matching host" do
+    test "allowed_url_prefix permits matching prefix" do
       assert {:error, %Error{message: msg}} =
                Pyex.run(
                  """
                  import requests
                  requests.get("http://other.com")
                  """,
-                 network: [allowed_hosts: ["api.example.com"]]
+                 network: [%{allowed_url_prefix: "https://api.example.com/"}]
                )
 
       assert msg =~ "URL is not allowed"
