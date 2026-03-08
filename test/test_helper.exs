@@ -1,4 +1,4 @@
-ExUnit.start(exclude: [:postgres, :r2])
+ExUnit.start(exclude: [:postgres, :r2, :external_http])
 
 if System.get_env("PYEX_TRACE") == "1" do
   trace = Pyex.Trace.attach()
