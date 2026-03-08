@@ -794,6 +794,41 @@ defmodule Pyex.LambdaTest do
     end
   end
 
+  describe "module globals" do
+    test "invoke defines __name__ as __main__" do
+      source = """
+      import fastapi
+      app = fastapi.FastAPI()
+
+      @app.get("/globals")
+      def globals():
+          return {"name": __name__}
+      """
+
+      assert {:ok, resp} = Lambda.invoke(source, %{method: "GET", path: "/globals"})
+      assert resp.status == 200
+      assert resp.body == %{"name" => "__main__"}
+    end
+
+    test "boot exposes __file__ when ctx.file is set" do
+      ctx = Pyex.Ctx.new(file: "/tmp/app.py")
+
+      source = """
+      import fastapi
+      app = fastapi.FastAPI()
+
+      @app.get("/globals")
+      def globals():
+          return {"name": __name__, "file": __file__}
+      """
+
+      assert {:ok, app} = Lambda.boot(source, ctx: ctx)
+      assert {:ok, resp, _app} = Lambda.handle(app, %{method: "GET", path: "/globals"})
+      assert resp.status == 200
+      assert resp.body == %{"name" => "__main__", "file" => "/tmp/app.py"}
+    end
+  end
+
   describe "pydantic body parameters" do
     test "POST handler with pydantic model auto-parses JSON body" do
       source = """

@@ -8,15 +8,34 @@ defmodule Pyex.Interpreter do
   exceptions are `{:exception, message}` tuples that propagate
   identically -- no Elixir raise/rescue for Python error semantics.
 
-  Every execution is instrumented via `Pyex.Ctx`. Decision points
-  (branches, loop iterations, side effects) are recorded as events
-  in an append-only log for observability and debugging.
+  Every execution is instrumented via `Pyex.Ctx`. The context tracks
+  output plus lightweight counters for events, file operations, and
+  compute time so callers can inspect execution without a separate
+  runtime process.
   """
 
-  import Bitwise, only: [band: 2, bor: 2, bxor: 2, bsl: 2, bsr: 2, bnot: 1]
+  import Bitwise, only: [bnot: 1]
 
   alias Pyex.{Builtins, Ctx, Env, Methods, Parser}
-  alias Pyex.Interpreter.{Format, Helpers, Import, Iteration, Match, Unittest}
+
+  alias Pyex.Interpreter.{
+    Assignments,
+    BinaryOps,
+    Bindings,
+    ClassLookup,
+    Calls,
+    Collections,
+    ControlFlow,
+    Dunder,
+    Exceptions,
+    Helpers,
+    Import,
+    Invocation,
+    Iterables,
+    Match,
+    Protocols,
+    Statements
+  }
 
   @type pyvalue ::
           integer()
@@ -28,6 +47,7 @@ defmodule Pyex.Interpreter do
           | boolean()
           | nil
           | [pyvalue()]
+          | {:py_list, [pyvalue()], non_neg_integer()}
           | %{optional(pyvalue()) => pyvalue()}
           | {:tuple, [pyvalue()]}
           | {:set, MapSet.t(pyvalue())}
@@ -49,6 +69,7 @@ defmodule Pyex.Interpreter do
           | {:pandas_series, Explorer.Series.t()}
           | {:pandas_rolling, Explorer.Series.t(), pos_integer()}
           | {:pandas_dataframe, Explorer.DataFrame.t()}
+          | {:pyex_decimal, Decimal.t()}
 
   @typep signal ::
            {:returned, pyvalue()}
@@ -110,8 +131,7 @@ defmodule Pyex.Interpreter do
 
   @doc """
   Evaluates an AST with a provided context, returning
-  the value, final environment, and context (with full
-  event log).
+  the value, final environment, and updated context.
   """
   @spec run_with_ctx(Parser.ast_node(), Env.t(), Ctx.t()) ::
           {:ok, pyvalue(), Env.t(), Ctx.t()}
@@ -200,7 +220,7 @@ defmodule Pyex.Interpreter do
 
       {context_val, env, ctx} ->
         {enter_val, context_val, env, ctx} =
-          case call_dunder_mut(context_val, "__enter__", [], env, ctx) do
+          case Dunder.call_dunder_mut(context_val, "__enter__", [], env, ctx) do
             {:ok, new_obj, val, env, ctx} ->
               env = with_update_cm(env, cm_var, new_obj)
               {val, new_obj, env, ctx}
@@ -222,7 +242,7 @@ defmodule Pyex.Interpreter do
           {:exception, msg} ->
             exc_type = extract_exception_type_name(msg)
 
-            case call_dunder_mut(context_val, "__exit__", [exc_type, msg, nil], env, ctx) do
+            case Dunder.call_dunder_mut(context_val, "__exit__", [exc_type, msg, nil], env, ctx) do
               {:ok, new_obj, suppress, env, ctx} ->
                 env = with_update_cm(env, cm_var, new_obj)
 
@@ -237,7 +257,7 @@ defmodule Pyex.Interpreter do
             end
 
           _ ->
-            case call_dunder_mut(context_val, "__exit__", [nil, nil, nil], env, ctx) do
+            case Dunder.call_dunder_mut(context_val, "__exit__", [nil, nil, nil], env, ctx) do
               {:ok, new_obj, _, env, ctx} ->
                 env = with_update_cm(env, cm_var, new_obj)
                 {result, env, ctx}
@@ -302,131 +322,43 @@ defmodule Pyex.Interpreter do
   end
 
   def eval({:attr_assign, _, [target, expr]}, env, ctx) do
-    case eval(expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {value, env, ctx} ->
-        setattr(target, value, env, ctx)
-    end
+    Assignments.eval_attr_assign(target, expr, env, ctx)
   end
 
   def eval({:aug_attr_assign, _, [target, op, expr]}, env, ctx) do
-    case eval(target, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {old_value, env, ctx} ->
-        case eval(expr, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {rhs, env, ctx} ->
-            new_value = safe_binop(op, old_value, rhs)
-
-            case new_value do
-              {:exception, _} = signal -> {signal, env, ctx}
-              _ -> setattr(target, new_value, env, ctx)
-            end
-        end
-    end
+    Assignments.eval_aug_attr_assign(target, op, expr, env, ctx)
   end
 
   def eval({:global, _, [names]}, env, ctx) do
-    env = Enum.reduce(names, env, &Env.declare_global(&2, &1))
-    {nil, env, ctx}
+    Bindings.eval_global(names, env, ctx)
   end
 
   def eval({:nonlocal, _, [names]}, env, ctx) do
-    env = Enum.reduce(names, env, &Env.declare_nonlocal(&2, &1))
-    {nil, env, ctx}
+    Bindings.eval_nonlocal(names, env, ctx)
   end
 
   def eval({:assign, _, [name, expr]}, env, ctx) do
-    case eval(expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {value, env, ctx} ->
-        {value, Env.smart_put(env, name, value), ctx}
-    end
+    Bindings.eval_assign(name, expr, env, ctx)
   end
 
   def eval({:annotated_assign, _, [name, type_str, nil]}, env, ctx) do
-    annotations =
-      case Env.get(env, "__annotations__") do
-        {:ok, map} when is_map(map) -> map
-        _ -> %{}
-      end
-
-    resolved = resolve_annotation(type_str, env)
-    env = Env.smart_put(env, "__annotations__", Map.put(annotations, name, resolved))
-    {nil, env, ctx}
+    Bindings.eval_annotated_declaration(name, type_str, env, ctx)
   end
 
   def eval({:annotated_assign, _, [name, type_str, expr]}, env, ctx) do
-    case eval(expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {value, env, ctx} ->
-        annotations =
-          case Env.get(env, "__annotations__") do
-            {:ok, map} when is_map(map) -> map
-            _ -> %{}
-          end
-
-        resolved = resolve_annotation(type_str, env)
-        env = Env.smart_put(env, "__annotations__", Map.put(annotations, name, resolved))
-        {value, Env.smart_put(env, name, value), ctx}
-    end
+    Bindings.eval_annotated_assign(name, type_str, expr, env, ctx)
   end
 
   def eval({:walrus, _, [name, expr]}, env, ctx) do
-    case eval(expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {value, env, ctx} ->
-        {value, Env.smart_put(env, name, value), ctx}
-    end
+    Bindings.eval_walrus(name, expr, env, ctx)
   end
 
   def eval({:chained_assign, _, [names, expr]}, env, ctx) do
-    case eval(expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {value, env, ctx} ->
-        {env, ctx} =
-          Enum.reduce(names, {env, ctx}, fn name, {env, ctx} ->
-            {Env.smart_put(env, name, value), ctx}
-          end)
-
-        {value, env, ctx}
-    end
+    Bindings.eval_chained_assign(names, expr, env, ctx)
   end
 
   def eval({:multi_assign, _, [names, exprs]}, env, ctx) do
-    case eval_list(exprs, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {values, env, ctx} ->
-        case unpack_iterable_safe(Enum.reverse(values), names) do
-          {:ok, pairs} ->
-            {env, ctx} =
-              Enum.reduce(pairs, {env, ctx}, fn {name, val}, {env, ctx} ->
-                {Env.smart_put(env, name, val), ctx}
-              end)
-
-            {_, last_val} = List.last(pairs)
-            {last_val, env, ctx}
-
-          {:exception, msg} ->
-            {{:exception, msg}, env, ctx}
-        end
-    end
+    Bindings.eval_multi_assign(names, exprs, env, ctx)
   end
 
   def eval(
@@ -435,57 +367,18 @@ defmodule Pyex.Interpreter do
         env,
         ctx
       ) do
-    with {container, env, ctx} when not is_tuple(container) or elem(container, 0) != :exception <-
-           eval(container_expr, env, ctx),
-         {outer_key, env, ctx} when not is_tuple(outer_key) or elem(outer_key, 0) != :exception <-
-           eval(outer_key_expr, env, ctx),
-         {inner_key, env, ctx} when not is_tuple(inner_key) or elem(inner_key, 0) != :exception <-
-           eval(inner_key_expr, env, ctx),
-         {val, env, ctx} when not is_tuple(val) or elem(val, 0) != :exception <-
-           eval(val_expr, env, ctx) do
-      inner_container = get_subscript_value(container, outer_key)
-
-      case inner_container do
-        {:exception, msg} ->
-          {{:exception, msg}, env, ctx}
-
-        _ ->
-          updated_inner = set_subscript_value(inner_container, inner_key, val)
-          updated_outer = set_subscript_value(container, outer_key, updated_inner)
-          write_back_subscript(container_expr, updated_outer, env, ctx)
-      end
-    else
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-    end
+    Assignments.eval_nested_subscript_assign(
+      container_expr,
+      outer_key_expr,
+      inner_key_expr,
+      val_expr,
+      env,
+      ctx
+    )
   end
 
   def eval({:subscript_assign, _, [{:getattr, _, _} = target_expr, key_expr, val_expr]}, env, ctx) do
-    with {container, env, ctx} when not is_tuple(container) or elem(container, 0) != :exception <-
-           eval(target_expr, env, ctx),
-         {key, env, ctx} when not is_tuple(key) or elem(key, 0) != :exception <-
-           eval(key_expr, env, ctx),
-         {val, env, ctx} when not is_tuple(val) or elem(val, 0) != :exception <-
-           eval(val_expr, env, ctx) do
-      case container do
-        %{} = map ->
-          updated = Map.put(map, key, val)
-          setattr_nested(target_expr, updated, env, ctx)
-
-        {:py_list, reversed, len} when is_integer(key) ->
-          real_idx = if key < 0, do: len + key, else: key
-          updated = {:py_list, List.replace_at(reversed, len - 1 - real_idx, val), len}
-          setattr_nested(target_expr, updated, env, ctx)
-
-        list when is_list(list) and is_integer(key) ->
-          updated = List.replace_at(list, key, val)
-          setattr_nested(target_expr, updated, env, ctx)
-
-        _ ->
-          {{:exception, "TypeError: object does not support item assignment"}, env, ctx}
-      end
-    else
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-    end
+    Assignments.eval_attr_subscript_assign(target_expr, key_expr, val_expr, env, ctx)
   end
 
   def eval(
@@ -499,42 +392,15 @@ defmodule Pyex.Interpreter do
         env,
         ctx
       ) do
-    with {container, env, ctx} when not is_tuple(container) or elem(container, 0) != :exception <-
-           eval(container_expr, env, ctx),
-         {outer_key, env, ctx} when not is_tuple(outer_key) or elem(outer_key, 0) != :exception <-
-           eval(outer_key_expr, env, ctx),
-         {inner_key, env, ctx} when not is_tuple(inner_key) or elem(inner_key, 0) != :exception <-
-           eval(inner_key_expr, env, ctx),
-         {val, env, ctx} when not is_tuple(val) or elem(val, 0) != :exception <-
-           eval(val_expr, env, ctx) do
-      inner_container = get_subscript_value(container, outer_key)
-
-      case inner_container do
-        {:exception, msg} ->
-          {{:exception, msg}, env, ctx}
-
-        _ ->
-          old_val = get_subscript_value(inner_container, inner_key)
-
-          case old_val do
-            {:exception, msg} ->
-              {{:exception, msg}, env, ctx}
-
-            _ ->
-              case safe_binop(op, old_val, val) do
-                {:exception, msg} ->
-                  {{:exception, msg}, env, ctx}
-
-                new_val ->
-                  updated_inner = set_subscript_value(inner_container, inner_key, new_val)
-                  updated_outer = set_subscript_value(container, outer_key, updated_inner)
-                  write_back_subscript(container_expr, updated_outer, env, ctx)
-              end
-          end
-      end
-    else
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-    end
+    Assignments.eval_nested_aug_subscript_assign(
+      container_expr,
+      outer_key_expr,
+      inner_key_expr,
+      op,
+      val_expr,
+      env,
+      ctx
+    )
   end
 
   def eval(
@@ -542,71 +408,15 @@ defmodule Pyex.Interpreter do
         env,
         ctx
       ) do
-    with {container, env, ctx} when not is_tuple(container) or elem(container, 0) != :exception <-
-           eval(target_expr, env, ctx),
-         {key, env, ctx} when not is_tuple(key) or elem(key, 0) != :exception <-
-           eval(key_expr, env, ctx),
-         {val, env, ctx} when not is_tuple(val) or elem(val, 0) != :exception <-
-           eval(val_expr, env, ctx) do
-      case container do
-        %{} = map ->
-          old_val = Map.get(map, key, 0)
-          new_val = safe_binop(op, old_val, val)
-          updated = Map.put(map, key, new_val)
-          setattr_nested(target_expr, updated, env, ctx)
-
-        _ ->
-          {{:exception, "TypeError: object does not support item assignment"}, env, ctx}
-      end
-    else
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-    end
+    Assignments.eval_attr_aug_subscript_assign(target_expr, key_expr, op, val_expr, env, ctx)
   end
 
   def eval({:subscript_assign, _, [name, key_expr, val_expr]}, env, ctx) do
-    with {container, env, ctx} when not is_tuple(container) or elem(container, 0) != :exception <-
-           eval({:var, [line: 1], [name]}, env, ctx),
-         {key, env, ctx} when not is_tuple(key) or elem(key, 0) != :exception <-
-           eval(key_expr, env, ctx),
-         {val, env, ctx} when not is_tuple(val) or elem(val, 0) != :exception <-
-           eval(val_expr, env, ctx) do
-      case container do
-        %{} = map ->
-          updated = Map.put(map, key, val)
-          {val, Env.put_at_source(env, name, updated), ctx}
-
-        {:py_list, reversed, len} when is_integer(key) ->
-          real_idx = if key < 0, do: len + key, else: key
-          updated = {:py_list, List.replace_at(reversed, len - 1 - real_idx, val), len}
-          {val, Env.put_at_source(env, name, updated), ctx}
-
-        list when is_list(list) and is_integer(key) ->
-          updated = List.replace_at(list, key, val)
-          {val, Env.put_at_source(env, name, updated), ctx}
-
-        {:instance, _, _} = inst ->
-          case call_dunder_mut(inst, "__setitem__", [key, val], env, ctx) do
-            {:ok, updated_inst, _return_val, env, ctx} ->
-              {val, Env.put_at_source(env, name, updated_inst), ctx}
-
-            :not_found ->
-              {{:exception,
-                "TypeError: '#{Helpers.py_type(inst)}' object does not support item assignment"},
-               env, ctx}
-          end
-
-        _ ->
-          {{:exception, "TypeError: object does not support item assignment"}, env, ctx}
-      end
-    else
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-    end
+    Assignments.eval_name_subscript_assign(name, key_expr, val_expr, env, ctx)
   end
 
   def eval({:aug_assign, meta, [name, op, expr]}, env, ctx) do
-    var_node = {:var, meta, [name]}
-    binop_node = {:binop, meta, [op, var_node, expr]}
-    eval({:assign, meta, [name, binop_node]}, env, ctx)
+    Bindings.eval_aug_assign(meta, name, op, expr, env, ctx)
   end
 
   def eval({:return, _, [expr]}, env, ctx) do
@@ -676,246 +486,56 @@ defmodule Pyex.Interpreter do
   end
 
   def eval({:if, _, clauses}, env, ctx) do
-    eval_if_clauses(clauses, env, ctx)
+    ControlFlow.eval_if(clauses, env, ctx)
   end
 
   def eval({:while, _, [condition, body, else_body]}, env, ctx) do
-    eval_while(condition, body, else_body, env, ctx)
+    ControlFlow.eval_while(condition, body, else_body, env, ctx)
   end
 
   def eval({:for, _, [var_name, iterable_expr, body, else_body]}, env, ctx) do
-    case eval(iterable_expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {{:generator_error, items, exception_msg}, env, ctx} ->
-        case eval_for(var_name, items, body, else_body, env, ctx) do
-          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-          {{:returned, _} = signal, env, ctx} -> {signal, env, ctx}
-          {{:break}, env, ctx} -> {{:exception, exception_msg}, env, ctx}
-          {_, env, ctx} -> {{:exception, exception_msg}, env, ctx}
-        end
-
-      {iterable, env, ctx} ->
-        case to_iterable(iterable, env, ctx) do
-          {:ok, items, env, ctx} -> eval_for(var_name, items, body, else_body, env, ctx)
-          {:exception, msg} -> {{:exception, msg}, env, ctx}
-        end
-    end
+    ControlFlow.eval_for(var_name, iterable_expr, body, else_body, env, ctx)
   end
 
   def eval({:import, _, imports}, env, ctx) when is_list(imports) do
-    Enum.reduce_while(imports, {nil, env, ctx}, fn import_spec, {_, env, ctx} ->
-      {module_name, alias_name} =
-        case import_spec do
-          {m, a} -> {m, a}
-          m when is_binary(m) -> {m, nil}
-        end
-
-      bind_as = alias_name || module_name
-
-      case Import.resolve_module(module_name, env, ctx) do
-        {:ok, module_value, ctx} ->
-          {:cont, {nil, Env.put(env, bind_as, module_value), ctx}}
-
-        {:import_error, msg, ctx} ->
-          {:halt, {{:exception, msg}, env, ctx}}
-
-        {:unknown_module, ctx} ->
-          {:halt,
-           {{:exception,
-             "ImportError: no module named '#{module_name}'#{Import.import_hint(module_name)}"},
-            env, ctx}}
-      end
-    end)
+    Import.eval_import(imports, env, ctx)
   end
 
   def eval({:from_import, _, [module_name, names]}, env, ctx) do
-    case Import.resolve_module(module_name, env, ctx) do
-      {:ok, module_value, ctx} when is_map(module_value) ->
-        Enum.reduce_while(names, {nil, env, ctx}, fn {name, alias_name}, {_, env, ctx} ->
-          bind_as = alias_name || name
-
-          case Map.fetch(module_value, name) do
-            {:ok, value} ->
-              {:cont, {nil, Env.put(env, bind_as, value), ctx}}
-
-            :error ->
-              {:halt,
-               {{:exception, "ImportError: cannot import name '#{name}' from '#{module_name}'"},
-                env, ctx}}
-          end
-        end)
-
-      {:import_error, msg, ctx} ->
-        {{:exception, msg}, env, ctx}
-
-      {:unknown_module, ctx} ->
-        {{:exception,
-          "ImportError: no module named '#{module_name}'#{Import.import_hint(module_name)}"}, env,
-         ctx}
-    end
+    Import.eval_from_import(module_name, names, env, ctx)
   end
 
   def eval({:try, _, [body, handlers, else_body, finally_body]}, env, ctx) do
-    eval_try(body, handlers, else_body, finally_body, env, ctx)
+    ControlFlow.eval_try(body, handlers, else_body, finally_body, env, ctx)
   end
 
-  def eval({:raise, _meta, [nil]}, env, ctx) do
-    case Env.get(env, "__current_exception__") do
-      {:ok, msg} ->
-        {{:exception, msg}, env, ctx}
-
-      :undefined ->
-        {{:exception, "RuntimeError: No active exception to re-raise"}, env, ctx}
-    end
+  def eval({:raise, meta, [nil]}, env, ctx) do
+    Exceptions.eval_raise(nil, meta, env, ctx)
   end
 
   def eval({:raise, meta, [expr]}, env, ctx) do
-    case expr do
-      {:call, _, [{:var, _, [exc_name]}, args]} when is_list(args) ->
-        eval_raise_exc_class(exc_name, args, meta, env, ctx)
-
-      {:call, _, [{:var, _, [exc_name]}, args, _kwargs]} when is_list(args) ->
-        eval_raise_exc_class(exc_name, args, meta, env, ctx)
-
-      {:var, _, [exc_name]} ->
-        {{:exception, exc_name}, env, ctx}
-
-      _ ->
-        case eval(expr, env, ctx) do
-          {{:exception, _} = signal, _env, _ctx} ->
-            {signal, env, ctx}
-
-          {value, env, ctx} ->
-            msg =
-              case value do
-                msg when is_binary(msg) -> "Exception: #{msg}"
-                _ -> "Exception: #{inspect(value)}"
-              end
-
-            {{:exception, msg}, env, ctx}
-        end
-    end
+    Exceptions.eval_raise(expr, meta, env, ctx)
   end
 
   def eval({:assert, _, [condition, msg_expr]}, env, ctx) do
-    case eval(condition, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {value, env, ctx} ->
-        {taken, env, ctx} = eval_truthy(value, env, ctx)
-
-        if taken do
-          {nil, env, ctx}
-        else
-          case msg_expr do
-            nil ->
-              {{:exception, "AssertionError"}, env, ctx}
-
-            _ ->
-              case eval(msg_expr, env, ctx) do
-                {{:exception, _} = signal, env, ctx} ->
-                  {signal, env, ctx}
-
-                {msg_val, env, ctx} ->
-                  {{:exception, "AssertionError: #{Helpers.py_str(msg_val)}"}, env, ctx}
-              end
-          end
-        end
-    end
+    Statements.eval_assert(condition, msg_expr, env, ctx)
   end
 
   def eval({:del, _, [:var, var_name]}, env, ctx) do
-    {nil, Env.delete(env, var_name), ctx}
+    Statements.eval_del_var(var_name, env, ctx)
   end
 
   def eval({:del, _, [:subscript, var_name, key_expr]}, env, ctx) do
-    case Env.get(env, var_name) do
-      {:ok, obj} when is_map(obj) ->
-        case eval(key_expr, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {key, env, ctx} ->
-            {nil, Env.put(env, var_name, Map.delete(obj, key)), ctx}
-        end
-
-      {:ok, {:py_list, reversed, len}} ->
-        case eval(key_expr, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {idx, env, ctx} when is_integer(idx) ->
-            real_idx = if idx < 0, do: len + idx, else: idx
-            new_reversed = List.delete_at(reversed, len - 1 - real_idx)
-            {nil, Env.put(env, var_name, {:py_list, new_reversed, len - 1}), ctx}
-
-          {_, env, ctx} ->
-            {{:exception, "TypeError: list indices must be integers"}, env, ctx}
-        end
-
-      {:ok, obj} when is_list(obj) ->
-        case eval(key_expr, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {idx, env, ctx} when is_integer(idx) ->
-            {nil, Env.put(env, var_name, List.delete_at(obj, idx)), ctx}
-
-          {_, env, ctx} ->
-            {{:exception, "TypeError: list indices must be integers"}, env, ctx}
-        end
-
-      {:ok, _} ->
-        {{:exception, "TypeError: object does not support item deletion"}, env, ctx}
-
-      :undefined ->
-        {{:exception, "NameError: name '#{var_name}' is not defined"}, env, ctx}
-    end
+    Statements.eval_del_subscript(var_name, key_expr, env, ctx)
   end
 
   def eval({:aug_subscript_assign, _, [var_name, key_expr, op, val_expr]}, env, ctx) do
-    case Env.get(env, var_name) do
-      {:ok, obj} ->
-        case eval(key_expr, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {key, env, ctx} ->
-            case eval(val_expr, env, ctx) do
-              {{:exception, _} = signal, env, ctx} ->
-                {signal, env, ctx}
-
-              {val, env, ctx} ->
-                current = get_subscript_value(obj, key)
-
-                case current do
-                  {:exception, msg} ->
-                    {{:exception, msg}, env, ctx}
-
-                  current_val ->
-                    case safe_binop(op, current_val, val) do
-                      {:exception, msg} ->
-                        {{:exception, msg}, env, ctx}
-
-                      new_val ->
-                        new_obj = set_subscript_value(obj, key, new_val)
-                        {new_val, Env.put_at_source(env, var_name, new_obj), ctx}
-                    end
-                end
-            end
-        end
-
-      :undefined ->
-        {{:exception, "NameError: name '#{var_name}' is not defined"}, env, ctx}
-    end
+    Assignments.eval_name_aug_subscript_assign(var_name, key_expr, op, val_expr, env, ctx)
   end
 
-  def eval({:pass, _, _}, env, ctx), do: {nil, env, ctx}
-  def eval({:break, _, _}, env, ctx), do: {{:break}, env, ctx}
-  def eval({:continue, _, _}, env, ctx), do: {{:continue}, env, ctx}
+  def eval({:pass, _, _}, env, ctx), do: Statements.eval_pass(env, ctx)
+  def eval({:break, _, _}, env, ctx), do: Statements.eval_break(env, ctx)
+  def eval({:continue, _, _}, env, ctx), do: Statements.eval_continue(env, ctx)
 
   def eval({:expr, _, [expr]}, env, ctx) do
     eval(expr, env, ctx)
@@ -926,73 +546,11 @@ defmodule Pyex.Interpreter do
         env,
         ctx
       ) do
-    case eval(func_expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {func, env, ctx} ->
-        case eval_call_args(arg_exprs, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {args, kwargs, env, ctx} ->
-            case call_function(func, args, kwargs, env, ctx) do
-              {:mutate, new_object, return_value, new_env, ctx} ->
-                {return_value, Env.put_at_source(new_env, var_name, new_object), ctx}
-
-              {:mutate, new_object, return_value, ctx} ->
-                {return_value, Env.put_at_source(env, var_name, new_object), ctx}
-
-              {{:exception, _} = signal, env, ctx} ->
-                {signal, env, ctx}
-
-              {result, env, ctx, _updated_func} ->
-                env = maybe_update_instance_var(env, var_name)
-                {result, env, ctx}
-
-              {result, env, ctx} ->
-                env = maybe_update_instance_var(env, var_name)
-                {result, env, ctx}
-            end
-        end
-    end
+    Calls.eval_var_attr_call(func_expr, arg_exprs, var_name, env, ctx)
   end
 
   def eval({:call, _, [func_expr, arg_exprs]}, env, ctx) do
-    case eval(func_expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {func, env, ctx} ->
-        case eval_call_args(arg_exprs, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {args, kwargs, env, ctx} ->
-            case call_function(func, args, kwargs, env, ctx) do
-              {:mutate, new_object, return_value, new_env, ctx} ->
-                # For builtins like setattr, the first arg_expr is the target
-                target = mutate_target_expr(func_expr, arg_exprs)
-                new_env = mutate_target(target, new_object, new_env, ctx)
-                {return_value, new_env, ctx}
-
-              {:mutate, new_object, return_value, ctx} ->
-                target = mutate_target_expr(func_expr, arg_exprs)
-                env = mutate_target(target, new_object, env, ctx)
-                {return_value, env, ctx}
-
-              {{:exception, _} = signal, env, ctx} ->
-                {signal, env, ctx}
-
-              {result, env, ctx, updated_func} ->
-                env = Helpers.rebind_var(env, func_expr, updated_func)
-                {result, env, ctx}
-
-              {result, env, ctx} ->
-                {result, env, ctx}
-            end
-        end
-    end
+    Calls.eval_call_expr(func_expr, arg_exprs, env, ctx)
   end
 
   def eval({:getattr, _, [expr, attr]}, env, ctx) do
@@ -1008,7 +566,7 @@ defmodule Pyex.Interpreter do
                 {value, env, ctx}
 
               :error ->
-                case resolve_class_attr_with_owner(class, attr) do
+                case ClassLookup.resolve_class_attr_with_owner(class, attr) do
                   {:ok, {:function, _, _, _, _} = func, owner_class} ->
                     {{:bound_method, object, func, owner_class}, env, ctx}
 
@@ -1034,7 +592,7 @@ defmodule Pyex.Interpreter do
           {:super_proxy, instance, bases} ->
             result =
               Enum.find_value(bases, :error, fn base ->
-                case resolve_class_attr_with_owner(base, attr) do
+                case ClassLookup.resolve_class_attr_with_owner(base, attr) do
                   {:ok, _, _} = found -> found
                   :error -> nil
                 end
@@ -1055,7 +613,7 @@ defmodule Pyex.Interpreter do
           {:class, class_name, _, class_attrs} = class_val ->
             case Map.get(class_attrs, attr) do
               nil ->
-                case resolve_class_attr_with_owner(class_val, attr) do
+                case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
                   {:ok, {:function, _, _, _, _} = func, _owner} ->
                     {{:bound_method, class_val, func}, env, ctx}
 
@@ -1111,6 +669,29 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  def eval({:subscript, _, [{:var, _, [var_name]} = expr, key_expr]}, env, ctx) do
+    case eval(expr, env, ctx) do
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {object, env, ctx} ->
+        case eval(key_expr, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {signal, env, ctx}
+
+          {key, env, ctx} ->
+            case eval_subscript(object, key, env, ctx) do
+              {:defaultdict_auto_insert, default_val, new_obj, env, ctx} ->
+                env = Env.put_at_source(env, var_name, new_obj)
+                {default_val, env, ctx}
+
+              other ->
+                other
+            end
+        end
+    end
+  end
+
   def eval({:subscript, _, [expr, key_expr]}, env, ctx) do
     case eval(expr, env, ctx) do
       {{:exception, _} = signal, env, ctx} ->
@@ -1145,11 +726,7 @@ defmodule Pyex.Interpreter do
   end
 
   def eval({:tuple, _, [elements]}, env, ctx) do
-    case eval_list(elements, env, ctx) do
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-      # eval_list returns reversed order, so reverse back for tuples
-      {values, env, ctx} -> {{:tuple, Enum.reverse(values)}, env, ctx}
-    end
+    Collections.eval_tuple(elements, env, ctx)
   end
 
   def eval({:ternary, _, [condition, true_expr, false_expr]}, env, ctx) do
@@ -1169,51 +746,31 @@ defmodule Pyex.Interpreter do
   end
 
   def eval({:list_comp, _, [expr, clauses]}, env, ctx) do
-    case eval_comp_clauses(:list, expr, clauses, [], env, ctx) do
-      {result, env, ctx} when is_list(result) ->
-        items = Enum.reverse(result)
-        {{:py_list, Enum.reverse(items), length(items)}, env, ctx}
-
-      other ->
-        other
-    end
+    Collections.eval_list_comp(expr, clauses, env, ctx)
   end
 
   def eval({:gen_expr, _, [expr, clauses]}, env, ctx) do
-    case eval_comp_clauses(:list, expr, clauses, [], env, ctx) do
-      {result, env, ctx} when is_list(result) -> {{:generator, Enum.reverse(result)}, env, ctx}
-      other -> other
-    end
+    Collections.eval_gen_expr(expr, clauses, env, ctx)
   end
 
   def eval({:dict_comp, _, [key_expr, val_expr, clauses]}, env, ctx) do
-    eval_comp_clauses(:dict, {key_expr, val_expr}, clauses, %{}, env, ctx)
+    Collections.eval_dict_comp(key_expr, val_expr, clauses, env, ctx)
   end
 
   def eval({:set_comp, _, [expr, clauses]}, env, ctx) do
-    case eval_comp_clauses(:set, expr, clauses, MapSet.new(), env, ctx) do
-      {{:exception, _}, _, _} = result -> result
-      {set, env, ctx} -> {{:set, set}, env, ctx}
-    end
+    Collections.eval_set_comp(expr, clauses, env, ctx)
   end
 
   def eval({:list, _, [elements]}, env, ctx) do
-    case eval_list(elements, env, ctx) do
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-      # Store in reverse order for O(1) append
-      {values, env, ctx} -> {{:py_list, values, length(values)}, env, ctx}
-    end
+    Collections.eval_list_literal(elements, env, ctx)
   end
 
   def eval({:dict, _, [entries]}, env, ctx) do
-    eval_dict(entries, env, ctx)
+    Collections.eval_dict_literal(entries, env, ctx)
   end
 
   def eval({:set, _, [elements]}, env, ctx) do
-    case eval_list(elements, env, ctx) do
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-      {values, env, ctx} -> {{:set, MapSet.new(values)}, env, ctx}
-    end
+    Collections.eval_set_literal(elements, env, ctx)
   end
 
   def eval({:binop, _, [op, left, right]}, env, ctx) when op in [:and, :or] do
@@ -1269,7 +826,7 @@ defmodule Pyex.Interpreter do
         {-val, env, ctx}
 
       {{:instance, _, _} = inst, env, ctx} ->
-        case call_dunder(inst, "__neg__", [], env, ctx) do
+        case Dunder.call_dunder(inst, "__neg__", [], env, ctx) do
           {:ok, result, env, ctx} ->
             {result, env, ctx}
 
@@ -1293,7 +850,7 @@ defmodule Pyex.Interpreter do
         {val, env, ctx}
 
       {{:instance, _, _} = inst, env, ctx} ->
-        case call_dunder(inst, "__pos__", [], env, ctx) do
+        case Dunder.call_dunder(inst, "__pos__", [], env, ctx) do
           {:ok, result, env, ctx} ->
             {result, env, ctx}
 
@@ -1317,7 +874,7 @@ defmodule Pyex.Interpreter do
         {bnot(val), env, ctx}
 
       {{:instance, _, _} = inst, env, ctx} ->
-        case call_dunder(inst, "__invert__", [], env, ctx) do
+        case Dunder.call_dunder(inst, "__invert__", [], env, ctx) do
           {:ok, result, env, ctx} ->
             {result, env, ctx}
 
@@ -1405,15 +962,6 @@ defmodule Pyex.Interpreter do
     %{ctx | profile: %{line_counts: %{}, call_counts: %{}, call: %{}}}
   end
 
-  @spec profile_record_call(Ctx.t(), String.t(), float()) :: Ctx.t()
-  defp profile_record_call(%Ctx{profile: nil} = ctx, _name, _elapsed_ms), do: ctx
-
-  defp profile_record_call(%Ctx{profile: profile} = ctx, name, elapsed_ms) do
-    call_counts = Map.update(profile.call_counts, name, 1, &(&1 + 1))
-    call = Map.update(profile.call, name, elapsed_ms, &(&1 + elapsed_ms))
-    %{ctx | profile: %{profile | call_counts: call_counts, call: call}}
-  end
-
   @spec track_line(Parser.ast_node(), Ctx.t()) :: Ctx.t()
   defp track_line({_tag, meta, _children}, ctx) when is_list(meta) do
     case Keyword.get(meta, :line) do
@@ -1436,8 +984,9 @@ defmodule Pyex.Interpreter do
   defp track_line(_, ctx), do: ctx
 
   @primitive_type_names ~w(str int float bool list dict tuple set)
+  @doc false
   @spec resolve_annotation(String.t(), Env.t()) :: String.t() | pyvalue()
-  defp resolve_annotation(type_str, env) do
+  def resolve_annotation(type_str, env) do
     if type_str in @primitive_type_names or String.contains?(type_str, "[") do
       type_str
     else
@@ -1468,312 +1017,11 @@ defmodule Pyex.Interpreter do
   def call_function(func, args, kwargs, env, ctx)
 
   def call_function({:function, name, params, body, closure_env} = func, args, kwargs, env, ctx) do
-    if ctx.call_depth >= ctx.max_call_depth do
-      {{:exception, "RecursionError: maximum recursion depth exceeded"}, env, ctx}
-    else
-      ctx = %{ctx | call_depth: ctx.call_depth + 1}
-
-      fresh_closure = Env.put_global_scope(closure_env, Env.global_scope(env))
-      base_env = Env.push_scope(Env.put(fresh_closure, name, func))
-
-      case bind_params(params, args, kwargs, base_env, ctx) do
-        {:exception, msg, ctx} ->
-          ctx = %{ctx | call_depth: ctx.call_depth - 1}
-          {{:exception, msg}, env, ctx}
-
-        {call_env, ctx} ->
-          t0 = if ctx.profile, do: System.monotonic_time(:microsecond)
-
-          result =
-            if contains_yield?(body) do
-              case ctx.generator_mode do
-                :defer ->
-                  gen_ctx = %{ctx | generator_mode: :defer_inner}
-
-                  case eval_statements(body, call_env, gen_ctx) do
-                    {{:yielded, val, cont}, gen_env, gen_ctx} ->
-                      ctx = %{
-                        ctx
-                        | compute: gen_ctx.compute,
-                          compute_started_at: gen_ctx.compute_started_at,
-                          event_count: gen_ctx.event_count,
-                          file_ops: gen_ctx.file_ops
-                      }
-
-                      {{:generator_suspended, val, cont, gen_env}, env, ctx}
-
-                    {{:exception, _} = signal, _post_env, gen_ctx} ->
-                      ctx = %{
-                        ctx
-                        | compute: gen_ctx.compute,
-                          compute_started_at: gen_ctx.compute_started_at,
-                          event_count: gen_ctx.event_count,
-                          file_ops: gen_ctx.file_ops
-                      }
-
-                      {signal, env, ctx}
-
-                    {_, _post_env, gen_ctx} ->
-                      ctx = %{
-                        ctx
-                        | compute: gen_ctx.compute,
-                          compute_started_at: gen_ctx.compute_started_at,
-                          event_count: gen_ctx.event_count,
-                          file_ops: gen_ctx.file_ops
-                      }
-
-                      {{:generator, []}, env, ctx}
-                  end
-
-                _ ->
-                  prev_acc = ctx.generator_acc
-                  gen_ctx = %{ctx | generator_mode: :accumulate, generator_acc: []}
-                  {result, _post_call_env, gen_ctx} = eval_statements(body, call_env, gen_ctx)
-                  yields = Enum.reverse(gen_ctx.generator_acc || [])
-
-                  ctx = %{
-                    ctx
-                    | compute: gen_ctx.compute,
-                      compute_started_at: gen_ctx.compute_started_at,
-                      generator_mode: ctx.generator_mode,
-                      generator_acc: prev_acc,
-                      event_count: gen_ctx.event_count,
-                      file_ops: gen_ctx.file_ops
-                  }
-
-                  case result do
-                    {:exception, "TimeoutError:" <> _ = msg} ->
-                      {{:exception, msg}, env, ctx}
-
-                    {:exception, msg} ->
-                      {{:generator_error, yields, msg}, env, ctx}
-
-                    _ ->
-                      {{:generator, yields}, env, ctx}
-                  end
-              end
-            else
-              {result, post_call_env, ctx} = eval_statements(body, call_env, ctx)
-              env = Env.propagate_scopes(env, fresh_closure, post_call_env)
-              return_val = Helpers.unwrap(result)
-
-              if Helpers.has_scope_declarations?(post_call_env) do
-                return_val = Helpers.refresh_closure(return_val, post_call_env)
-                updated_func = Helpers.refresh_closure(func, post_call_env)
-                {return_val, env, ctx, updated_func}
-              else
-                updated_func = Helpers.update_closure_env(func, post_call_env)
-                {return_val, env, ctx, updated_func}
-              end
-            end
-
-          result =
-            if t0 do
-              elapsed_us = System.monotonic_time(:microsecond) - t0
-              elapsed_ms = elapsed_us / 1000.0
-              update_profile_in_result(result, name, elapsed_ms)
-            else
-              result
-            end
-
-          decrement_depth(result)
-      end
-    end
+    Invocation.call_user_function(func, name, params, body, closure_env, args, kwargs, env, ctx)
   end
 
   def call_function({:builtin, fun}, args, _kwargs, env, ctx) do
-    result =
-      try do
-        fun.(args)
-      rescue
-        FunctionClauseError ->
-          {:exception, "TypeError: invalid arguments"}
-
-        e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
-          {:exception, "TypeError: #{Exception.message(e)}"}
-      end
-
-    case result do
-      {:ctx_call, ctx_fun} ->
-        ctx_fun.(env, ctx)
-
-      {:io_call, io_fun} ->
-        ctx = Ctx.pause_compute(ctx)
-        {result, env, ctx} = io_fun.(env, ctx)
-        ctx = Ctx.resume_compute(ctx)
-        {result, env, ctx}
-
-      {:mutate, new_object, return_value} ->
-        {:mutate, new_object, return_value, ctx}
-
-      {:method_call, instance, func, method_args} ->
-        call_method(instance, func, method_args, %{}, env, ctx)
-
-      {:dunder_call, instance, dunder_name, dunder_args} ->
-        case call_dunder(instance, dunder_name, dunder_args, env, ctx) do
-          {:ok, result, env, ctx} ->
-            {result, env, ctx}
-
-          :not_found ->
-            case dunder_str_fallback(instance, dunder_name, env, ctx) do
-              {:ok, result, env, ctx} -> {result, env, ctx}
-              :error -> {{:exception, "TypeError: object has no #{dunder_name}"}, env, ctx}
-            end
-        end
-
-      {:iter_to_list, val} ->
-        case to_iterable(val, env, ctx) do
-          {:ok, items, env, ctx} -> {items, env, ctx}
-          {:exception, _} = signal -> {signal, env, ctx}
-        end
-
-      {:iter_to_tuple, val} ->
-        case to_iterable(val, env, ctx) do
-          {:ok, items, env, ctx} -> {{:tuple, items}, env, ctx}
-          {:exception, _} = signal -> {signal, env, ctx}
-        end
-
-      {:iter_to_set, val} ->
-        case to_iterable(val, env, ctx) do
-          {:ok, items, env, ctx} -> {{:set, MapSet.new(items)}, env, ctx}
-          {:exception, _} = signal -> {signal, env, ctx}
-        end
-
-      {:iter_to_frozenset, val} ->
-        case to_iterable(val, env, ctx) do
-          {:ok, items, env, ctx} -> {{:frozenset, MapSet.new(items)}, env, ctx}
-          {:exception, _} = signal -> {signal, env, ctx}
-        end
-
-      {:iter_instance, inst} ->
-        case call_dunder(inst, "__iter__", [], env, ctx) do
-          {:ok, {:instance, _, _} = iter_inst, env, ctx} ->
-            {token, ctx} = Ctx.new_instance_iterator(ctx, iter_inst)
-            {token, env, ctx}
-
-          {:ok, {:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {:ok, other, env, ctx} ->
-            case Builtins.materialize_iterable(other) do
-              {:ok, items} ->
-                {token, ctx} = Ctx.new_iterator(ctx, items)
-                {token, env, ctx}
-
-              {:pass, iter} ->
-                {iter, env, ctx}
-
-              :error ->
-                {{:exception, "TypeError: iter() returned non-iterator"}, env, ctx}
-            end
-
-          :not_found ->
-            {{:exception, "TypeError: '#{Helpers.py_type(inst)}' object is not iterable"}, env,
-             ctx}
-        end
-
-      {:make_iter, items} ->
-        {token, ctx} = Ctx.new_iterator(ctx, items)
-        {token, env, ctx}
-
-      {:iter_next, id} ->
-        case Ctx.iter_next(ctx, id) do
-          {:ok, item, ctx} -> {item, env, ctx}
-          :exhausted -> {{:exception, "StopIteration"}, env, ctx}
-          {:instance, inst} -> eval_instance_next(inst, id, :no_default, env, ctx)
-        end
-
-      {:iter_next_default, id, default} ->
-        case Ctx.iter_next(ctx, id) do
-          {:ok, item, ctx} -> {item, env, ctx}
-          :exhausted -> {default, env, ctx}
-          {:instance, inst} -> eval_instance_next(inst, id, {:default, default}, env, ctx)
-        end
-
-      {:next_instance_iter, id, default_opt} ->
-        case Ctx.iter_next(ctx, id) do
-          {:instance, inst} ->
-            eval_instance_next(inst, id, default_opt, env, ctx)
-
-          {:ok, item, ctx} ->
-            {item, env, ctx}
-
-          :exhausted ->
-            case default_opt do
-              {:default, default} -> {default, env, ctx}
-              :no_default -> {{:exception, "StopIteration"}, env, ctx}
-            end
-        end
-
-      {:next_with_default, inst, default} ->
-        case call_dunder_mut(inst, "__next__", [], env, ctx) do
-          {:ok, _new_inst, {:exception, "StopIteration" <> _}, env, ctx} ->
-            {default, env, ctx}
-
-          {:ok, _new_inst, {:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {:ok, _new_inst, value, env, ctx} ->
-            {value, env, ctx}
-
-          :not_found ->
-            {{:exception, "TypeError: object has no __next__"}, env, ctx}
-        end
-
-      {:iter_sum, val} ->
-        case to_iterable(val, env, ctx) do
-          {:ok, items, env, ctx} ->
-            if Enum.all?(items, &is_number/1) do
-              {Enum.sum(items), env, ctx}
-            else
-              {{:exception,
-                "TypeError: unsupported operand type(s) for +: sum() requires numeric items"},
-               env, ctx}
-            end
-
-          {:exception, _} = signal ->
-            {signal, env, ctx}
-        end
-
-      {:print_call, print_args, sep, end_str} ->
-        eval_print_call(print_args, sep, end_str, env, ctx)
-
-      {:map_call, func, list} ->
-        Iteration.eval_map_call(func, list, env, ctx)
-
-      {:filter_call, func, list} ->
-        Iteration.eval_filter_call(func, list, env, ctx)
-
-      {:super_call} ->
-        eval_super(env, ctx)
-
-      {:starmap_call, func, items} ->
-        Iteration.eval_starmap(func, items, env, ctx)
-
-      {:takewhile_call, predicate, items} ->
-        Iteration.eval_takewhile(predicate, items, env, ctx)
-
-      {:dropwhile_call, predicate, items} ->
-        Iteration.eval_dropwhile(predicate, items, env, ctx)
-
-      {:filterfalse_call, predicate, items} ->
-        Iteration.eval_filterfalse(predicate, items, env, ctx)
-
-      {:unittest_main} ->
-        Unittest.eval_unittest_main(env, ctx)
-
-      {:assert_raises, exc_type} ->
-        {{:assert_raises, exc_type}, env, ctx}
-
-      {:register_route, _method, _path, _handler} = signal ->
-        {signal, env, ctx}
-
-      {:exception, _msg} = signal ->
-        {signal, env, ctx}
-
-      value ->
-        {value, env, ctx}
-    end
+    Invocation.call_builtin(fun, args, env, ctx)
   end
 
   def call_function({:builtin_type, _name, fun}, args, kwargs, env, ctx) do
@@ -1781,75 +1029,7 @@ defmodule Pyex.Interpreter do
   end
 
   def call_function({:builtin_kw, fun}, args, kwargs, env, ctx) do
-    result =
-      try do
-        fun.(args, kwargs)
-      rescue
-        FunctionClauseError ->
-          {:exception, "TypeError: invalid arguments"}
-
-        e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
-          {:exception, "TypeError: #{Exception.message(e)}"}
-      end
-
-    case result do
-      {:exception, _msg} = signal ->
-        {signal, env, ctx}
-
-      {:mutate, new_object, return_value} ->
-        {:mutate, new_object, return_value, ctx}
-
-      {:io_call, io_fun} ->
-        ctx = Ctx.pause_compute(ctx)
-        {result, env, ctx} = io_fun.(env, ctx)
-        ctx = Ctx.resume_compute(ctx)
-        {result, env, ctx}
-
-      {:print_call, print_args, sep, end_str} ->
-        eval_print_call(print_args, sep, end_str, env, ctx)
-
-      {:sort_call, items, key_fn, reverse} ->
-        eval_sort(items, key_fn, reverse, env, ctx)
-
-      {:list_sort_call, items, key_fn, reverse} ->
-        case eval_sort(items, key_fn, reverse, env, ctx) do
-          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-          {sorted, env, ctx} -> {{:mutate, sorted, nil}, env, ctx}
-        end
-
-      {:iter_sorted, val, key_fn, reverse} ->
-        case to_iterable(val, env, ctx) do
-          {:ok, items, env, ctx} -> eval_sort(items, key_fn, reverse, env, ctx)
-          {:exception, _} = signal -> {signal, env, ctx}
-        end
-
-      {:min_call, items, key_fn} ->
-        eval_minmax(items, key_fn, :min, env, ctx)
-
-      {:max_call, items, key_fn} ->
-        eval_minmax(items, key_fn, :max, env, ctx)
-
-      {:accumulate_call, items, func} ->
-        Iteration.eval_accumulate(items, func, env, ctx)
-
-      {:groupby_call, items, key_func} ->
-        Iteration.eval_groupby(items, key_func, env, ctx)
-
-      {:starmap_call, func, items} ->
-        Iteration.eval_starmap(func, items, env, ctx)
-
-      {:takewhile_call, predicate, items} ->
-        Iteration.eval_takewhile(predicate, items, env, ctx)
-
-      {:dropwhile_call, predicate, items} ->
-        Iteration.eval_dropwhile(predicate, items, env, ctx)
-
-      {:filterfalse_call, predicate, items} ->
-        Iteration.eval_filterfalse(predicate, items, env, ctx)
-
-      result ->
-        {result, env, ctx}
-    end
+    Invocation.call_builtin_kw(fun, args, kwargs, env, ctx)
   end
 
   def call_function(
@@ -1859,7 +1039,7 @@ defmodule Pyex.Interpreter do
         env,
         ctx
       ) do
-    call_bound_method(instance, func, defining_class, args, kwargs, env, ctx)
+    Invocation.call_bound_method(instance, func, defining_class, args, kwargs, env, ctx)
   end
 
   def call_function(
@@ -1869,7 +1049,7 @@ defmodule Pyex.Interpreter do
         env,
         ctx
       ) do
-    call_bound_method(instance, func, nil, args, kwargs, env, ctx)
+    Invocation.call_bound_method(instance, func, nil, args, kwargs, env, ctx)
   end
 
   def call_function(
@@ -1879,16 +1059,7 @@ defmodule Pyex.Interpreter do
         env,
         ctx
       ) do
-    case fun.([instance | args], kwargs) do
-      {:exception, _} = signal ->
-        {signal, env, ctx}
-
-      {:mutate, new_obj, return_val, new_ctx} ->
-        {:mutate, new_obj, return_val, new_ctx}
-
-      result ->
-        {result, env, ctx}
-    end
+    Invocation.call_bound_builtin_kw(instance, fun, args, kwargs, env, ctx)
   end
 
   def call_function(
@@ -1898,231 +1069,26 @@ defmodule Pyex.Interpreter do
         env,
         ctx
       ) do
-    case fun.([instance | args]) do
-      {:exception, _} = signal ->
-        {signal, env, ctx}
-
-      result ->
-        {result, env, ctx}
-    end
+    Invocation.call_bound_builtin(instance, fun, args, env, ctx)
   end
 
   def call_function({:class, name, _bases, _class_attrs} = class, args, kwargs, env, ctx) do
-    instance = {:instance, class, %{}}
-
-    case resolve_class_attr_with_owner(class, "__init__") do
-      {:ok, {:function, init_name, params, body, closure_env}, defining_class} ->
-        init_args = [instance | args]
-        fresh_closure = Env.put_global_scope(closure_env, Env.global_scope(env))
-        init_fn = {:function, init_name, params, body, closure_env}
-        base_env = Env.push_scope(Env.put(fresh_closure, init_name, init_fn))
-        base_env = Env.put(base_env, "__class__", defining_class)
-
-        case bind_params(params, init_args, kwargs, base_env, ctx) do
-          {:exception, msg, ctx} ->
-            {{:exception, msg}, env, ctx}
-
-          {call_env, ctx} ->
-            {result, post_call_env, ctx} = eval_statements(body, call_env, ctx)
-            env = Env.propagate_scopes(env, fresh_closure, post_call_env)
-
-            case result do
-              {:exception, _} = signal ->
-                {signal, env, ctx}
-
-              _ ->
-                final_self =
-                  case Env.get(post_call_env, "self") do
-                    {:ok, {:instance, _, _} = updated} -> updated
-                    _ -> instance
-                  end
-
-                {final_self, env, ctx}
-            end
-        end
-
-      {:ok, {:builtin_kw, fun}, _defining_class} ->
-        case fun.([instance | args], kwargs) do
-          {:instance, _, _} = updated_instance ->
-            {updated_instance, env, ctx}
-
-          {:exception, _} = signal ->
-            {signal, env, ctx}
-        end
-
-      :error ->
-        if args == [] do
-          {instance, env, ctx}
-        else
-          {{:exception, "TypeError: #{name}() takes 0 arguments but #{length(args)} were given"},
-           env, ctx}
-        end
-    end
+    Invocation.call_class(class, name, args, kwargs, env, ctx)
   end
 
   def call_function({:instance, {:class, _, _, _} = class, _} = instance, args, kwargs, env, ctx) do
-    case resolve_class_attr(class, "__call__") do
-      {:ok, {:function, _, _, _, _} = func} ->
-        call_function({:bound_method, instance, func}, args, kwargs, env, ctx)
-
-      _ ->
-        {{:exception, "TypeError: '#{Helpers.py_type(instance)}' object is not callable"}, env,
-         ctx}
-    end
+    Invocation.call_callable_instance(instance, class, args, kwargs, env, ctx)
   end
 
   def call_function(val, _args, _kwargs, env, ctx) do
     {{:exception, "TypeError: '#{Helpers.py_type(val)}' object is not callable"}, env, ctx}
   end
 
-  @spec update_profile_in_result(call_result(), String.t(), float()) :: call_result()
-  defp update_profile_in_result({val, env, ctx}, name, elapsed_ms) do
-    {val, env, profile_record_call(ctx, name, elapsed_ms)}
-  end
-
-  defp update_profile_in_result({val, env, ctx, extra}, name, elapsed_ms) do
-    {val, env, profile_record_call(ctx, name, elapsed_ms), extra}
-  end
-
-  @spec call_bound_method(
-          pyvalue(),
-          pyvalue(),
-          pyvalue() | nil,
-          [pyvalue()],
-          %{optional(String.t()) => pyvalue()},
-          Env.t(),
-          Ctx.t()
-        ) :: call_result()
-  defp call_bound_method(
-         instance,
-         {:function, fname, params, body, closure_env},
-         defining_class,
-         args,
-         kwargs,
-         env,
-         ctx
-       ) do
-    method_args = [instance | args]
-    fresh_closure = Env.put_global_scope(closure_env, Env.global_scope(env))
-    func = {:function, fname, params, body, closure_env}
-    base_env = Env.push_scope(Env.put(fresh_closure, fname, func))
-
-    base_env =
-      if defining_class, do: Env.put(base_env, "__class__", defining_class), else: base_env
-
-    case bind_params(params, method_args, kwargs, base_env, ctx) do
-      {:exception, msg, ctx} ->
-        {{:exception, msg}, env, ctx}
-
-      {call_env, ctx} ->
-        {result, post_call_env, ctx} = eval_statements(body, call_env, ctx)
-        env = Env.propagate_scopes(env, fresh_closure, post_call_env)
-        return_val = Helpers.unwrap(result)
-
-        updated_self =
-          case Env.get(post_call_env, "self") do
-            {:ok, {:instance, _, _} = updated} -> updated
-            _ -> instance
-          end
-
-        {:mutate, updated_self, return_val, env, ctx}
-    end
-  end
-
-  @spec bind_params(
-          [Parser.param()],
-          [pyvalue()],
-          %{optional(String.t()) => pyvalue()},
-          Env.t(),
-          Ctx.t()
-        ) :: {Env.t(), Ctx.t()} | {:exception, String.t(), Ctx.t()}
-  defp bind_params(params, args, kwargs, env, ctx) do
-    {regular, star_param, dstar_param} = split_variadic_params(params)
-    regular_names = Enum.map(regular, &elem(&1, 0))
-    defaults = Enum.map(regular, &elem(&1, 1))
-    n_regular = length(regular)
-    n_args = length(args)
-
-    has_star = star_param != nil
-    has_dstar = dstar_param != nil
-
-    if n_args > n_regular and not has_star do
-      {:exception,
-       "TypeError: function takes #{n_regular} positional arguments but #{n_args} were given",
-       ctx}
-    else
-      positional = Enum.take(args, n_regular)
-      extra_args = Enum.drop(args, n_regular)
-      padded = positional ++ List.duplicate(:__unset__, max(n_regular - n_args, 0))
-
-      consumed_kwargs =
-        MapSet.new(regular_names)
-        |> MapSet.intersection(MapSet.new(Map.keys(kwargs)))
-
-      result =
-        [regular_names, padded, defaults]
-        |> Enum.zip()
-        |> Enum.reduce_while({env, ctx}, fn {name, arg, default}, {env, ctx} ->
-          cond do
-            arg != :__unset__ ->
-              {:cont, {Env.put(env, name, arg), ctx}}
-
-            Map.has_key?(kwargs, name) ->
-              {:cont, {Env.put(env, name, Map.fetch!(kwargs, name)), ctx}}
-
-            default != nil ->
-              {val, _env, ctx} = eval(default, env, ctx)
-              {:cont, {Env.put(env, name, val), ctx}}
-
-            true ->
-              {:halt, {:exception, "TypeError: missing required argument: '#{name}'", ctx}}
-          end
-        end)
-
-      case result do
-        {:exception, _, _} = err ->
-          err
-
-        {env, ctx} ->
-          env = if has_star, do: Env.put(env, star_name(star_param), extra_args), else: env
-
-          extra_kwargs = Map.drop(kwargs, MapSet.to_list(consumed_kwargs))
-
-          env =
-            if has_dstar, do: Env.put(env, dstar_name(dstar_param), extra_kwargs), else: env
-
-          {env, ctx}
-      end
-    end
-  end
-
-  @spec split_variadic_params([Parser.param()]) ::
-          {[Parser.param()], Parser.param() | nil, Parser.param() | nil}
-  defp split_variadic_params(params) do
-    {regular_rev, star, dstar} =
-      Enum.reduce(params, {[], nil, nil}, fn param, {regular, star, dstar} ->
-        name = elem(param, 0)
-
-        cond do
-          String.starts_with?(name, "**") -> {regular, star, param}
-          String.starts_with?(name, "*") -> {regular, param, dstar}
-          true -> {[param | regular], star, dstar}
-        end
-      end)
-
-    {Enum.reverse(regular_rev), star, dstar}
-  end
-
-  @spec star_name(Parser.param()) :: String.t()
-  defp star_name(param), do: String.trim_leading(elem(param, 0), "*")
-
-  @spec dstar_name(Parser.param()) :: String.t()
-  defp dstar_name(param), do: String.trim_leading(elem(param, 0), "*")
-
+  @doc false
   @spec eval_call_args([Parser.ast_node()], Env.t(), Ctx.t()) ::
           {[pyvalue()], %{optional(String.t()) => pyvalue()}, Env.t(), Ctx.t()}
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
-  defp eval_call_args(arg_exprs, env, ctx) do
+  def eval_call_args(arg_exprs, env, ctx) do
     Enum.reduce_while(arg_exprs, {[], %{}, env, ctx}, fn
       {:kwarg, _, [name, expr]}, {pos, kw, env, ctx} ->
         case eval(expr, env, ctx) do
@@ -2177,9 +1143,10 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  @doc false
   @spec eval_list([Parser.ast_node()], Env.t(), Ctx.t()) ::
           {[pyvalue()], Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
-  defp eval_list(exprs, env, ctx) do
+  def eval_list(exprs, env, ctx) do
     Enum.reduce_while(exprs, {[], env, ctx}, fn expr, {acc, env, ctx} ->
       case eval(expr, env, ctx) do
         {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
@@ -2190,298 +1157,6 @@ defmodule Pyex.Interpreter do
       # Return reversed list (stored in reverse order for O(1) append)
       {values, env, ctx} when is_list(values) -> {values, env, ctx}
       {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-    end
-  end
-
-  @spec eval_if_clauses(
-          [{Parser.ast_node(), [Parser.ast_node()]} | {:else, [Parser.ast_node()]}],
-          Env.t(),
-          Ctx.t()
-        ) :: eval_result()
-  defp eval_if_clauses([], env, ctx), do: {nil, env, ctx}
-
-  defp eval_if_clauses([{:else, body} | _], env, ctx) do
-    eval_statements(body, env, ctx)
-  end
-
-  defp eval_if_clauses([{condition, body} | rest], env, ctx) do
-    case eval(condition, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {value, env, ctx} ->
-        {taken, env, ctx} = eval_truthy(value, env, ctx)
-
-        if taken do
-          eval_statements(body, env, ctx)
-        else
-          eval_if_clauses(rest, env, ctx)
-        end
-    end
-  end
-
-  @spec eval_while(
-          Parser.ast_node(),
-          [Parser.ast_node()],
-          [Parser.ast_node()] | nil,
-          Env.t(),
-          Ctx.t()
-        ) :: eval_result()
-  defp eval_while(condition, body, else_body, env, ctx) do
-    case Ctx.check_deadline(ctx) do
-      {:exceeded, _} ->
-        {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
-
-      :ok ->
-        eval_while_body(condition, body, else_body, env, ctx)
-    end
-  end
-
-  defp eval_while_body(condition, body, else_body, env, ctx) do
-    case eval(condition, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {value, env, ctx} ->
-        {taken, env, ctx} = eval_truthy(value, env, ctx)
-
-        if taken do
-          case eval_statements(body, env, ctx) do
-            {{:returned, _} = signal, env, ctx} ->
-              {signal, env, ctx}
-
-            {{:break}, env, ctx} ->
-              {nil, env, ctx}
-
-            {{:exception, _} = signal, env, ctx} ->
-              {signal, env, ctx}
-
-            {{:yielded, val, cont}, env, ctx} ->
-              {{:yielded, val, cont ++ [{:cont_while, condition, body, else_body}]}, env, ctx}
-
-            {{:continue}, env, ctx} ->
-              eval_while(condition, body, else_body, env, ctx)
-
-            {_, env, ctx} ->
-              eval_while(condition, body, else_body, env, ctx)
-          end
-        else
-          eval_loop_else(else_body, env, ctx)
-        end
-    end
-  end
-
-  @spec eval_for(
-          String.t() | [String.t()],
-          [pyvalue()],
-          [Parser.ast_node()],
-          [Parser.ast_node()] | nil,
-          Env.t(),
-          Ctx.t()
-        ) :: eval_result()
-  defp eval_for(_var_name, [], _body, else_body, env, ctx) do
-    eval_loop_else(else_body, env, ctx)
-  end
-
-  defp eval_for(var_names, [item | rest], body, else_body, env, ctx)
-       when is_list(var_names) do
-    case Ctx.check_deadline(ctx) do
-      {:exceeded, _} ->
-        {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
-
-      :ok ->
-        ctx = Ctx.record(ctx, :loop, nil)
-
-        case unpack_for_item(var_names, item) do
-          {:ok, bindings} ->
-            env =
-              Enum.reduce(bindings, env, fn {name, val}, env -> Env.smart_put(env, name, val) end)
-
-            case eval_statements(body, env, ctx) do
-              {{:returned, _} = signal, env, ctx} ->
-                {signal, env, ctx}
-
-              {{:break}, env, ctx} ->
-                {nil, env, ctx}
-
-              {{:exception, _} = signal, env, ctx} ->
-                {signal, env, ctx}
-
-              {{:yielded, val, cont}, env, ctx} ->
-                {{:yielded, val, cont ++ [{:cont_for, var_names, rest, body, else_body}]}, env,
-                 ctx}
-
-              {{:continue}, env, ctx} ->
-                eval_for(var_names, rest, body, else_body, env, ctx)
-
-              {_, env, ctx} ->
-                eval_for(var_names, rest, body, else_body, env, ctx)
-            end
-
-          {:exception, msg} ->
-            {{:exception, msg}, env, ctx}
-        end
-    end
-  end
-
-  defp eval_for(var_name, [item | rest], body, else_body, env, ctx) do
-    case Ctx.check_deadline(ctx) do
-      {:exceeded, _} ->
-        {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
-
-      :ok ->
-        ctx = Ctx.record(ctx, :loop, nil)
-        env = Env.smart_put(env, var_name, item)
-
-        case eval_statements(body, env, ctx) do
-          {{:returned, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {{:break}, env, ctx} ->
-            {nil, env, ctx}
-
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {{:yielded, val, cont}, env, ctx} ->
-            {{:yielded, val, cont ++ [{:cont_for, var_name, rest, body, else_body}]}, env, ctx}
-
-          {{:continue}, env, ctx} ->
-            eval_for(var_name, rest, body, else_body, env, ctx)
-
-          {_, env, ctx} ->
-            eval_for(var_name, rest, body, else_body, env, ctx)
-        end
-    end
-  end
-
-  @spec eval_loop_else([Parser.ast_node()] | nil, Env.t(), Ctx.t()) :: eval_result()
-  defp eval_loop_else(nil, env, ctx), do: {nil, env, ctx}
-  defp eval_loop_else(else_body, env, ctx), do: eval_statements(else_body, env, ctx)
-
-  @spec bind_loop_var(String.t() | [String.t()], pyvalue(), Env.t()) ::
-          Env.t() | {:exception, String.t()}
-  defp bind_loop_var(var_name, item, env) when is_binary(var_name) do
-    Env.smart_put(env, var_name, item)
-  end
-
-  defp bind_loop_var(var_names, item, env) when is_list(var_names) do
-    case unpack_for_item(var_names, item) do
-      {:ok, bindings} ->
-        Enum.reduce(bindings, env, fn {name, val}, env -> Env.smart_put(env, name, val) end)
-
-      {:exception, _} = error ->
-        error
-    end
-  end
-
-  @spec unpack_for_item([String.t()], pyvalue()) ::
-          {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
-  defp unpack_for_item(names, {:tuple, items}), do: unpack_for_list(names, items)
-
-  defp unpack_for_item(names, {:py_list, reversed, _}),
-    do: unpack_for_list(names, Enum.reverse(reversed))
-
-  defp unpack_for_item(names, items) when is_list(items), do: unpack_for_list(names, items)
-
-  defp unpack_for_item(_names, val),
-    do: {:exception, "TypeError: cannot unpack non-iterable #{Helpers.py_type(val)} object"}
-
-  @spec unpack_for_list([String.t()], [pyvalue()]) ::
-          {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
-  defp unpack_for_list(names, items) do
-    if length(names) == length(items) do
-      {:ok, Enum.zip(names, items)}
-    else
-      {:exception,
-       "ValueError: not enough values to unpack (expected #{length(names)}, got #{length(items)})"}
-    end
-  end
-
-  @spec eval_try(
-          [Parser.ast_node()],
-          [{String.t() | nil, String.t() | nil, [Parser.ast_node()]}],
-          [Parser.ast_node()] | nil,
-          [Parser.ast_node()] | nil,
-          Env.t(),
-          Ctx.t()
-        ) :: eval_result()
-  defp eval_try(body, handlers, else_body, finally_body, env, ctx) do
-    result =
-      case eval_statements(body, env, ctx) do
-        {{:exception, msg}, body_env, ctx} ->
-          match_handler(handlers, msg, body_env, ctx)
-
-        {val, env, ctx} ->
-          if else_body do
-            eval_statements(else_body, env, ctx)
-          else
-            {val, env, ctx}
-          end
-      end
-
-    run_finally(result, finally_body)
-  end
-
-  @spec run_finally(eval_result(), [Parser.ast_node()] | nil) :: eval_result()
-  defp run_finally(result, nil), do: result
-
-  defp run_finally({original_signal, env, ctx}, finally_body) do
-    case eval_statements(finally_body, env, ctx) do
-      {{:exception, _} = new_signal, env, ctx} ->
-        {new_signal, env, ctx}
-
-      {{:returned, _} = new_signal, env, ctx} ->
-        {new_signal, env, ctx}
-
-      {_val, env, ctx} ->
-        {original_signal, env, ctx}
-    end
-  end
-
-  @spec match_handler(
-          [{String.t() | [String.t()] | nil, String.t() | nil, [Parser.ast_node()]}],
-          String.t(),
-          Env.t(),
-          Ctx.t()
-        ) :: eval_result()
-  defp match_handler([], message, env, ctx) do
-    {{:exception, message}, env, ctx}
-  end
-
-  defp match_handler([{nil, nil, handler_body} | _], message, env, ctx) do
-    env = Env.put(env, "__current_exception__", message)
-    ctx = %{ctx | exception_instance: nil}
-    eval_statements(handler_body, env, ctx)
-  end
-
-  defp match_handler([{exc_names, var_name, handler_body} | rest], message, env, ctx) do
-    matches =
-      case exc_names do
-        names when is_list(names) -> Enum.any?(names, &exception_matches?(&1, message))
-        name -> exception_matches?(name, message)
-      end
-
-    if matches do
-      env = Env.put(env, "__current_exception__", message)
-
-      env =
-        if var_name do
-          exc_value =
-            case ctx.exception_instance do
-              {:instance, _, _} = inst -> inst
-              _ -> synthesize_exception_instance(message)
-            end
-
-          Env.put(env, var_name, exc_value)
-        else
-          env
-        end
-
-      ctx = %{ctx | exception_instance: nil}
-      eval_statements(handler_body, env, ctx)
-    else
-      match_handler(rest, message, env, ctx)
     end
   end
 
@@ -2551,7 +1226,7 @@ defmodule Pyex.Interpreter do
         end
 
       {:instance, _, _} = inst ->
-        case call_dunder(inst, "__getitem__", [key], env, ctx) do
+        case Dunder.call_dunder(inst, "__getitem__", [key], env, ctx) do
           {:ok, result, env, ctx} ->
             {result, env, ctx}
 
@@ -2589,10 +1264,12 @@ defmodule Pyex.Interpreter do
             {signal, env, ctx}
 
           {default_val, env, ctx, _updated_func} ->
-            {default_val, env, ctx}
+            new_dict = Map.put(dict, key, default_val)
+            {:defaultdict_auto_insert, default_val, new_dict, env, ctx}
 
           {default_val, env, ctx} ->
-            {default_val, env, ctx}
+            new_dict = Map.put(dict, key, default_val)
+            {:defaultdict_auto_insert, default_val, new_dict, env, ctx}
         end
 
       val when is_integer(val) or is_float(val) or is_boolean(val) or val == nil ->
@@ -2605,58 +1282,6 @@ defmodule Pyex.Interpreter do
       _ ->
         {{:exception, "KeyError: #{inspect(key)}"}, env, ctx}
     end
-  end
-
-  @spec get_subscript_value(pyvalue(), pyvalue()) :: pyvalue() | {:exception, String.t()}
-  defp get_subscript_value(obj, key) when is_map(obj) do
-    case Map.fetch(obj, key) do
-      {:ok, val} ->
-        val
-
-      :error ->
-        case Map.fetch(obj, "__defaultdict_factory__") do
-          {:ok, {:builtin_type, _, func}} -> func.([])
-          {:ok, {:builtin, func}} -> func.([])
-          _ -> {:exception, "KeyError: #{inspect(key)}"}
-        end
-    end
-  end
-
-  defp get_subscript_value({:py_list, reversed, len}, key) when is_integer(key) do
-    idx = if key < 0, do: len + key, else: key
-
-    if idx < 0 or idx >= len do
-      {:exception, "IndexError: list index out of range"}
-    else
-      Enum.at(reversed, len - 1 - idx)
-    end
-  end
-
-  defp get_subscript_value(obj, key) when is_list(obj) and is_integer(key) do
-    len = length(obj)
-    idx = if key < 0, do: len + key, else: key
-
-    if idx < 0 or idx >= len do
-      {:exception, "IndexError: list index out of range"}
-    else
-      Enum.at(obj, idx)
-    end
-  end
-
-  defp get_subscript_value(_, _), do: {:exception, "TypeError: object is not subscriptable"}
-
-  @spec set_subscript_value(pyvalue(), pyvalue(), pyvalue()) :: pyvalue()
-  defp set_subscript_value(obj, key, val) when is_map(obj), do: Map.put(obj, key, val)
-
-  defp set_subscript_value({:py_list, reversed, len}, key, val) when is_integer(key) do
-    idx = if key < 0, do: len + key, else: key
-    new_reversed = List.replace_at(reversed, len - 1 - idx, val)
-    {:py_list, new_reversed, len}
-  end
-
-  defp set_subscript_value(obj, key, val) when is_list(obj) and is_integer(key) do
-    idx = if key < 0, do: length(obj) + key, else: key
-    List.replace_at(obj, idx, val)
   end
 
   @spec eval_slice(pyvalue(), pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
@@ -2700,163 +1325,6 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  @spec eval_comp_clauses(
-          :list | :dict | :set,
-          Parser.ast_node() | {Parser.ast_node(), Parser.ast_node()},
-          [
-            {:comp_for, String.t() | [String.t()], Parser.ast_node()}
-            | {:comp_if, Parser.ast_node()}
-          ],
-          [pyvalue()] | map() | MapSet.t(),
-          Env.t(),
-          Ctx.t()
-        ) :: eval_result()
-  @dialyzer {:nowarn_function, eval_comp_clauses: 6}
-  defp eval_comp_clauses(:list, expr, [], acc, env, ctx) do
-    case eval(expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-      {val, env, ctx} -> {[val | acc], env, ctx}
-    end
-  end
-
-  defp eval_comp_clauses(:dict, {key_expr, val_expr}, [], acc, env, ctx) do
-    case eval(key_expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {key, env, ctx} ->
-        case eval(val_expr, env, ctx) do
-          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-          {val, env, ctx} -> {Map.put(acc, key, val), env, ctx}
-        end
-    end
-  end
-
-  defp eval_comp_clauses(:set, expr, [], acc, env, ctx) do
-    case eval(expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-      {val, env, ctx} -> {MapSet.put(acc, val), env, ctx}
-    end
-  end
-
-  defp eval_comp_clauses(kind, expr, [{:comp_if, condition} | rest_clauses], acc, env, ctx) do
-    case eval(condition, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {cond_val, env, ctx} ->
-        {taken, env, ctx} = eval_truthy(cond_val, env, ctx)
-
-        if taken do
-          eval_comp_clauses(kind, expr, rest_clauses, acc, env, ctx)
-        else
-          {acc, env, ctx}
-        end
-    end
-  end
-
-  defp eval_comp_clauses(
-         kind,
-         expr,
-         [{:comp_for, var_name, iterable_expr} | rest_clauses],
-         acc,
-         env,
-         ctx
-       ) do
-    case eval(iterable_expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {iterable, env, ctx} ->
-        case to_iterable(iterable, env, ctx) do
-          {:ok, items, env, ctx} ->
-            eval_comp_for_loop(kind, expr, var_name, items, rest_clauses, acc, env, ctx)
-
-          {:exception, msg} ->
-            {{:exception, msg}, env, ctx}
-        end
-    end
-  end
-
-  @spec eval_comp_for_loop(
-          :list | :dict | :set,
-          Parser.ast_node() | {Parser.ast_node(), Parser.ast_node()},
-          String.t() | [String.t()],
-          [pyvalue()],
-          [
-            {:comp_for, String.t() | [String.t()], Parser.ast_node()}
-            | {:comp_if, Parser.ast_node()}
-          ],
-          [pyvalue()] | map() | MapSet.t(),
-          Env.t(),
-          Ctx.t()
-        ) :: eval_result()
-  defp eval_comp_for_loop(_kind, _expr, _var_name, [], _rest_clauses, acc, env, ctx) do
-    {acc, env, ctx}
-  end
-
-  defp eval_comp_for_loop(kind, expr, var_name, [item | rest_items], rest_clauses, acc, env, ctx) do
-    case Ctx.check_deadline(ctx) do
-      {:exceeded, _} ->
-        {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
-
-      :ok ->
-        case bind_loop_var(var_name, item, env) do
-          {:exception, msg} ->
-            {{:exception, msg}, env, ctx}
-
-          bound_env ->
-            case eval_comp_clauses(kind, expr, rest_clauses, acc, bound_env, ctx) do
-              {{:exception, _}, _, _} = error ->
-                error
-
-              {new_acc, _inner_env, ctx} ->
-                eval_comp_for_loop(
-                  kind,
-                  expr,
-                  var_name,
-                  rest_items,
-                  rest_clauses,
-                  new_acc,
-                  env,
-                  ctx
-                )
-            end
-        end
-    end
-  end
-
-  @spec eval_dict(
-          [{Parser.ast_node(), Parser.ast_node()}],
-          Env.t(),
-          Ctx.t()
-        ) :: eval_result()
-  defp eval_dict(entries, env, ctx) do
-    Enum.reduce_while(entries, {%{}, env, ctx}, fn {key_expr, val_expr}, {map, env, ctx} ->
-      case eval(key_expr, env, ctx) do
-        {{:exception, _} = signal, env, ctx} ->
-          {:halt, {signal, env, ctx}}
-
-        {key, env, ctx} ->
-          if unhashable?(key) do
-            {:halt,
-             {{:exception, "TypeError: unhashable type: '#{Helpers.py_type(key)}'"}, env, ctx}}
-          else
-            case eval(val_expr, env, ctx) do
-              {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
-              {val, env, ctx} -> {:cont, {Map.put(map, key, val), env, ctx}}
-            end
-          end
-      end
-    end)
-  end
-
-  @spec unhashable?(pyvalue()) :: boolean()
-  defp unhashable?(val) when is_list(val), do: true
-  defp unhashable?({:py_list, _, _}), do: true
-  defp unhashable?({:set, _}), do: true
-  defp unhashable?(_), do: false
-
   @spec eval_fstring(
           [{:lit, String.t()} | {:expr, Parser.ast_node()}],
           binary(),
@@ -2881,204 +1349,40 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  @spec eval_raise_exc_class(String.t(), [Parser.ast_node()], Parser.meta(), Env.t(), Ctx.t()) ::
-          eval_result()
-  defp eval_raise_exc_class(exc_name, args, _meta, env, ctx) do
-    case Env.get(env, exc_name) do
-      {:ok, {:class, _, _, _} = class} ->
-        case eval_list(args, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
+  defp eval_fstring([{:expr, expr, format_spec} | rest], acc, env, ctx) do
+    case eval(expr, env, ctx) do
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {val, env, ctx} ->
+        case Pyex.Interpreter.FstringFormat.apply_format_spec(val, format_spec) do
+          {:exception, _} = signal ->
             {signal, env, ctx}
 
-          {rev_values, env, ctx} ->
-            values = Enum.reverse(rev_values)
-            msg = format_exc_msg(exc_name, values)
-
-            case call_function(class, values, %{}, env, ctx) do
-              {{:exception, _}, env, ctx} ->
-                instance = {:instance, class, %{"args" => {:tuple, values}}}
-                ctx = %{ctx | exception_instance: instance}
-                {{:exception, msg}, env, ctx}
-
-              {instance, env, ctx} ->
-                ctx = %{ctx | exception_instance: instance}
-                {{:exception, msg}, env, ctx}
-            end
-        end
-
-      _ ->
-        case eval_list(args, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {rev_values, env, ctx} ->
-            values = Enum.reverse(rev_values)
-            msg = format_exc_msg(exc_name, values)
-
-            instance =
-              {:instance, {:class, exc_name, [], %{}}, %{"args" => {:tuple, values}}}
-
-            ctx = %{ctx | exception_instance: instance}
-            {{:exception, msg}, env, ctx}
+          formatted ->
+            eval_fstring(rest, <<acc::binary, formatted::binary>>, env, ctx)
         end
     end
-  end
-
-  @spec format_exc_msg(String.t(), [pyvalue()]) :: String.t()
-  defp format_exc_msg(exc_name, values) do
-    case values do
-      [] -> exc_name
-      [m] when is_binary(m) -> "#{exc_name}: #{m}"
-      [m] -> "#{exc_name}: #{Helpers.py_str(m)}"
-      _ -> "#{exc_name}: #{values |> Enum.map(&Helpers.py_str/1) |> Enum.join(", ")}"
-    end
-  end
-
-  @spec synthesize_exception_instance(String.t()) :: pyvalue()
-  defp synthesize_exception_instance(message) do
-    {class_name, msg} =
-      case String.split(message, ": ", parts: 2) do
-        [name, m] -> {name, m}
-        [name] -> {name, ""}
-      end
-
-    {:instance, {:class, class_name, [], %{}}, %{"args" => {:tuple, [msg]}}}
-  end
-
-  @spec exception_matches?(String.t(), String.t()) :: boolean()
-  defp exception_matches?("Exception", _message), do: true
-
-  defp exception_matches?(exc_name, message) do
-    message == exc_name or String.starts_with?(message, exc_name <> ":")
   end
 
   @spec eval_py_str(pyvalue(), Env.t(), Ctx.t()) :: {String.t(), Env.t(), Ctx.t()}
-  defp eval_py_str({:instance, _, _} = inst, env, ctx) do
-    case call_dunder(inst, "__str__", [], env, ctx) do
-      {:ok, str, env, ctx} when is_binary(str) ->
-        {str, env, ctx}
-
-      _ ->
-        case call_dunder(inst, "__repr__", [], env, ctx) do
-          {:ok, str, env, ctx} when is_binary(str) -> {str, env, ctx}
-          _ -> {Helpers.py_str(inst), env, ctx}
-        end
-    end
-  end
-
-  defp eval_py_str(val, env, ctx), do: {Helpers.py_str(val), env, ctx}
+  defp eval_py_str(val, env, ctx), do: Protocols.eval_py_str(val, env, ctx)
 
   @spec dunder_str_fallback(pyvalue(), String.t(), Env.t(), Ctx.t()) ::
           {:ok, String.t(), Env.t(), Ctx.t()} | :error
-  defp dunder_str_fallback({:instance, _, attrs} = inst, "__str__", env, ctx) do
-    case call_dunder(inst, "__repr__", [], env, ctx) do
-      {:ok, str, env, ctx} when is_binary(str) ->
-        {:ok, str, env, ctx}
+  @doc false
+  def dunder_str_fallback(val, dunder_name, env, ctx),
+    do: Protocols.dunder_str_fallback(val, dunder_name, env, ctx)
 
-      _ ->
-        case Map.get(attrs, "args") do
-          {:tuple, [single]} when is_binary(single) ->
-            {:ok, single, env, ctx}
-
-          {:tuple, items} when is_list(items) and items != [] ->
-            {:ok, items |> Enum.map(&Helpers.py_str/1) |> Enum.join(", "), env, ctx}
-
-          _ ->
-            {:ok, Helpers.py_str(inst), env, ctx}
-        end
-    end
-  end
-
-  defp dunder_str_fallback({:instance, _, _} = inst, "__repr__", env, ctx) do
-    {:ok, Helpers.py_str(inst), env, ctx}
-  end
-
-  defp dunder_str_fallback(inst, "__bool__", env, ctx) do
-    case call_dunder(inst, "__len__", [], env, ctx) do
-      {:ok, len, env, ctx} when is_integer(len) ->
-        {:ok, len > 0, env, ctx}
-
-      _ ->
-        {:ok, true, env, ctx}
-    end
-  end
-
-  defp dunder_str_fallback(_, _, _, _), do: :error
-
+  @doc false
   @spec to_iterable(pyvalue(), Env.t(), Ctx.t()) ::
           {:ok, [pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
-  defp to_iterable({:py_list, reversed, _len}, env, ctx),
-    do: {:ok, Enum.reverse(reversed), env, ctx}
+  def to_iterable(val, env, ctx), do: Iterables.to_iterable(val, env, ctx)
 
-  defp to_iterable(list, env, ctx) when is_list(list), do: {:ok, list, env, ctx}
-  defp to_iterable(str, env, ctx) when is_binary(str), do: {:ok, String.codepoints(str), env, ctx}
-
-  defp to_iterable(map, env, ctx) when is_map(map),
-    do: {:ok, map |> Builtins.visible_dict() |> Map.keys(), env, ctx}
-
-  defp to_iterable({:tuple, elements}, env, ctx), do: {:ok, elements, env, ctx}
-  defp to_iterable({:set, s}, env, ctx), do: {:ok, MapSet.to_list(s), env, ctx}
-  defp to_iterable({:frozenset, s}, env, ctx), do: {:ok, MapSet.to_list(s), env, ctx}
-
-  defp to_iterable({:range, _, _, _} = r, env, ctx) do
-    case Builtins.range_to_list(r) do
-      {:exception, _} = err -> err
-      list -> {:ok, list, env, ctx}
-    end
-  end
-
-  defp to_iterable({:generator, items}, env, ctx), do: {:ok, items, env, ctx}
-  defp to_iterable({:generator_error, items, _msg}, env, ctx), do: {:ok, items, env, ctx}
-
-  defp to_iterable({:iterator, id}, env, ctx) do
-    {:ok, Ctx.iter_items(ctx, id), env, ctx}
-  end
-
-  defp to_iterable({:instance, _, _} = inst, env, ctx) do
-    case call_dunder(inst, "__iter__", [], env, ctx) do
-      {:ok, result, env, ctx} ->
-        case result do
-          {:exception, _} = signal ->
-            signal
-
-          {:instance, _, _} = iter ->
-            drain_iterator(iter, [], env, ctx)
-
-          other ->
-            to_iterable(other, env, ctx)
-        end
-
-      :not_found ->
-        {:exception, "TypeError: '#{Helpers.py_type(inst)}' object is not iterable"}
-    end
-  end
-
-  defp to_iterable(val, _env, _ctx) do
-    {:exception, "TypeError: '#{Helpers.py_type(val)}' object is not iterable"}
-  end
-
-  @spec drain_iterator(pyvalue(), [pyvalue()], Env.t(), Ctx.t()) ::
-          {:ok, [pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
-  defp drain_iterator(iter, acc, env, ctx) do
-    case call_dunder_mut(iter, "__next__", [], env, ctx) do
-      {:ok, new_iter, {:exception, "StopIteration" <> _}, env, ctx} ->
-        _ = new_iter
-        {:ok, Enum.reverse(acc), env, ctx}
-
-      {:ok, _new_iter, {:exception, _} = signal, _env, _ctx} ->
-        signal
-
-      {:ok, new_iter, value, env, ctx} ->
-        drain_iterator(new_iter, [value | acc], env, ctx)
-
-      :not_found ->
-        {:exception, "TypeError: '#{Helpers.py_type(iter)}' object is not an iterator"}
-    end
-  end
-
+  @doc false
   @spec unpack_iterable_safe([pyvalue()], [String.t() | {:starred, String.t()}]) ::
           {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
-  defp unpack_iterable_safe([single], names) do
+  def unpack_iterable_safe([single], names) do
     case single do
       {:py_list, reversed, _} ->
         check_unpack_length(Enum.reverse(reversed), names)
@@ -3103,7 +1407,7 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  defp unpack_iterable_safe(values, names) do
+  def unpack_iterable_safe(values, names) do
     check_unpack_length(values, names)
   end
 
@@ -3177,553 +1481,70 @@ defmodule Pyex.Interpreter do
 
   @doc false
   @spec eval_truthy(pyvalue(), Env.t(), Ctx.t()) :: {boolean(), Env.t(), Ctx.t()}
-  def eval_truthy({:instance, _, _} = inst, env, ctx) do
-    case call_dunder(inst, "__bool__", [], env, ctx) do
-      {:ok, result, env, ctx} ->
-        {Helpers.truthy?(result), env, ctx}
-
-      :not_found ->
-        case call_dunder(inst, "__len__", [], env, ctx) do
-          {:ok, result, env, ctx} when is_integer(result) -> {result != 0, env, ctx}
-          {:ok, _, env, ctx} -> {true, env, ctx}
-          :not_found -> {true, env, ctx}
-        end
-    end
-  end
-
-  def eval_truthy(val, env, ctx), do: {Helpers.truthy?(val), env, ctx}
+  def eval_truthy(val, env, ctx), do: Protocols.eval_truthy(val, env, ctx)
 
   @spec eval_binop(atom(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
   defp eval_binop(op, {:instance, _, _} = l, r, env, ctx) do
-    case dunder_for_op(op) do
+    case BinaryOps.dunder_for_op(op) do
       nil ->
-        binop_result(safe_binop(op, l, r), env, ctx)
+        BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
 
       dunder ->
-        case call_dunder(l, dunder, [r], env, ctx) do
+        case Dunder.call_dunder(l, dunder, [r], env, ctx) do
           {:ok, result, env, ctx} ->
             {result, env, ctx}
 
           :not_found ->
-            binop_result(safe_binop(op, l, r), env, ctx)
+            BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
         end
     end
   end
 
   defp eval_binop(:in, l, {:instance, _, _} = r, env, ctx) do
-    case call_dunder(r, "__contains__", [l], env, ctx) do
+    case Dunder.call_dunder(r, "__contains__", [l], env, ctx) do
       {:ok, result, env, ctx} -> {Helpers.truthy?(result), env, ctx}
-      :not_found -> binop_result(safe_binop(:in, l, r), env, ctx)
+      :not_found -> BinaryOps.binop_result(safe_binop(:in, l, r), env, ctx)
     end
   end
 
   defp eval_binop(:not_in, l, {:instance, _, _} = r, env, ctx) do
-    case call_dunder(r, "__contains__", [l], env, ctx) do
+    case Dunder.call_dunder(r, "__contains__", [l], env, ctx) do
       {:ok, result, env, ctx} -> {!Helpers.truthy?(result), env, ctx}
-      :not_found -> binop_result(safe_binop(:not_in, l, r), env, ctx)
+      :not_found -> BinaryOps.binop_result(safe_binop(:not_in, l, r), env, ctx)
     end
   end
 
   defp eval_binop(op, l, {:instance, _, _} = r, env, ctx) do
-    case rdunder_for_op(op) do
+    case BinaryOps.rdunder_for_op(op) do
       nil ->
-        binop_result(safe_binop(op, l, r), env, ctx)
+        BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
 
       rdunder ->
-        case call_dunder(r, rdunder, [l], env, ctx) do
+        case Dunder.call_dunder(r, rdunder, [l], env, ctx) do
           {:ok, result, env, ctx} ->
             {result, env, ctx}
 
           :not_found ->
-            binop_result(safe_binop(op, l, r), env, ctx)
+            BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
         end
     end
   end
 
   defp eval_binop(op, {:pandas_series, _} = l, r, env, ctx) do
-    binop_result(series_binop(op, l, r), env, ctx)
+    BinaryOps.binop_result(BinaryOps.series_binop(op, l, r), env, ctx)
   end
 
   defp eval_binop(op, l, {:pandas_series, _} = r, env, ctx) do
-    binop_result(series_binop(op, l, r), env, ctx)
+    BinaryOps.binop_result(BinaryOps.series_binop(op, l, r), env, ctx)
   end
 
   defp eval_binop(op, l, r, env, ctx) do
-    binop_result(safe_binop(op, l, r), env, ctx)
+    BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
   end
 
-  @spec series_binop(atom(), pyvalue(), pyvalue()) :: pyvalue() | {:exception, String.t()}
-  defp series_binop(op, l, r) do
-    ls = series_unwrap(l)
-    rs = series_unwrap(r)
-
-    result =
-      case op do
-        :plus -> Explorer.Series.add(ls, rs)
-        :minus -> Explorer.Series.subtract(ls, rs)
-        :star -> Explorer.Series.multiply(ls, rs)
-        :slash -> Explorer.Series.divide(ls, rs)
-        :gt -> Explorer.Series.greater(ls, rs)
-        :gte -> Explorer.Series.greater_equal(ls, rs)
-        :lt -> Explorer.Series.less(ls, rs)
-        :lte -> Explorer.Series.less_equal(ls, rs)
-        :eq -> Explorer.Series.equal(ls, rs)
-        :neq -> Explorer.Series.not_equal(ls, rs)
-        :amp -> series_bool_and(ls, rs)
-        :pipe -> series_bool_or(ls, rs)
-        _ -> {:exception, "TypeError: unsupported operand for Series"}
-      end
-
-    case result do
-      {:exception, _} = err -> err
-      %Explorer.Series{} = s -> {:pandas_series, s}
-    end
-  end
-
-  @spec series_unwrap(pyvalue()) :: Explorer.Series.t() | number()
-  defp series_unwrap({:pandas_series, s}), do: s
-  defp series_unwrap(v) when is_number(v), do: v
-  defp series_unwrap(true), do: 1
-  defp series_unwrap(false), do: 0
-
-  @spec series_bool_and(Explorer.Series.t() | number(), Explorer.Series.t() | number()) ::
-          Explorer.Series.t()
-  defp series_bool_and(%Explorer.Series{} = l, %Explorer.Series{} = r) do
-    Explorer.Series.and(l, r)
-  end
-
-  @spec series_bool_or(Explorer.Series.t() | number(), Explorer.Series.t() | number()) ::
-          Explorer.Series.t()
-  defp series_bool_or(%Explorer.Series{} = l, %Explorer.Series{} = r) do
-    Explorer.Series.or(l, r)
-  end
-
-  @spec binop_result(pyvalue() | {:exception, String.t()}, Env.t(), Ctx.t()) :: eval_result()
-  defp binop_result({:exception, msg}, env, ctx), do: {{:exception, msg}, env, ctx}
-  defp binop_result(value, env, ctx), do: {value, env, ctx}
-
-  @spec dunder_for_op(atom()) :: String.t() | nil
-  defp dunder_for_op(:plus), do: "__add__"
-  defp dunder_for_op(:minus), do: "__sub__"
-  defp dunder_for_op(:star), do: "__mul__"
-  defp dunder_for_op(:slash), do: "__truediv__"
-  defp dunder_for_op(:floor_div), do: "__floordiv__"
-  defp dunder_for_op(:percent), do: "__mod__"
-  defp dunder_for_op(:double_star), do: "__pow__"
-  defp dunder_for_op(:eq), do: "__eq__"
-  defp dunder_for_op(:neq), do: "__ne__"
-  defp dunder_for_op(:lt), do: "__lt__"
-  defp dunder_for_op(:gt), do: "__gt__"
-  defp dunder_for_op(:lte), do: "__le__"
-  defp dunder_for_op(:gte), do: "__ge__"
-  defp dunder_for_op(:amp), do: "__and__"
-  defp dunder_for_op(:pipe), do: "__or__"
-  defp dunder_for_op(:caret), do: "__xor__"
-  defp dunder_for_op(:lshift), do: "__lshift__"
-  defp dunder_for_op(:rshift), do: "__rshift__"
-  defp dunder_for_op(:in), do: nil
-  defp dunder_for_op(:not_in), do: nil
-  defp dunder_for_op(:is), do: nil
-  defp dunder_for_op(:is_not), do: nil
-  defp dunder_for_op(:and), do: nil
-  defp dunder_for_op(:or), do: nil
-  defp dunder_for_op(_), do: nil
-
-  @spec rdunder_for_op(atom()) :: String.t() | nil
-  defp rdunder_for_op(:plus), do: "__radd__"
-  defp rdunder_for_op(:minus), do: "__rsub__"
-  defp rdunder_for_op(:star), do: "__rmul__"
-  defp rdunder_for_op(:slash), do: "__rtruediv__"
-  defp rdunder_for_op(:floor_div), do: "__rfloordiv__"
-  defp rdunder_for_op(:percent), do: "__rmod__"
-  defp rdunder_for_op(:double_star), do: "__rpow__"
-  defp rdunder_for_op(:eq), do: "__eq__"
-  defp rdunder_for_op(:neq), do: "__ne__"
-  defp rdunder_for_op(:lt), do: "__gt__"
-  defp rdunder_for_op(:gt), do: "__lt__"
-  defp rdunder_for_op(:lte), do: "__ge__"
-  defp rdunder_for_op(:gte), do: "__le__"
-  defp rdunder_for_op(_), do: nil
-
+  @doc false
   @spec safe_binop(atom(), pyvalue(), pyvalue()) :: pyvalue() | {:exception, String.t()}
-  defp safe_binop(op, l, r) when is_boolean(l) or is_boolean(r) do
-    case op do
-      op
-      when op in [
-             :plus,
-             :minus,
-             :star,
-             :slash,
-             :floor_div,
-             :percent,
-             :double_star,
-             :amp,
-             :pipe,
-             :caret,
-             :lshift,
-             :rshift,
-             :eq,
-             :neq,
-             :lt,
-             :gt,
-             :lte,
-             :gte
-           ] ->
-        safe_binop(op, Helpers.bool_to_int(l), Helpers.bool_to_int(r))
-
-      _ ->
-        safe_binop_dispatch(op, l, r)
-    end
-  end
-
-  defp safe_binop(op, l, r), do: safe_binop_dispatch(op, l, r)
-
-  defp safe_binop_dispatch(:plus, l, r) when is_binary(l) and is_binary(r), do: l <> r
-
-  defp safe_binop_dispatch(:plus, {:py_list, lr, ll}, {:py_list, rr, rl}) do
-    items = Enum.reverse(lr) ++ Enum.reverse(rr)
-    {:py_list, Enum.reverse(items), ll + rl}
-  end
-
-  defp safe_binop_dispatch(:plus, {:py_list, lr, ll}, r) when is_list(r) do
-    items = Enum.reverse(lr) ++ r
-    {:py_list, Enum.reverse(items), ll + length(r)}
-  end
-
-  defp safe_binop_dispatch(:plus, l, {:py_list, rr, rl}) when is_list(l) do
-    items = l ++ Enum.reverse(rr)
-    {:py_list, Enum.reverse(items), length(l) + rl}
-  end
-
-  defp safe_binop_dispatch(:plus, l, r) when is_list(l) and is_list(r), do: l ++ r
-  defp safe_binop_dispatch(:plus, {:tuple, l}, {:tuple, r}), do: {:tuple, l ++ r}
-
-  defp safe_binop_dispatch(:plus, %{"__counter__" => true} = l, %{"__counter__" => true} = r) do
-    Pyex.Stdlib.Collections.counter_add(l, r)
-  end
-
-  defp safe_binop_dispatch(:plus, l, r) when is_number(l) and is_number(r), do: l + r
-
-  defp safe_binop_dispatch(:plus, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for +: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  defp safe_binop_dispatch(:minus, l, r) when is_number(l) and is_number(r), do: l - r
-
-  defp safe_binop_dispatch(:minus, {:set, a}, {:set, b}),
-    do: {:set, MapSet.difference(a, b)}
-
-  defp safe_binop_dispatch(:minus, {:frozenset, a}, {:set, b}),
-    do: {:frozenset, MapSet.difference(a, b)}
-
-  defp safe_binop_dispatch(:minus, {:frozenset, a}, {:frozenset, b}),
-    do: {:frozenset, MapSet.difference(a, b)}
-
-  defp safe_binop_dispatch(:minus, {:set, a}, {:frozenset, b}),
-    do: {:set, MapSet.difference(a, b)}
-
-  defp safe_binop_dispatch(:minus, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for -: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  defp safe_binop_dispatch(:star, l, r) when is_binary(l) and is_integer(r) do
-    len = String.length(l) * max(r, 0)
-
-    if len > 10_000_000 do
-      {:exception, "MemoryError: string repetition would create #{len} characters (max 10000000)"}
-    else
-      String.duplicate(l, max(r, 0))
-    end
-  end
-
-  defp safe_binop_dispatch(:star, l, r) when is_integer(l) and is_binary(r),
-    do: safe_binop_dispatch(:star, r, l)
-
-  defp safe_binop_dispatch(:star, l, r) when is_integer(l) and is_list(r),
-    do: Helpers.repeat_list(r, l)
-
-  defp safe_binop_dispatch(:star, l, r) when is_list(l) and is_integer(r),
-    do: Helpers.repeat_list(l, r)
-
-  defp safe_binop_dispatch(:star, {:py_list, reversed, len}, r) when is_integer(r) do
-    case Helpers.repeat_list(Enum.reverse(reversed), r) do
-      {:exception, _} = err -> err
-      items -> {:py_list, Enum.reverse(items), len * max(r, 0)}
-    end
-  end
-
-  defp safe_binop_dispatch(:star, l, {:py_list, reversed, len}) when is_integer(l) do
-    case Helpers.repeat_list(Enum.reverse(reversed), l) do
-      {:exception, _} = err -> err
-      items -> {:py_list, Enum.reverse(items), len * max(l, 0)}
-    end
-  end
-
-  defp safe_binop_dispatch(:star, {:tuple, items}, r) when is_integer(r) do
-    case Helpers.repeat_list(items, r) do
-      {:exception, _} = err -> err
-      list -> {:tuple, list}
-    end
-  end
-
-  defp safe_binop_dispatch(:star, l, {:tuple, items}) when is_integer(l) do
-    case Helpers.repeat_list(items, l) do
-      {:exception, _} = err -> err
-      list -> {:tuple, list}
-    end
-  end
-
-  defp safe_binop_dispatch(:star, l, r) when is_number(l) and is_number(r), do: l * r
-
-  defp safe_binop_dispatch(:star, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for *: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  defp safe_binop_dispatch(:slash, _l, r) when r == 0 or r == 0.0,
-    do: {:exception, "ZeroDivisionError: division by zero"}
-
-  defp safe_binop_dispatch(:slash, l, r) when is_number(l) and is_number(r), do: l / r
-
-  defp safe_binop_dispatch(:slash, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for /: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  defp safe_binop_dispatch(:floor_div, _l, r) when r == 0 or r == 0.0,
-    do: {:exception, "ZeroDivisionError: integer division or modulo by zero"}
-
-  defp safe_binop_dispatch(:floor_div, l, r) when is_integer(l) and is_integer(r),
-    do: Integer.floor_div(l, r)
-
-  defp safe_binop_dispatch(:floor_div, l, r) when is_number(l) and is_number(r),
-    do: Float.floor(l / r)
-
-  defp safe_binop_dispatch(:floor_div, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for //: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  defp safe_binop_dispatch(:percent, l, r) when is_binary(l), do: Format.string_format(l, r)
-
-  defp safe_binop_dispatch(:percent, _l, r) when r == 0 or r == 0.0,
-    do: {:exception, "ZeroDivisionError: integer division or modulo by zero"}
-
-  defp safe_binop_dispatch(:percent, l, r) when is_integer(l) and is_integer(r),
-    do: Integer.mod(l, r)
-
-  defp safe_binop_dispatch(:percent, l, r) when is_number(l) and is_number(r),
-    do: l - Float.floor(l / r) * r
-
-  defp safe_binop_dispatch(:percent, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for %: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  defp safe_binop_dispatch(:double_star, l, r) when is_number(l) and is_number(r) do
-    cond do
-      l == 0 and r < 0 ->
-        {:exception, "ZeroDivisionError: 0 cannot be raised to a negative power"}
-
-      is_integer(l) and is_integer(r) and r >= 0 ->
-        Helpers.int_pow(l, r)
-
-      is_float(l) or is_float(r) ->
-        try do
-          :math.pow(l, r)
-        rescue
-          ArithmeticError ->
-            {:exception, "ValueError: math domain error"}
-        end
-
-      true ->
-        try do
-          :math.pow(l, r) |> Helpers.maybe_intify()
-        rescue
-          ArithmeticError ->
-            {:exception, "ValueError: math domain error"}
-        end
-    end
-  end
-
-  defp safe_binop_dispatch(:double_star, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for **: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  defp safe_binop_dispatch(:eq, {:py_list, lr, _}, {:py_list, rr, _}),
-    do: Enum.reverse(lr) == Enum.reverse(rr)
-
-  defp safe_binop_dispatch(:eq, {:py_list, reversed, _}, r) when is_list(r),
-    do: Enum.reverse(reversed) == r
-
-  defp safe_binop_dispatch(:eq, l, {:py_list, reversed, _}) when is_list(l),
-    do: l == Enum.reverse(reversed)
-
-  defp safe_binop_dispatch(:eq, l, r), do: l == r
-
-  defp safe_binop_dispatch(:neq, {:py_list, lr, _}, {:py_list, rr, _}),
-    do: Enum.reverse(lr) != Enum.reverse(rr)
-
-  defp safe_binop_dispatch(:neq, {:py_list, reversed, _}, r) when is_list(r),
-    do: Enum.reverse(reversed) != r
-
-  defp safe_binop_dispatch(:neq, l, {:py_list, reversed, _}) when is_list(l),
-    do: l != Enum.reverse(reversed)
-
-  defp safe_binop_dispatch(:neq, l, r), do: l != r
-  defp safe_binop_dispatch(:lt, l, r), do: ordering_compare(:lt, l, r)
-  defp safe_binop_dispatch(:gt, l, r), do: ordering_compare(:gt, l, r)
-  defp safe_binop_dispatch(:lte, l, r), do: ordering_compare(:lte, l, r)
-  defp safe_binop_dispatch(:gte, l, r), do: ordering_compare(:gte, l, r)
-  defp safe_binop_dispatch(:in, l, {:tuple, items}), do: l in items
-  defp safe_binop_dispatch(:in, l, {:py_list, reversed, _}), do: l in reversed
-  defp safe_binop_dispatch(:in, l, r) when is_list(r), do: l in r
-
-  defp safe_binop_dispatch(:in, l, r) when is_binary(l) and is_binary(r),
-    do: String.contains?(r, l)
-
-  defp safe_binop_dispatch(:in, l, r) when is_map(r),
-    do: Map.has_key?(Builtins.visible_dict(r), l)
-
-  defp safe_binop_dispatch(:in, l, {:set, s}), do: MapSet.member?(s, l)
-  defp safe_binop_dispatch(:in, l, {:frozenset, s}), do: MapSet.member?(s, l)
-
-  defp safe_binop_dispatch(:in, l, {:range, start, stop, step}) when is_integer(l) do
-    cond do
-      step > 0 and l >= start and l < stop -> rem(l - start, step) == 0
-      step < 0 and l <= start and l > stop -> rem(start - l, -step) == 0
-      true -> false
-    end
-  end
-
-  defp safe_binop_dispatch(:in, _l, {:range, _, _, _}), do: false
-
-  defp safe_binop_dispatch(:in, _l, r),
-    do: {:exception, "TypeError: argument of type '#{Helpers.py_type(r)}' is not iterable"}
-
-  defp safe_binop_dispatch(:is, l, r), do: l === r
-  defp safe_binop_dispatch(:is_not, l, r), do: l !== r
-
-  defp safe_binop_dispatch(:not_in, l, r) do
-    case safe_binop(:in, l, r) do
-      {:exception, _} = exc -> exc
-      val -> not val
-    end
-  end
-
-  defp safe_binop_dispatch(:amp, {:set, a}, {:set, b}), do: {:set, MapSet.intersection(a, b)}
-
-  defp safe_binop_dispatch(:amp, {:frozenset, a}, {:set, b}),
-    do: {:frozenset, MapSet.intersection(a, b)}
-
-  defp safe_binop_dispatch(:amp, {:frozenset, a}, {:frozenset, b}),
-    do: {:frozenset, MapSet.intersection(a, b)}
-
-  defp safe_binop_dispatch(:amp, {:set, a}, {:frozenset, b}),
-    do: {:set, MapSet.intersection(a, b)}
-
-  defp safe_binop_dispatch(:amp, l, r) when is_integer(l) and is_integer(r), do: band(l, r)
-
-  defp safe_binop_dispatch(:amp, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for &: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  defp safe_binop_dispatch(:pipe, {:set, a}, {:set, b}), do: {:set, MapSet.union(a, b)}
-
-  defp safe_binop_dispatch(:pipe, {:frozenset, a}, {:set, b}),
-    do: {:frozenset, MapSet.union(a, b)}
-
-  defp safe_binop_dispatch(:pipe, {:frozenset, a}, {:frozenset, b}),
-    do: {:frozenset, MapSet.union(a, b)}
-
-  defp safe_binop_dispatch(:pipe, {:set, a}, {:frozenset, b}), do: {:set, MapSet.union(a, b)}
-
-  defp safe_binop_dispatch(:pipe, l, r) when is_integer(l) and is_integer(r), do: bor(l, r)
-
-  defp safe_binop_dispatch(:pipe, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for |: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  defp safe_binop_dispatch(:caret, {:set, a}, {:set, b}),
-    do: {:set, MapSet.symmetric_difference(a, b)}
-
-  defp safe_binop_dispatch(:caret, {:frozenset, a}, {:set, b}),
-    do: {:frozenset, MapSet.symmetric_difference(a, b)}
-
-  defp safe_binop_dispatch(:caret, {:frozenset, a}, {:frozenset, b}),
-    do: {:frozenset, MapSet.symmetric_difference(a, b)}
-
-  defp safe_binop_dispatch(:caret, {:set, a}, {:frozenset, b}),
-    do: {:set, MapSet.symmetric_difference(a, b)}
-
-  defp safe_binop_dispatch(:caret, l, r) when is_integer(l) and is_integer(r), do: bxor(l, r)
-
-  defp safe_binop_dispatch(:caret, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for ^: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  defp safe_binop_dispatch(:lshift, l, r) when is_integer(l) and is_integer(r) do
-    if r > 100_000 do
-      {:exception, "OverflowError: left shift by #{r} exceeds maximum allowed (100000)"}
-    else
-      bsl(l, r)
-    end
-  end
-
-  defp safe_binop_dispatch(:lshift, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for <<: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  defp safe_binop_dispatch(:rshift, l, r) when is_integer(l) and is_integer(r), do: bsr(l, r)
-
-  defp safe_binop_dispatch(:rshift, l, r),
-    do:
-      {:exception,
-       "TypeError: unsupported operand type(s) for >>: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-
-  @spec ordering_compare(atom(), pyvalue(), pyvalue()) :: boolean() | {:exception, String.t()}
-  defp ordering_compare(op, l, r) when is_number(l) and is_number(r), do: ord_cmp(op, l, r)
-  defp ordering_compare(op, l, r) when is_binary(l) and is_binary(r), do: ord_cmp(op, l, r)
-  defp ordering_compare(op, l, r) when is_list(l) and is_list(r), do: ord_cmp(op, l, r)
-
-  defp ordering_compare(op, {:py_list, lr, _}, {:py_list, rr, _}),
-    do: ord_cmp(op, Enum.reverse(lr), Enum.reverse(rr))
-
-  defp ordering_compare(op, {:py_list, lr, _}, r) when is_list(r),
-    do: ord_cmp(op, Enum.reverse(lr), r)
-
-  defp ordering_compare(op, l, {:py_list, rr, _}) when is_list(l),
-    do: ord_cmp(op, l, Enum.reverse(rr))
-
-  defp ordering_compare(op, {:tuple, a}, {:tuple, b}), do: ord_cmp(op, a, b)
-
-  defp ordering_compare(op, l, r) when is_boolean(l) and is_number(r),
-    do: ordering_compare(op, bool_to_int(l), r)
-
-  defp ordering_compare(op, l, r) when is_number(l) and is_boolean(r),
-    do: ordering_compare(op, l, bool_to_int(r))
-
-  defp ordering_compare(_op, l, r) do
-    {:exception,
-     "TypeError: '<' not supported between instances of '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
-  end
-
-  @spec ord_cmp(atom(), term(), term()) :: boolean()
-  defp ord_cmp(:lt, l, r), do: l < r
-  defp ord_cmp(:gt, l, r), do: l > r
-  defp ord_cmp(:lte, l, r), do: l <= r
-  defp ord_cmp(:gte, l, r), do: l >= r
-
-  @spec bool_to_int(boolean()) :: 0 | 1
-  defp bool_to_int(true), do: 1
-  defp bool_to_int(false), do: 0
+  defdelegate safe_binop(op, l, r), to: BinaryOps
 
   @spec eval_chained_compare([atom()], [Parser.ast_node()], pyvalue() | nil, Env.t(), Ctx.t()) ::
           {pyvalue(), Env.t(), Ctx.t()}
@@ -3821,51 +1642,9 @@ defmodule Pyex.Interpreter do
     {start, stop}
   end
 
-  @spec setattr(Parser.ast_node(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
-  defp setattr({:getattr, _, [{:var, _, [var_name]}, attr]}, value, env, ctx) do
-    case Env.get(env, var_name) do
-      {:ok, {:instance, class, attrs}} ->
-        updated = {:instance, class, Map.put(attrs, attr, value)}
-        {nil, Env.put_at_source(env, var_name, updated), ctx}
-
-      {:ok, {:class, name, bases, class_attrs}} ->
-        updated = {:class, name, bases, Map.put(class_attrs, attr, value)}
-        {nil, Env.put_at_source(env, var_name, updated), ctx}
-
-      {:ok, other} when is_map(other) ->
-        updated = Map.put(other, attr, value)
-        {nil, Env.put_at_source(env, var_name, updated), ctx}
-
-      _ ->
-        {{:exception, "AttributeError: cannot set attribute '#{attr}'"}, env, ctx}
-    end
-  end
-
-  defp setattr({:getattr, _, [inner_target, attr]}, value, env, ctx) do
-    case eval(inner_target, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {{:instance, class, attrs}, env, ctx} ->
-        updated = {:instance, class, Map.put(attrs, attr, value)}
-        write_back_target(inner_target, updated, env, ctx)
-
-      _ ->
-        {{:exception, "AttributeError: cannot set attribute '#{attr}'"}, env, ctx}
-    end
-  end
-
-  defp setattr(_target, _value, env, ctx) do
-    {{:exception, "SyntaxError: cannot assign to attribute"}, env, ctx}
-  end
-
-  @spec setattr_nested(Parser.ast_node(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
-  defp setattr_nested({:getattr, meta, [obj_expr, attr]}, value, env, ctx) do
-    setattr({:getattr, meta, [obj_expr, attr]}, value, env, ctx)
-  end
-
+  @doc false
   @spec eval_sort([pyvalue()], pyvalue() | nil, boolean(), Env.t(), Ctx.t()) :: call_result()
-  defp eval_sort(items, key_fn, reverse, env, ctx) do
+  def eval_sort(items, key_fn, reverse, env, ctx) do
     has_instances? = Enum.any?(items, &match?({:instance, _, _}, &1))
 
     sorted =
@@ -3890,9 +1669,10 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  @doc false
   @spec eval_minmax([pyvalue()], pyvalue(), :min | :max, Env.t(), Ctx.t()) ::
           {pyvalue(), Env.t(), Ctx.t()}
-  defp eval_minmax(items, key_fn, op, env, ctx) do
+  def eval_minmax(items, key_fn, op, env, ctx) do
     keys_result =
       Enum.reduce_while(items, {:ok, [], env, ctx}, fn item, {:ok, acc, env, ctx} ->
         case call_function(key_fn, [item], %{}, env, ctx) do
@@ -3993,137 +1773,7 @@ defmodule Pyex.Interpreter do
 
   defp pyvalue_lte(a, b), do: a <= b
 
-  # For setattr(obj, attr, val), the first arg_expr is the mutation target.
-  # For everything else (method calls, callable instances), func_expr is the target.
-  defp mutate_target_expr({:var, _, ["setattr"]}, [first_arg | _]) do
-    first_arg
-  end
-
-  defp mutate_target_expr(func_expr, _arg_exprs), do: func_expr
-
-  @spec mutate_target(Parser.ast_node(), pyvalue(), Env.t(), Ctx.t()) :: Env.t()
-  defp mutate_target({:getattr, _, [{:var, _, [var_name]}, _method]}, new_object, env, _ctx) do
-    Env.smart_put(env, var_name, new_object)
-  end
-
-  defp mutate_target(
-         {:getattr, _, [{:getattr, _, _} = inner_target, _method]},
-         new_object,
-         env,
-         ctx
-       ) do
-    case setattr(inner_target, new_object, env, ctx) do
-      {_, env, _} -> env
-    end
-  end
-
-  defp mutate_target({:getattr, _, [{:call, _, _}, _method]}, new_object, env, _ctx) do
-    Env.smart_put(env, "self", new_object)
-  end
-
-  defp mutate_target(
-         {:getattr, _, [{:subscript, _, [container_expr, key_expr]}, _method]},
-         new_object,
-         env,
-         ctx
-       ) do
-    {container, env, ctx} = eval(container_expr, env, ctx)
-    {key, env, _ctx} = eval(key_expr, env, ctx)
-    new_container = set_subscript_value(container, key, new_object)
-    mutate_target(container_expr, new_container, env, ctx)
-  end
-
-  defp mutate_target({:var, _, [var_name]}, new_object, env, _ctx) do
-    Env.smart_put(env, var_name, new_object)
-  end
-
-  defp mutate_target({:subscript, _, [expr, _index]}, new_object, env, ctx) do
-    mutate_target(expr, new_object, env, ctx)
-  end
-
-  defp mutate_target(_, _new_object, env, _ctx), do: env
-
-  @spec write_back_target(Parser.ast_node(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
-  defp write_back_target({:var, _, [name]}, value, env, ctx) do
-    {nil, Env.smart_put(env, name, value), ctx}
-  end
-
-  defp write_back_target({:getattr, _, [{:var, _, [var_name]}, attr]}, value, env, ctx) do
-    case Env.get(env, var_name) do
-      {:ok, {:instance, class, attrs}} ->
-        updated = {:instance, class, Map.put(attrs, attr, value)}
-        {nil, Env.smart_put(env, var_name, updated), ctx}
-
-      _ ->
-        {{:exception, "AttributeError: cannot write back to nested attribute"}, env, ctx}
-    end
-  end
-
-  defp write_back_target(_, _, env, ctx) do
-    {{:exception, "SyntaxError: cannot assign to nested attribute"}, env, ctx}
-  end
-
-  @spec get_mutated_instance(Env.t(), pyvalue()) :: pyvalue()
-  defp get_mutated_instance(env, {:instance, _, _} = original) do
-    case Env.get(env, "self") do
-      {:ok, {:instance, _, _} = updated} -> updated
-      _ -> original
-    end
-  end
-
-  @spec call_method(
-          pyvalue(),
-          pyvalue(),
-          [pyvalue()],
-          %{optional(String.t()) => pyvalue()},
-          Env.t(),
-          Ctx.t()
-        ) ::
-          call_result()
-  defp call_method(instance, {:function, _, _, _, _} = func, args, kwargs, env, ctx) do
-    method_args = [instance | args]
-
-    case call_function(func, method_args, kwargs, env, ctx) do
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {result, env, ctx, _updated} ->
-        updated_instance = get_mutated_instance(env, instance)
-        env = rebind_instance(env, instance, updated_instance)
-        {result, env, ctx}
-
-      {result, env, ctx} ->
-        updated_instance = get_mutated_instance(env, instance)
-        env = rebind_instance(env, instance, updated_instance)
-        {result, env, ctx}
-    end
-  end
-
-  @spec rebind_instance(Env.t(), pyvalue(), pyvalue()) :: Env.t()
-  defp rebind_instance(env, _old, new) do
-    case Env.get(env, "self") do
-      {:ok, {:instance, _, _}} -> Env.smart_put(env, "self", new)
-      _ -> env
-    end
-  end
-
-  @spec maybe_update_instance_var(Env.t(), String.t()) :: Env.t()
-  defp maybe_update_instance_var(env, var_name) do
-    case Env.get(env, var_name) do
-      {:ok, {:instance, _, _}} ->
-        case Env.get(env, "self") do
-          {:ok, {:instance, _, _} = updated_self} ->
-            Env.smart_put(env, var_name, updated_self)
-
-          _ ->
-            env
-        end
-
-      _ ->
-        env
-    end
-  end
-
+  @doc false
   @spec eval_instance_next(
           pyvalue(),
           non_neg_integer(),
@@ -4132,30 +1782,12 @@ defmodule Pyex.Interpreter do
           Ctx.t()
         ) ::
           eval_result()
-  defp eval_instance_next(inst, id, default_opt, env, ctx) do
-    case call_dunder_mut(inst, "__next__", [], env, ctx) do
-      {:ok, _new_inst, {:exception, "StopIteration" <> _}, env, ctx} ->
-        ctx = Ctx.delete_iterator(ctx, id)
+  def eval_instance_next(inst, id, default_opt, env, ctx),
+    do: Iterables.eval_instance_next(inst, id, default_opt, env, ctx)
 
-        case default_opt do
-          {:default, default} -> {default, env, ctx}
-          :no_default -> {{:exception, "StopIteration"}, env, ctx}
-        end
-
-      {:ok, _new_inst, {:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {:ok, new_inst, value, env, ctx} ->
-        ctx = Ctx.update_instance_iterator(ctx, id, new_inst)
-        {value, env, ctx}
-
-      :not_found ->
-        {{:exception, "TypeError: object has no __next__"}, env, ctx}
-    end
-  end
-
+  @doc false
   @spec eval_print_call([pyvalue()], String.t(), String.t(), Env.t(), Ctx.t()) :: eval_result()
-  defp eval_print_call(args, sep, end_str, env, ctx) do
+  def eval_print_call(args, sep, end_str, env, ctx) do
     {strs, env, ctx} =
       Enum.reduce(args, {[], env, ctx}, fn arg, {acc, env, ctx} ->
         {str, env, ctx} = eval_py_str(arg, env, ctx)
@@ -4168,8 +1800,9 @@ defmodule Pyex.Interpreter do
     {nil, env, ctx}
   end
 
+  @doc false
   @spec eval_super(Env.t(), Ctx.t()) :: eval_result()
-  defp eval_super(env, ctx) do
+  def eval_super(env, ctx) do
     case Env.get(env, "self") do
       {:ok, {:instance, _, _} = instance} ->
         case Env.get(env, "__class__") do
@@ -4187,151 +1820,6 @@ defmodule Pyex.Interpreter do
         {{:exception, "RuntimeError: super(): self is not bound"}, env, ctx}
     end
   end
-
-  @spec call_dunder(pyvalue(), String.t(), [pyvalue()], Env.t(), Ctx.t()) ::
-          {:ok, pyvalue(), Env.t(), Ctx.t()} | :not_found
-  defp call_dunder(instance, method, args, env, ctx) do
-    case call_dunder_mut(instance, method, args, env, ctx) do
-      {:ok, _new_obj, return_val, env, ctx} -> {:ok, return_val, env, ctx}
-      :not_found -> :not_found
-    end
-  end
-
-  @spec call_dunder_mut(pyvalue(), String.t(), [pyvalue()], Env.t(), Ctx.t()) ::
-          {:ok, pyvalue(), pyvalue(), Env.t(), Ctx.t()} | :not_found
-  defp call_dunder_mut(
-         {:instance, {:class, _, _, _} = class, _} = instance,
-         method,
-         args,
-         env,
-         ctx
-       ) do
-    case resolve_class_attr(class, method) do
-      {:ok, {:function, _, _, _, _} = func} ->
-        case call_function({:bound_method, instance, func}, args, %{}, env, ctx) do
-          {:mutate, new_obj, return_val, new_env, ctx} ->
-            {:ok, new_obj, return_val, new_env, ctx}
-
-          {:mutate, new_obj, return_val, ctx} ->
-            {:ok, new_obj, return_val, env, ctx}
-
-          {{:exception, _} = signal, env, ctx} ->
-            {:ok, instance, signal, env, ctx}
-
-          {return_val, env, ctx} ->
-            {:ok, instance, return_val, env, ctx}
-
-          {return_val, env, ctx, _} ->
-            {:ok, instance, return_val, env, ctx}
-        end
-
-      {:ok, {:builtin, fun}} ->
-        case call_function({:builtin, fun}, [instance | args], %{}, env, ctx) do
-          {:mutate, new_obj, return_val, ctx} ->
-            {:ok, new_obj, return_val, env, ctx}
-
-          {{:exception, _} = signal, env, ctx} ->
-            {:ok, instance, signal, env, ctx}
-
-          {return_val, env, ctx} ->
-            {:ok, instance, return_val, env, ctx}
-        end
-
-      _ ->
-        :not_found
-    end
-  end
-
-  defp call_dunder_mut({:file_handle, _id} = handle, "__enter__", [], env, ctx) do
-    {:ok, handle, handle, env, ctx}
-  end
-
-  defp call_dunder_mut({:file_handle, id} = handle, "__exit__", _args, env, ctx) do
-    case Ctx.close_handle(ctx, id) do
-      {:ok, ctx} -> {:ok, handle, nil, env, ctx}
-      {:error, _} -> {:ok, handle, nil, env, ctx}
-    end
-  end
-
-  defp call_dunder_mut(_, _, _, _, _), do: :not_found
-
-  @spec resolve_class_attr(pyvalue(), String.t()) :: {:ok, pyvalue()} | :error
-  defp resolve_class_attr(class, attr) do
-    mro = c3_linearize(class)
-
-    Enum.find_value(mro, :error, fn {:class, _, _, class_attrs} ->
-      case Map.get(class_attrs, attr) do
-        nil -> nil
-        value -> {:ok, value}
-      end
-    end)
-  end
-
-  @spec resolve_class_attr_with_owner(pyvalue(), String.t()) ::
-          {:ok, pyvalue(), pyvalue()} | :error
-  defp resolve_class_attr_with_owner(class, attr) do
-    mro = c3_linearize(class)
-
-    Enum.find_value(mro, :error, fn {:class, _, _, class_attrs} = c ->
-      case Map.get(class_attrs, attr) do
-        nil -> nil
-        value -> {:ok, value, c}
-      end
-    end)
-  end
-
-  @spec c3_linearize(pyvalue()) :: [pyvalue()]
-  defp c3_linearize({:class, _, [], _} = class), do: [class]
-
-  defp c3_linearize({:class, _, bases, _} = class) do
-    parent_mros = Enum.map(bases, &c3_linearize/1)
-    [class | c3_merge(parent_mros ++ [bases])]
-  end
-
-  @spec c3_merge([[pyvalue()]]) :: [pyvalue()]
-  defp c3_merge(lists) do
-    lists = Enum.reject(lists, &(&1 == []))
-
-    case lists do
-      [] ->
-        []
-
-      _ ->
-        case find_c3_head(lists) do
-          {:ok, head} ->
-            remaining =
-              lists
-              |> Enum.map(fn list ->
-                case list do
-                  [^head | rest] -> rest
-                  _ -> Enum.reject(list, &(&1 == head))
-                end
-              end)
-
-            [head | c3_merge(remaining)]
-
-          :error ->
-            Enum.flat_map(lists, & &1) |> Enum.uniq()
-        end
-    end
-  end
-
-  @spec find_c3_head([[pyvalue()]]) :: {:ok, pyvalue()} | :error
-  defp find_c3_head(lists) do
-    tails = lists |> Enum.flat_map(&tl_safe/1) |> MapSet.new()
-
-    Enum.find_value(lists, :error, fn
-      [head | _] ->
-        if MapSet.member?(tails, head), do: nil, else: {:ok, head}
-
-      [] ->
-        nil
-    end)
-  end
-
-  @spec tl_safe([pyvalue()]) :: [pyvalue()]
-  defp tl_safe([]), do: []
-  defp tl_safe([_ | rest]), do: rest
 
   @spec yield_from_deferred([pyvalue()], Env.t(), Ctx.t()) :: eval_result()
   defp yield_from_deferred([], env, ctx), do: {nil, env, ctx}
@@ -4379,7 +1867,7 @@ defmodule Pyex.Interpreter do
   end
 
   def resume_generator([{:cont_for, var, items, body, else_body} | rest], env, ctx) do
-    case eval_for(var, items, body, else_body, env, ctx) do
+    case ControlFlow.eval_for_items(var, items, body, else_body, env, ctx) do
       {{:yielded, val, inner_cont}, env, ctx} ->
         {{:yielded, val, inner_cont ++ rest}, env, ctx}
 
@@ -4395,7 +1883,7 @@ defmodule Pyex.Interpreter do
   end
 
   def resume_generator([{:cont_while, condition, body, else_body} | rest], env, ctx) do
-    case eval_while(condition, body, else_body, env, ctx) do
+    case ControlFlow.eval_while(condition, body, else_body, env, ctx) do
       {{:yielded, val, inner_cont}, env, ctx} ->
         {{:yielded, val, inner_cont ++ rest}, env, ctx}
 
@@ -4420,25 +1908,26 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  @doc false
   @spec contains_yield?([Parser.ast_node()]) :: boolean()
-  defp contains_yield?([]), do: false
+  def contains_yield?([]), do: false
 
-  defp contains_yield?([{:yield, _, _} | _]), do: true
-  defp contains_yield?([{:yield_from, _, _} | _]), do: true
+  def contains_yield?([{:yield, _, _} | _]), do: true
+  def contains_yield?([{:yield_from, _, _} | _]), do: true
 
-  defp contains_yield?([{:def, _, _} | rest]) do
+  def contains_yield?([{:def, _, _} | rest]) do
     contains_yield?(rest)
   end
 
-  defp contains_yield?([{:class, _, _} | rest]) do
+  def contains_yield?([{:class, _, _} | rest]) do
     contains_yield?(rest)
   end
 
-  defp contains_yield?([{:lambda, _, _} | rest]) do
+  def contains_yield?([{:lambda, _, _} | rest]) do
     contains_yield?(rest)
   end
 
-  defp contains_yield?([{_, _, children} | rest]) when is_list(children) do
+  def contains_yield?([{_, _, children} | rest]) when is_list(children) do
     Enum.any?(children, fn
       child when is_list(child) ->
         contains_yield?(child)
@@ -4454,37 +1943,7 @@ defmodule Pyex.Interpreter do
     end) or contains_yield?(rest)
   end
 
-  defp contains_yield?([_ | rest]), do: contains_yield?(rest)
-
-  @spec write_back_subscript(Parser.ast_node(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
-  defp write_back_subscript({:var, _, [name]}, updated, env, ctx) do
-    {updated, Env.put_at_source(env, name, updated), ctx}
-  end
-
-  defp write_back_subscript({:subscript, _, [parent_expr, key_expr]}, updated, env, ctx) do
-    {parent, env, ctx} = eval(parent_expr, env, ctx)
-    {key, env, ctx} = eval(key_expr, env, ctx)
-    updated_parent = set_subscript_value(parent, key, updated)
-    write_back_subscript(parent_expr, updated_parent, env, ctx)
-  end
-
-  defp write_back_subscript({:getattr, _, _} = target, updated, env, ctx) do
-    setattr_nested(target, updated, env, ctx)
-  end
-
-  defp write_back_subscript(_, updated, env, ctx) do
-    {updated, env, ctx}
-  end
-
-  @spec decrement_depth(call_result()) :: call_result()
-  defp decrement_depth({{:exception, _} = signal, env, ctx}),
-    do: {signal, env, %{ctx | call_depth: ctx.call_depth - 1}}
-
-  defp decrement_depth({val, env, ctx, updated_func}),
-    do: {val, env, %{ctx | call_depth: ctx.call_depth - 1}, updated_func}
-
-  defp decrement_depth({val, env, ctx}),
-    do: {val, env, %{ctx | call_depth: ctx.call_depth - 1}}
+  def contains_yield?([_ | rest]), do: contains_yield?(rest)
 
   @spec extract_exception_type_name(String.t()) :: String.t() | nil
   defp extract_exception_type_name(msg) do

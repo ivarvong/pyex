@@ -33,7 +33,8 @@ defmodule Pyex.Stdlib do
     "base64" => Pyex.Stdlib.Base64,
     "secrets" => Pyex.Stdlib.Secrets,
     "pandas" => Pyex.Stdlib.Pandas,
-    "yaml" => Pyex.Stdlib.Yaml
+    "yaml" => Pyex.Stdlib.Yaml,
+    "decimal" => Pyex.Stdlib.DecimalModule
   }
 
   @doc """

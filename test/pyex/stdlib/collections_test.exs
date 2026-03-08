@@ -302,4 +302,202 @@ defmodule Pyex.Stdlib.CollectionsTest do
       assert result == 10
     end
   end
+
+  describe "defaultdict with lambda factories" do
+    test "defaultdict(lambda: 0) with augmented assignment" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: 0)
+        d["a"] += 1
+        d["a"] += 1
+        d["b"] += 5
+        (d["a"], d["b"])
+        """)
+
+      assert result == {:tuple, [2, 5]}
+    end
+
+    test "defaultdict(lambda: dict) with nested subscript assignment" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: {"count": 0, "total": 0})
+        d["a"]["count"] += 1
+        d["a"]["total"] += 10
+        d["b"]["count"] += 3
+        (d["a"]["count"], d["a"]["total"], d["b"]["count"])
+        """)
+
+      assert result == {:tuple, [1, 10, 3]}
+    end
+
+    test "auto-insert: accessing missing key inserts default" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: 0)
+        x = d["a"]
+        len(d)
+        """)
+
+      assert result == 1
+    end
+
+    test "lambda factory preserved across multiple missing-key accesses" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: [])
+        d["a"].append(1)
+        d["b"].append(2)
+        d["b"].append(3)
+        (d["a"], d["b"])
+        """)
+
+      assert result == {:tuple, [[1], [2, 3]]}
+    end
+
+    test "defaultdict(lambda: 0) simple read of missing key returns 0" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: 0)
+        d["missing"]
+        """)
+
+      assert result == 0
+    end
+
+    test "defaultdict(lambda: '') returns empty string for missing key" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: "")
+        d["x"]
+        """)
+
+      assert result == ""
+    end
+
+    test "defaultdict preserves explicitly set keys" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: 0)
+        d["a"] = 99
+        d["a"]
+        """)
+
+      assert result == 99
+    end
+
+    test "defaultdict with lambda: 0 counting pattern" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: 0)
+        words = ["apple", "banana", "apple", "cherry", "banana", "apple"]
+        for w in words:
+            d[w] += 1
+        (d["apple"], d["banana"], d["cherry"])
+        """)
+
+      assert result == {:tuple, [3, 2, 1]}
+    end
+
+    test "defaultdict in operator does not auto-insert" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: 0)
+        d["a"] = 1
+        ("a" in d, "b" in d, len(d))
+        """)
+
+      assert result == {:tuple, [true, false, 1]}
+    end
+
+    test "defaultdict keys() returns only inserted keys" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: 0)
+        d["x"] += 1
+        d["y"] += 2
+        sorted(list(d.keys()))
+        """)
+
+      assert result == ["x", "y"]
+    end
+
+    test "defaultdict values() returns current values" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: 0)
+        d["a"] += 10
+        d["b"] += 20
+        sorted(list(d.values()))
+        """)
+
+      assert result == [10, 20]
+    end
+
+    test "defaultdict iteration yields keys" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: 0)
+        d["x"] = 1
+        d["y"] = 2
+        keys = []
+        for k in d:
+            keys.append(k)
+        sorted(keys)
+        """)
+
+      assert result == ["x", "y"]
+    end
+
+    test "defaultdict with lambda returning mutable default (each call independent)" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: [1, 2])
+        d["a"].append(3)
+        d["b"].append(4)
+        (d["a"], d["b"])
+        """)
+
+      assert result == {:tuple, [[1, 2, 3], [1, 2, 4]]}
+    end
+
+    test "defaultdict augmented assignment on existing key" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: 0)
+        d["a"] = 10
+        d["a"] += 5
+        d["a"]
+        """)
+
+      assert result == 15
+    end
+
+    test "defaultdict nested augmented: d['a']['x'] += 1 on existing outer key" do
+      result =
+        Pyex.run!("""
+        from collections import defaultdict
+        d = defaultdict(lambda: {"x": 0, "y": 0})
+        d["a"]["x"] += 1
+        d["a"]["x"] += 1
+        d["a"]["y"] += 10
+        (d["a"]["x"], d["a"]["y"])
+        """)
+
+      assert result == {:tuple, [2, 10]}
+    end
+  end
 end

@@ -45,6 +45,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:pandas_series, _}), do: "Series"
   def py_type({:pandas_rolling, _, _}), do: "Rolling"
   def py_type({:pandas_dataframe, _}), do: "DataFrame"
+  def py_type({:pyex_decimal, _}), do: "Decimal"
   def py_type(_), do: "object"
 
   @doc """
@@ -100,6 +101,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_str({:range, s, e, st}),
     do: if(st == 1, do: "range(#{s}, #{e})", else: "range(#{s}, #{e}, #{st})")
 
+  def py_str({:pyex_decimal, d}), do: Decimal.to_string(d)
   def py_str({:generator, _}), do: "<generator object>"
   def py_str({:generator_error, _, _}), do: "<generator object>"
   def py_str({:iterator, _}), do: "<iterator object>"
@@ -111,6 +113,7 @@ defmodule Pyex.Interpreter.Helpers do
   """
   @spec py_repr_fmt(Pyex.Interpreter.pyvalue()) :: String.t()
   def py_repr_fmt(val) when is_binary(val), do: "'" <> escape_repr(val) <> "'"
+  def py_repr_fmt({:pyex_decimal, d}), do: "Decimal('#{Decimal.to_string(d)}')"
   def py_repr_fmt(val), do: py_str(val)
 
   @doc """
@@ -144,6 +147,8 @@ defmodule Pyex.Interpreter.Helpers do
   def truthy?(map) when map == %{}, do: false
   def truthy?({:tuple, []}), do: false
   def truthy?({:set, s}), do: MapSet.size(s) > 0
+
+  def truthy?({:pyex_decimal, d}), do: not Decimal.equal?(d, Decimal.new(0))
 
   def truthy?({:range, start, stop, step}),
     do: Builtins.range_length({:range, start, stop, step}) > 0
@@ -197,6 +202,7 @@ defmodule Pyex.Interpreter.Helpers do
   def to_python_view(map) when is_map(map),
     do: Map.new(map, fn {k, v} -> {k, to_python_view(v)} end)
 
+  def to_python_view({:pyex_decimal, _} = d), do: d
   def to_python_view(val), do: val
 
   @doc false

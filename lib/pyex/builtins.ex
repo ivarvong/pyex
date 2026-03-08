@@ -9,7 +9,7 @@ defmodule Pyex.Builtins do
   and `append()` (as a method-like helper).
   """
 
-  alias Pyex.{Env, Interpreter}
+  alias Pyex.{Ctx, Env, Interpreter}
 
   @doc """
   Returns an environment pre-populated with all builtins.
@@ -23,6 +23,23 @@ defmodule Pyex.Builtins do
     case :persistent_term.get({__MODULE__, :env}, :miss) do
       :miss -> build_env()
       cached -> cached
+    end
+  end
+
+  @doc """
+  Returns a top-level runtime environment for executing user code.
+
+  Includes the builtins plus `__name__ == "__main__"` and, when present,
+  `__file__` from the provided context.
+  """
+  @spec runtime_env(Ctx.t()) :: Env.t()
+  def runtime_env(%Ctx{} = ctx) do
+    env = Env.put(env(), "__name__", "__main__")
+
+    if is_binary(ctx.file) do
+      Env.put(env, "__file__", ctx.file)
+    else
+      env
     end
   end
 
@@ -75,7 +92,7 @@ defmodule Pyex.Builtins do
       {"issubclass", &builtin_issubclass/1},
       {"round", &builtin_round/1},
       {"input", &builtin_input/1},
-      {"open", &builtin_open/1},
+      {"open", {:kw, &builtin_open/2}},
       {"any", &builtin_any/1},
       {"all", &builtin_all/1},
       {"map", &builtin_map/1},
@@ -876,12 +893,87 @@ defmodule Pyex.Builtins do
     {:exception, "RuntimeError: input() is not supported in the sandbox"}
   end
 
-  @spec builtin_open([Interpreter.pyvalue()]) ::
+  @spec builtin_open(
+          [Interpreter.pyvalue()],
+          %{optional(String.t()) => Interpreter.pyvalue()}
+        ) ::
           {:ctx_call, (Pyex.Env.t(), Pyex.Ctx.t() -> term())}
           | {:exception, String.t()}
-  defp builtin_open([path]) when is_binary(path), do: builtin_open([path, "r"])
+  defp builtin_open(args, kwargs) do
+    with :ok <- validate_open_kwargs(kwargs),
+         {:ok, path} <- resolve_open_path(args, kwargs),
+         {:ok, mode_str} <- resolve_open_mode(args, kwargs) do
+      open_file_handle(path, mode_str)
+    else
+      {:exception, _} = error -> error
+    end
+  end
 
-  defp builtin_open([path, mode_str]) when is_binary(path) and is_binary(mode_str) do
+  @open_supported_kwargs ["file", "mode", "encoding", "newline"]
+
+  @spec validate_open_kwargs(%{optional(String.t()) => Interpreter.pyvalue()}) ::
+          :ok | {:exception, String.t()}
+  defp validate_open_kwargs(kwargs) do
+    case Map.keys(kwargs) -- @open_supported_kwargs do
+      [] -> :ok
+      [name | _] -> {:exception, "TypeError: open() got an unexpected keyword argument '#{name}'"}
+    end
+  end
+
+  @spec resolve_open_path([Interpreter.pyvalue()], %{
+          optional(String.t()) => Interpreter.pyvalue()
+        }) ::
+          {:ok, String.t()} | {:exception, String.t()}
+  defp resolve_open_path(args, kwargs) do
+    cond do
+      length(args) > 2 ->
+        {:exception,
+         "TypeError: open() takes from 1 to 2 positional arguments but #{length(args)} were given"}
+
+      length(args) >= 1 and Map.has_key?(kwargs, "file") ->
+        {:exception, "TypeError: argument for open() given by name ('file') and position (1)"}
+
+      match?([path | _] when is_binary(path), args) ->
+        {:ok, hd(args)}
+
+      match?(%{"file" => path} when is_binary(path), kwargs) ->
+        {:ok, Map.fetch!(kwargs, "file")}
+
+      args == [] and not Map.has_key?(kwargs, "file") ->
+        {:exception, "TypeError: open() missing required argument 'file' (pos 1)"}
+
+      true ->
+        {:exception, "TypeError: invalid arguments"}
+    end
+  end
+
+  @spec resolve_open_mode([Interpreter.pyvalue()], %{
+          optional(String.t()) => Interpreter.pyvalue()
+        }) ::
+          {:ok, String.t()} | {:exception, String.t()}
+  defp resolve_open_mode(args, kwargs) do
+    cond do
+      length(args) >= 2 and Map.has_key?(kwargs, "mode") ->
+        {:exception, "TypeError: argument for open() given by name ('mode') and position (2)"}
+
+      match?([_, mode] when is_binary(mode), args) ->
+        {:ok, Enum.at(args, 1)}
+
+      match?(%{"mode" => mode} when is_binary(mode), kwargs) ->
+        {:ok, Map.fetch!(kwargs, "mode")}
+
+      length(args) <= 1 and not Map.has_key?(kwargs, "mode") ->
+        {:ok, "r"}
+
+      true ->
+        {:exception, "TypeError: invalid arguments"}
+    end
+  end
+
+  @spec open_file_handle(String.t(), String.t()) ::
+          {:ctx_call, (Pyex.Env.t(), Pyex.Ctx.t() -> term())}
+          | {:exception, String.t()}
+  defp open_file_handle(path, mode_str) do
     case mode_str do
       m when m in ["r", "w", "a"] ->
         mode = %{"r" => :read, "w" => :write, "a" => :append} |> Map.fetch!(m)
@@ -1369,6 +1461,8 @@ defmodule Pyex.Builtins do
   def truthy?({:range, start, stop, step}),
     do: range_length({:range, start, stop, step}) > 0
 
+  def truthy?({:pyex_decimal, d}), do: not Decimal.equal?(d, Decimal.new(0))
+
   def truthy?(_), do: true
 
   @spec pytype(Interpreter.pyvalue()) :: String.t()
@@ -1460,6 +1554,7 @@ defmodule Pyex.Builtins do
   def py_repr({:function, name, _, _, _}), do: "<function #{name}>"
   def py_repr({:builtin, _}), do: "<built-in function>"
   def py_repr({:builtin_kw, _}), do: "<built-in function>"
+  def py_repr({:pyex_decimal, d}), do: Decimal.to_string(d)
   def py_repr(_), do: "<object>"
 
   @spec py_repr_quoted(Interpreter.pyvalue()) :: String.t()

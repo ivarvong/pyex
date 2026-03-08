@@ -71,7 +71,8 @@ defmodule Pyex.Ctx do
           output_buffer: [String.t()],
           event_count: non_neg_integer(),
           file_ops: non_neg_integer(),
-          duration_ms: float() | nil
+          duration_ms: float() | nil,
+          file: String.t() | nil
         }
 
   defstruct filesystem: nil,
@@ -97,10 +98,11 @@ defmodule Pyex.Ctx do
             current_line: nil,
             call_depth: 0,
             max_call_depth: 500,
-            duration_ms: nil
+            duration_ms: nil,
+            file: nil
 
   @doc """
-  Creates a fresh live context that records all events.
+  Creates a fresh live context that captures output and execution counters.
 
   Options:
   - `:filesystem` -- a filesystem backend struct (e.g. `Pyex.Filesystem.Memory.new()`).
@@ -142,7 +144,8 @@ defmodule Pyex.Ctx do
     :network,
     :capabilities,
     :boto3,
-    :sql
+    :sql,
+    :file
   ]
 
   @spec new(keyword()) :: t()
@@ -172,6 +175,7 @@ defmodule Pyex.Ctx do
 
     network = normalize_network(Keyword.get(opts, :network))
     capabilities = normalize_capabilities(opts)
+    file = Keyword.get(opts, :file)
 
     %__MODULE__{
       filesystem: fs,
@@ -182,7 +186,8 @@ defmodule Pyex.Ctx do
       compute_started_at: System.monotonic_time(),
       profile: profile,
       network: network,
-      capabilities: capabilities
+      capabilities: capabilities,
+      file: file
     }
   end
 
