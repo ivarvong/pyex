@@ -986,4 +986,237 @@ defmodule Pyex.BuiltinsTest do
       assert error.message =~ "__dict__"
     end
   end
+
+  describe "open() with keyword args" do
+    test "open(path, 'w', newline='') accepted without error" do
+      fs = Pyex.Filesystem.Memory.new()
+
+      result =
+        Pyex.run!(
+          """
+          f = open("out.csv", "w", newline="")
+          f.write("a,b\\n")
+          f.close()
+          """,
+          filesystem: fs
+        )
+
+      assert result == nil
+    end
+
+    test "open(file='path', mode='w') works" do
+      fs = Pyex.Filesystem.Memory.new()
+
+      result =
+        Pyex.run!(
+          """
+          f = open(file="out.txt", mode="w")
+          f.write("hello")
+          f.close()
+          """,
+          filesystem: fs
+        )
+
+      assert result == nil
+    end
+
+    test "open(path, mode='w') works" do
+      fs = Pyex.Filesystem.Memory.new()
+
+      result =
+        Pyex.run!(
+          """
+          f = open("out.txt", mode="w")
+          f.write("hello")
+          f.close()
+          """,
+          filesystem: fs
+        )
+
+      assert result == nil
+    end
+
+    test "open(path, 'w', encoding='utf-8') accepted" do
+      fs = Pyex.Filesystem.Memory.new()
+
+      result =
+        Pyex.run!(
+          """
+          f = open("out.txt", "w", encoding="utf-8")
+          f.write("hello")
+          f.close()
+          """,
+          filesystem: fs
+        )
+
+      assert result == nil
+    end
+
+    test "backward compat: open(path, 'r') still works" do
+      fs = Pyex.Filesystem.Memory.new(%{"test.txt" => "hello"})
+
+      result =
+        Pyex.run!(
+          """
+          f = open("test.txt", "r")
+          content = f.read()
+          f.close()
+          content
+          """,
+          filesystem: fs
+        )
+
+      assert result == "hello"
+    end
+
+    test "backward compat: open(path) defaults to read mode" do
+      fs = Pyex.Filesystem.Memory.new(%{"test.txt" => "world"})
+
+      result =
+        Pyex.run!(
+          """
+          f = open("test.txt")
+          content = f.read()
+          f.close()
+          content
+          """,
+          filesystem: fs
+        )
+
+      assert result == "world"
+    end
+
+    test "open with multiple kwargs" do
+      fs = Pyex.Filesystem.Memory.new()
+
+      result =
+        Pyex.run!(
+          """
+          f = open("out.csv", "w", newline="", encoding="utf-8")
+          f.write("x,y\\n")
+          f.close()
+          """,
+          filesystem: fs
+        )
+
+      assert result == nil
+    end
+
+    test "open in append mode with kwargs" do
+      fs = Pyex.Filesystem.Memory.new(%{"log.txt" => "line1\n"})
+
+      result =
+        Pyex.run!(
+          """
+          f = open("log.txt", "a", encoding="utf-8")
+          f.write("line2\\n")
+          f.close()
+          """,
+          filesystem: fs
+        )
+
+      assert result == nil
+    end
+
+    test "unexpected open kwarg raises TypeError" do
+      assert {:error, %Pyex.Error{message: msg}} =
+               Pyex.run(
+                 ~S|open("out.txt", "w", nope=1)|,
+                 filesystem: Pyex.Filesystem.Memory.new()
+               )
+
+      assert msg =~ "TypeError"
+      assert msg =~ "unexpected keyword argument 'nope'"
+    end
+
+    test "duplicate file positional and keyword raises TypeError" do
+      assert {:error, %Pyex.Error{message: msg}} =
+               Pyex.run(
+                 ~S|open("out.txt", file="other.txt")|,
+                 filesystem: Pyex.Filesystem.Memory.new()
+               )
+
+      assert msg =~ "TypeError"
+      assert msg =~ "given by name ('file') and position (1)"
+    end
+  end
+
+  describe "__file__ variable" do
+    test "__file__ returns path when file: option provided" do
+      result =
+        Pyex.run!(
+          "__file__",
+          file: "/tmp/my_script.py"
+        )
+
+      assert result == "/tmp/my_script.py"
+    end
+
+    test "os.path.dirname(__file__) works with file option" do
+      result =
+        Pyex.run!(
+          """
+          import os
+          os.path.dirname(__file__)
+          """,
+          file: "/tmp/scripts/my_script.py"
+        )
+
+      assert result == "/tmp/scripts"
+    end
+
+    test "__file__ raises NameError when not set" do
+      assert {:error, %Pyex.Error{message: msg}} = Pyex.run("__file__")
+      assert msg =~ "NameError"
+    end
+
+    test "__name__ defaults to __main__" do
+      assert Pyex.run!("__name__") == "__main__"
+    end
+
+    test "__name__ is __main__ even with file: option" do
+      result =
+        Pyex.run!(
+          "__name__",
+          file: "/tmp/script.py"
+        )
+
+      assert result == "__main__"
+    end
+
+    test "__file__ with relative path" do
+      result =
+        Pyex.run!(
+          "__file__",
+          file: "scripts/my_script.py"
+        )
+
+      assert result == "scripts/my_script.py"
+    end
+
+    test "if __name__ == '__main__' guard pattern" do
+      result =
+        Pyex.run!("""
+        result = "not main"
+        if __name__ == "__main__":
+            result = "is main"
+        result
+        """)
+
+      assert result == "is main"
+    end
+
+    test "os.path.basename(__file__)" do
+      result =
+        Pyex.run!(
+          """
+          import os
+          os.path.basename(__file__)
+          """,
+          file: "/home/user/projects/app.py"
+        )
+
+      assert result == "app.py"
+    end
+  end
 end

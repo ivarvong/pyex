@@ -40,4 +40,4 @@ unittest, uuid
 - `:telemetry` events for `run`, `request`, and `query`
 - `Pyex.Trace` — dev tool that attaches to telemetry events and prints a timing tree
 - Structured `Pyex.Error` with kind-based classification
-- Append-only event log in `Pyex.Ctx`
+- Output capture and execution counters in `Pyex.Ctx`

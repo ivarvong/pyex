@@ -3,7 +3,8 @@ defmodule Pyex do
   A Python 3 interpreter written in Elixir.
 
   Pyex lexes, parses, and evaluates Python source code entirely
-  within the BEAM -- no external runtime, no NIFs, no ports.
+  within the BEAM -- no external runtime, no ports, and no Python
+  runtime dependency.
   It is designed as a capabilities-based sandbox for running
   LLM-generated compute safely: every I/O operation (network,
   filesystem, database) is denied by default and must be
@@ -110,7 +111,10 @@ defmodule Pyex do
     :telemetry.execute([:pyex, :run, :start], %{system_time: System.system_time()}, %{})
 
     ctx = %{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
-    result = Interpreter.run_with_ctx(ast, Builtins.env(), ctx)
+
+    env = Builtins.runtime_env(ctx)
+
+    result = Interpreter.run_with_ctx(ast, env, ctx)
 
     case result do
       {:ok, value, _env, final_ctx} ->

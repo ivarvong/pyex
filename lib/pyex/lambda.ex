@@ -169,16 +169,14 @@ defmodule Pyex.Lambda do
 
   When the handler returns a `StreamingResponse`, the body is
   returned as a lazy `Enumerable` of string chunks, suitable
-  for piping to Phoenix/Plug chunk-by-chunk. A linked process
-  is spawned to run the Python handler; generator `yield`
-  statements produce chunks lazily via message passing.
+  for piping to Phoenix/Plug chunk-by-chunk. Streaming is driven
+  by generator continuations resumed through `Stream.resource/3`.
 
   When the handler returns a non-streaming response, the body
   is wrapped in a single-element list for a uniform API.
 
-  The spawned process is linked to the caller. If the caller
-  dies (e.g. client disconnect), the interpreter process is
-  cleaned up automatically.
+  The caller controls how much of the stream is consumed. Halting
+  enumeration early stops further generator resumption.
 
   ## Return
 
@@ -263,7 +261,7 @@ defmodule Pyex.Lambda do
       {:ok, ast} ->
         ctx = %{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
 
-        case Interpreter.run_with_ctx(ast, Builtins.env(), ctx) do
+        case Interpreter.run_with_ctx(ast, Builtins.runtime_env(ctx), ctx) do
           {:ok, _value, env, ctx} -> {:ok, env, ctx}
           {:error, msg} -> {:error, Error.from_message(msg)}
         end

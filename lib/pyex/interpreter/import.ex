@@ -11,6 +11,68 @@ defmodule Pyex.Interpreter.Import do
   alias Pyex.{Builtins, Ctx, Env, Interpreter}
 
   @doc """
+  Evaluates an `import ...` statement.
+  """
+  @spec eval_import([String.t() | {String.t(), String.t() | nil}], Env.t(), Ctx.t()) ::
+          {nil, Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  def eval_import(imports, env, ctx) when is_list(imports) do
+    Enum.reduce_while(imports, {nil, env, ctx}, fn import_spec, {_, env, ctx} ->
+      {module_name, alias_name} =
+        case import_spec do
+          {module_name, alias_name} -> {module_name, alias_name}
+          module_name when is_binary(module_name) -> {module_name, nil}
+        end
+
+      bind_as = alias_name || module_name
+
+      case resolve_module(module_name, env, ctx) do
+        {:ok, module_value, ctx} ->
+          {:cont, {nil, Env.put(env, bind_as, module_value), ctx}}
+
+        {:import_error, msg, ctx} ->
+          {:halt, {{:exception, msg}, env, ctx}}
+
+        {:unknown_module, ctx} ->
+          {:halt,
+           {{:exception,
+             "ImportError: no module named '#{module_name}'#{import_hint(module_name)}"}, env,
+            ctx}}
+      end
+    end)
+  end
+
+  @doc """
+  Evaluates a `from ... import ...` statement.
+  """
+  @spec eval_from_import(String.t(), [{String.t(), String.t() | nil}], Env.t(), Ctx.t()) ::
+          {nil, Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  def eval_from_import(module_name, names, env, ctx) do
+    case resolve_module(module_name, env, ctx) do
+      {:ok, module_value, ctx} when is_map(module_value) ->
+        Enum.reduce_while(names, {nil, env, ctx}, fn {name, alias_name}, {_, env, ctx} ->
+          bind_as = alias_name || name
+
+          case Map.fetch(module_value, name) do
+            {:ok, value} ->
+              {:cont, {nil, Env.put(env, bind_as, value), ctx}}
+
+            :error ->
+              {:halt,
+               {{:exception, "ImportError: cannot import name '#{name}' from '#{module_name}'"},
+                env, ctx}}
+          end
+        end)
+
+      {:import_error, msg, ctx} ->
+        {{:exception, msg}, env, ctx}
+
+      {:unknown_module, ctx} ->
+        {{:exception, "ImportError: no module named '#{module_name}'#{import_hint(module_name)}"},
+         env, ctx}
+    end
+  end
+
+  @doc """
   Returns a helpful error suffix for unknown module names.
   """
   @spec import_hint(String.t()) :: String.t()

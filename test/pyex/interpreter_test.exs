@@ -2427,4 +2427,249 @@ defmodule Pyex.InterpreterTest do
       assert Pyex.run!(code) == "hello"
     end
   end
+
+  describe "f-string format specs" do
+    test "float formatting with .2f" do
+      assert Pyex.run!("""
+             val = 3.14159
+             f"{val:.2f}"
+             """) == "3.14"
+    end
+
+    test "left-align string" do
+      assert Pyex.run!("""
+             f"{'ACCOUNT':<14}"
+             """) == "ACCOUNT       "
+    end
+
+    test "right-align with comma grouping and .2f" do
+      assert Pyex.run!("""
+             v = 1234567.891
+             f"{v:>18,.2f}"
+             """) == "      1,234,567.89"
+    end
+
+    test "right-align integer" do
+      assert Pyex.run!("""
+             count = 42
+             f"{count:>6}"
+             """) == "    42"
+    end
+
+    test "center with fill char" do
+      assert Pyex.run!("""
+             f"{'hi':*^10}"
+             """) == "****hi****"
+    end
+
+    test "subscript expression with format spec" do
+      assert Pyex.run!("""
+             info = {"count": 42}
+             f"{info['count']:>6}"
+             """) == "    42"
+    end
+
+    test "zero-padded integer" do
+      assert Pyex.run!("""
+             n = 7
+             f"{n:05d}"
+             """) == "00007"
+    end
+
+    test "mixed plain and formatted expressions" do
+      assert Pyex.run!("""
+             name = "Alice"
+             score = 95.5
+             f"{name} scored {score:.1f}"
+             """) == "Alice scored 95.5"
+    end
+
+    test "backward compat: f-strings without format specs still work" do
+      assert Pyex.run!("""
+             x = 42
+             f"value is {x}"
+             """) == "value is 42"
+    end
+
+    # --- Hex / Octal / Binary integer formatting ---
+
+    test "hex formatting lowercase :x" do
+      assert Pyex.run!(~s|f"{255:x}"|) == "ff"
+    end
+
+    test "hex formatting uppercase :X" do
+      assert Pyex.run!(~s|f"{255:X}"|) == "FF"
+    end
+
+    test "hex with alt form #x shows 0x prefix" do
+      assert Pyex.run!(~s|f"{255:#x}"|) == "0xff"
+    end
+
+    test "hex with alt form #X shows 0X prefix" do
+      assert Pyex.run!(~s|f"{255:#X}"|) == "0XFF"
+    end
+
+    test "octal formatting :o" do
+      assert Pyex.run!(~s|f"{255:o}"|) == "377"
+    end
+
+    test "octal with alt form #o" do
+      assert Pyex.run!(~s|f"{255:#o}"|) == "0o377"
+    end
+
+    test "binary formatting :b" do
+      assert Pyex.run!(~s|f"{10:b}"|) == "1010"
+    end
+
+    test "binary with alt form #b" do
+      assert Pyex.run!(~s|f"{10:#b}"|) == "0b1010"
+    end
+
+    test "hex of zero" do
+      assert Pyex.run!(~s|f"{0:x}"|) == "0"
+    end
+
+    test "hex of negative number" do
+      assert Pyex.run!(~s|f"{-42:x}"|) == "-2a"
+    end
+
+    test "hex negative with alt form" do
+      assert Pyex.run!(~s|f"{-42:#x}"|) == "-0x2a"
+    end
+
+    # --- Percentage formatting ---
+
+    test "percentage formatting :%" do
+      assert Pyex.run!(~s|f"{0.125:.1%}"|) == "12.5%"
+    end
+
+    test "percentage with default precision" do
+      assert Pyex.run!(~s|f"{0.5:%}"|) == "50.000000%"
+    end
+
+    test "percentage zero" do
+      assert Pyex.run!(~s|f"{0:.0%}"|) == "0%"
+    end
+
+    # --- Scientific notation ---
+
+    test "scientific notation lowercase :e" do
+      result = Pyex.run!(~s|f"{1234.5:.3e}"|)
+      assert result == "1.23e+03"
+    end
+
+    test "scientific notation uppercase :E" do
+      result = Pyex.run!(~s|f"{1234.5:.3E}"|)
+      assert result == "1.23E+03"
+    end
+
+    test "scientific notation default precision :e" do
+      result = Pyex.run!(~s|f"{1234.5:e}"|)
+      assert String.contains?(result, "e+")
+    end
+
+    # --- String formatting ---
+
+    test "string type :s" do
+      assert Pyex.run!(~s|f"{'hello':s}"|) == "hello"
+    end
+
+    test "string truncation with precision :.3s" do
+      assert Pyex.run!(~s|f"{'hello':.3s}"|) == "hel"
+    end
+
+    test "string left-aligned in width" do
+      assert Pyex.run!(~s|f"{'hi':<10s}"|) == "hi        "
+    end
+
+    # --- Underscore grouping ---
+
+    test "underscore grouping :_" do
+      assert Pyex.run!("""
+             f"{1000000:_}"
+             """) == "1_000_000"
+    end
+
+    # --- Comma grouping with integers ---
+
+    test "comma grouping with integer :," do
+      assert Pyex.run!("""
+             f"{1234567:,}"
+             """) == "1,234,567"
+    end
+
+    # --- Zero padding ---
+
+    test "zero padding float :08.2f" do
+      assert Pyex.run!("""
+             f"{3.14:08.2f}"
+             """) == "00003.14"
+    end
+
+    test "zero padding integer :06" do
+      assert Pyex.run!("""
+             f"{42:06}"
+             """) == "000042"
+    end
+
+    # --- Width without explicit alignment ---
+
+    test "width only on integer defaults to right-align" do
+      assert Pyex.run!(~s|f"{42:6}"|) == "    42"
+    end
+
+    test "width only on string defaults to left-align" do
+      assert Pyex.run!(~s|f"{'hi':10}"|) == "hi        "
+    end
+
+    # --- = alignment (pad after sign) ---
+
+    test "= alignment pads after sign" do
+      result = Pyex.run!(~s|f"{-42:=10d}"|)
+      assert result == "-       42"
+      assert String.length(result) == 10
+    end
+
+    # --- Edge cases ---
+
+    test "empty format spec is identity" do
+      assert Pyex.run!("""
+             x = 42
+             f"{x:}"
+             """) == "42"
+    end
+
+    test "format spec on expression result" do
+      assert Pyex.run!("""
+             f"{1 + 2:.2f}"
+             """) == "3.00"
+    end
+
+    test "multiple formatted expressions in one f-string" do
+      assert Pyex.run!("""
+             a = 3.14
+             b = 42
+             f"{a:.1f} and {b:05d}"
+             """) == "3.1 and 00042"
+    end
+
+    test "format spec with float default precision (.6f)" do
+      assert Pyex.run!(~s|f"{3.14:f}"|) == "3.140000"
+    end
+
+    test "invalid format type raises ValueError" do
+      assert {:error, %Pyex.Error{message: msg}} = Pyex.run(~s|f"{42:q}"|)
+      assert msg =~ "ValueError"
+    end
+
+    test "format :d on string raises ValueError" do
+      assert {:error, %Pyex.Error{message: msg}} = Pyex.run(~s|f"{'hi':d}"|)
+      assert msg =~ "ValueError"
+    end
+
+    test "format :f on string raises ValueError" do
+      assert {:error, %Pyex.Error{message: msg}} = Pyex.run(~s|f"{'hi':f}"|)
+      assert msg =~ "ValueError"
+    end
+  end
 end
