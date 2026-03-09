@@ -305,6 +305,97 @@ defmodule Pyex.BuiltinsTest do
       {:instance, _, %{"__name__" => name}} = Pyex.run!("type({})")
       assert name == "dict"
     end
+
+    test "builtin type comparisons match builtin type objects" do
+      result =
+        Pyex.run!("""
+        x_dict = {"a": 1}
+        x_list = [1, 2]
+        x_str = "hello"
+        x_int = 42
+        x_float = 3.14
+        x_bool = True
+        x_tuple = (1, 2)
+        x_set = {1, 2}
+
+        (
+            type(x_dict) == dict,
+            type(x_dict) != dict,
+            dict == type(x_dict),
+            type(x_list) == list,
+            type(x_str) == str,
+            type(x_int) == int,
+            type(x_float) == float,
+            type(x_bool) == bool,
+            type(x_tuple) == tuple,
+            type(x_set) == set,
+            type(x_dict) == list,
+            type(x_bool) == int
+        )
+        """)
+
+      assert result ==
+               {:tuple,
+                [true, false, true, true, true, true, true, true, true, true, false, false]}
+    end
+
+    test "builtin exact type checks work with is and is not" do
+      result =
+        Pyex.run!("""
+        x_dict = {"a": 1}
+        x_list = [1, 2]
+        x_str = "hello"
+        x_int = 42
+        x_float = 3.14
+        x_bool = True
+        x_tuple = (1, 2)
+        x_set = {1, 2}
+
+        (
+            type(x_dict) is dict,
+            type(x_dict) is not dict,
+            type(x_list) is list,
+            type(x_str) is str,
+            type(x_int) is int,
+            type(x_float) is float,
+            type(x_bool) is bool,
+            type(x_tuple) is tuple,
+            type(x_set) is set,
+            type(x_dict) is list,
+            type(x_dict) is not list
+        )
+        """)
+
+      assert result ==
+               {:tuple, [true, false, true, true, true, true, true, true, true, false, true]}
+    end
+
+    test "user-defined class comparisons match exact type semantics" do
+      result =
+        Pyex.run!("""
+        class Foo:
+            pass
+
+        class Bar:
+            pass
+
+        x = Foo()
+
+        (
+            type(x) == Foo,
+            type(x) != Foo,
+            Foo == type(x),
+            type(x) is Foo,
+            type(x) is not Foo,
+            type(x) == Bar,
+            type(x) != Bar,
+            type(x) is Bar,
+            type(x) is not Bar
+        )
+        """)
+
+      assert result == {:tuple, [true, false, true, true, false, false, true, false, true]}
+    end
   end
 
   describe "abs()" do
@@ -528,6 +619,24 @@ defmodule Pyex.BuiltinsTest do
     test "isinstance with builtin type set" do
       assert Pyex.run!("isinstance({1, 2}, set)") == true
       assert Pyex.run!("isinstance([1, 2], set)") == false
+    end
+
+    test "isinstance works for all builtin collection and scalar types" do
+      result =
+        Pyex.run!("""
+        (
+            isinstance({"a": 1}, dict),
+            isinstance([1, 2], list),
+            isinstance("hello", str),
+            isinstance(42, int),
+            isinstance(3.14, float),
+            isinstance(True, bool),
+            isinstance((1, 2), tuple),
+            isinstance({1, 2}, set)
+        )
+        """)
+
+      assert result == {:tuple, [true, true, true, true, true, true, true, true]}
     end
 
     test "isinstance with tuple of types" do
