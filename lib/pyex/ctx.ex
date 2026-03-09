@@ -12,7 +12,7 @@ defmodule Pyex.Ctx do
 
       Pyex.run(source,
         env: %{"KEY" => "val"},
-        timeout_ms: 5_000,
+        timeout: 5_000,
         modules: %{"mylib" => %{...}})
 
   Use `Ctx.new/1` when you need to share a context across
@@ -132,7 +132,7 @@ defmodule Pyex.Ctx do
   - `:modules` -- custom Python modules available via `import`. A map from
     module name strings to either a `%{String.t() => pyvalue()}` map or a
     module implementing `Pyex.Stdlib.Module`.
-  - `:timeout_ms` -- maximum *compute* time in milliseconds (nil = no limit).
+  - `:timeout` -- maximum *compute* time in milliseconds (nil = no limit).
     I/O time (HTTP requests, SQL queries) does not count against the budget.
   - `:profile` -- when `true`, collects per-line execution counts and
     per-function call counts with timing. Results are stored in the
@@ -192,7 +192,7 @@ defmodule Pyex.Ctx do
     :filesystem,
     :env,
     :modules,
-    :timeout_ms,
+    :timeout,
     :profile,
     :network,
     :aws,
@@ -217,7 +217,7 @@ defmodule Pyex.Ctx do
     modules = Keyword.get(opts, :modules, %{}) |> normalize_modules()
 
     timeout =
-      case Keyword.get(opts, :timeout_ms) do
+      case Keyword.get(opts, :timeout) do
         nil -> nil
         ms when is_integer(ms) -> ms
       end

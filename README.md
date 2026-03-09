@@ -91,7 +91,7 @@ what it can access.
 ### Compute budget
 
 ```elixir
-Pyex.run(source, timeout_ms: 5_000)
+Pyex.run(source, timeout: 5_000)
 # => {:error, %Pyex.Error{kind: :timeout}}
 ```
 
