@@ -350,6 +350,18 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:eq, l, {:py_list, reversed, _}) when is_list(l),
     do: l == Enum.reverse(reversed)
 
+  defp dispatch(:eq, {:instance, {:class, "type", _, _}, attrs}, {:builtin_type, name, _}),
+    do: builtin_type_instance_name(attrs) == name
+
+  defp dispatch(:eq, {:builtin_type, name, _}, {:instance, {:class, "type", _, _}, attrs}),
+    do: name == builtin_type_instance_name(attrs)
+
+  defp dispatch(:eq, {:instance, {:class, "type", _, _}, attrs}, {:class, class_name, _, _}),
+    do: builtin_type_instance_name(attrs) == class_name
+
+  defp dispatch(:eq, {:class, class_name, _, _}, {:instance, {:class, "type", _, _}, attrs}),
+    do: class_name == builtin_type_instance_name(attrs)
+
   defp dispatch(:eq, l, r), do: l == r
 
   defp dispatch(:neq, {:py_list, lr, _}, {:py_list, rr, _}),
@@ -360,6 +372,18 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   defp dispatch(:neq, l, {:py_list, reversed, _}) when is_list(l),
     do: l != Enum.reverse(reversed)
+
+  defp dispatch(:neq, {:instance, {:class, "type", _, _}, attrs}, {:builtin_type, name, _}),
+    do: builtin_type_instance_name(attrs) != name
+
+  defp dispatch(:neq, {:builtin_type, name, _}, {:instance, {:class, "type", _, _}, attrs}),
+    do: name != builtin_type_instance_name(attrs)
+
+  defp dispatch(:neq, {:instance, {:class, "type", _, _}, attrs}, {:class, class_name, _, _}),
+    do: builtin_type_instance_name(attrs) != class_name
+
+  defp dispatch(:neq, {:class, class_name, _, _}, {:instance, {:class, "type", _, _}, attrs}),
+    do: class_name != builtin_type_instance_name(attrs)
 
   defp dispatch(:neq, l, r), do: l != r
 
@@ -400,7 +424,32 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   # -- identity -------------------------------------------------------
 
+  defp dispatch(:is, {:instance, {:class, "type", _, _}, attrs}, {:builtin_type, name, _}),
+    do: builtin_type_instance_name(attrs) == name
+
+  defp dispatch(:is, {:builtin_type, name, _}, {:instance, {:class, "type", _, _}, attrs}),
+    do: name == builtin_type_instance_name(attrs)
+
+  defp dispatch(:is, {:instance, {:class, "type", _, _}, attrs}, {:class, class_name, _, _}),
+    do: builtin_type_instance_name(attrs) == class_name
+
+  defp dispatch(:is, {:class, class_name, _, _}, {:instance, {:class, "type", _, _}, attrs}),
+    do: class_name == builtin_type_instance_name(attrs)
+
   defp dispatch(:is, l, r), do: l === r
+
+  defp dispatch(:is_not, {:instance, {:class, "type", _, _}, attrs}, {:builtin_type, name, _}),
+    do: builtin_type_instance_name(attrs) != name
+
+  defp dispatch(:is_not, {:builtin_type, name, _}, {:instance, {:class, "type", _, _}, attrs}),
+    do: name != builtin_type_instance_name(attrs)
+
+  defp dispatch(:is_not, {:instance, {:class, "type", _, _}, attrs}, {:class, class_name, _, _}),
+    do: builtin_type_instance_name(attrs) != class_name
+
+  defp dispatch(:is_not, {:class, class_name, _, _}, {:instance, {:class, "type", _, _}, attrs}),
+    do: class_name != builtin_type_instance_name(attrs)
+
   defp dispatch(:is_not, l, r), do: l !== r
 
   # -- not_in ---------------------------------------------------------
@@ -479,6 +528,10 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   defp dispatch(:rshift, l, r),
     do: type_error(">>", l, r)
+
+  @spec builtin_type_instance_name(map()) :: String.t() | nil
+  defp builtin_type_instance_name(%{"__name__" => name}) when is_binary(name), do: name
+  defp builtin_type_instance_name(_), do: nil
 
   # -------------------------------------------------------------------
   # Private helpers
