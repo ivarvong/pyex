@@ -32,6 +32,37 @@ defmodule Pyex.CtxTest do
         Ctx.new(network: [%{allowed_url_prefix: ""}])
       end
     end
+
+    test "rejects unknown network rule keys" do
+      assert_raise ArgumentError, ~r/unknown keys \[:method\] in network rule/, fn ->
+        Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/", method: ["POST"]}])
+      end
+    end
+
+    test "rejects string-keyed network rules" do
+      assert_raise ArgumentError, ~r/unknown keys \["allowed_url_prefix"\] in network rule/, fn ->
+        Ctx.new(network: [%{"allowed_url_prefix" => "https://api.example.com/"}])
+      end
+    end
+
+    test "rejects aws config without required keys" do
+      assert_raise ArgumentError, ~r/aws :access_key_id must be a non-empty string/, fn ->
+        Ctx.new(aws: [region: "us-east-1", secret_access_key: "secret"])
+      end
+    end
+
+    test "rejects unknown aws config keys" do
+      assert_raise ArgumentError, ~r/unknown keys \[:endpoint\] in aws config/, fn ->
+        Ctx.new(
+          aws: [
+            region: "us-east-1",
+            access_key_id: "access",
+            secret_access_key: "secret",
+            endpoint: "http://localhost:9000"
+          ]
+        )
+      end
+    end
   end
 
   describe "check_network_access/3" do

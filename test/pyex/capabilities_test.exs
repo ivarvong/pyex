@@ -6,7 +6,7 @@ defmodule Pyex.CapabilitiesTest do
       {:error, error} =
         Pyex.run("""
         import boto3
-        s3 = boto3.client('s3', endpoint_url='http://localhost:9999')
+        s3 = boto3.client('s3')
         s3.put_object(Bucket='bucket', Key='key.txt', Body='data')
         """)
 
@@ -24,7 +24,7 @@ defmodule Pyex.CapabilitiesTest do
         {:error, error} =
           Pyex.run("""
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:9999')
+          s3 = boto3.client('s3')
           s3.#{op}
           """)
 
@@ -37,7 +37,7 @@ defmodule Pyex.CapabilitiesTest do
       result =
         Pyex.run!("""
         import boto3
-        s3 = boto3.client('s3', endpoint_url='http://localhost:9999')
+        s3 = boto3.client('s3')
         'put_object' in s3
         """)
 

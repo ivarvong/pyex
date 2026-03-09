@@ -73,6 +73,10 @@ defmodule Pyex do
     `:dangerously_allow_full_internet_access`, plus optional `:methods`
     (default `["GET", "HEAD"]`) and `:headers` (injected into matching
     requests). When omitted, all network access is denied.
+  - `:aws` -- host-owned AWS configuration for `boto3`. Accepts
+    `:region`, `:access_key_id`, `:secret_access_key`, and optional
+    `:session_token` / `:endpoint_url`. Python code cannot override
+    these values.
   - `:capabilities` -- list of enabled I/O capabilities (e.g.
     `[:boto3, :sql]`). All capabilities are denied by default.
   - `:boto3` -- shorthand for adding `:boto3` to capabilities.
