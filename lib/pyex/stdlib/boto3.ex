@@ -89,7 +89,7 @@ defmodule Pyex.Stdlib.Boto3 do
 
   defp check_endpoint_network(ctx, url) do
     case Pyex.Ctx.check_network_access(ctx, "GET", url) do
-      :ok -> :ok
+      {:ok, _headers} -> :ok
       {:denied, reason} -> {:exception, reason}
     end
   end

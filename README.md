@@ -100,7 +100,7 @@ Pyex.run(source, timeout_ms: 5_000)
 All network access is denied by default:
 
 ```elixir
-Pyex.run(source, network: [allowed_hosts: ["api.example.com"]])
+Pyex.run(source, network: [%{allowed_url_prefix: "https://api.example.com/"}])
 ```
 
 ### I/O capabilities

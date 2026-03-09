@@ -8,6 +8,39 @@ defmodule Pyex.CtxTest do
       ctx = Ctx.new()
       assert ctx.output_buffer == []
     end
+
+    test "rejects legacy keyword-list network config" do
+      assert_raise ArgumentError, ~r/network must be a list of rule maps/, fn ->
+        Ctx.new(network: [dangerously_allow_full_internet_access: true])
+      end
+    end
+
+    test "rejects legacy map network config" do
+      assert_raise ArgumentError, ~r/network must be a list of rule maps/, fn ->
+        Ctx.new(network: %{dangerously_allow_full_internet_access: true})
+      end
+    end
+
+    test "rejects nil allowed_url_prefix" do
+      assert_raise ArgumentError, ~r/allowed_url_prefix must be a non-empty string/, fn ->
+        Ctx.new(network: [%{allowed_url_prefix: nil}])
+      end
+    end
+
+    test "rejects empty allowed_url_prefix" do
+      assert_raise ArgumentError, ~r/allowed_url_prefix must be a non-empty string/, fn ->
+        Ctx.new(network: [%{allowed_url_prefix: ""}])
+      end
+    end
+  end
+
+  describe "check_network_access/3" do
+    test "matches scheme and host case-insensitively" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/v1/"}])
+
+      assert {:ok, []} =
+               Ctx.check_network_access(ctx, "GET", "HTTPS://API.EXAMPLE.COM/v1/chat")
+    end
   end
 
   describe "record/3" do

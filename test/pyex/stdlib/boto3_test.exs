@@ -589,8 +589,7 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.Ctx.new(
           boto3: true,
           network: [
-            allowed_hosts: ["example.com"],
-            allowed_methods: ["GET", "PUT", "DELETE"]
+            %{allowed_url_prefix: "http://example.com/", methods: ["GET", "PUT", "DELETE"]}
           ]
         )
 
@@ -616,8 +615,7 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.Ctx.new(
           boto3: true,
           network: [
-            allowed_hosts: ["localhost"],
-            allowed_methods: ["GET", "PUT", "DELETE"]
+            %{allowed_url_prefix: "http://localhost:", methods: ["GET", "PUT", "DELETE"]}
           ]
         )
 

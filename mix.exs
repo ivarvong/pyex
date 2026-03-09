@@ -45,7 +45,7 @@ defmodule Pyex.MixProject do
       {:yaml_elixir, "~> 2.12", only: :test},
       {:telemetry, "~> 0.4 or ~> 1.0"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
-      {:explorer, "~> 0.10", optional: true},
+      {:explorer, "~> 0.11.1", optional: true},
       {:stream_data, "~> 1.1", only: :test},
       {:bypass, "~> 2.1", only: :test},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

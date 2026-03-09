@@ -36,12 +36,16 @@ defmodule Pyex.Ctx do
           call: %{optional(String.t()) => float()}
         }
 
-  @type network_config :: %{
-          allowed_hosts: [String.t()],
-          allowed_url_prefixes: [String.t()],
-          allowed_methods: [String.t()],
-          dangerously_allow_full_internet_access: boolean()
+  @type network_rule :: %{
+          optional(:allowed_url_prefix) => String.t(),
+          optional(:dangerously_allow_full_internet_access) => true,
+          optional(:methods) => [String.t()] | :all,
+          optional(:headers) => %{optional(String.t()) => String.t()}
         }
+
+  @type network_config :: [network_rule()] | nil
+
+  @url_prefix_pattern ~r/\A([a-z][a-z0-9+\-.]*:\/\/)([^\/?#]*)(.*)\z/i
 
   @type capability :: :boto3 | :sql | atom()
 
@@ -117,18 +121,38 @@ defmodule Pyex.Ctx do
     per-function call counts with timing. Results are stored in the
     returned context's `profile` field. Default `false`.
   - `:network` -- network access policy for the `requests` module.
-    A keyword list or map with:
-    - `:allowed_hosts` -- list of hostnames that are permitted (exact match,
-      compared against `URI.parse(url).host`)
-    - `:allowed_url_prefixes` -- list of URL prefixes that are permitted
-      (use trailing slash to prevent subdomain bypass)
-    - `:allowed_methods` -- list of HTTP methods allowed (default `["GET", "HEAD"]`)
-    - `:dangerously_allow_full_internet_access` -- `true` to allow all
-      URLs and methods (use with caution)
 
-    A request is allowed if its URL matches any `:allowed_hosts` entry
-    **or** any `:allowed_url_prefixes` entry. When `nil` (the default),
+    A list of rule maps. Each rule may contain:
+    - `:allowed_url_prefix` -- URL prefix that is permitted
+      (use trailing slash to prevent subdomain bypass)
+    - `:dangerously_allow_full_internet_access` -- `true` to match any URL
+    - `:methods` -- list of HTTP methods allowed (default `["GET", "HEAD"]`)
+    - `:headers` -- map of headers to inject into matching requests.
+      Injected headers override any headers set by the Python code,
+      and are not visible to the sandboxed code.
+
+    Each rule must have either `:allowed_url_prefix` or
+    `:dangerously_allow_full_internet_access`. A request is allowed if
+    it matches any rule (URL prefix + method). When `nil` (the default),
     all network access is denied.
+
+    ## Examples
+
+        # Prefix rules with credential injection
+        network: [
+          %{allowed_url_prefix: "https://api.openai.com/v1/",
+            methods: ["POST"],
+            headers: %{"authorization" => "Bearer sk-..."}},
+          %{allowed_url_prefix: "https://httpbin.org/"}
+        ]
+
+        # GET everything, POST to a specific API with injected auth
+        network: [
+          %{dangerously_allow_full_internet_access: true, methods: ["GET"]},
+          %{allowed_url_prefix: "https://api.openai.com/v1/",
+            methods: ["POST"],
+            headers: %{"authorization" => "Bearer sk-..."}}
+        ]
   - `:capabilities` -- a list of atoms naming enabled I/O capabilities.
     Known capabilities: `:boto3` (S3 operations), `:sql` (database
     queries). All capabilities are denied by default.
@@ -220,109 +244,186 @@ defmodule Pyex.Ctx do
     MapSet.new(explicit ++ shorthand)
   end
 
-  @spec normalize_network(keyword() | map() | nil) :: network_config() | nil
+  @spec normalize_network(term()) :: network_config()
   defp normalize_network(nil), do: nil
+  defp normalize_network([]), do: []
 
-  defp normalize_network(opts) when is_list(opts) do
-    normalize_network(Map.new(opts))
+  defp normalize_network(rules) when is_list(rules) do
+    if Keyword.keyword?(rules) do
+      raise ArgumentError,
+            "network must be a list of rule maps, not a keyword list. " <>
+              "Use network: [%{allowed_url_prefix: \"https://api.example.com/\"}]"
+    end
+
+    Enum.map(rules, &normalize_rule/1)
   end
 
-  defp normalize_network(opts) when is_map(opts) do
-    %{
-      allowed_hosts:
-        Map.get(opts, :allowed_hosts, [])
-        |> Enum.map(&(&1 |> to_string() |> String.downcase())),
-      allowed_url_prefixes: Map.get(opts, :allowed_url_prefixes, []) |> Enum.map(&to_string/1),
-      allowed_methods:
-        Map.get(opts, :allowed_methods, ["GET", "HEAD"])
-        |> Enum.map(&(&1 |> to_string() |> String.upcase())),
-      dangerously_allow_full_internet_access:
-        Map.get(opts, :dangerously_allow_full_internet_access, false) == true
-    }
+  defp normalize_network(%{}), do: raise_invalid_network_config()
+
+  defp normalize_network(_), do: raise_invalid_network_config()
+
+  @spec raise_invalid_network_config() :: no_return()
+  defp raise_invalid_network_config do
+    raise ArgumentError,
+          "network must be a list of rule maps. " <>
+            "Use network: [%{allowed_url_prefix: \"https://api.example.com/\"}]"
+  end
+
+  @spec normalize_rule(term()) :: network_rule()
+  defp normalize_rule(%{} = rule) do
+    has_prefix = Map.has_key?(rule, :allowed_url_prefix)
+    has_dangerous = Map.get(rule, :dangerously_allow_full_internet_access, false) == true
+
+    unless has_prefix or has_dangerous do
+      raise ArgumentError,
+            "network rule must have :allowed_url_prefix or :dangerously_allow_full_internet_access"
+    end
+
+    methods =
+      case Map.get(rule, :methods, ["GET", "HEAD"]) do
+        :all ->
+          :all
+
+        list when is_list(list) ->
+          Enum.map(list, &(&1 |> to_string() |> String.upcase()))
+
+        _ ->
+          raise ArgumentError, "network rule :methods must be a list of strings or :all"
+      end
+
+    headers =
+      case Map.get(rule, :headers, %{}) do
+        %{} = headers ->
+          Map.new(headers, fn {k, v} -> {String.downcase(to_string(k)), to_string(v)} end)
+
+        _ ->
+          raise ArgumentError, "network rule :headers must be a map"
+      end
+
+    base = %{methods: methods, headers: headers}
+
+    if has_prefix do
+      Map.put(base, :allowed_url_prefix, normalize_allowed_url_prefix(rule.allowed_url_prefix))
+    else
+      Map.put(base, :dangerously_allow_full_internet_access, true)
+    end
+  end
+
+  defp normalize_rule(_) do
+    raise ArgumentError, "each network rule must be a map"
+  end
+
+  @spec normalize_allowed_url_prefix(term()) :: String.t()
+  defp normalize_allowed_url_prefix(prefix) when is_binary(prefix) and prefix != "", do: prefix
+
+  defp normalize_allowed_url_prefix(_) do
+    raise ArgumentError, "network rule :allowed_url_prefix must be a non-empty string"
   end
 
   @doc """
   Checks whether a network request is allowed by the current policy.
 
-  Returns `:ok` if the request is permitted, or `{:denied, reason}` with
-  a descriptive error message when the request violates the policy.
+  Returns `{:ok, inject_headers}` if the request is permitted (where
+  `inject_headers` is a list of `{name, value}` tuples to merge into
+  the request), or `{:denied, reason}` with a descriptive error message.
   """
-  @spec check_network_access(t(), String.t(), String.t()) :: :ok | {:denied, String.t()}
+  @spec check_network_access(t(), String.t(), String.t()) ::
+          {:ok, [{String.t(), String.t()}]} | {:denied, String.t()}
   def check_network_access(%__MODULE__{network: nil}, _method, _url) do
     {:denied,
      "NetworkError: network access is disabled. " <>
        "Configure the :network option to allow HTTP requests"}
   end
 
-  def check_network_access(
-        %__MODULE__{network: %{dangerously_allow_full_internet_access: true}},
-        _method,
-        _url
-      ) do
-    :ok
+  def check_network_access(%__MODULE__{network: []}, _method, _url) do
+    {:denied,
+     "NetworkError: no network rules configured. " <>
+       "Add rules to the :network option to allow HTTP requests"}
   end
 
-  def check_network_access(%__MODULE__{network: config}, method, url) do
+  def check_network_access(%__MODULE__{network: rules}, method, url) do
     method_upper = String.upcase(method)
 
-    with :ok <- check_method(config.allowed_methods, method_upper),
-         :ok <- check_url_allowed(config.allowed_hosts, config.allowed_url_prefixes, url) do
-      :ok
+    case find_matching_rules(rules, method_upper, url) do
+      {:ok, headers} -> {:ok, headers}
+      :no_match -> {:denied, build_denial_message(rules, method_upper, url)}
     end
   end
 
-  @spec check_method([String.t()], String.t()) :: :ok | {:denied, String.t()}
-  defp check_method(allowed, method) do
-    if method in allowed do
-      :ok
+  @spec find_matching_rules([network_rule()], String.t(), String.t()) ::
+          {:ok, [{String.t(), String.t()}]} | :no_match
+  defp find_matching_rules(rules, method, url) do
+    rules
+    |> Enum.filter(&(rule_matches_url?(&1, url) and rule_allows_method?(&1, method)))
+    |> merge_matching_rule_headers()
+  end
+
+  @spec merge_matching_rule_headers([network_rule()]) ::
+          {:ok, [{String.t(), String.t()}]} | :no_match
+  defp merge_matching_rule_headers([]), do: :no_match
+
+  defp merge_matching_rule_headers(rules) do
+    headers =
+      rules
+      |> Enum.with_index()
+      |> Enum.sort_by(fn {rule, index} -> {rule_specificity(rule), index} end)
+      |> Enum.reduce(%{}, fn {rule, _index}, acc ->
+        Map.merge(acc, Map.get(rule, :headers, %{}))
+      end)
+
+    {:ok, Enum.to_list(headers)}
+  end
+
+  @spec rule_allows_method?(network_rule(), String.t()) :: boolean()
+  defp rule_allows_method?(%{methods: :all}, _method), do: true
+  defp rule_allows_method?(%{methods: methods}, method), do: method in methods
+
+  @spec rule_matches_url?(network_rule(), String.t()) :: boolean()
+  defp rule_matches_url?(%{dangerously_allow_full_internet_access: true}, _url), do: true
+
+  defp rule_matches_url?(%{allowed_url_prefix: prefix}, url),
+    do: String.starts_with?(normalize_url_prefix(url), normalize_url_prefix(prefix))
+
+  defp rule_matches_url?(_, _url), do: false
+
+  @spec rule_specificity(network_rule()) :: non_neg_integer()
+  defp rule_specificity(%{allowed_url_prefix: prefix}), do: byte_size(prefix)
+  defp rule_specificity(%{dangerously_allow_full_internet_access: true}), do: 0
+
+  @spec normalize_url_prefix(String.t()) :: String.t()
+  defp normalize_url_prefix(url) do
+    case Regex.run(@url_prefix_pattern, url, capture: :all_but_first) do
+      [scheme, authority, rest] -> String.downcase(scheme) <> String.downcase(authority) <> rest
+      _ -> url
+    end
+  end
+
+  @spec build_denial_message([network_rule()], String.t(), String.t()) :: String.t()
+  defp build_denial_message(rules, method, url) do
+    url_matched_rules = Enum.filter(rules, &rule_matches_url?(&1, url))
+
+    if url_matched_rules != [] do
+      has_all = Enum.any?(url_matched_rules, &(&1.methods == :all))
+
+      allowed =
+        if has_all,
+          do: ["*"],
+          else: url_matched_rules |> Enum.flat_map(& &1.methods) |> Enum.uniq()
+
+      "NetworkError: HTTP method #{method} is not allowed. " <>
+        "Allowed methods: #{Enum.join(allowed, ", ")}"
     else
-      {:denied,
-       "NetworkError: HTTP method #{method} is not allowed. " <>
-         "Allowed methods: #{Enum.join(allowed, ", ")}"}
-    end
-  end
+      prefixes =
+        rules
+        |> Enum.filter(&Map.has_key?(&1, :allowed_url_prefix))
+        |> Enum.map(& &1.allowed_url_prefix)
 
-  @spec check_url_allowed([String.t()], [String.t()], String.t()) ::
-          :ok | {:denied, String.t()}
-  defp check_url_allowed([], [], _url) do
-    {:denied,
-     "NetworkError: no allowed hosts or URL prefixes configured. " <>
-       "Add hosts to :allowed_hosts or URL prefixes to :allowed_url_prefixes"}
-  end
-
-  defp check_url_allowed(hosts, prefixes, url) do
-    host_match = hosts != [] and url_matches_host?(hosts, url)
-    prefix_match = prefixes != [] and Enum.any?(prefixes, &String.starts_with?(url, &1))
-
-    if host_match or prefix_match do
-      :ok
-    else
-      parts =
-        []
-        |> then(fn acc ->
-          if hosts != [], do: ["allowed hosts: #{Enum.join(hosts, ", ")}" | acc], else: acc
-        end)
-        |> then(fn acc ->
-          if prefixes != [],
-            do: ["allowed prefixes: #{Enum.join(prefixes, ", ")}" | acc],
-            else: acc
-        end)
-        |> Enum.reverse()
-        |> Enum.join("; ")
-
-      {:denied, "NetworkError: URL is not allowed. #{String.capitalize(parts)}"}
-    end
-  end
-
-  @spec url_matches_host?([String.t()], String.t()) :: boolean()
-  defp url_matches_host?(allowed_hosts, url) do
-    case URI.parse(url) do
-      %URI{host: host} when is_binary(host) ->
-        normalized = String.downcase(host)
-        Enum.any?(allowed_hosts, &(&1 == normalized))
-
-      _ ->
-        false
+      if prefixes == [] do
+        "NetworkError: URL is not allowed"
+      else
+        "NetworkError: URL is not allowed. " <>
+          "Allowed prefixes: #{Enum.join(prefixes, ", ")}"
+      end
     end
   end
 

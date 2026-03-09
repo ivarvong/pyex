@@ -3,7 +3,7 @@ defmodule PyexTest do
 
   alias Pyex.Error
 
-  @network [dangerously_allow_full_internet_access: true]
+  @network [%{dangerously_allow_full_internet_access: true, methods: :all}]
 
   describe "end-to-end: two functions doing math" do
     test "define add and multiply, compose them" do
