@@ -31,7 +31,7 @@ defmodule Pyex do
 
       Pyex.run(source,
         env: %{"API_KEY" => "sk-..."},
-        timeout_ms: 5_000,
+        timeout: 5_000,
         modules: %{"mylib" => %{"greet" => {:builtin, fn [n] -> "hi \#{n}" end}}})
 
   See `run/2` for the full list of options.
@@ -67,12 +67,16 @@ defmodule Pyex do
   - `:modules` -- custom Python modules available via `import`
   - `:filesystem` -- a filesystem backend struct (module derived automatically)
   - `:env` -- environment variables for `os.environ`
-  - `:timeout_ms` -- compute time budget in milliseconds
+  - `:timeout` -- compute time budget in milliseconds
   - `:network` -- network access policy for the `requests` module.
     A list of rule maps, each with `:allowed_url_prefix` or
     `:dangerously_allow_full_internet_access`, plus optional `:methods`
     (default `["GET", "HEAD"]`) and `:headers` (injected into matching
     requests). When omitted, all network access is denied.
+  - `:aws` -- host-owned AWS configuration for `boto3`. Accepts
+    `:region`, `:access_key_id`, `:secret_access_key`, and optional
+    `:session_token` / `:endpoint_url`. Python code cannot override
+    these values.
   - `:capabilities` -- list of enabled I/O capabilities (e.g.
     `[:boto3, :sql]`). All capabilities are denied by default.
   - `:boto3` -- shorthand for adding `:boto3` to capabilities.

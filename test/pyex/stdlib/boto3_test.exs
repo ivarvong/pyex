@@ -6,17 +6,32 @@ defmodule Pyex.Stdlib.Boto3Test do
     {:ok, bypass: bypass, port: bypass.port}
   end
 
+  defp aws_config(port) do
+    [
+      region: "us-east-1",
+      access_key_id: "test-access-key",
+      secret_access_key: "test-secret-key",
+      endpoint_url: "http://localhost:#{port}"
+    ]
+  end
+
+  defp boto3_opts(port), do: [boto3: true, aws: aws_config(port)]
+
+  defp boto3_ctx(port, extra_opts \\ []) do
+    Pyex.Ctx.new([boto3: true, aws: aws_config(port)] ++ extra_opts)
+  end
+
   describe "boto3.client" do
     test "creates an s3 client with expected methods", %{port: port} do
       result =
         Pyex.run!(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           methods = ['put_object' in s3, 'get_object' in s3, 'delete_object' in s3, 'list_objects_v2' in s3]
           methods
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == [true, true, true, true]
@@ -26,7 +41,7 @@ defmodule Pyex.Stdlib.Boto3Test do
       {:error, error} =
         Pyex.run("""
         import boto3
-        s3 = boto3.client('dynamodb', endpoint_url='http://localhost:9999')
+        s3 = boto3.client('dynamodb')
         """)
 
       assert error.message =~ "unsupported service 'dynamodb'"
@@ -40,6 +55,19 @@ defmodule Pyex.Stdlib.Boto3Test do
         """)
 
       assert error.message =~ "requires a service name string"
+    end
+
+    test "rejects Python-supplied client configuration" do
+      {:error, error} =
+        Pyex.run(
+          """
+          import boto3
+          boto3.client('s3', endpoint_url='http://localhost:9999')
+          """,
+          boto3: true
+        )
+
+      assert error.message =~ "must be configured by the host via the :aws option"
     end
   end
 
@@ -55,11 +83,11 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run!(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           resp = s3.put_object(Bucket='my-bucket', Key='hello.txt', Body='world')
           resp['ResponseMetadata']['HTTPStatusCode']
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == 200
@@ -76,11 +104,11 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run!(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           resp = s3.put_object(Bucket='bucket', Key='data.json', Body='{}', ContentType='application/json')
           resp['ResponseMetadata']['HTTPStatusCode']
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == 200
@@ -90,7 +118,7 @@ defmodule Pyex.Stdlib.Boto3Test do
       {:error, error} =
         Pyex.run("""
         import boto3
-        s3 = boto3.client('s3', endpoint_url='http://localhost:9999')
+        s3 = boto3.client('s3')
         s3.put_object(Key='hello.txt', Body='world')
         """)
 
@@ -101,7 +129,7 @@ defmodule Pyex.Stdlib.Boto3Test do
       {:error, error} =
         Pyex.run("""
         import boto3
-        s3 = boto3.client('s3', endpoint_url='http://localhost:9999')
+        s3 = boto3.client('s3')
         s3.put_object(Bucket='my-bucket', Body='world')
         """)
 
@@ -117,10 +145,10 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           s3.put_object(Bucket='bucket', Key='key.txt', Body='data')
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert error.message =~ "S3 PutObject failed (500)"
@@ -139,11 +167,11 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run!(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           obj = s3.get_object(Bucket='my-bucket', Key='hello.txt')
           obj['Body'].read()
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == "world"
@@ -160,11 +188,11 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run!(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           obj = s3.get_object(Bucket='bucket', Key='data.json')
           [obj['ContentLength'], obj['ResponseMetadata']['HTTPStatusCode']]
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       [content_length, status] = result
@@ -181,10 +209,10 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           s3.get_object(Bucket='bucket', Key='missing.txt')
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert error.message =~ "NoSuchKey"
@@ -194,7 +222,7 @@ defmodule Pyex.Stdlib.Boto3Test do
       {:error, error} =
         Pyex.run("""
         import boto3
-        s3 = boto3.client('s3', endpoint_url='http://localhost:9999')
+        s3 = boto3.client('s3')
         s3.get_object(Key='hello.txt')
         """)
 
@@ -213,12 +241,12 @@ defmodule Pyex.Stdlib.Boto3Test do
           """
           import boto3
           import json
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           obj = s3.get_object(Bucket='bucket', Key='data.json')
           data = json.loads(obj['Body'].read())
           [data['name'], data['age']]
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == ["Alice", 30]
@@ -235,11 +263,11 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run!(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           resp = s3.delete_object(Bucket='bucket', Key='old.txt')
           resp['ResponseMetadata']['HTTPStatusCode']
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == 204
@@ -249,7 +277,7 @@ defmodule Pyex.Stdlib.Boto3Test do
       {:error, error} =
         Pyex.run("""
         import boto3
-        s3 = boto3.client('s3', endpoint_url='http://localhost:9999')
+        s3 = boto3.client('s3')
         s3.delete_object(Bucket='my-bucket')
         """)
 
@@ -265,10 +293,10 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           s3.delete_object(Bucket='bucket', Key='key.txt')
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert error.message =~ "S3 DeleteObject failed (403)"
@@ -298,12 +326,12 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run!(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           resp = s3.list_objects_v2(Bucket='bucket')
           keys = [item['Key'] for item in resp['Contents']]
           [keys, resp['KeyCount']]
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       [keys, count] = result
@@ -331,11 +359,11 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run!(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           resp = s3.list_objects_v2(Bucket='bucket', Prefix='data/')
           [item['Key'] for item in resp['Contents']]
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == ["data/a.csv", "data/b.csv"]
@@ -355,11 +383,11 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run!(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           resp = s3.list_objects_v2(Bucket='empty-bucket')
           [resp['Contents'], resp['KeyCount']]
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == [[], 0]
@@ -369,7 +397,7 @@ defmodule Pyex.Stdlib.Boto3Test do
       {:error, error} =
         Pyex.run("""
         import boto3
-        s3 = boto3.client('s3', endpoint_url='http://localhost:9999')
+        s3 = boto3.client('s3')
         s3.list_objects_v2()
         """)
 
@@ -407,12 +435,12 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run!(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           s3.put_object(Bucket='store', Key='docs/readme.md', Body='# Hello World')
           obj = s3.get_object(Bucket='store', Key='docs/readme.md')
           obj['Body'].read()
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == "# Hello World"
@@ -450,14 +478,14 @@ defmodule Pyex.Stdlib.Boto3Test do
           """
           import boto3
           import json
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           user = {"name": "Alice", "age": 30, "active": True}
           s3.put_object(Bucket='data', Key='records/user.json', Body=json.dumps(user))
           obj = s3.get_object(Bucket='data', Key='records/user.json')
           parsed = json.loads(obj['Body'].read())
           [parsed['name'], parsed['age'], parsed['active']]
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == ["Alice", 30, true]
@@ -512,14 +540,14 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run!(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           s3.put_object(Bucket='bucket', Key='a.txt', Body='aaa')
           s3.put_object(Bucket='bucket', Key='b.txt', Body='bbb')
           s3.put_object(Bucket='bucket', Key='c.txt', Body='ccc')
           resp = s3.list_objects_v2(Bucket='bucket')
           resp['KeyCount']
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == 3
@@ -566,7 +594,7 @@ defmodule Pyex.Stdlib.Boto3Test do
               age: int
               active: bool
 
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           user = User(name='Alice', age=30, active=True)
           s3.put_object(Bucket='models', Key='users/1.json', Body=json.dumps(user.model_dump()))
           obj = s3.get_object(Bucket='models', Key='users/1.json')
@@ -574,7 +602,7 @@ defmodule Pyex.Stdlib.Boto3Test do
           loaded = User(**data)
           [loaded.name, loaded.age, loaded.active]
           """,
-          boto3: true
+          boto3_opts(port)
         )
 
       assert result == ["Alice", 30, true]
@@ -584,10 +612,23 @@ defmodule Pyex.Stdlib.Boto3Test do
   end
 
   describe "SSRF protection" do
+    test "operations require host AWS config" do
+      {:error, error} =
+        Pyex.run(
+          """
+          import boto3
+          s3 = boto3.client('s3')
+          s3.put_object(Bucket='bucket', Key='test.txt', Body='hello')
+          """,
+          boto3: true
+        )
+
+      assert error.message =~ "no AWS configuration is available"
+    end
+
     test "boto3 operations check network policy when set", %{port: port} do
       ctx =
-        Pyex.Ctx.new(
-          boto3: true,
+        boto3_ctx(port,
           network: [
             %{allowed_url_prefix: "http://example.com/", methods: ["GET", "PUT", "DELETE"]}
           ]
@@ -597,7 +638,7 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           s3.put_object(Bucket='bucket', Key='test.txt', Body='hello')
           """,
           ctx
@@ -612,8 +653,7 @@ defmodule Pyex.Stdlib.Boto3Test do
       end)
 
       ctx =
-        Pyex.Ctx.new(
-          boto3: true,
+        boto3_ctx(port,
           network: [
             %{allowed_url_prefix: "http://localhost:", methods: ["GET", "PUT", "DELETE"]}
           ]
@@ -623,7 +663,7 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           s3.put_object(Bucket='bucket', Key='test.txt', Body='hello')
           """,
           ctx
@@ -641,13 +681,34 @@ defmodule Pyex.Stdlib.Boto3Test do
         Pyex.run(
           """
           import boto3
-          s3 = boto3.client('s3', endpoint_url='http://localhost:#{port}')
+          s3 = boto3.client('s3')
           s3.put_object(Bucket='bucket', Key='test.txt', Body='hello')
           """,
-          Pyex.Ctx.new(boto3: true)
+          boto3_ctx(port)
         )
 
       assert result["ResponseMetadata"]["HTTPStatusCode"] == 200
+    end
+
+    test "network method restrictions apply to custom endpoints", %{port: port} do
+      ctx =
+        boto3_ctx(port,
+          network: [
+            %{allowed_url_prefix: "http://localhost:", methods: ["GET"]}
+          ]
+        )
+
+      {:error, error} =
+        Pyex.run(
+          """
+          import boto3
+          s3 = boto3.client('s3')
+          s3.put_object(Bucket='bucket', Key='test.txt', Body='hello')
+          """,
+          ctx
+        )
+
+      assert error.message =~ "HTTP method PUT is not allowed"
     end
   end
 end

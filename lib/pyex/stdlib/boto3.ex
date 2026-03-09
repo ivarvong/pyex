@@ -23,7 +23,17 @@ defmodule Pyex.Stdlib.Boto3 do
 
   ## Testing with a local endpoint
 
-      s3 = boto3.client('s3', endpoint_url='http://localhost:9000')
+      ctx = Pyex.Ctx.new(
+        boto3: true,
+        aws: [
+          region: "us-east-1",
+          access_key_id: "test",
+          secret_access_key: "test",
+          endpoint_url: "http://localhost:9000"
+        ]
+      )
+
+      Pyex.run(source, ctx)
   """
 
   @behaviour Pyex.Stdlib.Module
@@ -55,52 +65,64 @@ defmodule Pyex.Stdlib.Boto3 do
     {:exception, "TypeError: boto3.client() requires a service name string"}
   end
 
-  @typep s3_config :: %{
-           region: String.t(),
-           endpoint_url: String.t() | nil,
-           signing_opts: keyword() | nil
-         }
-
   @spec build_s3_client(%{optional(String.t()) => Pyex.Interpreter.pyvalue()}) ::
           Pyex.Interpreter.pyvalue()
-  defp build_s3_client(kwargs) do
-    region = Map.get(kwargs, "region_name", "us-east-1")
-    endpoint_url = Map.get(kwargs, "endpoint_url")
-    access_key = Map.get(kwargs, "aws_access_key_id")
-    secret_key = Map.get(kwargs, "aws_secret_access_key")
-
-    signing_opts = build_signing_opts(region, access_key, secret_key)
-
-    config = %{region: region, endpoint_url: endpoint_url, signing_opts: signing_opts}
-
+  defp build_s3_client(%{} = kwargs) when map_size(kwargs) == 0 do
     %{
       "__boto3_s3_client__" => true,
-      "__region__" => region,
-      "__endpoint_url__" => endpoint_url,
-      "put_object" => {:builtin_kw, &s3_put_object(config, &1, &2)},
-      "get_object" => {:builtin_kw, &s3_get_object(config, &1, &2)},
-      "delete_object" => {:builtin_kw, &s3_delete_object(config, &1, &2)},
-      "list_objects_v2" => {:builtin_kw, &s3_list_objects_v2(config, &1, &2)}
+      "put_object" => {:builtin_kw, &s3_put_object/2},
+      "get_object" => {:builtin_kw, &s3_get_object/2},
+      "delete_object" => {:builtin_kw, &s3_delete_object/2},
+      "list_objects_v2" => {:builtin_kw, &s3_list_objects_v2/2}
     }
   end
 
-  @spec check_endpoint_network(Pyex.Ctx.t(), String.t()) :: :ok | {:exception, String.t()}
-  defp check_endpoint_network(%Pyex.Ctx{network: nil}, _url), do: :ok
+  defp build_s3_client(_kwargs) do
+    {:exception,
+     "PermissionError: boto3.client('s3') options must be configured by the host via the :aws option"}
+  end
 
-  defp check_endpoint_network(ctx, url) do
-    case Pyex.Ctx.check_network_access(ctx, "GET", url) do
-      {:ok, _headers} -> :ok
-      {:denied, reason} -> {:exception, reason}
+  @spec s3_config(Pyex.Ctx.t()) :: {:ok, Pyex.Ctx.aws_config()} | {:error, String.t()}
+  defp s3_config(%Pyex.Ctx{aws: nil}) do
+    {:error,
+     "PermissionError: boto3 is enabled but no AWS configuration is available. " <>
+       "Configure the :aws option"}
+  end
+
+  defp s3_config(%Pyex.Ctx{aws: config}), do: {:ok, config}
+
+  @spec check_endpoint_network(Pyex.Ctx.t(), Pyex.Ctx.aws_config(), String.t(), String.t()) ::
+          :ok | {:exception, String.t()}
+  defp check_endpoint_network(ctx, config, method, url) do
+    case {Map.get(config, :endpoint_url), ctx.network} do
+      {nil, _network} ->
+        :ok
+
+      {_endpoint, nil} ->
+        :ok
+
+      {_endpoint, _network} ->
+        case Pyex.Ctx.check_network_access(ctx, method, url) do
+          {:ok, _headers} -> :ok
+          {:denied, reason} -> {:exception, reason}
+        end
     end
   end
 
-  @spec build_signing_opts(String.t(), String.t() | nil, String.t() | nil) :: keyword() | nil
-  defp build_signing_opts(region, access_key, secret_key)
-       when is_binary(access_key) and is_binary(secret_key) do
-    [service: :s3, region: region, access_key_id: access_key, secret_access_key: secret_key]
-  end
+  @spec build_signing_opts(Pyex.Ctx.aws_config()) :: keyword()
+  defp build_signing_opts(config) do
+    opts = [
+      service: :s3,
+      region: config.region,
+      access_key_id: config.access_key_id,
+      secret_access_key: config.secret_access_key
+    ]
 
-  defp build_signing_opts(_region, _access_key, _secret_key), do: nil
+    case Map.get(config, :session_token) do
+      nil -> opts
+      token -> Keyword.put(opts, :token, token)
+    end
+  end
 
   @spec object_url(String.t(), String.t(), String.t(), String.t() | nil) :: String.t()
   defp object_url(bucket, key, region, nil) do
@@ -122,14 +144,13 @@ defmodule Pyex.Stdlib.Boto3 do
     "#{base}/#{bucket}/"
   end
 
-  @spec signing_req_opts(keyword() | nil) :: keyword()
-  defp signing_req_opts(nil), do: []
-  defp signing_req_opts(opts), do: [aws_sigv4: opts]
+  @spec signing_req_opts(Pyex.Ctx.aws_config()) :: keyword()
+  defp signing_req_opts(config), do: [aws_sigv4: build_signing_opts(config)]
 
-  @spec s3_put_object(s3_config(), [Pyex.Interpreter.pyvalue()], %{
+  @spec s3_put_object([Pyex.Interpreter.pyvalue()], %{
           optional(String.t()) => Pyex.Interpreter.pyvalue()
         }) :: s3_result()
-  defp s3_put_object(config, _args, kwargs) do
+  defp s3_put_object(_args, kwargs) do
     bucket = Map.get(kwargs, "Bucket")
     key = Map.get(kwargs, "Key")
     body = Map.get(kwargs, "Body", "")
@@ -143,46 +164,52 @@ defmodule Pyex.Stdlib.Boto3 do
         {:exception, "ParamValidationError: Missing required parameter: 'Key'"}
 
       true ->
-        url = object_url(bucket, key, config.region, config.endpoint_url)
         body_bytes = if is_binary(body), do: body, else: to_string(body)
 
-        headers =
-          if is_binary(content_type),
-            do: [{"content-type", content_type}],
-            else: []
-
-        req_opts =
-          [body: body_bytes, headers: headers] ++ signing_req_opts(config.signing_opts)
-
         Pyex.Ctx.guarded_io_call(:boto3, fn env, ctx ->
-          case check_endpoint_network(ctx, url) do
-            {:exception, _} = err ->
-              {err, env, ctx}
+          case s3_config(ctx) do
+            {:error, reason} ->
+              {{:exception, reason}, env, ctx}
 
-            :ok ->
-              result =
-                case Req.put(url, req_opts) do
-                  {:ok, %{status: status}} when status in [200, 201] ->
-                    %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
+            {:ok, config} ->
+              url = object_url(bucket, key, config.region, Map.get(config, :endpoint_url))
 
-                  {:ok, %{status: status, body: resp_body}} ->
-                    {:exception,
-                     "ClientError: S3 PutObject failed (#{status}): #{inspect(resp_body)}"}
+              case check_endpoint_network(ctx, config, "PUT", url) do
+                {:exception, _} = err ->
+                  {err, env, ctx}
 
-                  {:error, reason} ->
-                    {:exception, "ClientError: #{inspect(reason)}"}
-                end
+                :ok ->
+                  headers =
+                    if is_binary(content_type),
+                      do: [{"content-type", content_type}],
+                      else: []
 
-              {result, env, ctx}
+                  req_opts = [body: body_bytes, headers: headers] ++ signing_req_opts(config)
+
+                  result =
+                    case Req.put(url, req_opts) do
+                      {:ok, %{status: status}} when status in [200, 201] ->
+                        %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
+
+                      {:ok, %{status: status, body: resp_body}} ->
+                        {:exception,
+                         "ClientError: S3 PutObject failed (#{status}): #{inspect(resp_body)}"}
+
+                      {:error, reason} ->
+                        {:exception, "ClientError: #{inspect(reason)}"}
+                    end
+
+                  {result, env, ctx}
+              end
           end
         end)
     end
   end
 
-  @spec s3_get_object(s3_config(), [Pyex.Interpreter.pyvalue()], %{
+  @spec s3_get_object([Pyex.Interpreter.pyvalue()], %{
           optional(String.t()) => Pyex.Interpreter.pyvalue()
         }) :: s3_result()
-  defp s3_get_object(config, _args, kwargs) do
+  defp s3_get_object(_args, kwargs) do
     bucket = Map.get(kwargs, "Bucket")
     key = Map.get(kwargs, "Key")
 
@@ -194,56 +221,63 @@ defmodule Pyex.Stdlib.Boto3 do
         {:exception, "ParamValidationError: Missing required parameter: 'Key'"}
 
       true ->
-        url = object_url(bucket, key, config.region, config.endpoint_url)
-        req_opts = [decode_body: false] ++ signing_req_opts(config.signing_opts)
-
         Pyex.Ctx.guarded_io_call(:boto3, fn env, ctx ->
-          case check_endpoint_network(ctx, url) do
-            {:exception, _} = err ->
-              {err, env, ctx}
+          case s3_config(ctx) do
+            {:error, reason} ->
+              {{:exception, reason}, env, ctx}
 
-            :ok ->
-              result =
-                case Req.get(url, req_opts) do
-                  {:ok, %{status: 200, body: body, headers: headers}} ->
-                    body_str = body
+            {:ok, config} ->
+              url = object_url(bucket, key, config.region, Map.get(config, :endpoint_url))
 
-                    body_obj = %{
-                      "read" => {:builtin, fn [] -> body_str end},
-                      "__body_bytes__" => body_str
-                    }
+              case check_endpoint_network(ctx, config, "GET", url) do
+                {:exception, _} = err ->
+                  {err, env, ctx}
 
-                    content_type = extract_header(headers, "content-type")
+                :ok ->
+                  req_opts = [decode_body: false] ++ signing_req_opts(config)
 
-                    %{
-                      "Body" => body_obj,
-                      "ContentLength" => byte_size(body_str),
-                      "ContentType" => content_type,
-                      "ResponseMetadata" => %{"HTTPStatusCode" => 200}
-                    }
+                  result =
+                    case Req.get(url, req_opts) do
+                      {:ok, %{status: 200, body: body, headers: headers}} ->
+                        body_str = body
 
-                  {:ok, %{status: 404}} ->
-                    {:exception,
-                     "ClientError: An error occurred (NoSuchKey) when calling the GetObject operation: The specified key does not exist."}
+                        body_obj = %{
+                          "read" => {:builtin, fn [] -> body_str end},
+                          "__body_bytes__" => body_str
+                        }
 
-                  {:ok, %{status: status, body: resp_body}} ->
-                    {:exception,
-                     "ClientError: S3 GetObject failed (#{status}): #{inspect(resp_body)}"}
+                        content_type = extract_header(headers, "content-type")
 
-                  {:error, reason} ->
-                    {:exception, "ClientError: #{inspect(reason)}"}
-                end
+                        %{
+                          "Body" => body_obj,
+                          "ContentLength" => byte_size(body_str),
+                          "ContentType" => content_type,
+                          "ResponseMetadata" => %{"HTTPStatusCode" => 200}
+                        }
 
-              {result, env, ctx}
+                      {:ok, %{status: 404}} ->
+                        {:exception,
+                         "ClientError: An error occurred (NoSuchKey) when calling the GetObject operation: The specified key does not exist."}
+
+                      {:ok, %{status: status, body: resp_body}} ->
+                        {:exception,
+                         "ClientError: S3 GetObject failed (#{status}): #{inspect(resp_body)}"}
+
+                      {:error, reason} ->
+                        {:exception, "ClientError: #{inspect(reason)}"}
+                    end
+
+                  {result, env, ctx}
+              end
           end
         end)
     end
   end
 
-  @spec s3_delete_object(s3_config(), [Pyex.Interpreter.pyvalue()], %{
+  @spec s3_delete_object([Pyex.Interpreter.pyvalue()], %{
           optional(String.t()) => Pyex.Interpreter.pyvalue()
         }) :: s3_result()
-  defp s3_delete_object(config, _args, kwargs) do
+  defp s3_delete_object(_args, kwargs) do
     bucket = Map.get(kwargs, "Bucket")
     key = Map.get(kwargs, "Key")
 
@@ -255,75 +289,89 @@ defmodule Pyex.Stdlib.Boto3 do
         {:exception, "ParamValidationError: Missing required parameter: 'Key'"}
 
       true ->
-        url = object_url(bucket, key, config.region, config.endpoint_url)
-        req_opts = signing_req_opts(config.signing_opts)
-
         Pyex.Ctx.guarded_io_call(:boto3, fn env, ctx ->
-          case check_endpoint_network(ctx, url) do
-            {:exception, _} = err ->
-              {err, env, ctx}
+          case s3_config(ctx) do
+            {:error, reason} ->
+              {{:exception, reason}, env, ctx}
 
-            :ok ->
-              result =
-                case Req.delete(url, req_opts) do
-                  {:ok, %{status: status}} when status in [200, 204] ->
-                    %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
+            {:ok, config} ->
+              url = object_url(bucket, key, config.region, Map.get(config, :endpoint_url))
 
-                  {:ok, %{status: status, body: resp_body}} ->
-                    {:exception,
-                     "ClientError: S3 DeleteObject failed (#{status}): #{inspect(resp_body)}"}
+              case check_endpoint_network(ctx, config, "DELETE", url) do
+                {:exception, _} = err ->
+                  {err, env, ctx}
 
-                  {:error, reason} ->
-                    {:exception, "ClientError: #{inspect(reason)}"}
-                end
+                :ok ->
+                  req_opts = signing_req_opts(config)
 
-              {result, env, ctx}
+                  result =
+                    case Req.delete(url, req_opts) do
+                      {:ok, %{status: status}} when status in [200, 204] ->
+                        %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
+
+                      {:ok, %{status: status, body: resp_body}} ->
+                        {:exception,
+                         "ClientError: S3 DeleteObject failed (#{status}): #{inspect(resp_body)}"}
+
+                      {:error, reason} ->
+                        {:exception, "ClientError: #{inspect(reason)}"}
+                    end
+
+                  {result, env, ctx}
+              end
           end
         end)
     end
   end
 
-  @spec s3_list_objects_v2(s3_config(), [Pyex.Interpreter.pyvalue()], %{
+  @spec s3_list_objects_v2([Pyex.Interpreter.pyvalue()], %{
           optional(String.t()) => Pyex.Interpreter.pyvalue()
         }) :: s3_result()
-  defp s3_list_objects_v2(config, _args, kwargs) do
+  defp s3_list_objects_v2(_args, kwargs) do
     bucket = Map.get(kwargs, "Bucket")
     prefix = Map.get(kwargs, "Prefix", "")
 
     if not is_binary(bucket) do
       {:exception, "ParamValidationError: Missing required parameter: 'Bucket'"}
     else
-      base = bucket_url(bucket, config.region, config.endpoint_url)
-      url = "#{base}?list-type=2&prefix=#{URI.encode(prefix)}"
-      req_opts = signing_req_opts(config.signing_opts)
-
       Pyex.Ctx.guarded_io_call(:boto3, fn env, ctx ->
-        case check_endpoint_network(ctx, url) do
-          {:exception, _} = err ->
-            {err, env, ctx}
+        case s3_config(ctx) do
+          {:error, reason} ->
+            {{:exception, reason}, env, ctx}
 
-          :ok ->
-            result =
-              case Req.get(url, req_opts) do
-                {:ok, %{status: 200, body: body}} ->
-                  contents = parse_list_response(body, prefix)
+          {:ok, config} ->
+            base = bucket_url(bucket, config.region, Map.get(config, :endpoint_url))
+            url = "#{base}?list-type=2&prefix=#{URI.encode(prefix)}"
 
-                  %{
-                    "Contents" => contents,
-                    "KeyCount" => length(contents),
-                    "Prefix" => prefix,
-                    "ResponseMetadata" => %{"HTTPStatusCode" => 200}
-                  }
+            case check_endpoint_network(ctx, config, "GET", url) do
+              {:exception, _} = err ->
+                {err, env, ctx}
 
-                {:ok, %{status: status, body: resp_body}} ->
-                  {:exception,
-                   "ClientError: S3 ListObjectsV2 failed (#{status}): #{inspect(resp_body)}"}
+              :ok ->
+                req_opts = signing_req_opts(config)
 
-                {:error, reason} ->
-                  {:exception, "ClientError: #{inspect(reason)}"}
-              end
+                result =
+                  case Req.get(url, req_opts) do
+                    {:ok, %{status: 200, body: body}} ->
+                      contents = parse_list_response(body, prefix)
 
-            {result, env, ctx}
+                      %{
+                        "Contents" => contents,
+                        "KeyCount" => length(contents),
+                        "Prefix" => prefix,
+                        "ResponseMetadata" => %{"HTTPStatusCode" => 200}
+                      }
+
+                    {:ok, %{status: status, body: resp_body}} ->
+                      {:exception,
+                       "ClientError: S3 ListObjectsV2 failed (#{status}): #{inspect(resp_body)}"}
+
+                    {:error, reason} ->
+                      {:exception, "ClientError: #{inspect(reason)}"}
+                  end
+
+                {result, env, ctx}
+            end
         end
       end)
     end

@@ -17,7 +17,7 @@ Initial release.
 
 ### Sandbox
 
-- Compute budget via `timeout_ms`
+- Compute budget via `timeout`
 - Network access policy (deny-by-default, allowlist hosts/prefixes)
 - Capability gates for SQL and S3 (deny-by-default)
 - Pluggable filesystem backends (Memory, S3)

@@ -141,7 +141,7 @@ IO.puts("=== Golden Cross Benchmark ===\n")
 for n <- [300, 1000] do
   prices = GoldenCrossBench.generate_prices(n)
   modules = GoldenCrossBench.platform_module(prices)
-  opts = [timeout_ms: 30_000, modules: modules]
+  opts = [timeout: 30_000, modules: modules]
   runs = if n <= 300, do: 20, else: 10
 
   IO.puts("#{n} price points (#{runs} runs):")

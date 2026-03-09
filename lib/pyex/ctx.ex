@@ -12,7 +12,7 @@ defmodule Pyex.Ctx do
 
       Pyex.run(source,
         env: %{"KEY" => "val"},
-        timeout_ms: 5_000,
+        timeout: 5_000,
         modules: %{"mylib" => %{...}})
 
   Use `Ctx.new/1` when you need to share a context across
@@ -45,7 +45,22 @@ defmodule Pyex.Ctx do
 
   @type network_config :: [network_rule()] | nil
 
+  @type aws_config :: %{
+          required(:region) => String.t(),
+          required(:access_key_id) => String.t(),
+          required(:secret_access_key) => String.t(),
+          optional(:session_token) => String.t(),
+          optional(:endpoint_url) => String.t()
+        }
+
   @url_prefix_pattern ~r/\A([a-z][a-z0-9+\-.]*:\/\/)([^\/?#]*)(.*)\z/i
+
+  @network_rule_keys [
+    :allowed_url_prefix,
+    :dangerously_allow_full_internet_access,
+    :methods,
+    :headers
+  ]
 
   @type capability :: :boto3 | :sql | atom()
 
@@ -67,6 +82,7 @@ defmodule Pyex.Ctx do
           iterators: %{optional(non_neg_integer()) => [term()] | term()},
           next_iterator_id: non_neg_integer(),
           network: network_config() | nil,
+          aws: aws_config() | nil,
           capabilities: MapSet.t(capability()),
           exception_instance: term(),
           current_line: non_neg_integer() | nil,
@@ -97,6 +113,7 @@ defmodule Pyex.Ctx do
             iterators: %{},
             next_iterator_id: 0,
             network: nil,
+            aws: nil,
             capabilities: MapSet.new(),
             exception_instance: nil,
             current_line: nil,
@@ -115,7 +132,7 @@ defmodule Pyex.Ctx do
   - `:modules` -- custom Python modules available via `import`. A map from
     module name strings to either a `%{String.t() => pyvalue()}` map or a
     module implementing `Pyex.Stdlib.Module`.
-  - `:timeout_ms` -- maximum *compute* time in milliseconds (nil = no limit).
+  - `:timeout` -- maximum *compute* time in milliseconds (nil = no limit).
     I/O time (HTTP requests, SQL queries) does not count against the budget.
   - `:profile` -- when `true`, collects per-line execution counts and
     per-function call counts with timing. Results are stored in the
@@ -153,6 +170,18 @@ defmodule Pyex.Ctx do
             methods: ["POST"],
             headers: %{"authorization" => "Bearer sk-..."}}
         ]
+  - `:aws` -- host-owned AWS configuration for the `boto3` module.
+
+    Accepts a keyword list or map with:
+    - `:region` -- AWS region used for S3 requests
+    - `:access_key_id` -- AWS access key id
+    - `:secret_access_key` -- AWS secret access key
+    - `:session_token` -- optional temporary credential token
+    - `:endpoint_url` -- optional fixed custom S3-compatible endpoint
+
+    Sandboxed Python code cannot override these values. Configure
+    `:boto3` to enable S3 operations and `:aws` to choose the identity
+    and endpoint they use.
   - `:capabilities` -- a list of atoms naming enabled I/O capabilities.
     Known capabilities: `:boto3` (S3 operations), `:sql` (database
     queries). All capabilities are denied by default.
@@ -163,9 +192,10 @@ defmodule Pyex.Ctx do
     :filesystem,
     :env,
     :modules,
-    :timeout_ms,
+    :timeout,
     :profile,
     :network,
+    :aws,
     :capabilities,
     :boto3,
     :sql,
@@ -187,7 +217,7 @@ defmodule Pyex.Ctx do
     modules = Keyword.get(opts, :modules, %{}) |> normalize_modules()
 
     timeout =
-      case Keyword.get(opts, :timeout_ms) do
+      case Keyword.get(opts, :timeout) do
         nil -> nil
         ms when is_integer(ms) -> ms
       end
@@ -198,6 +228,7 @@ defmodule Pyex.Ctx do
         else: nil
 
     network = normalize_network(Keyword.get(opts, :network))
+    aws = normalize_aws(Keyword.get(opts, :aws))
     capabilities = normalize_capabilities(opts)
     file = Keyword.get(opts, :file)
 
@@ -210,6 +241,7 @@ defmodule Pyex.Ctx do
       compute_started_at: System.monotonic_time(),
       profile: profile,
       network: network,
+      aws: aws,
       capabilities: capabilities,
       file: file
     }
@@ -244,6 +276,72 @@ defmodule Pyex.Ctx do
     MapSet.new(explicit ++ shorthand)
   end
 
+  @spec normalize_aws(keyword() | map() | nil) :: aws_config() | nil
+  defp normalize_aws(nil), do: nil
+
+  defp normalize_aws(opts) when is_list(opts) do
+    if Keyword.keyword?(opts) do
+      opts |> Map.new() |> normalize_aws()
+    else
+      raise_invalid_aws_config()
+    end
+  end
+
+  defp normalize_aws(%{} = opts) do
+    validate_aws_keys!(opts)
+
+    aws = %{
+      region: fetch_required_aws_string!(opts, :region),
+      access_key_id: fetch_required_aws_string!(opts, :access_key_id),
+      secret_access_key: fetch_required_aws_string!(opts, :secret_access_key)
+    }
+
+    aws
+    |> put_optional_aws_string(opts, :session_token)
+    |> put_optional_aws_string(opts, :endpoint_url)
+  end
+
+  defp normalize_aws(_), do: raise_invalid_aws_config()
+
+  @aws_config_keys [:region, :access_key_id, :secret_access_key, :session_token, :endpoint_url]
+
+  @spec raise_invalid_aws_config() :: no_return()
+  defp raise_invalid_aws_config do
+    raise ArgumentError,
+          "aws must be a keyword list or map. " <>
+            "Use aws: [region: \"us-east-1\", access_key_id: \"...\", secret_access_key: \"...\"]"
+  end
+
+  @spec validate_aws_keys!(map()) :: :ok
+  defp validate_aws_keys!(opts) do
+    unknown = Map.keys(opts) -- @aws_config_keys
+
+    if unknown != [] do
+      raise ArgumentError,
+            "unknown keys #{inspect(unknown)} in aws config. " <>
+              "Valid keys: #{inspect(@aws_config_keys)}"
+    end
+
+    :ok
+  end
+
+  @spec fetch_required_aws_string!(map(), atom()) :: String.t()
+  defp fetch_required_aws_string!(opts, key) do
+    case Map.get(opts, key) do
+      value when is_binary(value) and value != "" -> value
+      _ -> raise ArgumentError, "aws #{inspect(key)} must be a non-empty string"
+    end
+  end
+
+  @spec put_optional_aws_string(aws_config(), map(), atom()) :: aws_config()
+  defp put_optional_aws_string(aws, opts, key) do
+    case Map.get(opts, key) do
+      nil -> aws
+      value when is_binary(value) and value != "" -> Map.put(aws, key, value)
+      _ -> raise ArgumentError, "aws #{inspect(key)} must be a non-empty string"
+    end
+  end
+
   @spec normalize_network(term()) :: network_config()
   defp normalize_network(nil), do: nil
   defp normalize_network([]), do: []
@@ -271,6 +369,8 @@ defmodule Pyex.Ctx do
 
   @spec normalize_rule(term()) :: network_rule()
   defp normalize_rule(%{} = rule) do
+    validate_rule_keys!(rule)
+
     has_prefix = Map.has_key?(rule, :allowed_url_prefix)
     has_dangerous = Map.get(rule, :dangerously_allow_full_internet_access, false) == true
 
@@ -311,6 +411,19 @@ defmodule Pyex.Ctx do
 
   defp normalize_rule(_) do
     raise ArgumentError, "each network rule must be a map"
+  end
+
+  @spec validate_rule_keys!(map()) :: :ok
+  defp validate_rule_keys!(rule) do
+    unknown = Map.keys(rule) -- @network_rule_keys
+
+    if unknown != [] do
+      raise ArgumentError,
+            "unknown keys #{inspect(unknown)} in network rule. " <>
+              "Valid keys: #{inspect(@network_rule_keys)}"
+    end
+
+    :ok
   end
 
   @spec normalize_allowed_url_prefix(term()) :: String.t()

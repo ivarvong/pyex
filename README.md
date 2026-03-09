@@ -91,7 +91,7 @@ what it can access.
 ### Compute budget
 
 ```elixir
-Pyex.run(source, timeout_ms: 5_000)
+Pyex.run(source, timeout: 5_000)
 # => {:error, %Pyex.Error{kind: :timeout}}
 ```
 
@@ -109,8 +109,17 @@ SQL and S3 require explicit opt-in:
 
 ```elixir
 Pyex.run(source, sql: true, env: %{"DATABASE_URL" => "postgres://..."})
-Pyex.run(source, boto3: true)
+Pyex.run(source,
+  boto3: true,
+  aws: [
+    region: "us-east-1",
+    access_key_id: "...",
+    secret_access_key: "..."
+  ])
 ```
+
+`boto3` uses host-provided AWS configuration. Sandboxed Python code
+cannot supply credentials or override the S3 endpoint.
 
 ## Error Handling
 

@@ -32,6 +32,37 @@ defmodule Pyex.CtxTest do
         Ctx.new(network: [%{allowed_url_prefix: ""}])
       end
     end
+
+    test "rejects unknown network rule keys" do
+      assert_raise ArgumentError, ~r/unknown keys \[:method\] in network rule/, fn ->
+        Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/", method: ["POST"]}])
+      end
+    end
+
+    test "rejects string-keyed network rules" do
+      assert_raise ArgumentError, ~r/unknown keys \["allowed_url_prefix"\] in network rule/, fn ->
+        Ctx.new(network: [%{"allowed_url_prefix" => "https://api.example.com/"}])
+      end
+    end
+
+    test "rejects aws config without required keys" do
+      assert_raise ArgumentError, ~r/aws :access_key_id must be a non-empty string/, fn ->
+        Ctx.new(aws: [region: "us-east-1", secret_access_key: "secret"])
+      end
+    end
+
+    test "rejects unknown aws config keys" do
+      assert_raise ArgumentError, ~r/unknown keys \[:endpoint\] in aws config/, fn ->
+        Ctx.new(
+          aws: [
+            region: "us-east-1",
+            access_key_id: "access",
+            secret_access_key: "secret",
+            endpoint: "http://localhost:9000"
+          ]
+        )
+      end
+    end
   end
 
   describe "check_network_access/3" do
@@ -70,13 +101,13 @@ defmodule Pyex.CtxTest do
       assert Ctx.check_deadline(ctx) == :ok
     end
 
-    test "timeout is set from timeout_ms" do
-      ctx = Ctx.new(timeout_ms: 5000)
+    test "timeout is set from timeout" do
+      ctx = Ctx.new(timeout: 5000)
       assert ctx.timeout == 5000
     end
 
     test "check_deadline returns :ok within budget" do
-      ctx = Ctx.new(timeout_ms: 5000)
+      ctx = Ctx.new(timeout: 5000)
       assert Ctx.check_deadline(ctx) == :ok
     end
 
@@ -91,7 +122,7 @@ defmodule Pyex.CtxTest do
     end
 
     test "pause_compute and resume_compute exclude I/O time" do
-      ctx = Ctx.new(timeout_ms: 5000)
+      ctx = Ctx.new(timeout: 5000)
       paused = Ctx.pause_compute(ctx)
       assert paused.compute_started_at == nil
       assert paused.compute > 0 or true
@@ -100,14 +131,14 @@ defmodule Pyex.CtxTest do
     end
 
     test "compute_time tracks accumulated compute time" do
-      ctx = Ctx.new(timeout_ms: 5000)
+      ctx = Ctx.new(timeout: 5000)
       Process.sleep(5)
       ms = Ctx.compute_time(ctx)
       assert ms >= 0
     end
 
     test "while True loop is killed by timeout" do
-      ctx = Ctx.new(timeout_ms: 50)
+      ctx = Ctx.new(timeout: 50)
 
       code = """
       x = 0
@@ -120,7 +151,7 @@ defmodule Pyex.CtxTest do
     end
 
     test "for loop is killed by timeout" do
-      ctx = Ctx.new(timeout_ms: 50)
+      ctx = Ctx.new(timeout: 50)
 
       code = """
       x = 0
@@ -133,7 +164,7 @@ defmodule Pyex.CtxTest do
     end
 
     test "normal program completes within timeout" do
-      ctx = Ctx.new(timeout_ms: 5000)
+      ctx = Ctx.new(timeout: 5000)
 
       code = """
       total = 0

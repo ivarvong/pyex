@@ -132,7 +132,7 @@ defmodule Pyex.ReadmeTest do
                  while True:
                      x = 1
                  """,
-                 timeout_ms: 50
+                 timeout: 50
                )
     end
   end
@@ -203,7 +203,7 @@ defmodule Pyex.ReadmeTest do
 
     test "timeout error" do
       assert {:error, %Error{kind: :timeout}} =
-               Pyex.run("while True:\n    x = 1", timeout_ms: 50)
+               Pyex.run("while True:\n    x = 1", timeout: 50)
     end
 
     test "import error" do
