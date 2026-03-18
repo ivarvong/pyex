@@ -6,7 +6,7 @@ defmodule Pyex.Interpreter.Collections do
   so the main interpreter can stay focused on dispatch.
   """
 
-  alias Pyex.{Ctx, Env, Interpreter, Parser}
+  alias Pyex.{Ctx, Env, Interpreter, Parser, PyDict}
   alias Pyex.Interpreter.{ControlFlow, Helpers}
 
   @typep eval_result :: {Interpreter.pyvalue() | tuple(), Env.t(), Ctx.t()}
@@ -31,8 +31,12 @@ defmodule Pyex.Interpreter.Collections do
   @spec eval_list_literal([Parser.ast_node()], Env.t(), Ctx.t()) :: eval_result()
   def eval_list_literal(elements, env, ctx) do
     case Interpreter.eval_list(elements, env, ctx) do
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-      {values, env, ctx} -> {{:py_list, values, length(values)}, env, ctx}
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {values, env, ctx} ->
+        {ref, ctx} = Ctx.heap_alloc(ctx, {:py_list, values, length(values)})
+        {ref, env, ctx}
     end
   end
 
@@ -42,7 +46,14 @@ defmodule Pyex.Interpreter.Collections do
   @spec eval_dict_literal([{Parser.ast_node(), Parser.ast_node()}], Env.t(), Ctx.t()) ::
           eval_result()
   def eval_dict_literal(entries, env, ctx) do
-    eval_dict(entries, env, ctx)
+    case eval_dict(entries, env, ctx) do
+      {{:exception, _}, _, _} = result ->
+        result
+
+      {dict, env, ctx} ->
+        {ref, ctx} = Ctx.heap_alloc(ctx, dict)
+        {ref, env, ctx}
+    end
   end
 
   @doc """
@@ -51,8 +62,12 @@ defmodule Pyex.Interpreter.Collections do
   @spec eval_set_literal([Parser.ast_node()], Env.t(), Ctx.t()) :: eval_result()
   def eval_set_literal(elements, env, ctx) do
     case Interpreter.eval_list(elements, env, ctx) do
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-      {values, env, ctx} -> {{:set, MapSet.new(values)}, env, ctx}
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {values, env, ctx} ->
+        {ref, ctx} = Ctx.heap_alloc(ctx, {:set, MapSet.new(values)})
+        {ref, env, ctx}
     end
   end
 
@@ -64,7 +79,8 @@ defmodule Pyex.Interpreter.Collections do
     case eval_comp_clauses(:list, expr, clauses, [], env, ctx) do
       {result, env, ctx} when is_list(result) ->
         items = Enum.reverse(result)
-        {{:py_list, Enum.reverse(items), length(items)}, env, ctx}
+        {ref, ctx} = Ctx.heap_alloc(ctx, {:py_list, Enum.reverse(items), length(items)})
+        {ref, env, ctx}
 
       other ->
         other
@@ -88,7 +104,14 @@ defmodule Pyex.Interpreter.Collections do
   @spec eval_dict_comp(Parser.ast_node(), Parser.ast_node(), [comp_clause()], Env.t(), Ctx.t()) ::
           eval_result()
   def eval_dict_comp(key_expr, val_expr, clauses, env, ctx) do
-    eval_comp_clauses(:dict, {key_expr, val_expr}, clauses, %{}, env, ctx)
+    case eval_comp_clauses(:dict, {key_expr, val_expr}, clauses, PyDict.new(), env, ctx) do
+      {{:exception, _}, _, _} = result ->
+        result
+
+      {dict, env, ctx} ->
+        {ref, ctx} = Ctx.heap_alloc(ctx, dict)
+        {ref, env, ctx}
+    end
   end
 
   @doc """
@@ -97,8 +120,12 @@ defmodule Pyex.Interpreter.Collections do
   @spec eval_set_comp(Parser.ast_node(), [comp_clause()], Env.t(), Ctx.t()) :: eval_result()
   def eval_set_comp(expr, clauses, env, ctx) do
     case eval_comp_clauses(:set, expr, clauses, MapSet.new(), env, ctx) do
-      {{:exception, _}, _, _} = result -> result
-      {set, env, ctx} -> {{:set, set}, env, ctx}
+      {{:exception, _}, _, _} = result ->
+        result
+
+      {set, env, ctx} ->
+        {ref, ctx} = Ctx.heap_alloc(ctx, {:set, set})
+        {ref, env, ctx}
     end
   end
 
@@ -106,7 +133,7 @@ defmodule Pyex.Interpreter.Collections do
           :list | :dict | :set,
           Parser.ast_node() | {Parser.ast_node(), Parser.ast_node()},
           [comp_clause()],
-          [Interpreter.pyvalue()] | map() | MapSet.t(),
+          [Interpreter.pyvalue()] | map() | MapSet.t() | PyDict.t(),
           Env.t(),
           Ctx.t()
         ) :: eval_result()
@@ -126,7 +153,7 @@ defmodule Pyex.Interpreter.Collections do
       {key, env, ctx} ->
         case Interpreter.eval(val_expr, env, ctx) do
           {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-          {val, env, ctx} -> {Map.put(acc, key, val), env, ctx}
+          {val, env, ctx} -> {PyDict.put(acc, key, val), env, ctx}
         end
     end
   end
@@ -183,7 +210,7 @@ defmodule Pyex.Interpreter.Collections do
           String.t() | [String.t()],
           [Interpreter.pyvalue()],
           [comp_clause()],
-          [Interpreter.pyvalue()] | map() | MapSet.t(),
+          [Interpreter.pyvalue()] | map() | MapSet.t() | PyDict.t(),
           Env.t(),
           Ctx.t()
         ) :: eval_result()
@@ -224,19 +251,23 @@ defmodule Pyex.Interpreter.Collections do
 
   @spec eval_dict([{Parser.ast_node(), Parser.ast_node()}], Env.t(), Ctx.t()) :: eval_result()
   defp eval_dict(entries, env, ctx) do
-    Enum.reduce_while(entries, {%{}, env, ctx}, fn {key_expr, val_expr}, {map, env, ctx} ->
+    Enum.reduce_while(entries, {PyDict.new(), env, ctx}, fn {key_expr, val_expr},
+                                                            {map, env, ctx} ->
       case Interpreter.eval(key_expr, env, ctx) do
         {{:exception, _} = signal, env, ctx} ->
           {:halt, {signal, env, ctx}}
 
         {key, env, ctx} ->
-          if unhashable?(key) do
+          derefed_key = Ctx.deref(ctx, key)
+
+          if unhashable?(derefed_key) do
             {:halt,
-             {{:exception, "TypeError: unhashable type: '#{Helpers.py_type(key)}'"}, env, ctx}}
+             {{:exception, "TypeError: unhashable type: '#{Helpers.py_type(derefed_key)}'"}, env,
+              ctx}}
           else
             case Interpreter.eval(val_expr, env, ctx) do
               {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
-              {val, env, ctx} -> {:cont, {Map.put(map, key, val), env, ctx}}
+              {val, env, ctx} -> {:cont, {PyDict.put(map, key, val), env, ctx}}
             end
           end
       end

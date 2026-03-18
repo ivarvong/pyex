@@ -85,7 +85,8 @@ defmodule Pyex.Interpreter.Exceptions do
                 {{:exception, msg}, env, ctx}
 
               {instance, env, ctx} ->
-                ctx = %{ctx | exception_instance: instance}
+                derefed = Ctx.deref(ctx, instance)
+                ctx = %{ctx | exception_instance: derefed}
                 {{:exception, msg}, env, ctx}
             end
         end

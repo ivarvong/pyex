@@ -8,7 +8,7 @@ defmodule Pyex.Interpreter.Helpers do
   not depend on the interpreter's evaluation loop.
   """
 
-  alias Pyex.{Builtins, Ctx, Env, Parser}
+  alias Pyex.{Builtins, Ctx, Env, Parser, PyDict}
 
   @doc """
   Returns the Python type name for a runtime value.
@@ -25,6 +25,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type(nil), do: "NoneType"
   def py_type({:py_list, _, _}), do: "list"
   def py_type(val) when is_list(val), do: "list"
+  def py_type({:py_dict, _, _}), do: "dict"
   def py_type(val) when is_map(val), do: "dict"
   def py_type({:tuple, _}), do: "tuple"
   def py_type({:set, _}), do: "set"
@@ -46,6 +47,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:pandas_rolling, _, _}), do: "Rolling"
   def py_type({:pandas_dataframe, _}), do: "DataFrame"
   def py_type({:pyex_decimal, _}), do: "Decimal"
+  def py_type({:ref, _}), do: "ref"
   def py_type(_), do: "object"
 
   @doc """
@@ -61,7 +63,23 @@ defmodule Pyex.Interpreter.Helpers do
   def py_str(:neg_infinity), do: "-inf"
   def py_str(:nan), do: "nan"
   def py_str(val) when is_float(val), do: Float.to_string(val)
+
+  def py_str({:py_list, reversed, _len}) do
+    "[" <> (reversed |> Enum.reverse() |> Enum.map_join(", ", &py_repr_fmt/1)) <> "]"
+  end
+
   def py_str(val) when is_list(val), do: "[" <> Enum.map_join(val, ", ", &py_repr_fmt/1) <> "]"
+
+  def py_str({:py_dict, _, _} = dict) do
+    visible = Builtins.visible_dict(dict)
+
+    inner =
+      Enum.map_join(PyDict.items(visible), ", ", fn {k, v} ->
+        py_repr_fmt(k) <> ": " <> py_repr_fmt(v)
+      end)
+
+    "{" <> inner <> "}"
+  end
 
   def py_str(val) when is_map(val) do
     visible = Builtins.visible_dict(val)
@@ -105,6 +123,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_str({:generator, _}), do: "<generator object>"
   def py_str({:generator_error, _, _}), do: "<generator object>"
   def py_str({:iterator, _}), do: "<iterator object>"
+  def py_str({:ref, _}), do: "<ref>"
   def py_str(_), do: "<object>"
 
   @doc """
@@ -144,6 +163,8 @@ defmodule Pyex.Interpreter.Helpers do
   def truthy?(""), do: false
   def truthy?([]), do: false
   def truthy?({:py_list, _, 0}), do: false
+  def truthy?({:py_dict, map, _}) when map == %{}, do: false
+  def truthy?({:py_dict, _, _}), do: true
   def truthy?(map) when map == %{}, do: false
   def truthy?({:tuple, []}), do: false
   def truthy?({:set, s}), do: MapSet.size(s) > 0
@@ -153,6 +174,7 @@ defmodule Pyex.Interpreter.Helpers do
   def truthy?({:range, start, stop, step}),
     do: Builtins.range_length({:range, start, stop, step}) > 0
 
+  def truthy?({:ref, _}), do: true
   def truthy?(_), do: true
 
   @doc """
@@ -198,6 +220,10 @@ defmodule Pyex.Interpreter.Helpers do
   def to_python_view({:instance, class, fields}), do: {:instance, class, fields}
   def to_python_view({:iterator, _} = it), do: it
   def to_python_view(list) when is_list(list), do: Enum.map(list, &to_python_view/1)
+
+  def to_python_view({:py_dict, _, _} = dict) do
+    Map.new(PyDict.items(dict), fn {k, v} -> {to_python_view(k), to_python_view(v)} end)
+  end
 
   def to_python_view(map) when is_map(map),
     do: Map.new(map, fn {k, v} -> {k, to_python_view(v)} end)

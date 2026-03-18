@@ -1,0 +1,80 @@
+{
+  "https://example.com/": {
+    "status": 200,
+    "content_type": "text/html",
+    "body": "<html><head><title>Home</title></head><body><a href=\"/about\">About</a> <a href=\"/blog\">Blog</a> <a href=\"https://external.com\">Ext</a> <a href=\"/about#section\">About Sec</a></body></html>",
+    "headers": {"content-type": "text/html; charset=utf-8", "x-robots-tag": "index, follow"}
+  },
+  "https://example.com/about": {
+    "status": 200,
+    "content_type": "text/html",
+    "body": "<html><head><title>About Us</title><meta name=\"robots\" content=\"noindex\"></head><body><a href=\"/\">Home</a> <a href=\"/team\">Team</a> <a href=\"/about\">Self</a></body></html>",
+    "headers": {"content-type": "text/html; charset=utf-8"}
+  },
+  "https://example.com/blog": {
+    "status": 200,
+    "content_type": "text/html",
+    "body": "<html><head><title>Blog</title></head><body><a href=\"/blog/post-1\">Post 1</a> <a href=\"/blog/post-2\">Post 2</a> <a href=\"/blog/post-3\">Post 3</a> <a href=\"/\">Home</a></body></html>",
+    "headers": {"content-type": "text/html; charset=utf-8"}
+  },
+  "https://example.com/blog/post-1": {
+    "status": 200,
+    "content_type": "text/html",
+    "body": "<html><head><title>First Post</title></head><body><p>Hello world</p><a href=\"/blog\">Back</a> <a href=\"/blog/post-2\">Next</a></body></html>",
+    "headers": {"content-type": "text/html; charset=utf-8"}
+  },
+  "https://example.com/blog/post-2": {
+    "status": 301,
+    "content_type": "text/html",
+    "body": "",
+    "headers": {"location": "https://example.com/blog/post-2-updated", "content-type": "text/html"}
+  },
+  "https://example.com/blog/post-2-updated": {
+    "status": 200,
+    "content_type": "text/html",
+    "body": "<html><head><title>Second Post (Updated)</title></head><body><p>Updated content</p><a href=\"/blog\">Back</a> <a href=\"/assets/image.png\">Image</a></body></html>",
+    "headers": {"content-type": "text/html; charset=utf-8"}
+  },
+  "https://example.com/blog/post-3": {
+    "status": 404,
+    "content_type": "text/html",
+    "body": "<html><head><title>Not Found</title></head><body>Gone</body></html>",
+    "headers": {"content-type": "text/html; charset=utf-8"}
+  },
+  "https://example.com/team": {
+    "status": 200,
+    "content_type": "text/html",
+    "body": "<html><head><title>Team</title></head><body><a href=\"/about\">About</a> <a href=\"/team/alice\">Alice</a> <a href=\"/team/bob\">Bob</a></body></html>",
+    "headers": {"content-type": "text/html; charset=utf-8"}
+  },
+  "https://example.com/team/alice": {
+    "status": 200,
+    "content_type": "text/html",
+    "body": "<html><head><title>Alice</title></head><body><a href=\"/team\">Team</a> <a href=\"mailto:alice@example.com\">Email</a></body></html>",
+    "headers": {"content-type": "text/html; charset=utf-8"}
+  },
+  "https://example.com/team/bob": {
+    "status": 200,
+    "content_type": "text/html",
+    "body": "<html><head><title>Bob</title></head><body><a href=\"/team\">Team</a> <a href=\"/hidden/admin\">Admin</a></body></html>",
+    "headers": {"content-type": "text/html; charset=utf-8"}
+  },
+  "https://example.com/hidden/admin": {
+    "status": 403,
+    "content_type": "text/html",
+    "body": "<html><head><title>Forbidden</title></head><body>Access denied</body></html>",
+    "headers": {"content-type": "text/html; charset=utf-8"}
+  },
+  "https://example.com/assets/image.png": {
+    "status": 200,
+    "content_type": "image/png",
+    "body": "(binary data)",
+    "headers": {"content-type": "image/png"}
+  },
+  "https://example.com/robots.txt": {
+    "status": 200,
+    "content_type": "text/plain",
+    "body": "User-agent: *\nDisallow: /hidden/\nAllow: /\n\nSitemap: https://example.com/sitemap.xml",
+    "headers": {"content-type": "text/plain"}
+  }
+}

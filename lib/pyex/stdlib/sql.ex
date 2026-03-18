@@ -15,6 +15,8 @@ defmodule Pyex.Stdlib.Sql do
 
   @behaviour Pyex.Stdlib.Module
 
+  alias Pyex.PyDict
+
   @doc """
   Returns the module value -- a map with callable attributes.
   """
@@ -200,11 +202,12 @@ defmodule Pyex.Stdlib.Sql do
   defp to_pg(false), do: false
   defp to_pg(val), do: to_string(val)
 
-  @spec row_to_dict([String.t()], [term()]) :: %{String.t() => Pyex.Interpreter.pyvalue()}
+  @spec row_to_dict([String.t()], [term()]) :: PyDict.t()
   defp row_to_dict(columns, values) do
     columns
     |> Enum.zip(values)
-    |> Map.new(fn {col, val} -> {col, from_pg(val)} end)
+    |> Enum.map(fn {col, val} -> {col, from_pg(val)} end)
+    |> PyDict.from_pairs()
   end
 
   @spec from_pg(term()) :: Pyex.Interpreter.pyvalue()
@@ -236,8 +239,10 @@ defmodule Pyex.Stdlib.Sql do
   defp from_pg(list) when is_list(list), do: Enum.map(list, &from_pg/1)
   defp from_pg(%Postgrex.INET{address: addr}), do: :inet.ntoa(addr) |> to_string()
 
-  defp from_pg(val) when is_map(val),
-    do: Map.new(val, fn {k, v} -> {to_string(k), from_pg(v)} end)
+  defp from_pg(val) when is_map(val) do
+    pairs = Enum.map(val, fn {k, v} -> {to_string(k), from_pg(v)} end)
+    PyDict.from_pairs(pairs)
+  end
 
   defp from_pg(val), do: to_string(val)
 end

@@ -1,0 +1,11 @@
+{
+  "error": null,
+  "files": {
+    "report.json": "{\n  \"count\": 5,\n  \"average\": 89.6,\n  \"highest\": 96,\n  \"lowest\": 78,\n  \"rankings\": [\n    {\n      \"name\": \"Eve\",\n      \"score\": 96\n    },\n    {\n      \"name\": \"Alice\",\n      \"score\": 95\n    },\n    {\n      \"name\": \"Charlie\",\n      \"score\": 92\n    },\n    {\n      \"name\": \"Bob\",\n      \"score\": 87\n    },\n    {\n      \"name\": \"Diana\",\n      \"score\": 78\n    }\n  ]\n}"
+  },
+  "python_version": "3.14.2",
+  "recorded_at": "2026-03-17T18:14:22.634069Z",
+  "sha256": "7274f885115b5afeee59f63ac746987f79819e16155cbc5dd587367d78cecfd5",
+  "source_file": "main.py",
+  "stdout": "Student Report (5 students)\nAverage: 89.6\nHighest: 96\nLowest: 78\n\nRankings:\n  1. Eve: 96\n  2. Alice: 95\n  3. Charlie: 92\n  4. Bob: 87\n  5. Diana: 78\n"
+}

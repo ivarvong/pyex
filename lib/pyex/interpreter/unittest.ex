@@ -115,6 +115,8 @@ defmodule Pyex.Interpreter.Unittest do
           {{:exception, _} = signal, _env, ctx} -> {signal, env, ctx}
           {:mutate, _updated_self, {:exception, _} = signal, _env, ctx} -> {signal, env, ctx}
           {:mutate, updated_self, _val, new_env, ctx} -> {updated_self, new_env, ctx}
+          {_val, new_env, ctx} -> {instance, new_env, ctx}
+          {_val, new_env, ctx, _updated_func} -> {instance, new_env, ctx}
         end
 
       _ ->
@@ -130,6 +132,8 @@ defmodule Pyex.Interpreter.Unittest do
         case Interpreter.call_function({:bound_method, instance, func}, [], %{}, env, ctx) do
           {{:exception, _}, _env, ctx} -> {instance, env, ctx}
           {:mutate, updated_self, _val, new_env, ctx} -> {updated_self, new_env, ctx}
+          {_val, new_env, ctx} -> {instance, new_env, ctx}
+          {_val, new_env, ctx, _updated_func} -> {instance, new_env, ctx}
         end
 
       _ ->
@@ -157,6 +161,12 @@ defmodule Pyex.Interpreter.Unittest do
 
           {:mutate, _updated_self, _return_val, new_env, ctx} ->
             {:ok, new_env, ctx}
+
+          {_return_val, new_env, ctx} ->
+            {:ok, new_env, ctx}
+
+          {_return_val, new_env, ctx, _updated_func} ->
+            {:ok, new_env, ctx}
         end
 
       _ ->
@@ -173,15 +183,15 @@ defmodule Pyex.Interpreter.Unittest do
       Enum.reduce(results, ctx, fn {class_name, method_name, result}, ctx ->
         case result do
           :ok ->
-            Ctx.record(ctx, :output, "#{method_name} (#{class_name}) ... ok")
+            Ctx.record(ctx, :output, "#{method_name} (#{class_name}) ... ok\n")
 
           {:fail, msg} ->
-            ctx = Ctx.record(ctx, :output, "#{method_name} (#{class_name}) ... FAIL")
-            Ctx.record(ctx, :output, "  #{msg}")
+            ctx = Ctx.record(ctx, :output, "#{method_name} (#{class_name}) ... FAIL\n")
+            Ctx.record(ctx, :output, "  #{msg}\n")
 
           {:error, msg} ->
-            ctx = Ctx.record(ctx, :output, "#{method_name} (#{class_name}) ... ERROR")
-            Ctx.record(ctx, :output, "  #{msg}")
+            ctx = Ctx.record(ctx, :output, "#{method_name} (#{class_name}) ... ERROR\n")
+            Ctx.record(ctx, :output, "  #{msg}\n")
         end
       end)
 
@@ -189,20 +199,20 @@ defmodule Pyex.Interpreter.Unittest do
     failures = Enum.count(results, fn {_, _, r} -> match?({:fail, _}, r) end)
     errors = Enum.count(results, fn {_, _, r} -> match?({:error, _}, r) end)
 
-    ctx = Ctx.record(ctx, :output, "")
+    ctx = Ctx.record(ctx, :output, "\n")
 
     ctx =
       Ctx.record(
         ctx,
         :output,
-        "----------------------------------------------------------------------"
+        "----------------------------------------------------------------------\n"
       )
 
-    ctx = Ctx.record(ctx, :output, "Ran #{total} test#{if total != 1, do: "s", else: ""}")
-    ctx = Ctx.record(ctx, :output, "")
+    ctx = Ctx.record(ctx, :output, "Ran #{total} test#{if total != 1, do: "s", else: ""}\n")
+    ctx = Ctx.record(ctx, :output, "\n")
 
     if failures == 0 and errors == 0 do
-      Ctx.record(ctx, :output, "OK")
+      Ctx.record(ctx, :output, "OK\n")
     else
       parts =
         [
@@ -211,7 +221,7 @@ defmodule Pyex.Interpreter.Unittest do
         ]
         |> Enum.reject(&is_nil/1)
 
-      Ctx.record(ctx, :output, "FAILED (#{Enum.join(parts, ", ")})")
+      Ctx.record(ctx, :output, "FAILED (#{Enum.join(parts, ", ")})\n")
     end
   end
 

@@ -2,7 +2,7 @@ defmodule Pyex.Stdlib.Re do
   @moduledoc """
   Python `re` module backed by Elixir's `Regex`.
 
-  Provides `match`, `search`, `findall`, `sub`, `split`,
+  Provides `match`, `search`, `findall`, `finditer`, `sub`, `split`,
   and `compile`.
   """
 
@@ -20,6 +20,7 @@ defmodule Pyex.Stdlib.Re do
       "match" => {:builtin, &do_match/1},
       "search" => {:builtin, &do_search/1},
       "findall" => {:builtin, &do_findall/1},
+      "finditer" => {:builtin, &do_finditer/1},
       "sub" => {:builtin, &do_sub/1},
       "split" => {:builtin, &do_split/1},
       "compile" => {:builtin, &do_compile/1},
@@ -36,10 +37,15 @@ defmodule Pyex.Stdlib.Re do
 
     case Regex.compile(anchored) do
       {:ok, re} ->
-        case safe_regex(fn -> Regex.run(re, string) end) do
-          {:ok, nil} -> nil
-          {:ok, [match | groups]} -> make_match_object(match, groups)
-          {:exception, _} = err -> err
+        case safe_regex(fn -> Regex.run(re, string, return: :index) end) do
+          {:ok, nil} ->
+            nil
+
+          {:ok, indices} ->
+            make_match_object(re, string, indices)
+
+          {:exception, _} = err ->
+            err
         end
 
       {:error, {msg, _}} ->
@@ -52,10 +58,15 @@ defmodule Pyex.Stdlib.Re do
   defp do_search([pattern, string]) when is_binary(pattern) and is_binary(string) do
     case Regex.compile(pattern) do
       {:ok, re} ->
-        case safe_regex(fn -> Regex.run(re, string) end) do
-          {:ok, nil} -> nil
-          {:ok, [match | groups]} -> make_match_object(match, groups)
-          {:exception, _} = err -> err
+        case safe_regex(fn -> Regex.run(re, string, return: :index) end) do
+          {:ok, nil} ->
+            nil
+
+          {:ok, indices} ->
+            make_match_object(re, string, indices)
+
+          {:exception, _} = err ->
+            err
         end
 
       {:error, {msg, _}} ->
@@ -91,6 +102,38 @@ defmodule Pyex.Stdlib.Re do
               [_full | [single]] -> single
               [_full | groups] -> {:tuple, groups}
             end)
+
+          {:exception, _} = err ->
+            err
+        end
+
+      {:error, {msg, _}} ->
+        {:exception, "re.error: #{msg}"}
+    end
+  end
+
+  @spec do_finditer([Pyex.Interpreter.pyvalue()]) ::
+          {:generator, [map()]} | {:exception, String.t()}
+  defp do_finditer([pattern, string]) when is_binary(pattern) and is_binary(string) do
+    do_finditer_with_flags(pattern, string, 0)
+  end
+
+  defp do_finditer([pattern, string, flags])
+       when is_binary(pattern) and is_binary(string) and is_integer(flags) do
+    do_finditer_with_flags(pattern, string, flags)
+  end
+
+  @spec do_finditer_with_flags(String.t(), String.t(), integer()) ::
+          {:generator, [map()]} | {:exception, String.t()}
+  defp do_finditer_with_flags(pattern, string, flags) do
+    opts = flags_to_regex_opts(flags)
+
+    case Regex.compile(pattern, opts) do
+      {:ok, re} ->
+        case safe_regex(fn -> Regex.scan(re, string, return: :index) end) do
+          {:ok, results} ->
+            match_objects = Enum.map(results, &make_match_object(re, string, &1))
+            {:generator, match_objects}
 
           {:exception, _} = err ->
             err
@@ -168,9 +211,9 @@ defmodule Pyex.Stdlib.Re do
 
              case Regex.compile(anchored) do
                {:ok, anchored_re} ->
-                 case safe_regex(fn -> Regex.run(anchored_re, string) end) do
+                 case safe_regex(fn -> Regex.run(anchored_re, string, return: :index) end) do
                    {:ok, nil} -> nil
-                   {:ok, [match | groups]} -> make_match_object(match, groups)
+                   {:ok, indices} -> make_match_object(anchored_re, string, indices)
                    {:exception, _} = err -> err
                  end
 
@@ -182,9 +225,9 @@ defmodule Pyex.Stdlib.Re do
         {:builtin,
          fn
            [string] when is_binary(string) ->
-             case safe_regex(fn -> Regex.run(re, string) end) do
+             case safe_regex(fn -> Regex.run(re, string, return: :index) end) do
                {:ok, nil} -> nil
-               {:ok, [match | groups]} -> make_match_object(match, groups)
+               {:ok, indices} -> make_match_object(re, string, indices)
                {:exception, _} = err -> err
              end
          end},
@@ -204,6 +247,19 @@ defmodule Pyex.Stdlib.Re do
                    [_full | [single]] -> single
                    [_full | groups] -> {:tuple, groups}
                  end)
+
+               {:exception, _} = err ->
+                 err
+             end
+         end},
+      "finditer" =>
+        {:builtin,
+         fn
+           [string] when is_binary(string) ->
+             case safe_regex(fn -> Regex.scan(re, string, return: :index) end) do
+               {:ok, results} ->
+                 match_objects = Enum.map(results, &make_match_object(re, string, &1))
+                 {:generator, match_objects}
 
                {:exception, _} = err ->
                  err
@@ -242,16 +298,135 @@ defmodule Pyex.Stdlib.Re do
     end
   end
 
-  @spec make_match_object(String.t(), [String.t()]) :: map()
-  defp make_match_object(full_match, groups) do
+  @spec byte_offset_to_codepoint(String.t(), non_neg_integer()) :: non_neg_integer()
+  defp byte_offset_to_codepoint(string, byte_offset) do
+    string
+    |> binary_part(0, byte_offset)
+    |> String.length()
+  end
+
+  @spec extract_match_text(String.t(), {non_neg_integer(), non_neg_integer()}) :: String.t()
+  defp extract_match_text(string, {byte_start, byte_len}) do
+    binary_part(string, byte_start, byte_len)
+  end
+
+  @spec names_in_pattern_order(Regex.t()) :: [String.t()]
+  defp names_in_pattern_order(re) do
+    source = Regex.source(re)
+
+    ~r/\(\?P?<([^>]+)>/
+    |> Regex.scan(source)
+    |> Enum.map(fn [_, name] -> name end)
+  end
+
+  @spec make_match_object(Regex.t(), String.t(), [{non_neg_integer(), non_neg_integer()}]) ::
+          map()
+  defp make_match_object(re, string, indices) do
+    [{full_byte_start, full_byte_len} | group_indices] = indices
+    full_match = extract_match_text(string, {full_byte_start, full_byte_len})
+
+    groups =
+      Enum.map(group_indices, fn
+        {-1, 0} -> nil
+        {s, l} -> extract_match_text(string, {s, l})
+      end)
+
+    ordered_names = names_in_pattern_order(re)
+
+    named_map =
+      ordered_names
+      |> Enum.with_index()
+      |> Enum.reduce(%{}, fn {name, idx}, acc ->
+        Map.put(acc, name, Enum.at(groups, idx))
+      end)
+
+    last_group =
+      ordered_names
+      |> Enum.with_index()
+      |> Enum.reverse()
+      |> Enum.find_value(fn {name, idx} ->
+        if Enum.at(groups, idx) != nil, do: name
+      end)
+
+    full_cp_start = byte_offset_to_codepoint(string, full_byte_start)
+    full_cp_end = byte_offset_to_codepoint(string, full_byte_start + full_byte_len)
+
+    group_cp_positions =
+      Enum.map(group_indices, fn
+        {-1, 0} -> {nil, nil}
+        {s, l} -> {byte_offset_to_codepoint(string, s), byte_offset_to_codepoint(string, s + l)}
+      end)
+
     %{
       "group" =>
         {:builtin,
          fn
-           [] -> full_match
-           [0] -> full_match
-           [n] when is_integer(n) and n > 0 -> Enum.at(groups, n - 1)
-         end}
+           [] ->
+             full_match
+
+           [0] ->
+             full_match
+
+           [n] when is_integer(n) and n > 0 ->
+             Enum.at(groups, n - 1)
+
+           [name] when is_binary(name) ->
+             case Map.fetch(named_map, name) do
+               {:ok, value} -> value
+               :error -> {:exception, "IndexError: no such group '#{name}'"}
+             end
+         end},
+      "start" =>
+        {:builtin,
+         fn
+           [] ->
+             full_cp_start
+
+           [0] ->
+             full_cp_start
+
+           [n] when is_integer(n) and n > 0 ->
+             case Enum.at(group_cp_positions, n - 1) do
+               {s, _} -> s
+               nil -> {:exception, "IndexError: no such group #{n}"}
+             end
+         end},
+      "end" =>
+        {:builtin,
+         fn
+           [] ->
+             full_cp_end
+
+           [0] ->
+             full_cp_end
+
+           [n] when is_integer(n) and n > 0 ->
+             case Enum.at(group_cp_positions, n - 1) do
+               {_, e} -> e
+               nil -> {:exception, "IndexError: no such group #{n}"}
+             end
+         end},
+      "span" =>
+        {:builtin,
+         fn
+           [] ->
+             {:tuple, [full_cp_start, full_cp_end]}
+
+           [0] ->
+             {:tuple, [full_cp_start, full_cp_end]}
+
+           [n] when is_integer(n) and n > 0 ->
+             case Enum.at(group_cp_positions, n - 1) do
+               {s, e} -> {:tuple, [s, e]}
+               nil -> {:exception, "IndexError: no such group #{n}"}
+             end
+         end},
+      "groups" =>
+        {:builtin,
+         fn
+           [] -> {:tuple, groups}
+         end},
+      "lastgroup" => last_group
     }
   end
 end

@@ -61,7 +61,7 @@ defmodule Pyex.ReadmeTest do
   describe "API: output/1" do
     test "extracts print output from ctx" do
       {:ok, _val, ctx} = Pyex.run("print('hello')")
-      assert "hello" = Pyex.output(ctx)
+      assert "hello\n" = Pyex.output(ctx)
     end
   end
 
@@ -246,7 +246,7 @@ defmodule Pyex.ReadmeTest do
   describe "print output" do
     test "for loop with print produces 0\\n1\\n2" do
       {:ok, _val, ctx} = Pyex.run("for i in range(3):\n    print(i)")
-      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "0\n1\n2"
+      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "0\n1\n2\n"
     end
   end
 

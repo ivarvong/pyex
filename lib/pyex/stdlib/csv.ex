@@ -20,6 +20,8 @@ defmodule Pyex.Stdlib.Csv do
 
   @behaviour Pyex.Stdlib.Module
 
+  alias Pyex.PyDict
+
   @quote_minimal 0
   @quote_all 1
   @quote_nonnumeric 2
@@ -208,24 +210,23 @@ defmodule Pyex.Stdlib.Csv do
           [String.t()],
           Pyex.Interpreter.pyvalue(),
           Pyex.Interpreter.pyvalue()
-        ) ::
-          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: PyDict.t()
   defp row_to_dict(headers, fields, restkey, restval) do
     header_count = length(headers)
     field_count = length(fields)
 
     base =
       Enum.zip(headers, fields)
-      |> Map.new()
+      |> PyDict.from_pairs()
 
     cond do
       field_count > header_count ->
         extra = Enum.drop(fields, header_count)
-        Map.put(base, restkey, extra)
+        PyDict.put(base, restkey, extra)
 
       field_count < header_count ->
         missing_headers = Enum.drop(headers, field_count)
-        Enum.reduce(missing_headers, base, fn h, acc -> Map.put(acc, h, restval) end)
+        Enum.reduce(missing_headers, base, fn h, acc -> PyDict.put(acc, h, restval) end)
 
       true ->
         base
@@ -459,6 +460,29 @@ defmodule Pyex.Stdlib.Csv do
     end
 
     writerow_fn = fn
+      [{:py_dict, _, _} = dict] ->
+        plain = PyDict.to_map(dict)
+
+        case check_extras(plain, fieldnames, extrasaction) do
+          {:exception, _} = err ->
+            err
+
+          :ok ->
+            values =
+              Enum.map(fieldnames, fn name ->
+                Map.get(plain, name, restval)
+              end)
+
+            format_and_maybe_write(
+              values,
+              handle_id,
+              delimiter,
+              quotechar,
+              quoting,
+              lineterminator
+            )
+        end
+
       [%{} = dict] ->
         case check_extras(dict, fieldnames, extrasaction) do
           {:exception, _} = err ->
@@ -493,10 +517,19 @@ defmodule Pyex.Stdlib.Csv do
           |> Enum.map(fn
             {:py_list, _, _} = inner ->
               dict_rows = Pyex.Interpreter.Helpers.to_python_view(inner)
+              plain = dict_to_map(dict_rows)
 
-              case check_extras(dict_rows, fieldnames, extrasaction) do
+              case check_extras(plain, fieldnames, extrasaction) do
                 {:exception, _} = err -> err
-                :ok -> Enum.map(fieldnames, fn name -> Map.get(dict_rows, name, restval) end)
+                :ok -> Enum.map(fieldnames, fn name -> Map.get(plain, name, restval) end)
+              end
+
+            {:py_dict, _, _} = dict ->
+              plain = PyDict.to_map(dict)
+
+              case check_extras(plain, fieldnames, extrasaction) do
+                {:exception, _} = err -> err
+                :ok -> Enum.map(fieldnames, fn name -> Map.get(plain, name, restval) end)
               end
 
             %{} = dict ->
@@ -540,6 +573,19 @@ defmodule Pyex.Stdlib.Csv do
         result =
           rows
           |> Enum.map(fn
+            {:py_dict, _, _} = dict ->
+              plain = PyDict.to_map(dict)
+
+              case check_extras(plain, fieldnames, extrasaction) do
+                {:exception, _} = err ->
+                  err
+
+                :ok ->
+                  Enum.map(fieldnames, fn name ->
+                    Map.get(plain, name, restval)
+                  end)
+              end
+
             %{} = dict ->
               case check_extras(dict, fieldnames, extrasaction) do
                 {:exception, _} = err ->
@@ -808,4 +854,9 @@ defmodule Pyex.Stdlib.Csv do
       nil -> results
     end
   end
+
+  @spec dict_to_map(Pyex.Interpreter.pyvalue()) :: map()
+  defp dict_to_map({:py_dict, _, _} = dict), do: PyDict.to_map(dict)
+  defp dict_to_map(%{} = map), do: map
+  defp dict_to_map(_), do: %{}
 end

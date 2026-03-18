@@ -22,7 +22,7 @@ defmodule Pyex.Stdlib.Jinja2 do
 
   @behaviour Pyex.Stdlib.Module
 
-  alias Pyex.{Builtins, Ctx, Interpreter}
+  alias Pyex.{Builtins, Ctx, Interpreter, PyDict}
 
   @type token ::
           {:text, String.t()}
@@ -498,7 +498,7 @@ defmodule Pyex.Stdlib.Jinja2 do
   defp eval_ast(ast, env, ctx) do
     case Interpreter.eval(ast, env, ctx) do
       {{:exception, msg}, _env, _ctx} -> {:error, msg}
-      {value, env, ctx} -> {:ok, value, env, ctx}
+      {value, env, ctx} -> {:ok, Ctx.deref(ctx, value), env, ctx}
     end
   end
 
@@ -518,6 +518,7 @@ defmodule Pyex.Stdlib.Jinja2 do
   end
 
   defp to_str(list) when is_list(list), do: inspect(list)
+  defp to_str({:py_dict, _, _} = dict), do: Builtins.py_repr(dict)
   defp to_str(map) when is_map(map), do: inspect(map)
   defp to_str({:tuple, items}), do: "(#{Enum.map_join(items, ", ", &to_str/1)})"
 
@@ -539,6 +540,7 @@ defmodule Pyex.Stdlib.Jinja2 do
   @spec to_list(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]
   defp to_list({:py_list, reversed, _}), do: Enum.reverse(reversed)
   defp to_list(list) when is_list(list), do: list
+  defp to_list({:py_dict, _, _} = dict), do: PyDict.keys(Builtins.visible_dict(dict))
   defp to_list(map) when is_map(map), do: Map.keys(Builtins.visible_dict(map))
   defp to_list({:tuple, items}), do: items
   defp to_list({:set, s}), do: MapSet.to_list(s)
@@ -554,6 +556,8 @@ defmodule Pyex.Stdlib.Jinja2 do
   defp truthy?(""), do: false
   defp truthy?([]), do: false
   defp truthy?({:py_list, _, 0}), do: false
+  defp truthy?({:py_dict, map, _}) when map_size(map) == 0, do: false
+  defp truthy?({:py_dict, _, _}), do: true
   defp truthy?(map) when is_map(map) and map_size(map) == 0, do: false
   defp truthy?(_), do: true
 

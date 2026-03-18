@@ -21,6 +21,8 @@ defmodule Pyex.Stdlib.Pydantic do
 
   @behaviour Pyex.Stdlib.Module
 
+  alias Pyex.PyDict
+
   @impl Pyex.Stdlib.Module
   @spec module_value() :: Pyex.Stdlib.Module.module_value()
   def module_value do
@@ -50,6 +52,10 @@ defmodule Pyex.Stdlib.Pydantic do
   """
   @spec validate_body(Pyex.Interpreter.pyvalue(), map()) ::
           {:ok, Pyex.Interpreter.pyvalue()} | {:error, String.t()}
+  def validate_body(class, {:py_dict, _, _} = data) do
+    validate_body(class, PyDict.to_map(data))
+  end
+
   def validate_body(class, data) when is_map(data) do
     {annotations, defaults, field_constraints} = collect_fields(class)
     kwargs = Map.reject(data, fn {k, _} -> is_binary(k) and String.starts_with?(k, "__") end)
@@ -245,6 +251,9 @@ defmodule Pyex.Stdlib.Pydantic do
 
   defp coerce(value, {:class, _, _, _} = model_class, _class) do
     cond do
+      match?({:py_dict, _, _}, value) ->
+        validate_nested(PyDict.to_map(value), model_class)
+
       is_map(value) and not is_struct(value) ->
         validate_nested(value, model_class)
 
@@ -322,6 +331,7 @@ defmodule Pyex.Stdlib.Pydantic do
 
   defp coerce(value, "Dict[" <> rest, class) do
     trimmed = String.trim_trailing(rest, "]")
+    value = if match?({:py_dict, _, _}, value), do: PyDict.to_map(value), else: value
 
     case String.split(trimmed, ", ", parts: 2) do
       [key_type, val_type] ->
@@ -457,17 +467,17 @@ defmodule Pyex.Stdlib.Pydantic do
       |> filter_fields(include, exclude)
       |> Enum.reject(fn name -> exclude_none and Map.get(attrs, name) == nil end)
 
-    Enum.reduce(fields, %{}, fn name, acc ->
+    Enum.reduce(fields, PyDict.new(), fn name, acc ->
       value = Map.get(attrs, name)
-      Map.put(acc, name, dump_value(value))
+      PyDict.put(acc, name, dump_value(value))
     end)
   end
 
   @spec dump_value(Pyex.Interpreter.pyvalue()) :: Pyex.Interpreter.pyvalue()
   defp dump_value({:instance, class, attrs}) when is_tuple(class) do
     if pydantic_class?(class) do
-      Enum.reduce(attrs, %{}, fn {k, v}, acc ->
-        Map.put(acc, k, dump_value(v))
+      Enum.reduce(attrs, PyDict.new(), fn {k, v}, acc ->
+        PyDict.put(acc, k, dump_value(v))
       end)
     else
       {:instance, class, attrs}
@@ -496,6 +506,12 @@ defmodule Pyex.Stdlib.Pydantic do
           %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
         ) :: Pyex.Interpreter.pyvalue()
   defp model_validate_classmethod(args, _kwargs) do
+    args =
+      case args do
+        [self, {:py_dict, _, _} = dict] -> [self, PyDict.to_map(dict)]
+        other -> other
+      end
+
     case args do
       [self, data] when is_map(data) ->
         class =
@@ -547,7 +563,7 @@ defmodule Pyex.Stdlib.Pydantic do
       {annotations, defaults, field_constraints} = collect_fields(class)
 
       properties =
-        Enum.reduce(annotations, %{}, fn {field_name, type_str}, acc ->
+        Enum.reduce(annotations, PyDict.new(), fn {field_name, type_str}, acc ->
           prop = type_to_json_schema(type_str)
           constraints = Map.get(field_constraints, field_name, %{})
           prop = apply_schema_constraints(prop, constraints)
@@ -558,7 +574,7 @@ defmodule Pyex.Stdlib.Pydantic do
               default -> Map.put(prop, "default", default)
             end
 
-          Map.put(acc, field_name, prop)
+          PyDict.put(acc, field_name, prop)
         end)
 
       required =
@@ -569,13 +585,14 @@ defmodule Pyex.Stdlib.Pydantic do
         |> Enum.map(fn {name, _} -> name end)
         |> Enum.sort()
 
-      schema = %{
-        "title" => name,
-        "type" => "object",
-        "properties" => properties
-      }
+      schema =
+        PyDict.from_pairs([
+          {"title", name},
+          {"type", "object"},
+          {"properties", properties}
+        ])
 
-      if required != [], do: Map.put(schema, "required", required), else: schema
+      if required != [], do: PyDict.put(schema, "required", required), else: schema
     end
   end
 

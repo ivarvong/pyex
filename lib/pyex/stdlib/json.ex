@@ -7,6 +7,8 @@ defmodule Pyex.Stdlib.Json do
 
   @behaviour Pyex.Stdlib.Module
 
+  alias Pyex.PyDict
+
   @max_indent 32
 
   @doc """
@@ -36,7 +38,8 @@ defmodule Pyex.Stdlib.Json do
   end
 
   defp from_json(map) when is_map(map) do
-    Map.new(map, fn {k, v} -> {k, from_json(v)} end)
+    pairs = Enum.map(map, fn {k, v} -> {k, from_json(v)} end)
+    PyDict.from_pairs(pairs)
   end
 
   defp from_json(other), do: other
@@ -47,19 +50,22 @@ defmodule Pyex.Stdlib.Json do
         ) :: String.t() | {:exception, String.t()}
   defp do_dumps([value], kwargs) do
     indent = Map.get(kwargs, "indent")
+    sort_keys = Map.get(kwargs, "sort_keys", false)
+    json_value = to_json(value)
+    json_value = if sort_keys, do: sort_json_keys(json_value), else: json_value
 
     cond do
       is_integer(indent) and indent > @max_indent ->
         {:exception, "ValueError: indent must be <= #{@max_indent}, got #{indent}"}
 
       is_integer(indent) and indent > 0 ->
-        case Jason.encode(to_json(value), pretty: true) do
+        case Jason.encode(json_value, pretty: true) do
           {:ok, json} -> reindent(json, indent)
           {:error, reason} -> encode_error(reason)
         end
 
       true ->
-        case Jason.encode(to_json(value)) do
+        case Jason.encode(json_value) do
           {:ok, json} -> json
           {:error, reason} -> encode_error(reason)
         end
@@ -78,11 +84,35 @@ defmodule Pyex.Stdlib.Json do
   defp to_json({:py_list, reversed, _}), do: reversed |> Enum.reverse() |> Enum.map(&to_json/1)
   defp to_json(list) when is_list(list), do: Enum.map(list, &to_json/1)
 
+  defp to_json({:py_dict, _, _} = dict) do
+    pairs = Enum.map(PyDict.items(dict), fn {k, v} -> {to_json_key(k), to_json(v)} end)
+    %Jason.OrderedObject{values: pairs}
+  end
+
   defp to_json(map) when is_map(map) do
     Map.new(map, fn {k, v} -> {to_json(k), to_json(v)} end)
   end
 
   defp to_json(other), do: other
+
+  @spec to_json_key(Pyex.Interpreter.pyvalue()) :: String.t()
+  defp to_json_key(k) when is_binary(k), do: k
+  defp to_json_key(k) when is_integer(k), do: Integer.to_string(k)
+  defp to_json_key(k) when is_float(k), do: Float.to_string(k)
+  defp to_json_key(k), do: to_string(k)
+
+  @spec sort_json_keys(term()) :: term()
+  defp sort_json_keys(%Jason.OrderedObject{values: pairs}) do
+    sorted = Enum.sort_by(pairs, fn {k, _v} -> k end)
+    %Jason.OrderedObject{values: Enum.map(sorted, fn {k, v} -> {k, sort_json_keys(v)} end)}
+  end
+
+  defp sort_json_keys(%{} = map) do
+    Map.new(map, fn {k, v} -> {k, sort_json_keys(v)} end)
+  end
+
+  defp sort_json_keys(list) when is_list(list), do: Enum.map(list, &sort_json_keys/1)
+  defp sort_json_keys(other), do: other
 
   @spec reindent(String.t(), pos_integer()) :: String.t()
   defp reindent(json, indent) when indent == 2, do: json

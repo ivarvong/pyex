@@ -76,7 +76,9 @@ defmodule Pyex.Ctx do
           event_count: non_neg_integer(),
           file_ops: non_neg_integer(),
           duration_ms: float() | nil,
-          file: String.t() | nil
+          file: String.t() | nil,
+          heap: %{optional(non_neg_integer()) => term()},
+          next_heap_id: non_neg_integer()
         }
 
   defstruct filesystem: nil,
@@ -103,7 +105,9 @@ defmodule Pyex.Ctx do
             call_depth: 0,
             max_call_depth: 500,
             duration_ms: nil,
-            file: nil
+            file: nil,
+            heap: %{},
+            next_heap_id: 0
 
   @doc """
   Creates a fresh live context that captures output and execution counters.
@@ -555,35 +559,137 @@ defmodule Pyex.Ctx do
   @doc """
   Returns all captured print output as an iolist.
 
-  The buffer stores lines in reverse order (newest first). This
-  function builds an iolist with newlines interleaved, avoiding
-  the cost of string concatenation until the iolist is flattened.
+  Each buffer entry already includes its terminator (the `end`
+  argument to `print()`, which defaults to `"\\n"`).  The buffer
+  stores entries in reverse order (newest first); this function
+  simply reverses back to chronological order.
 
   ## Example
 
       {:ok, _val, ctx} = Pyex.run("print('hello')")
-      ["hello"] = Pyex.output(ctx)
+      ["hello\\n"] = Pyex.output(ctx)
 
-      {:ok, _val, ctx} = Pyex.run("print('a')\nprint('b')")
-      ["a", "\n", "b"] = Pyex.output(ctx)
+      {:ok, _val, ctx} = Pyex.run("print('a')\\nprint('b')")
+      ["a\\n", "b\\n"] = Pyex.output(ctx)
   """
   @spec output(t()) :: iolist()
   def output(%__MODULE__{output_buffer: []}), do: []
 
   def output(%__MODULE__{output_buffer: buffer}) do
-    # Buffer is in reverse order (newest first), so reverse it
-    # and build an iolist with newlines between lines.
-    buffer
-    |> Enum.reverse()
-    |> build_iolist()
+    Enum.reverse(buffer)
   end
 
-  @spec build_iolist([String.t()]) :: iolist()
-  defp build_iolist([line]), do: [line]
+  @doc """
+  Allocates a mutable Python value on the heap and returns its ref.
 
-  defp build_iolist([first | rest]) do
-    [first, "\n" | build_iolist(rest)]
+  Returns `{{:ref, id}, updated_ctx}`.  The caller stores the ref
+  in the environment; the actual value lives on the heap so that
+  aliases (e.g. `b = a`) share the same heap slot.
+  """
+  @spec heap_alloc(t(), term()) :: {{:ref, non_neg_integer()}, t()}
+  def heap_alloc(%__MODULE__{heap: heap, next_heap_id: id} = ctx, value) do
+    {{:ref, id}, %{ctx | heap: Map.put(heap, id, value), next_heap_id: id + 1}}
   end
+
+  @doc """
+  Dereferences a value.  If it's a `{:ref, id}` tuple, looks up the
+  current heap value.  Otherwise returns the value unchanged.
+
+  This is the primary read operation — every site that pattern-matches
+  on a Python value's shape must deref first.
+  """
+  @spec deref(t(), term()) :: term()
+  def deref(%__MODULE__{heap: heap}, {:ref, id}), do: Map.fetch!(heap, id)
+  def deref(_ctx, value), do: value
+
+  @doc """
+  Recursively dereferences all refs in a value tree.  Used for
+  equality comparison and at the API boundary to convert the
+  internal heap-ref representation back to plain values.
+
+  Uses a visited set to handle circular references (e.g. linked
+  list nodes pointing to each other).
+  """
+  @spec deep_deref(t(), term()) :: term()
+  def deep_deref(ctx, value), do: deep_deref(ctx, value, MapSet.new())
+
+  @spec deep_deref(t(), term(), MapSet.t()) :: term()
+  def deep_deref(%__MODULE__{} = ctx, {:ref, id} = ref, visited) do
+    if MapSet.member?(visited, id) do
+      ref
+    else
+      deep_deref(ctx, deref(ctx, ref), MapSet.put(visited, id))
+    end
+  end
+
+  def deep_deref(%__MODULE__{} = ctx, {:py_list, reversed, len}, visited) do
+    {:py_list, Enum.map(reversed, &deep_deref(ctx, &1, visited)), len}
+  end
+
+  def deep_deref(%__MODULE__{} = ctx, {:py_dict, _, _} = dict, visited) do
+    pairs = Pyex.PyDict.items(dict)
+
+    Enum.reduce(pairs, Pyex.PyDict.new(), fn {k, v}, acc ->
+      Pyex.PyDict.put(acc, deep_deref(ctx, k, visited), deep_deref(ctx, v, visited))
+    end)
+  end
+
+  def deep_deref(%__MODULE__{}, %_{} = struct, _visited), do: struct
+
+  def deep_deref(%__MODULE__{} = ctx, map, visited) when is_map(map) do
+    Map.new(map, fn {k, v} -> {k, deep_deref(ctx, v, visited)} end)
+  end
+
+  def deep_deref(%__MODULE__{} = ctx, list, visited) when is_list(list) do
+    Enum.map(list, &deep_deref(ctx, &1, visited))
+  end
+
+  def deep_deref(%__MODULE__{} = ctx, {:tuple, items}, visited) do
+    {:tuple, Enum.map(items, &deep_deref(ctx, &1, visited))}
+  end
+
+  def deep_deref(%__MODULE__{} = ctx, {:set, s}, visited) do
+    {:set, MapSet.new(s, &deep_deref(ctx, &1, visited))}
+  end
+
+  def deep_deref(%__MODULE__{} = ctx, {:instance, class, attrs}, visited) do
+    {:instance, class, Map.new(attrs, fn {k, v} -> {k, deep_deref(ctx, v, visited)} end)}
+  end
+
+  def deep_deref(%__MODULE__{} = ctx, {:class, name, bases, attrs}, visited) do
+    {:class, name, Enum.map(bases, &deep_deref(ctx, &1, visited)),
+     Map.new(attrs, fn {k, v} -> {k, deep_deref(ctx, v, visited)} end)}
+  end
+
+  def deep_deref(%__MODULE__{} = ctx, {:generator, items}, visited) do
+    {:generator, Enum.map(items, &deep_deref(ctx, &1, visited))}
+  end
+
+  def deep_deref(_ctx, value, _visited), do: value
+
+  @doc """
+  Updates the heap value for an existing ref.
+
+  This is the primary write operation for mutable Python objects.
+  All aliases of the same ref see the new value immediately.
+  """
+  @spec heap_put(t(), non_neg_integer(), term()) :: t()
+  def heap_put(%__MODULE__{heap: heap} = ctx, id, value) do
+    %{ctx | heap: Map.put(heap, id, value)}
+  end
+
+  @doc """
+  Returns true if `value` is a heap reference.
+  """
+  @spec ref?(term()) :: boolean()
+  def ref?({:ref, _}), do: true
+  def ref?(_), do: false
+
+  @doc """
+  Extracts the ref ID from a `{:ref, id}` tuple.
+  """
+  @spec ref_id({:ref, non_neg_integer()}) :: non_neg_integer()
+  def ref_id({:ref, id}), do: id
 
   @doc """
   Opens a file handle, returning `{handle_id, ctx}`.

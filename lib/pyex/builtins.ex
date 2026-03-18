@@ -9,7 +9,7 @@ defmodule Pyex.Builtins do
   and `append()` (as a method-like helper).
   """
 
-  alias Pyex.{Ctx, Env, Interpreter}
+  alias Pyex.{Ctx, Env, Interpreter, PyDict}
 
   @doc """
   Returns an environment pre-populated with all builtins.
@@ -120,7 +120,10 @@ defmodule Pyex.Builtins do
       {"bytes", &builtin_bytes/1},
       {"bytearray", &builtin_bytearray/1},
       {"dir", &builtin_dir/1},
-      {"vars", &builtin_vars/1}
+      {"vars", &builtin_vars/1},
+      {"id", &builtin_id/1},
+      {"hash", &builtin_hash/1},
+      {"object", &builtin_object/1}
     ]
   end
 
@@ -147,6 +150,7 @@ defmodule Pyex.Builtins do
     val |> String.codepoints() |> length()
   end
 
+  defp builtin_len([{:py_dict, _, _} = dict]), do: PyDict.size(visible_dict(dict))
   defp builtin_len([val]) when is_map(val), do: map_size(visible_dict(val))
   defp builtin_len([{:tuple, items}]), do: length(items)
   defp builtin_len([{:set, s}]), do: MapSet.size(s)
@@ -211,7 +215,15 @@ defmodule Pyex.Builtins do
   end
 
   @doc false
-  @spec visible_dict(map()) :: map()
+  @spec visible_dict(map() | PyDict.t()) :: map() | PyDict.t()
+  def visible_dict({:py_dict, _, _} = dict) do
+    dict
+    |> PyDict.delete("__defaultdict_factory__")
+    |> PyDict.delete("__counter__")
+    |> PyDict.delete("most_common")
+    |> PyDict.delete("elements")
+  end
+
   def visible_dict(map) when is_map(map) do
     map
     |> Map.delete("__defaultdict_factory__")
@@ -252,6 +264,9 @@ defmodule Pyex.Builtins do
           {:exception, _} = err -> err
           list -> {:ok, list}
         end
+
+      {:py_dict, _, _} = dict ->
+        {:ok, PyDict.keys(visible_dict(dict))}
 
       map when is_map(map) ->
         {:ok, map |> visible_dict() |> Map.keys()}
@@ -508,6 +523,9 @@ defmodule Pyex.Builtins do
         [str] when is_binary(str) ->
           String.codepoints(str)
 
+        [{:py_dict, _, _} = dict] ->
+          PyDict.keys(visible_dict(dict))
+
         [map] when is_map(map) ->
           map |> visible_dict() |> Map.keys()
 
@@ -650,6 +668,7 @@ defmodule Pyex.Builtins do
   defp to_list({:set, s}), do: {:ok, MapSet.to_list(s)}
   defp to_list({:frozenset, s}), do: {:ok, MapSet.to_list(s)}
   defp to_list(str) when is_binary(str), do: {:ok, String.codepoints(str)}
+  defp to_list({:py_dict, _, _} = dict), do: {:ok, PyDict.keys(visible_dict(dict))}
   defp to_list(map) when is_map(map), do: {:ok, map |> visible_dict() |> Map.keys()}
   defp to_list(_), do: :error
 
@@ -680,14 +699,17 @@ defmodule Pyex.Builtins do
     end
   end
 
+  defp builtin_list([{:py_dict, _, _} = dict]), do: PyDict.keys(visible_dict(dict))
   defp builtin_list([map]) when is_map(map), do: map |> visible_dict() |> Map.keys()
   defp builtin_list([{:instance, _, _} = inst]), do: {:iter_to_list, inst}
   defp builtin_list([{:iterator, _} = it]), do: {:iter_to_list, it}
 
-  @spec builtin_dict([Interpreter.pyvalue()]) :: %{
-          optional(Interpreter.pyvalue()) => Interpreter.pyvalue()
-        }
-  defp builtin_dict([]), do: %{}
+  @spec builtin_dict([Interpreter.pyvalue()]) :: PyDict.t() | {:exception, String.t()}
+  defp builtin_dict([]), do: PyDict.new()
+
+  defp builtin_dict([{:py_dict, _, _} = dict]) do
+    visible_dict(dict)
+  end
 
   defp builtin_dict([map]) when is_map(map) do
     map
@@ -697,12 +719,13 @@ defmodule Pyex.Builtins do
         match?({:function, _, _, _, _}, v) or match?({:bound_method, _, _}, v) or
         match?({:bound_method, _, _, _}, v)
     end)
+    |> PyDict.from_map()
   end
 
   defp builtin_dict([list]) when is_list(list) do
-    Enum.reduce(list, %{}, fn
-      {:tuple, [k, v]}, acc -> Map.put(acc, k, v)
-      [k, v], acc -> Map.put(acc, k, v)
+    Enum.reduce(list, PyDict.new(), fn
+      {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
+      [k, v], acc -> PyDict.put(acc, k, v)
       _, acc -> acc
     end)
   end
@@ -710,9 +733,9 @@ defmodule Pyex.Builtins do
   defp builtin_dict([{:py_list, reversed, _}]) do
     list = Enum.reverse(reversed)
 
-    Enum.reduce(list, %{}, fn
-      {:tuple, [k, v]}, acc -> Map.put(acc, k, v)
-      [k, v], acc -> Map.put(acc, k, v)
+    Enum.reduce(list, PyDict.new(), fn
+      {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
+      [k, v], acc -> PyDict.put(acc, k, v)
       _, acc -> acc
     end)
   end
@@ -1231,6 +1254,10 @@ defmodule Pyex.Builtins do
     Map.has_key?(attrs, attr) or has_class_attr?(class, attr)
   end
 
+  defp builtin_hasattr([{:py_dict, _, _} = dict, attr]) when is_binary(attr) do
+    PyDict.has_key?(dict, attr)
+  end
+
   defp builtin_hasattr([obj, attr]) when is_map(obj) and is_binary(attr) do
     Map.has_key?(obj, attr)
   end
@@ -1281,6 +1308,17 @@ defmodule Pyex.Builtins do
       val ->
         val
     end
+  end
+
+  defp builtin_getattr([{:py_dict, _, _} = dict, attr]) when is_binary(attr) do
+    case PyDict.fetch(dict, attr) do
+      {:ok, val} -> val
+      :error -> {:exception, "AttributeError: 'dict' object has no attribute '#{attr}'"}
+    end
+  end
+
+  defp builtin_getattr([{:py_dict, _, _} = dict, attr, default]) when is_binary(attr) do
+    PyDict.get(dict, attr, default)
   end
 
   defp builtin_getattr([obj, attr]) when is_map(obj) and is_binary(attr) do
@@ -1339,6 +1377,12 @@ defmodule Pyex.Builtins do
     all_keys |> Enum.uniq() |> Enum.sort()
   end
 
+  defp builtin_dir([{:py_dict, _, _} = dict]) do
+    own_keys = dict |> PyDict.keys() |> Enum.filter(&is_binary/1)
+    methods = Pyex.Methods.method_names(dict)
+    (own_keys ++ methods) |> Enum.uniq() |> Enum.sort()
+  end
+
   defp builtin_dir([val]) when is_map(val) do
     own_keys = val |> Map.keys() |> Enum.filter(&is_binary/1)
     methods = Pyex.Methods.method_names(val)
@@ -1372,6 +1416,7 @@ defmodule Pyex.Builtins do
 
   defp builtin_vars([{:class, _, _bases, attrs}]), do: attrs
 
+  defp builtin_vars([{:py_dict, _, _} = dict]), do: dict
   defp builtin_vars([val]) when is_map(val), do: val
 
   defp builtin_vars([other]) do
@@ -1382,6 +1427,45 @@ defmodule Pyex.Builtins do
   defp builtin_vars([]) do
     {:exception, "TypeError: vars expected at most 1 argument, got 0"}
   end
+
+  @spec builtin_object([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp builtin_object([]) do
+    {:object, :erlang.unique_integer()}
+  end
+
+  defp builtin_object(_args) do
+    {:exception, "TypeError: object() takes no arguments"}
+  end
+
+  @spec builtin_id([Interpreter.pyvalue()]) :: integer()
+  defp builtin_id([val]) do
+    :erlang.phash2(val)
+  end
+
+  @spec builtin_hash([Interpreter.pyvalue()]) :: integer() | {:exception, String.t()}
+  defp builtin_hash([val]) when is_integer(val), do: val
+  defp builtin_hash([val]) when is_float(val), do: :erlang.phash2(val)
+  defp builtin_hash([val]) when is_binary(val), do: :erlang.phash2(val)
+  defp builtin_hash([true]), do: 1
+  defp builtin_hash([false]), do: 0
+  defp builtin_hash([nil]), do: 0
+  defp builtin_hash([{:tuple, items}]), do: :erlang.phash2(items)
+  defp builtin_hash([{:frozenset, s}]), do: :erlang.phash2(MapSet.to_list(s))
+  defp builtin_hash([{:object, id}]), do: id
+
+  defp builtin_hash([{:py_list, _, _}]),
+    do: {:exception, "TypeError: unhashable type: 'list'"}
+
+  defp builtin_hash([{:py_dict, _, _}]),
+    do: {:exception, "TypeError: unhashable type: 'dict'"}
+
+  defp builtin_hash([{:set, _}]),
+    do: {:exception, "TypeError: unhashable type: 'set'"}
+
+  defp builtin_hash([val]) when is_map(val),
+    do: {:exception, "TypeError: unhashable type: 'dict'"}
+
+  defp builtin_hash([val]), do: :erlang.phash2(val)
 
   @spec mod_pow(integer(), integer(), integer()) :: integer()
   defp mod_pow(_base, _exp, 1), do: 0
@@ -1453,6 +1537,8 @@ defmodule Pyex.Builtins do
   def truthy?(""), do: false
   def truthy?([]), do: false
   def truthy?({:py_list, _, 0}), do: false
+  def truthy?({:py_dict, map, _}) when map == %{}, do: false
+  def truthy?({:py_dict, _, _}), do: true
   def truthy?(map) when map == %{}, do: false
   def truthy?({:tuple, []}), do: false
   def truthy?({:set, s}), do: MapSet.size(s) > 0
@@ -1473,6 +1559,7 @@ defmodule Pyex.Builtins do
   defp pytype(nil), do: "NoneType"
   defp pytype({:py_list, _, _}), do: "list"
   defp pytype(val) when is_list(val), do: "list"
+  defp pytype({:py_dict, _, _}), do: "dict"
   defp pytype(val) when is_map(val), do: "dict"
   defp pytype({:tuple, _}), do: "tuple"
   defp pytype({:set, _}), do: "set"
@@ -1508,6 +1595,18 @@ defmodule Pyex.Builtins do
   def py_repr(val) when is_list(val) do
     inner = val |> Enum.map(&py_repr_quoted/1) |> Enum.join(", ")
     "[#{inner}]"
+  end
+
+  def py_repr({:py_dict, _, _} = dict) do
+    visible = visible_dict(dict)
+
+    inner =
+      visible
+      |> PyDict.items()
+      |> Enum.map(fn {k, v} -> "#{py_repr_quoted(k)}: #{py_repr_quoted(v)}" end)
+      |> Enum.join(", ")
+
+    "{#{inner}}"
   end
 
   def py_repr(val) when is_map(val) do

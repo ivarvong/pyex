@@ -6,7 +6,7 @@ defmodule Pyex.Interpreter.Statements do
   on dispatch while preserving the public `eval/3` entrypoint.
   """
 
-  alias Pyex.{Ctx, Env, Interpreter, Parser}
+  alias Pyex.{Ctx, Env, Interpreter, Parser, PyDict}
   alias Pyex.Interpreter.Helpers
 
   @typep eval_result :: {Interpreter.pyvalue() | tuple(), Env.t(), Ctx.t()}
@@ -45,43 +45,57 @@ defmodule Pyex.Interpreter.Statements do
   @spec eval_del_subscript(String.t(), Parser.ast_node(), Env.t(), Ctx.t()) :: eval_result()
   def eval_del_subscript(var_name, key_expr, env, ctx) do
     case Env.get(env, var_name) do
-      {:ok, obj} when is_map(obj) ->
-        case Interpreter.eval(key_expr, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
+      {:ok, raw} ->
+        obj = Ctx.deref(ctx, raw)
 
-          {key, env, ctx} ->
-            {nil, Env.put(env, var_name, Map.delete(obj, key)), ctx}
+        case obj do
+          {:py_dict, _, _} = dict ->
+            case Interpreter.eval(key_expr, env, ctx) do
+              {{:exception, _} = signal, env, ctx} ->
+                {signal, env, ctx}
+
+              {key, env, ctx} ->
+                {nil, Env.put(env, var_name, PyDict.delete(dict, key)), ctx}
+            end
+
+          map when is_map(map) ->
+            case Interpreter.eval(key_expr, env, ctx) do
+              {{:exception, _} = signal, env, ctx} ->
+                {signal, env, ctx}
+
+              {key, env, ctx} ->
+                {nil, Env.put(env, var_name, Map.delete(map, key)), ctx}
+            end
+
+          {:py_list, reversed, len} ->
+            case Interpreter.eval(key_expr, env, ctx) do
+              {{:exception, _} = signal, env, ctx} ->
+                {signal, env, ctx}
+
+              {idx, env, ctx} when is_integer(idx) ->
+                real_idx = if idx < 0, do: len + idx, else: idx
+                new_reversed = List.delete_at(reversed, len - 1 - real_idx)
+                {nil, Env.put(env, var_name, {:py_list, new_reversed, len - 1}), ctx}
+
+              {_, env, ctx} ->
+                {{:exception, "TypeError: list indices must be integers"}, env, ctx}
+            end
+
+          list when is_list(list) ->
+            case Interpreter.eval(key_expr, env, ctx) do
+              {{:exception, _} = signal, env, ctx} ->
+                {signal, env, ctx}
+
+              {idx, env, ctx} when is_integer(idx) ->
+                {nil, Env.put(env, var_name, List.delete_at(list, idx)), ctx}
+
+              {_, env, ctx} ->
+                {{:exception, "TypeError: list indices must be integers"}, env, ctx}
+            end
+
+          _ ->
+            {{:exception, "TypeError: object does not support item deletion"}, env, ctx}
         end
-
-      {:ok, {:py_list, reversed, len}} ->
-        case Interpreter.eval(key_expr, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {idx, env, ctx} when is_integer(idx) ->
-            real_idx = if idx < 0, do: len + idx, else: idx
-            new_reversed = List.delete_at(reversed, len - 1 - real_idx)
-            {nil, Env.put(env, var_name, {:py_list, new_reversed, len - 1}), ctx}
-
-          {_, env, ctx} ->
-            {{:exception, "TypeError: list indices must be integers"}, env, ctx}
-        end
-
-      {:ok, obj} when is_list(obj) ->
-        case Interpreter.eval(key_expr, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {idx, env, ctx} when is_integer(idx) ->
-            {nil, Env.put(env, var_name, List.delete_at(obj, idx)), ctx}
-
-          {_, env, ctx} ->
-            {{:exception, "TypeError: list indices must be integers"}, env, ctx}
-        end
-
-      {:ok, _} ->
-        {{:exception, "TypeError: object does not support item deletion"}, env, ctx}
 
       :undefined ->
         {{:exception, "NameError: name '#{var_name}' is not defined"}, env, ctx}

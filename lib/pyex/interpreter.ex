@@ -16,7 +16,7 @@ defmodule Pyex.Interpreter do
 
   import Bitwise, only: [bnot: 1]
 
-  alias Pyex.{Builtins, Ctx, Env, Methods, Parser}
+  alias Pyex.{Builtins, Ctx, Env, Methods, Parser, PyDict}
 
   alias Pyex.Interpreter.{
     Assignments,
@@ -69,7 +69,10 @@ defmodule Pyex.Interpreter do
           | {:pandas_series, Explorer.Series.t()}
           | {:pandas_rolling, Explorer.Series.t(), pos_integer()}
           | {:pandas_dataframe, Explorer.DataFrame.t()}
+          | {:py_dict, %{optional(pyvalue()) => pyvalue()}, [pyvalue()]}
           | {:pyex_decimal, Decimal.t()}
+          | {:object, integer()}
+          | {:ref, non_neg_integer()}
 
   @typep signal ::
            {:returned, pyvalue()}
@@ -140,8 +143,12 @@ defmodule Pyex.Interpreter do
     ctx = init_profile(ctx)
 
     case eval(ast, env, ctx) do
-      {{:exception, msg}, _env, ctx} -> {:error, Helpers.format_error(msg, ctx)}
-      {result, env, ctx} -> {:ok, Helpers.unwrap(result), env, ctx}
+      {{:exception, msg}, _env, ctx} ->
+        {:error, Helpers.format_error(msg, ctx)}
+
+      {result, env, ctx} ->
+        value = Helpers.unwrap(result)
+        {:ok, Ctx.deep_deref(ctx, value), env, ctx}
     end
   end
 
@@ -553,12 +560,56 @@ defmodule Pyex.Interpreter do
     Calls.eval_call_expr(func_expr, arg_exprs, env, ctx)
   end
 
+  def eval({:getattr, _, [{:var, _, [name]}, attr]}, env, ctx) do
+    case Env.get(env, name) do
+      {:ok, raw} ->
+        case Ctx.deref(ctx, raw) do
+          {:instance, {:class, _, _, _} = class, inst_attrs} = instance ->
+            case Map.fetch(inst_attrs, attr) do
+              {:ok, value} ->
+                {value, env, ctx}
+
+              :error ->
+                case ClassLookup.resolve_class_attr_with_owner(class, attr) do
+                  {:ok, {:function, _, _, _, _} = func, owner_class} ->
+                    {{:bound_method, raw, func, owner_class}, env, ctx}
+
+                  {:ok, {:builtin_kw, _} = bkw, _owner} ->
+                    {{:bound_method, raw, bkw}, env, ctx}
+
+                  {:ok, value, _owner} ->
+                    {value, env, ctx}
+
+                  :error ->
+                    case Methods.resolve(instance, attr) do
+                      {:ok, method} ->
+                        {method, env, ctx}
+
+                      :error ->
+                        {{:exception,
+                          "AttributeError: '#{Helpers.py_type(instance)}' object has no attribute '#{attr}'"},
+                         env, ctx}
+                    end
+                end
+            end
+
+          other ->
+            eval_getattr_on_value(other, attr, env, ctx)
+        end
+
+      :undefined ->
+        {{:exception, "NameError: name '#{name}' is not defined"}, env, ctx}
+    end
+  end
+
   def eval({:getattr, _, [expr, attr]}, env, ctx) do
     case eval(expr, env, ctx) do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
-      {object, env, ctx} ->
+      {raw_object, env, ctx} ->
+        object = Ctx.deref(ctx, raw_object)
+
         case object do
           {:instance, {:class, _, _, _} = class, inst_attrs} ->
             case Map.fetch(inst_attrs, attr) do
@@ -568,10 +619,10 @@ defmodule Pyex.Interpreter do
               :error ->
                 case ClassLookup.resolve_class_attr_with_owner(class, attr) do
                   {:ok, {:function, _, _, _, _} = func, owner_class} ->
-                    {{:bound_method, object, func, owner_class}, env, ctx}
+                    {{:bound_method, raw_object, func, owner_class}, env, ctx}
 
                   {:ok, {:builtin_kw, _} = bkw, _owner} ->
-                    {{:bound_method, object, bkw}, env, ctx}
+                    {{:bound_method, raw_object, bkw}, env, ctx}
 
                   {:ok, value, _owner} ->
                     {value, env, ctx}
@@ -636,6 +687,10 @@ defmodule Pyex.Interpreter do
                 {value, env, ctx}
             end
 
+          {:py_dict, %{^attr => _}, _} = dict ->
+            {:ok, value} = PyDict.fetch(dict, attr)
+            {value, env, ctx}
+
           %{^attr => value} ->
             {value, env, ctx}
 
@@ -664,6 +719,35 @@ defmodule Pyex.Interpreter do
                 {{:exception,
                   "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
                  env, ctx}
+            end
+        end
+    end
+  end
+
+  def eval(
+        {:subscript, _, [{:getattr, _, [{:var, _, [name]}, attr]} = ga_expr, key_expr]},
+        env,
+        ctx
+      ) do
+    with {:ok, raw} <- Env.get(env, name),
+         {:instance, _class, inst_attrs} <- Ctx.deref(ctx, raw),
+         {:ok, container} <- Map.fetch(inst_attrs, attr) do
+      container = Ctx.deref(ctx, container)
+
+      case eval(key_expr, env, ctx) do
+        {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+        {key, env, ctx} -> eval_subscript(container, key, env, ctx)
+      end
+    else
+      _ ->
+        case eval(ga_expr, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {signal, env, ctx}
+
+          {container, env, ctx} ->
+            case eval(key_expr, env, ctx) do
+              {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+              {key, env, ctx} -> eval_subscript(container, key, env, ctx)
             end
         end
     end
@@ -822,22 +906,27 @@ defmodule Pyex.Interpreter do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
-      {val, env, ctx} when is_number(val) ->
-        {-val, env, ctx}
+      {raw, env, ctx} ->
+        val = Ctx.deref(ctx, raw)
 
-      {{:instance, _, _} = inst, env, ctx} ->
-        case Dunder.call_dunder(inst, "__neg__", [], env, ctx) do
-          {:ok, result, env, ctx} ->
-            {result, env, ctx}
+        cond do
+          is_number(val) ->
+            {-val, env, ctx}
 
-          :not_found ->
-            {{:exception, "TypeError: bad operand type for unary -: '#{Helpers.py_type(inst)}'"},
+          match?({:instance, _, _}, val) ->
+            case Dunder.call_dunder(val, "__neg__", [], env, ctx) do
+              {:ok, result, env, ctx} ->
+                {result, env, ctx}
+
+              :not_found ->
+                {{:exception,
+                  "TypeError: bad operand type for unary -: '#{Helpers.py_type(val)}'"}, env, ctx}
+            end
+
+          true ->
+            {{:exception, "TypeError: bad operand type for unary -: '#{Helpers.py_type(val)}'"},
              env, ctx}
         end
-
-      {val, env, ctx} ->
-        {{:exception, "TypeError: bad operand type for unary -: '#{Helpers.py_type(val)}'"}, env,
-         ctx}
     end
   end
 
@@ -846,22 +935,27 @@ defmodule Pyex.Interpreter do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
-      {val, env, ctx} when is_number(val) ->
-        {val, env, ctx}
+      {raw, env, ctx} ->
+        val = Ctx.deref(ctx, raw)
 
-      {{:instance, _, _} = inst, env, ctx} ->
-        case Dunder.call_dunder(inst, "__pos__", [], env, ctx) do
-          {:ok, result, env, ctx} ->
-            {result, env, ctx}
+        cond do
+          is_number(val) ->
+            {val, env, ctx}
 
-          :not_found ->
-            {{:exception, "TypeError: bad operand type for unary +: '#{Helpers.py_type(inst)}'"},
+          match?({:instance, _, _}, val) ->
+            case Dunder.call_dunder(val, "__pos__", [], env, ctx) do
+              {:ok, result, env, ctx} ->
+                {result, env, ctx}
+
+              :not_found ->
+                {{:exception,
+                  "TypeError: bad operand type for unary +: '#{Helpers.py_type(val)}'"}, env, ctx}
+            end
+
+          true ->
+            {{:exception, "TypeError: bad operand type for unary +: '#{Helpers.py_type(val)}'"},
              env, ctx}
         end
-
-      {val, env, ctx} ->
-        {{:exception, "TypeError: bad operand type for unary +: '#{Helpers.py_type(val)}'"}, env,
-         ctx}
     end
   end
 
@@ -870,22 +964,27 @@ defmodule Pyex.Interpreter do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
-      {val, env, ctx} when is_integer(val) ->
-        {bnot(val), env, ctx}
+      {raw, env, ctx} ->
+        val = Ctx.deref(ctx, raw)
 
-      {{:instance, _, _} = inst, env, ctx} ->
-        case Dunder.call_dunder(inst, "__invert__", [], env, ctx) do
-          {:ok, result, env, ctx} ->
-            {result, env, ctx}
+        cond do
+          is_integer(val) ->
+            {bnot(val), env, ctx}
 
-          :not_found ->
-            {{:exception, "TypeError: bad operand type for unary ~: '#{Helpers.py_type(inst)}'"},
+          match?({:instance, _, _}, val) ->
+            case Dunder.call_dunder(val, "__invert__", [], env, ctx) do
+              {:ok, result, env, ctx} ->
+                {result, env, ctx}
+
+              :not_found ->
+                {{:exception,
+                  "TypeError: bad operand type for unary ~: '#{Helpers.py_type(val)}'"}, env, ctx}
+            end
+
+          true ->
+            {{:exception, "TypeError: bad operand type for unary ~: '#{Helpers.py_type(val)}'"},
              env, ctx}
         end
-
-      {val, env, ctx} ->
-        {{:exception, "TypeError: bad operand type for unary ~: '#{Helpers.py_type(val)}'"}, env,
-         ctx}
     end
   end
 
@@ -894,12 +993,17 @@ defmodule Pyex.Interpreter do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
-      {{:instance, _, _} = inst, env, ctx} ->
-        {result, env, ctx} = eval_truthy(inst, env, ctx)
-        {!result, env, ctx}
+      {raw, env, ctx} ->
+        val = Ctx.deref(ctx, raw)
 
-      {val, env, ctx} ->
-        {!Helpers.truthy?(val), env, ctx}
+        case val do
+          {:instance, _, _} = inst ->
+            {result, env, ctx} = eval_truthy(inst, env, ctx)
+            {!result, env, ctx}
+
+          _ ->
+            {!Helpers.truthy?(val), env, ctx}
+        end
     end
   end
 
@@ -913,6 +1017,130 @@ defmodule Pyex.Interpreter do
     case Env.get(env, name) do
       {:ok, value} -> {value, env, ctx}
       :undefined -> {{:exception, "NameError: name '#{name}' is not defined"}, env, ctx}
+    end
+  end
+
+  @spec eval_getattr_on_value(pyvalue(), String.t(), Env.t(), Ctx.t()) :: eval_result()
+  defp eval_getattr_on_value(object, attr, env, ctx) do
+    object = Ctx.deref(ctx, object)
+
+    case object do
+      {:func_with_attrs, _func, attrs} ->
+        case Map.fetch(attrs, attr) do
+          {:ok, value} ->
+            {value, env, ctx}
+
+          :error ->
+            {{:exception, "AttributeError: function has no attribute '#{attr}'"}, env, ctx}
+        end
+
+      {:instance, {:class, _, _, _} = class, inst_attrs} ->
+        case Map.fetch(inst_attrs, attr) do
+          {:ok, value} ->
+            {value, env, ctx}
+
+          :error ->
+            case ClassLookup.resolve_class_attr_with_owner(class, attr) do
+              {:ok, {:function, _, _, _, _} = func, owner_class} ->
+                {{:bound_method, object, func, owner_class}, env, ctx}
+
+              {:ok, {:builtin_kw, _} = bkw, _owner} ->
+                {{:bound_method, object, bkw}, env, ctx}
+
+              {:ok, value, _owner} ->
+                {value, env, ctx}
+
+              :error ->
+                case Methods.resolve(object, attr) do
+                  {:ok, method} ->
+                    {method, env, ctx}
+
+                  :error ->
+                    {{:exception,
+                      "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
+                     env, ctx}
+                end
+            end
+        end
+
+      {:class, class_name, _, class_attrs} = class_val ->
+        case Map.get(class_attrs, attr) do
+          nil ->
+            case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
+              {:ok, {:function, _, _, _, _} = func, _owner} ->
+                {{:bound_method, class_val, func}, env, ctx}
+
+              {:ok, {:builtin_kw, _} = bkw, _owner} ->
+                {{:bound_method, class_val, bkw}, env, ctx}
+
+              {:ok, value, _owner} ->
+                {value, env, ctx}
+
+              :error ->
+                {{:exception,
+                  "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"}, env,
+                 ctx}
+            end
+
+          {:builtin_kw, _} = bkw ->
+            {{:bound_method, class_val, bkw}, env, ctx}
+
+          value ->
+            {value, env, ctx}
+        end
+
+      {:py_dict, %{^attr => _}, _} = dict ->
+        {:ok, value} = PyDict.fetch(dict, attr)
+        {value, env, ctx}
+
+      %{^attr => value} ->
+        {value, env, ctx}
+
+      {:range, rs, re, rst} ->
+        case attr do
+          "start" ->
+            {rs, env, ctx}
+
+          "stop" ->
+            {re, env, ctx}
+
+          "step" ->
+            {rst, env, ctx}
+
+          _ ->
+            {{:exception, "AttributeError: 'range' object has no attribute '#{attr}'"}, env, ctx}
+        end
+
+      {:super_proxy, instance, bases} ->
+        result =
+          Enum.find_value(bases, :error, fn base ->
+            case ClassLookup.resolve_class_attr_with_owner(base, attr) do
+              {:ok, _, _} = found -> found
+              :error -> nil
+            end
+          end)
+
+        case result do
+          {:ok, {:function, _, _, _, _} = func, owner_class} ->
+            {{:bound_method, instance, func, owner_class}, env, ctx}
+
+          {:ok, value, _owner} ->
+            {value, env, ctx}
+
+          :error ->
+            {{:exception, "AttributeError: 'super' object has no attribute '#{attr}'"}, env, ctx}
+        end
+
+      _ ->
+        case Methods.resolve(object, attr) do
+          {:ok, method} ->
+            {method, env, ctx}
+
+          :error ->
+            {{:exception,
+              "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
+             env, ctx}
+        end
     end
   end
 
@@ -1020,6 +1248,10 @@ defmodule Pyex.Interpreter do
     Invocation.call_user_function(func, name, params, body, closure_env, args, kwargs, env, ctx)
   end
 
+  def call_function({:func_with_attrs, func, _attrs}, args, kwargs, env, ctx) do
+    call_function(func, args, kwargs, env, ctx)
+  end
+
   def call_function({:builtin, fun}, args, _kwargs, env, ctx) do
     Invocation.call_builtin(fun, args, env, ctx)
   end
@@ -1080,6 +1312,16 @@ defmodule Pyex.Interpreter do
     Invocation.call_callable_instance(instance, class, args, kwargs, env, ctx)
   end
 
+  def call_function({:ref, _} = ref, args, kwargs, env, ctx) do
+    case Ctx.deref(ctx, ref) do
+      {:instance, {:class, _, _, _} = class, _} = instance ->
+        Invocation.call_callable_instance(instance, class, args, kwargs, env, ctx)
+
+      other ->
+        call_function(other, args, kwargs, env, ctx)
+    end
+  end
+
   def call_function(val, _args, _kwargs, env, ctx) do
     {{:exception, "TypeError: '#{Helpers.py_type(val)}' object is not callable"}, env, ctx}
   end
@@ -1088,6 +1330,8 @@ defmodule Pyex.Interpreter do
   @spec eval_call_args([Parser.ast_node()], Env.t(), Ctx.t()) ::
           {[pyvalue()], %{optional(String.t()) => pyvalue()}, Env.t(), Ctx.t()}
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  def eval_call_args([], env, ctx), do: {[], %{}, env, ctx}
+
   def eval_call_args(arg_exprs, env, ctx) do
     Enum.reduce_while(arg_exprs, {[], %{}, env, ctx}, fn
       {:kwarg, _, [name, expr]}, {pos, kw, env, ctx} ->
@@ -1116,19 +1360,32 @@ defmodule Pyex.Interpreter do
           {{:exception, _} = signal, env, ctx} ->
             {:halt, {signal, env, ctx}}
 
-          {val, env, ctx} when is_map(val) ->
-            merged =
-              Enum.reduce(val, kw, fn {k, v}, acc ->
-                Map.put(acc, to_string(k), v)
-              end)
+          {raw_val, env, ctx} ->
+            val = Ctx.deref(ctx, raw_val)
 
-            {:cont, {pos, merged, env, ctx}}
+            case val do
+              {:py_dict, _, _} = dict ->
+                merged =
+                  Enum.reduce(PyDict.items(dict), kw, fn {k, v}, acc ->
+                    Map.put(acc, to_string(k), v)
+                  end)
 
-          {val, env, ctx} ->
-            {:halt,
-             {{:exception,
-               "TypeError: argument after ** must be a mapping, not '#{Helpers.py_type(val)}'"},
-              env, ctx}}
+                {:cont, {pos, merged, env, ctx}}
+
+              map when is_map(map) ->
+                merged =
+                  Enum.reduce(map, kw, fn {k, v}, acc ->
+                    Map.put(acc, to_string(k), v)
+                  end)
+
+                {:cont, {pos, merged, env, ctx}}
+
+              _ ->
+                {:halt,
+                 {{:exception,
+                   "TypeError: argument after ** must be a mapping, not '#{Helpers.py_type(val)}'"},
+                  env, ctx}}
+            end
         end
 
       expr, {pos, kw, env, ctx} ->
@@ -1162,7 +1419,13 @@ defmodule Pyex.Interpreter do
 
   @spec eval_subscript(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
   defp eval_subscript(object, key, env, ctx) do
+    object = Ctx.deref(ctx, object)
+
     case object do
+      {:py_dict, %{^key => _}, _} ->
+        {:ok, value} = PyDict.fetch(object, key)
+        {value, env, ctx}
+
       %{^key => value} ->
         {value, env, ctx}
 
@@ -1258,6 +1521,20 @@ defmodule Pyex.Interpreter do
             {{:exception, "TypeError: invalid Series index type"}, env, ctx}
         end
 
+      {:py_dict, %{"__defaultdict_factory__" => factory}, _} = dict ->
+        case call_function(factory, [], %{}, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {signal, env, ctx}
+
+          {default_val, env, ctx, _updated_func} ->
+            new_dict = PyDict.put(dict, key, default_val)
+            {:defaultdict_auto_insert, default_val, new_dict, env, ctx}
+
+          {default_val, env, ctx} ->
+            new_dict = PyDict.put(dict, key, default_val)
+            {:defaultdict_auto_insert, default_val, new_dict, env, ctx}
+        end
+
       %{"__defaultdict_factory__" => factory} = dict when is_map(dict) ->
         case call_function(factory, [], %{}, env, ctx) do
           {{:exception, _} = signal, env, ctx} ->
@@ -1286,11 +1563,17 @@ defmodule Pyex.Interpreter do
 
   @spec eval_slice(pyvalue(), pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
   defp eval_slice(object, start, stop, step, env, ctx) do
+    object = Ctx.deref(ctx, object)
+
     case object do
       {:py_list, reversed, _} ->
         case py_slice(Enum.reverse(reversed), start, stop, step) do
-          {:exception, msg} -> {{:exception, msg}, env, ctx}
-          result -> {{:py_list, Enum.reverse(result), length(result)}, env, ctx}
+          {:exception, msg} ->
+            {{:exception, msg}, env, ctx}
+
+          result ->
+            {ref, ctx} = Ctx.heap_alloc(ctx, {:py_list, Enum.reverse(result), length(result)})
+            {ref, env, ctx}
         end
 
       list when is_list(list) ->
@@ -1343,7 +1626,8 @@ defmodule Pyex.Interpreter do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
-      {val, env, ctx} ->
+      {raw, env, ctx} ->
+        val = Ctx.deref(ctx, raw)
         {str, env, ctx} = eval_py_str(val, env, ctx)
         eval_fstring(rest, <<acc::binary, str::binary>>, env, ctx)
     end
@@ -1354,7 +1638,9 @@ defmodule Pyex.Interpreter do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
-      {val, env, ctx} ->
+      {raw, env, ctx} ->
+        val = Ctx.deref(ctx, raw)
+
         case Pyex.Interpreter.FstringFormat.apply_format_spec(val, format_spec) do
           {:exception, _} = signal ->
             {signal, env, ctx}
@@ -1366,7 +1652,7 @@ defmodule Pyex.Interpreter do
   end
 
   @spec eval_py_str(pyvalue(), Env.t(), Ctx.t()) :: {String.t(), Env.t(), Ctx.t()}
-  defp eval_py_str(val, env, ctx), do: Protocols.eval_py_str(val, env, ctx)
+  defp eval_py_str(val, env, ctx), do: Protocols.eval_py_str(Ctx.deref(ctx, val), env, ctx)
 
   @spec dunder_str_fallback(pyvalue(), String.t(), Env.t(), Ctx.t()) ::
           {:ok, String.t(), Env.t(), Ctx.t()} | :error
@@ -1377,10 +1663,10 @@ defmodule Pyex.Interpreter do
   @doc false
   @spec to_iterable(pyvalue(), Env.t(), Ctx.t()) ::
           {:ok, [pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
-  def to_iterable(val, env, ctx), do: Iterables.to_iterable(val, env, ctx)
+  def to_iterable(val, env, ctx), do: Iterables.to_iterable(Ctx.deref(ctx, val), env, ctx)
 
   @doc false
-  @spec unpack_iterable_safe([pyvalue()], [String.t() | {:starred, String.t()}]) ::
+  @spec unpack_iterable_safe([pyvalue()], [Parser.unpack_target()]) ::
           {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
   def unpack_iterable_safe([single], names) do
     case single do
@@ -1411,7 +1697,7 @@ defmodule Pyex.Interpreter do
     check_unpack_length(values, names)
   end
 
-  @spec check_unpack_length([pyvalue()], [String.t() | {:starred, String.t()}]) ::
+  @spec check_unpack_length([pyvalue()], [Parser.unpack_target()]) ::
           {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
   defp check_unpack_length(items, names) do
     has_star = Enum.any?(names, &match?({:starred, _}, &1))
@@ -1420,7 +1706,7 @@ defmodule Pyex.Interpreter do
       unpack_starred(items, names)
     else
       if length(items) == length(names) do
-        {:ok, Enum.zip(names, items)}
+        bind_pairs(names, items, [])
       else
         {:exception,
          "ValueError: not enough values to unpack (expected #{length(names)}, got #{length(items)})"}
@@ -1428,7 +1714,46 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  @spec unpack_starred([pyvalue()], [String.t() | {:starred, String.t()}]) ::
+  @spec bind_pairs([Parser.unpack_target()], [pyvalue()], [{String.t(), pyvalue()}]) ::
+          {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
+  defp bind_pairs([], [], acc), do: {:ok, Enum.reverse(acc)}
+
+  defp bind_pairs([name | names], [val | vals], acc) when is_binary(name) do
+    bind_pairs(names, vals, [{name, val} | acc])
+  end
+
+  defp bind_pairs([{:starred, _} = s | names], [val | vals], acc) do
+    bind_pairs(names, vals, [{s, val} | acc])
+  end
+
+  defp bind_pairs([nested_names | names], [val | vals], acc) when is_list(nested_names) do
+    case unpack_nested(val, nested_names) do
+      {:ok, pairs} -> bind_pairs(names, vals, Enum.reverse(pairs) ++ acc)
+      {:exception, _} = err -> err
+    end
+  end
+
+  @spec unpack_nested(pyvalue(), [Parser.unpack_target()]) ::
+          {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
+  defp unpack_nested({:tuple, items}, names), do: check_unpack_length(items, names)
+  defp unpack_nested({:py_list, rev, _}, names), do: check_unpack_length(Enum.reverse(rev), names)
+  defp unpack_nested(list, names) when is_list(list), do: check_unpack_length(list, names)
+
+  defp unpack_nested(str, names) when is_binary(str),
+    do: check_unpack_length(String.codepoints(str), names)
+
+  defp unpack_nested({:range, _, _, _} = r, names) do
+    case Builtins.range_to_list(r) do
+      {:exception, _} = err -> err
+      list -> check_unpack_length(list, names)
+    end
+  end
+
+  defp unpack_nested(val, _names) do
+    {:exception, "TypeError: cannot unpack non-iterable #{Helpers.py_type(val)} object"}
+  end
+
+  @spec unpack_starred([pyvalue()], [Parser.unpack_target()]) ::
           {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
   defp unpack_starred(items, names) do
     star_idx = Enum.find_index(names, &match?({:starred, _}, &1))
@@ -1452,12 +1777,10 @@ defmodule Pyex.Interpreter do
         |> Enum.drop(star_idx)
         |> Enum.take(item_count - star_idx - after_count)
 
-      pairs =
-        Enum.zip(before_names, before_items) ++
-          [{star_name, star_items}] ++
-          Enum.zip(after_names, after_items)
-
-      {:ok, pairs}
+      with {:ok, before_pairs} <- bind_pairs(before_names, before_items, []),
+           {:ok, after_pairs} <- bind_pairs(after_names, after_items, []) do
+        {:ok, before_pairs ++ [{star_name, star_items}] ++ after_pairs}
+      end
     end
   end
 
@@ -1481,10 +1804,27 @@ defmodule Pyex.Interpreter do
 
   @doc false
   @spec eval_truthy(pyvalue(), Env.t(), Ctx.t()) :: {boolean(), Env.t(), Ctx.t()}
-  def eval_truthy(val, env, ctx), do: Protocols.eval_truthy(val, env, ctx)
+  def eval_truthy(val, env, ctx), do: Protocols.eval_truthy(Ctx.deref(ctx, val), env, ctx)
 
   @spec eval_binop(atom(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
-  defp eval_binop(op, {:instance, _, _} = l, r, env, ctx) do
+  defp eval_binop(op, l, r, env, ctx) when op in [:is, :is_not] do
+    BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+  end
+
+  defp eval_binop(op, l, r, env, ctx) when op in [:eq, :neq] do
+    l = if Ctx.ref?(l), do: Ctx.deep_deref(ctx, l), else: l
+    r = if Ctx.ref?(r), do: Ctx.deep_deref(ctx, r), else: r
+    do_eval_binop(op, l, r, env, ctx)
+  end
+
+  defp eval_binop(op, l, r, env, ctx) do
+    l = Ctx.deref(ctx, l)
+    r = Ctx.deref(ctx, r)
+    do_eval_binop(op, l, r, env, ctx)
+  end
+
+  @spec do_eval_binop(atom(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp do_eval_binop(op, {:instance, _, _} = l, r, env, ctx) do
     case BinaryOps.dunder_for_op(op) do
       nil ->
         BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
@@ -1500,21 +1840,21 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  defp eval_binop(:in, l, {:instance, _, _} = r, env, ctx) do
+  defp do_eval_binop(:in, l, {:instance, _, _} = r, env, ctx) do
     case Dunder.call_dunder(r, "__contains__", [l], env, ctx) do
       {:ok, result, env, ctx} -> {Helpers.truthy?(result), env, ctx}
       :not_found -> BinaryOps.binop_result(safe_binop(:in, l, r), env, ctx)
     end
   end
 
-  defp eval_binop(:not_in, l, {:instance, _, _} = r, env, ctx) do
+  defp do_eval_binop(:not_in, l, {:instance, _, _} = r, env, ctx) do
     case Dunder.call_dunder(r, "__contains__", [l], env, ctx) do
       {:ok, result, env, ctx} -> {!Helpers.truthy?(result), env, ctx}
       :not_found -> BinaryOps.binop_result(safe_binop(:not_in, l, r), env, ctx)
     end
   end
 
-  defp eval_binop(op, l, {:instance, _, _} = r, env, ctx) do
+  defp do_eval_binop(op, l, {:instance, _, _} = r, env, ctx) do
     case BinaryOps.rdunder_for_op(op) do
       nil ->
         BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
@@ -1530,15 +1870,15 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  defp eval_binop(op, {:pandas_series, _} = l, r, env, ctx) do
+  defp do_eval_binop(op, {:pandas_series, _} = l, r, env, ctx) do
     BinaryOps.binop_result(BinaryOps.series_binop(op, l, r), env, ctx)
   end
 
-  defp eval_binop(op, l, {:pandas_series, _} = r, env, ctx) do
+  defp do_eval_binop(op, l, {:pandas_series, _} = r, env, ctx) do
     BinaryOps.binop_result(BinaryOps.series_binop(op, l, r), env, ctx)
   end
 
-  defp eval_binop(op, l, r, env, ctx) do
+  defp do_eval_binop(op, l, r, env, ctx) do
     BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
   end
 
@@ -1790,12 +2130,13 @@ defmodule Pyex.Interpreter do
   def eval_print_call(args, sep, end_str, env, ctx) do
     {strs, env, ctx} =
       Enum.reduce(args, {[], env, ctx}, fn arg, {acc, env, ctx} ->
-        {str, env, ctx} = eval_py_str(arg, env, ctx)
+        val = Ctx.deref(ctx, arg)
+        {str, env, ctx} = eval_py_str(val, env, ctx)
         {[str | acc], env, ctx}
       end)
 
     output = strs |> Enum.reverse() |> Enum.join(sep)
-    output = if end_str != "\n", do: output <> end_str, else: output
+    output = output <> end_str
     ctx = Ctx.record(ctx, :output, output)
     {nil, env, ctx}
   end
@@ -1804,16 +2145,22 @@ defmodule Pyex.Interpreter do
   @spec eval_super(Env.t(), Ctx.t()) :: eval_result()
   def eval_super(env, ctx) do
     case Env.get(env, "self") do
-      {:ok, {:instance, _, _} = instance} ->
-        case Env.get(env, "__class__") do
-          {:ok, {:class, _, bases, _}} when bases != [] ->
-            {{:super_proxy, instance, bases}, env, ctx}
+      {:ok, raw_self} ->
+        case Ctx.deref(ctx, raw_self) do
+          {:instance, _, _} = instance ->
+            case Env.get(env, "__class__") do
+              {:ok, {:class, _, bases, _}} when bases != [] ->
+                {{:super_proxy, instance, bases}, env, ctx}
 
-          {:ok, {:class, _, _, _}} ->
-            {{:exception, "TypeError: super(): no parent class"}, env, ctx}
+              {:ok, {:class, _, _, _}} ->
+                {{:exception, "TypeError: super(): no parent class"}, env, ctx}
+
+              _ ->
+                {{:exception, "RuntimeError: super(): __class__ is not set"}, env, ctx}
+            end
 
           _ ->
-            {{:exception, "RuntimeError: super(): __class__ is not set"}, env, ctx}
+            {{:exception, "RuntimeError: super(): self is not bound"}, env, ctx}
         end
 
       _ ->

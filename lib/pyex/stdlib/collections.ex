@@ -13,6 +13,8 @@ defmodule Pyex.Stdlib.Collections do
 
   @behaviour Pyex.Stdlib.Module
 
+  alias Pyex.PyDict
+
   @doc """
   Returns the module value map.
   """
@@ -64,23 +66,30 @@ defmodule Pyex.Stdlib.Collections do
     counter_with_methods(counts)
   end
 
+  defp counter([{:py_dict, _, _} = dict], _kwargs) do
+    counter_with_methods(PyDict.to_map(dict))
+  end
+
   defp counter([%{} = dict], _kwargs) do
     counter_with_methods(dict)
   end
 
   @doc "Add two Counters, keeping only positive counts (CPython semantics)."
-  @spec counter_add(map(), map()) :: map()
+  @spec counter_add(PyDict.t() | map(), PyDict.t() | map()) :: PyDict.t()
   def counter_add(a, b) do
     va = Pyex.Builtins.visible_dict(a)
     vb = Pyex.Builtins.visible_dict(b)
 
+    va_map = if match?({:py_dict, _, _}, va), do: PyDict.to_map(va), else: va
+    vb_map = if match?({:py_dict, _, _}, vb), do: PyDict.to_map(vb), else: vb
+
     keys =
-      (Map.keys(va) ++ Map.keys(vb))
+      (Map.keys(va_map) ++ Map.keys(vb_map))
       |> Enum.uniq()
 
     counts =
       Enum.reduce(keys, %{}, fn k, acc ->
-        sum = Map.get(va, k, 0) + Map.get(vb, k, 0)
+        sum = Map.get(va_map, k, 0) + Map.get(vb_map, k, 0)
         if sum > 0, do: Map.put(acc, k, sum), else: acc
       end)
 
@@ -88,7 +97,7 @@ defmodule Pyex.Stdlib.Collections do
   end
 
   @spec counter_with_methods(%{optional(Pyex.Interpreter.pyvalue()) => integer()}) ::
-          %{optional(Pyex.Interpreter.pyvalue()) => Pyex.Interpreter.pyvalue()}
+          PyDict.t()
   defp counter_with_methods(counts) do
     most_common_fn = fn
       [] ->
@@ -103,48 +112,51 @@ defmodule Pyex.Stdlib.Collections do
         |> Enum.map(fn {k, v} -> {:tuple, [k, v]} end)
     end
 
-    Map.merge(counts, %{
-      "__counter__" => true,
-      "most_common" => {:builtin, most_common_fn},
-      "elements" =>
-        {:builtin,
-         fn [] ->
-           Enum.flat_map(counts, fn {k, v} ->
-             List.duplicate(k, max(v, 0))
-           end)
-         end}
-    })
+    base = PyDict.from_map(counts)
+
+    base
+    |> PyDict.put("__counter__", true)
+    |> PyDict.put("most_common", {:builtin, most_common_fn})
+    |> PyDict.put(
+      "elements",
+      {:builtin,
+       fn [] ->
+         Enum.flat_map(counts, fn {k, v} ->
+           List.duplicate(k, max(v, 0))
+         end)
+       end}
+    )
   end
 
   @spec defaultdict([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp defaultdict([]) do
-    %{}
+    PyDict.new()
   end
 
   defp defaultdict([factory]) do
-    %{"__defaultdict_factory__" => factory}
+    PyDict.from_pairs([{"__defaultdict_factory__", factory}])
   end
 
   @spec ordered_dict([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp ordered_dict([]) do
-    %{}
+    PyDict.new()
   end
 
   defp ordered_dict([{:py_list, reversed, _}]) do
     reversed
     |> Enum.reverse()
-    |> Enum.reduce(%{}, fn
+    |> Enum.reduce(PyDict.new(), fn
       {:tuple, [k, v]}, acc ->
-        Map.put(acc, k, v)
+        PyDict.put(acc, k, v)
 
       {:py_list, r, _}, acc ->
         case Enum.reverse(r) do
-          [k, v] -> Map.put(acc, k, v)
+          [k, v] -> PyDict.put(acc, k, v)
           _ -> acc
         end
 
       [k, v], acc ->
-        Map.put(acc, k, v)
+        PyDict.put(acc, k, v)
 
       _, acc ->
         acc
@@ -152,9 +164,9 @@ defmodule Pyex.Stdlib.Collections do
   end
 
   defp ordered_dict([list]) when is_list(list) do
-    Enum.reduce(list, %{}, fn
-      {:tuple, [k, v]}, acc -> Map.put(acc, k, v)
-      [k, v], acc -> Map.put(acc, k, v)
+    Enum.reduce(list, PyDict.new(), fn
+      {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
+      [k, v], acc -> PyDict.put(acc, k, v)
       _, acc -> acc
     end)
   end

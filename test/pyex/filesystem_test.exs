@@ -496,7 +496,7 @@ defmodule Pyex.FilesystemTest do
       """
 
       {value, _ctx} = run_with_fs!(code, fs)
-      assert value == ["A.TXT", "B.TXT", "C.TXT"]
+      assert value == {:py_list, ["C.TXT", "B.TXT", "A.TXT"], 3}
     end
 
     test "result works with len()" do

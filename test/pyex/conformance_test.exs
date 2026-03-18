@@ -1021,7 +1021,6 @@ defmodule Pyex.ConformanceTest do
       """)
     end
 
-    @tag :skip
     test "multiple closures share state" do
       assert_conforms("""
       def make_pair():
@@ -1037,7 +1036,6 @@ defmodule Pyex.ConformanceTest do
       """)
     end
 
-    @tag :skip
     test "closure over dict" do
       assert_conforms("""
       def make_cache():
@@ -1342,7 +1340,6 @@ defmodule Pyex.ConformanceTest do
       assert_conforms("print(repr(((1,2,1,3,1).count(1), (10,20,30).index(20))))")
     end
 
-    @tag :skip
     test "nested tuple unpacking" do
       assert_conforms("""
       (a, b), c = (1, 2), 3
@@ -3333,8 +3330,6 @@ defmodule Pyex.ConformanceTest do
       """)
     end
 
-    # Elixir maps sort string keys; no insertion-order guarantee
-    @tag :skip
     test "OrderedDict preserves order" do
       assert_conforms("""
       from collections import OrderedDict
@@ -3527,8 +3522,6 @@ defmodule Pyex.ConformanceTest do
   # ── List aliasing / mutable references ──────────────────────
 
   describe "mutable aliasing" do
-    # Pyex uses value semantics; no reference aliasing
-    @tag :skip
     test "list * creates aliased references" do
       assert_conforms("""
       grid = [[0] * 3] * 3
@@ -3545,8 +3538,6 @@ defmodule Pyex.ConformanceTest do
       """)
     end
 
-    # Pyex uses value semantics; no reference aliasing
-    @tag :skip
     test "append to aliased list" do
       assert_conforms("""
       a = [1, 2]

@@ -88,6 +88,15 @@ defmodule Pyex.Stdlib.Pandas do
   end
 
   @spec do_dataframe([term()]) :: {:pandas_dataframe, Explorer.DataFrame.t()}
+  defp do_dataframe([{:py_dict, _, _} = dict]) do
+    columns =
+      Enum.map(Pyex.PyDict.items(dict), fn {name, values} ->
+        {name, coerce_values(normalize_list(values))}
+      end)
+
+    {:pandas_dataframe, Explorer.DataFrame.new(columns)}
+  end
+
   defp do_dataframe([dict]) when is_map(dict) do
     columns =
       Enum.map(dict, fn {name, values} ->

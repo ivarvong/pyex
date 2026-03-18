@@ -15,6 +15,8 @@ defmodule Pyex.Stdlib.Requests do
 
   @behaviour Pyex.Stdlib.Module
 
+  alias Pyex.PyDict
+
   @doc """
   Returns the module value -- a map with callable attributes.
   """
@@ -115,7 +117,7 @@ defmodule Pyex.Stdlib.Requests do
                    method: method_str,
                    url: url,
                    status: resp.status,
-                   response_body_size: byte_size(response["text"])
+                   response_body_size: byte_size(PyDict.get(response, "text"))
                  })
 
                  response
@@ -174,25 +176,24 @@ defmodule Pyex.Stdlib.Requests do
       end
 
     headers_map =
-      Enum.reduce(resp_headers, %{}, fn {k, v}, acc ->
-        Map.put(acc, String.downcase(k), v)
-      end)
+      Enum.map(resp_headers, fn {k, v} -> {String.downcase(k), v} end)
+      |> PyDict.from_pairs()
 
-    %{
-      "text" => text,
-      "content" => text,
-      "status_code" => status,
-      "ok" => status >= 200 and status < 300,
-      "headers" => headers_map,
-      "json" =>
-        {:builtin,
-         fn [] ->
-           case Jason.decode(text) do
-             {:ok, value} -> value
-             {:error, reason} -> {:exception, "json.JSONDecodeError: #{inspect(reason)}"}
-           end
-         end}
-    }
+    PyDict.from_pairs([
+      {"text", text},
+      {"content", text},
+      {"status_code", status},
+      {"ok", status >= 200 and status < 300},
+      {"headers", headers_map},
+      {"json",
+       {:builtin,
+        fn [] ->
+          case Jason.decode(text) do
+            {:ok, value} -> value
+            {:error, reason} -> {:exception, "json.JSONDecodeError: #{inspect(reason)}"}
+          end
+        end}}
+    ])
   end
 
   @spec build_headers(%{optional(String.t()) => Pyex.Interpreter.pyvalue()}) :: [
@@ -200,14 +201,25 @@ defmodule Pyex.Stdlib.Requests do
         ]
   defp build_headers(kwargs) do
     case Map.get(kwargs, "headers") do
-      %{} = h -> Enum.map(h, fn {k, v} -> {to_string(k), to_string(v)} end)
-      _ -> []
+      {:py_dict, _, _} = h ->
+        Enum.map(PyDict.items(h), fn {k, v} -> {to_string(k), to_string(v)} end)
+
+      %{} = h ->
+        Enum.map(h, fn {k, v} -> {to_string(k), to_string(v)} end)
+
+      _ ->
+        []
     end
   end
 
   @spec to_jason_compatible(Pyex.Interpreter.pyvalue()) :: term()
   defp to_jason_compatible({:tuple, items}), do: Enum.map(items, &to_jason_compatible/1)
   defp to_jason_compatible(list) when is_list(list), do: Enum.map(list, &to_jason_compatible/1)
+
+  defp to_jason_compatible({:py_dict, _, _} = dict) do
+    pairs = Enum.map(PyDict.items(dict), fn {k, v} -> {to_string(k), to_jason_compatible(v)} end)
+    Map.new(pairs)
+  end
 
   defp to_jason_compatible(map) when is_map(map) do
     Map.new(map, fn {k, v} -> {to_string(k), to_jason_compatible(v)} end)

@@ -27,6 +27,10 @@ defmodule Pyex.Interpreter.Dunder do
           Env.t(),
           Ctx.t()
         ) :: {:ok, Interpreter.pyvalue(), Interpreter.pyvalue(), Env.t(), Ctx.t()} | :not_found
+  def call_dunder_mut({:ref, _} = ref, method, args, env, ctx) do
+    call_dunder_mut(Ctx.deref(ctx, ref), method, args, env, ctx)
+  end
+
   def call_dunder_mut(
         {:instance, {:class, _, _, _} = class, _} = instance,
         method,

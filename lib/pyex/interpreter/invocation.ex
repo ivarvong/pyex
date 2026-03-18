@@ -88,13 +88,19 @@ defmodule Pyex.Interpreter.Invocation do
         env = Env.propagate_scopes(env, fresh_closure, post_call_env)
         return_val = Helpers.unwrap(result)
 
-        updated_self =
-          case Env.get(post_call_env, "self") do
-            {:ok, {:instance, _, _} = updated} -> updated
-            _ -> instance
-          end
+        case instance do
+          {:ref, _} ->
+            {return_val, env, ctx}
 
-        {:mutate, updated_self, return_val, env, ctx}
+          _ ->
+            updated_self =
+              case Env.get(post_call_env, "self") do
+                {:ok, {:instance, _, _} = updated} -> updated
+                _ -> instance
+              end
+
+            {:mutate, updated_self, return_val, env, ctx}
+        end
     end
   end
 
@@ -102,9 +108,11 @@ defmodule Pyex.Interpreter.Invocation do
   @spec call_builtin((list() -> term()), [Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
           Interpreter.call_result()
   def call_builtin(fun, args, env, ctx) do
+    derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
+
     result =
       try do
-        fun.(args)
+        fun.(derefed_args)
       rescue
         FunctionClauseError ->
           {:exception, "TypeError: invalid arguments"}
@@ -125,9 +133,12 @@ defmodule Pyex.Interpreter.Invocation do
           Ctx.t()
         ) :: Interpreter.call_result()
   def call_builtin_kw(fun, args, kwargs, env, ctx) do
+    derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
+    derefed_kwargs = Map.new(kwargs, fn {k, v} -> {k, Ctx.deep_deref(ctx, v)} end)
+
     result =
       try do
-        fun.(args, kwargs)
+        fun.(derefed_args, derefed_kwargs)
       rescue
         FunctionClauseError ->
           {:exception, "TypeError: invalid arguments"}
@@ -149,7 +160,11 @@ defmodule Pyex.Interpreter.Invocation do
           Ctx.t()
         ) :: Interpreter.call_result()
   def call_bound_builtin_kw(instance, fun, args, kwargs, env, ctx) do
-    case fun.([instance | args], kwargs) do
+    derefed_instance = Ctx.deep_deref(ctx, instance)
+    derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
+    derefed_kwargs = Map.new(kwargs, fn {k, v} -> {k, Ctx.deep_deref(ctx, v)} end)
+
+    case fun.([derefed_instance | derefed_args], derefed_kwargs) do
       {:exception, _} = signal ->
         {signal, env, ctx}
 
@@ -170,7 +185,10 @@ defmodule Pyex.Interpreter.Invocation do
           Ctx.t()
         ) :: Interpreter.call_result()
   def call_bound_builtin(instance, fun, args, env, ctx) do
-    case fun.([instance | args]) do
+    derefed_instance = Ctx.deep_deref(ctx, instance)
+    derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
+
+    case fun.([derefed_instance | derefed_args]) do
       {:exception, _} = signal ->
         {signal, env, ctx}
 
@@ -207,9 +225,13 @@ defmodule Pyex.Interpreter.Invocation do
         )
 
       {:ok, {:builtin_kw, fun}, _defining_class} ->
-        case fun.([instance | args], kwargs) do
+        derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
+        derefed_kwargs = Map.new(kwargs, fn {k, v} -> {k, Ctx.deep_deref(ctx, v)} end)
+
+        case fun.([instance | derefed_args], derefed_kwargs) do
           {:instance, _, _} = updated_instance ->
-            {updated_instance, env, ctx}
+            {ref, ctx} = Ctx.heap_alloc(ctx, updated_instance)
+            {ref, env, ctx}
 
           {:exception, _} = signal ->
             {signal, env, ctx}
@@ -217,7 +239,8 @@ defmodule Pyex.Interpreter.Invocation do
 
       :error ->
         if args == [] do
-          {instance, env, ctx}
+          {ref, ctx} = Ctx.heap_alloc(ctx, instance)
+          {ref, env, ctx}
         else
           {{:exception, "TypeError: #{name}() takes 0 arguments but #{length(args)} were given"},
            env, ctx}
@@ -279,7 +302,9 @@ defmodule Pyex.Interpreter.Invocation do
             generator_mode: ctx.generator_mode,
             generator_acc: prev_acc,
             event_count: gen_ctx.event_count,
-            file_ops: gen_ctx.file_ops
+            file_ops: gen_ctx.file_ops,
+            heap: gen_ctx.heap,
+            next_heap_id: gen_ctx.next_heap_id
         }
 
         case result do
@@ -335,7 +360,9 @@ defmodule Pyex.Interpreter.Invocation do
       | compute: gen_ctx.compute,
         compute_started_at: gen_ctx.compute_started_at,
         event_count: gen_ctx.event_count,
-        file_ops: gen_ctx.file_ops
+        file_ops: gen_ctx.file_ops,
+        heap: gen_ctx.heap,
+        next_heap_id: gen_ctx.next_heap_id
     }
   end
 
@@ -388,7 +415,8 @@ defmodule Pyex.Interpreter.Invocation do
                 _ -> instance
               end
 
-            {final_self, env, ctx}
+            {ref, ctx} = Ctx.heap_alloc(ctx, final_self)
+            {ref, env, ctx}
         end
     end
   end

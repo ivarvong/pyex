@@ -14,7 +14,7 @@ defmodule Pyex.Stdlib.Itertools do
 
   @behaviour Pyex.Stdlib.Module
 
-  alias Pyex.{Builtins, Interpreter}
+  alias Pyex.{Builtins, Interpreter, PyDict}
 
   @max_output 1_000_000
 
@@ -64,6 +64,7 @@ defmodule Pyex.Stdlib.Itertools do
   end
 
   defp materialize(str) when is_binary(str), do: String.codepoints(str)
+  defp materialize({:py_dict, _, _} = dict), do: dict |> Builtins.visible_dict() |> PyDict.keys()
   defp materialize(map) when is_map(map), do: map |> Builtins.visible_dict() |> Map.keys()
 
   @spec do_chain([Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]

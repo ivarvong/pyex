@@ -8,7 +8,7 @@ defmodule Pyex.Interpreter.Match do
   when a case arm matches.
   """
 
-  alias Pyex.{Ctx, Env, Interpreter}
+  alias Pyex.{Ctx, Env, Interpreter, PyDict}
 
   @typep match_bindings :: [{String.t(), Interpreter.pyvalue()}]
 
@@ -26,6 +26,8 @@ defmodule Pyex.Interpreter.Match do
   end
 
   def eval_match_cases(subject, [{pattern, guard, body} | rest], env, ctx) do
+    subject = Ctx.deref(ctx, subject)
+
     case match_pattern(subject, pattern, env, ctx) do
       {:ok, bindings} ->
         env = Enum.reduce(bindings, env, fn {name, value}, env -> Env.put(env, name, value) end)
@@ -55,6 +57,10 @@ defmodule Pyex.Interpreter.Match do
 
   @spec match_pattern(Interpreter.pyvalue(), term(), Env.t(), Ctx.t()) ::
           {:ok, match_bindings()} | :no_match
+  defp match_pattern({:ref, _} = ref, pattern, env, ctx) do
+    match_pattern(Ctx.deref(ctx, ref), pattern, env, ctx)
+  end
+
   defp match_pattern(_subject, {:match_wildcard, _, []}, _env, _ctx) do
     {:ok, []}
   end
@@ -86,6 +92,10 @@ defmodule Pyex.Interpreter.Match do
     else
       :no_match
     end
+  end
+
+  defp match_pattern({:py_dict, _, _} = subject, {:match_mapping, _, pairs}, env, ctx) do
+    match_mapping_patterns(subject, pairs, env, ctx, [])
   end
 
   defp match_pattern(subject, {:match_mapping, _, pairs}, env, ctx) when is_map(subject) do
@@ -172,7 +182,7 @@ defmodule Pyex.Interpreter.Match do
   end
 
   @spec match_mapping_patterns(
-          map(),
+          map() | PyDict.t(),
           [{term(), term()}],
           Env.t(),
           Ctx.t(),
@@ -181,6 +191,30 @@ defmodule Pyex.Interpreter.Match do
           {:ok, match_bindings()} | :no_match
   defp match_mapping_patterns(_subject, [], _env, _ctx, acc) do
     {:ok, Enum.reverse(acc)}
+  end
+
+  defp match_mapping_patterns(
+         {:py_dict, _, _} = subject,
+         [{key_node, value_pattern} | rest],
+         env,
+         ctx,
+         acc
+       ) do
+    {key_val, _, _} = Interpreter.eval(key_node, env, ctx)
+
+    case PyDict.fetch(subject, key_val) do
+      {:ok, val} ->
+        case match_pattern(val, value_pattern, env, ctx) do
+          {:ok, bindings} ->
+            match_mapping_patterns(subject, rest, env, ctx, Enum.reverse(bindings) ++ acc)
+
+          :no_match ->
+            :no_match
+        end
+
+      :error ->
+        :no_match
+    end
   end
 
   defp match_mapping_patterns(subject, [{key_node, value_pattern} | rest], env, ctx, acc) do

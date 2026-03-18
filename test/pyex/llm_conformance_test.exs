@@ -809,8 +809,6 @@ defmodule Pyex.LlmConformanceTest do
       """)
     end
 
-    # Skip: wrapper.call_count = calls sets attr on function — requires reference semantics
-    @tag :skip
     test "call counter decorator" do
       assert_conforms("""
       def count_calls(func):
@@ -1006,8 +1004,6 @@ defmodule Pyex.LlmConformanceTest do
       """)
     end
 
-    # Skip: self.listeners[event].append(callback) requires reference semantics
-    @tag :skip
     test "event system" do
       assert_conforms("""
       class EventEmitter:

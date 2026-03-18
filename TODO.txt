@@ -1,0 +1,15 @@
+Pyex TODO — bugs and missing features to fix
+=============================================
+
+All tests pass (3055 tests, 0 failures, 0 skipped).
+All 5 fixtures pass (csv_stats, elixir_highlight, lru_cache, web_crawler, sanity).
+
+Heap-based reference system is complete for lists, dicts, sets, and
+class instances.  Aliasing works: `b = a; b.val = 99` → `a.val == 99`.
+Intrusive linked lists work: `node.prev.next = node.next`.
+
+## Remaining features
+
+See the commented-out `# TODO:` lines in
+test/fixtures/programs/sanity/main.py for the full list of unsupported
+Python features.

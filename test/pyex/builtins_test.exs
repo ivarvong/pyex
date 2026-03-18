@@ -176,28 +176,28 @@ defmodule Pyex.BuiltinsTest do
   describe "print()" do
     test "prints a single value" do
       {:ok, _val, ctx} = Pyex.run("print(42)")
-      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "42"
+      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "42\n"
     end
 
     test "prints multiple values separated by space" do
       {:ok, _val, ctx} = Pyex.run("print(1, 2, 3)")
-      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "1 2 3"
+      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "1 2 3\n"
     end
 
     test "prints None as None" do
       {:ok, _val, ctx} = Pyex.run("print(None)")
-      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "None"
+      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "None\n"
     end
 
     test "prints booleans as True/False" do
       {:ok, _val, ctx} = Pyex.run("print(True, False)")
-      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "True False"
+      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "True False\n"
     end
 
     test "returns None" do
       {:ok, val, ctx} = Pyex.run("print(42)")
       assert val == nil
-      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "42"
+      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "42\n"
     end
   end
 

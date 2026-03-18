@@ -35,7 +35,7 @@ defmodule Pyex.Lambda do
       {:ok, resp, app} = Pyex.Lambda.handle(app, %{method: "GET", path: "/todos"})
   """
 
-  alias Pyex.{Builtins, Ctx, Env, Error, Interpreter}
+  alias Pyex.{Builtins, Ctx, Env, Error, Interpreter, PyDict}
   alias Pyex.Stdlib.FastAPI
   alias Pyex.Stdlib.Pydantic
 
@@ -214,7 +214,7 @@ defmodule Pyex.Lambda do
 
         case call_handler_safe(handler, path_params, request, stream_ctx) do
           {:ok, result, new_ctx, updated_handler} ->
-            response = unwrap_stream_response(result)
+            response = unwrap_stream_response(result, new_ctx)
             telem = build_telemetry(t0, events_before, compute_before, new_ctx)
             meta = %{status: response.status, headers: response.headers, telemetry: telem}
 
@@ -381,12 +381,14 @@ defmodule Pyex.Lambda do
 
       _ ->
         telem = build_telemetry(t0, events_before, compute_before, new_ctx)
-        {:ok, Map.put(unwrap_response(result), :telemetry, telem), new_ctx, updated_handler}
+
+        {:ok, Map.put(unwrap_response(result, new_ctx), :telemetry, telem), new_ctx,
+         updated_handler}
     end
   end
 
-  @spec unwrap_response(Interpreter.pyvalue()) :: response()
-  defp unwrap_response(%{"__response__" => true, "__streaming__" => true} = resp) do
+  @spec unwrap_response(Interpreter.pyvalue(), Ctx.t()) :: response()
+  defp unwrap_response(%{"__response__" => true, "__streaming__" => true} = resp, _ctx) do
     chunks = Map.get(resp, "body", [])
 
     %{
@@ -396,24 +398,28 @@ defmodule Pyex.Lambda do
     }
   end
 
-  defp unwrap_response(%{"__response__" => true} = resp) do
+  defp unwrap_response(%{"__response__" => true} = resp, ctx) do
+    body = Ctx.deep_deref(ctx, Map.get(resp, "body"))
+
     %{
       status: Map.get(resp, "status_code", 200),
       headers: Map.get(resp, "headers", %{"content-type" => "application/json"}),
-      body: Interpreter.Helpers.to_python_view(Map.get(resp, "body"))
+      body: Interpreter.Helpers.to_python_view(body)
     }
   end
 
-  defp unwrap_response(result) do
+  defp unwrap_response(result, ctx) do
+    derefed = Ctx.deep_deref(ctx, result)
+
     %{
       status: 200,
       headers: %{"content-type" => "application/json"},
-      body: Interpreter.Helpers.to_python_view(result)
+      body: Interpreter.Helpers.to_python_view(derefed)
     }
   end
 
-  @spec unwrap_stream_response(Interpreter.pyvalue()) :: stream_response()
-  defp unwrap_stream_response(%{"__response__" => true, "__streaming__" => true} = resp) do
+  @spec unwrap_stream_response(Interpreter.pyvalue(), Ctx.t()) :: stream_response()
+  defp unwrap_stream_response(%{"__response__" => true, "__streaming__" => true} = resp, _ctx) do
     chunks = Map.get(resp, "body", [])
 
     %{
@@ -423,14 +429,14 @@ defmodule Pyex.Lambda do
     }
   end
 
-  defp unwrap_stream_response(%{"__response__" => true} = resp) do
-    body = Map.get(resp, "body")
+  defp unwrap_stream_response(%{"__response__" => true} = resp, ctx) do
+    body = Ctx.deep_deref(ctx, Map.get(resp, "body"))
 
     body_str =
       if is_binary(body) do
         body
       else
-        case Jason.encode(body) do
+        case Jason.encode(Interpreter.Helpers.to_python_view(body)) do
           {:ok, json} -> json
           {:error, _} -> inspect(body)
         end
@@ -443,9 +449,12 @@ defmodule Pyex.Lambda do
     }
   end
 
-  defp unwrap_stream_response(result) do
+  defp unwrap_stream_response(result, ctx) do
+    derefed = Ctx.deep_deref(ctx, result)
+    viewable = Interpreter.Helpers.to_python_view(derefed)
+
     body_str =
-      case Jason.encode(result) do
+      case Jason.encode(viewable) do
         {:ok, json} -> json
         {:error, _} -> inspect(result)
       end
@@ -557,7 +566,7 @@ defmodule Pyex.Lambda do
           Env.t(),
           %{optional(String.t()) => String.t()},
           %{optional(String.t()) => String.t()},
-          %{String.t() => Interpreter.pyvalue()},
+          Interpreter.pyvalue(),
           request(),
           keyword()
         ) :: {:ok, Env.t()} | {:validation_error, String.t()}
@@ -619,31 +628,31 @@ defmodule Pyex.Lambda do
     }
   end
 
-  @spec build_request_object(request()) :: %{String.t() => Interpreter.pyvalue()}
+  @spec build_request_object(request()) :: PyDict.t()
   defp build_request_object(request) do
     body = Map.get(request, :body)
 
-    %{
-      "method" => String.upcase(request.method),
-      "headers" => Map.get(request, :headers, %{}),
-      "query_params" => Map.get(request, :query_params, %{}),
-      "body" => body,
-      "json" =>
-        {:builtin,
-         fn
-           [] ->
-             case body do
-               nil ->
-                 {:exception, "request body is empty"}
+    PyDict.from_pairs([
+      {"method", String.upcase(request.method)},
+      {"headers", Map.get(request, :headers, %{})},
+      {"query_params", Map.get(request, :query_params, %{})},
+      {"body", body},
+      {"json",
+       {:builtin,
+        fn
+          [] ->
+            case body do
+              nil ->
+                {:exception, "request body is empty"}
 
-               raw when is_binary(raw) ->
-                 case Jason.decode(raw) do
-                   {:ok, value} -> value
-                   {:error, _} -> {:exception, "invalid JSON body: #{raw}"}
-                 end
-             end
-         end}
-    }
+              raw when is_binary(raw) ->
+                case Jason.decode(raw) do
+                  {:ok, value} -> value
+                  {:error, _} -> {:exception, "invalid JSON body: #{raw}"}
+                end
+            end
+        end}}
+    ])
   end
 
   @spec coerce_param(String.t(), String.t() | nil) :: Interpreter.pyvalue()

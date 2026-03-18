@@ -29,10 +29,16 @@ defmodule Pyex.Interpreter.Calls do
           {args, kwargs, env, ctx} ->
             case Interpreter.call_function(func, args, kwargs, env, ctx) do
               {:mutate, new_object, return_value, new_env, ctx} ->
-                {return_value, Env.put_at_source(new_env, var_name, new_object), ctx}
+                case Env.get(new_env, var_name) do
+                  {:ok, {:ref, id}} -> {return_value, new_env, Ctx.heap_put(ctx, id, new_object)}
+                  _ -> {return_value, Env.put_at_source(new_env, var_name, new_object), ctx}
+                end
 
               {:mutate, new_object, return_value, ctx} ->
-                {return_value, Env.put_at_source(env, var_name, new_object), ctx}
+                case Env.get(env, var_name) do
+                  {:ok, {:ref, id}} -> {return_value, env, Ctx.heap_put(ctx, id, new_object)}
+                  _ -> {return_value, Env.put_at_source(env, var_name, new_object), ctx}
+                end
 
               {{:exception, _} = signal, env, ctx} ->
                 {signal, env, ctx}
@@ -67,12 +73,12 @@ defmodule Pyex.Interpreter.Calls do
             case Interpreter.call_function(func, args, kwargs, env, ctx) do
               {:mutate, new_object, return_value, new_env, ctx} ->
                 target = mutate_target_expr(func_expr, arg_exprs)
-                new_env = mutate_target(target, new_object, new_env, ctx)
+                {new_env, ctx} = mutate_target(target, new_object, new_env, ctx)
                 {return_value, new_env, ctx}
 
               {:mutate, new_object, return_value, ctx} ->
                 target = mutate_target_expr(func_expr, arg_exprs)
-                env = mutate_target(target, new_object, env, ctx)
+                {env, ctx} = mutate_target(target, new_object, env, ctx)
                 {return_value, env, ctx}
 
               {{:exception, _} = signal, env, ctx} ->
@@ -121,9 +127,71 @@ defmodule Pyex.Interpreter.Calls do
   defp mutate_target_expr({:var, _, ["setattr"]}, [first_arg | _]), do: first_arg
   defp mutate_target_expr(func_expr, _arg_exprs), do: func_expr
 
-  @spec mutate_target(Parser.ast_node(), Interpreter.pyvalue(), Env.t(), Ctx.t()) :: Env.t()
-  defp mutate_target({:getattr, _, [{:var, _, [var_name]}, _method]}, new_object, env, _ctx) do
-    Env.smart_put(env, var_name, new_object)
+  @spec mutate_target(Parser.ast_node(), Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
+          {Env.t(), Ctx.t()}
+  defp mutate_target({:getattr, _, [{:var, _, [var_name]}, attr]}, new_object, env, ctx) do
+    case Env.get(env, var_name) do
+      {:ok, owner} ->
+        case Ctx.deref(ctx, owner) do
+          {:instance, class, attrs} ->
+            case Map.get(attrs, attr) do
+              {:ref, id} ->
+                {env, Ctx.heap_put(ctx, id, new_object)}
+
+              _ ->
+                updated = {:instance, class, Map.put(attrs, attr, new_object)}
+
+                case owner do
+                  {:ref, owner_id} -> {env, Ctx.heap_put(ctx, owner_id, updated)}
+                  _ -> {Env.put_at_source(env, var_name, updated), ctx}
+                end
+            end
+
+          _ ->
+            {Env.smart_put(env, var_name, new_object), ctx}
+        end
+
+      _ ->
+        {env, ctx}
+    end
+  end
+
+  defp mutate_target(
+         {:getattr, _, [{:getattr, _, [{:var, _, [var_name]}, attr]}, _method]},
+         new_object,
+         env,
+         ctx
+       ) do
+    case Env.get(env, var_name) do
+      {:ok, owner} ->
+        case Ctx.deref(ctx, owner) do
+          {:instance, _class, attrs} ->
+            case Map.get(attrs, attr) do
+              {:ref, id} ->
+                {env, Ctx.heap_put(ctx, id, new_object)}
+
+              _ ->
+                updated_setattr = {:getattr, [], [{:var, [], [var_name]}, attr]}
+
+                case Assignments.setattr(updated_setattr, new_object, env, ctx) do
+                  {_, env, ctx} -> {env, ctx}
+                end
+            end
+
+          _ ->
+            case Assignments.setattr(
+                   {:getattr, [], [{:var, [], [var_name]}, attr]},
+                   new_object,
+                   env,
+                   ctx
+                 ) do
+              {_, env, ctx} -> {env, ctx}
+            end
+        end
+
+      _ ->
+        {env, ctx}
+    end
   end
 
   defp mutate_target(
@@ -133,12 +201,12 @@ defmodule Pyex.Interpreter.Calls do
          ctx
        ) do
     case Assignments.setattr(inner_target, new_object, env, ctx) do
-      {_, env, _} -> env
+      {_, env, ctx} -> {env, ctx}
     end
   end
 
-  defp mutate_target({:getattr, _, [{:call, _, _}, _method]}, new_object, env, _ctx) do
-    Env.smart_put(env, "self", new_object)
+  defp mutate_target({:getattr, _, [{:call, _, _}, _method]}, new_object, env, ctx) do
+    {Env.smart_put(env, "self", new_object), ctx}
   end
 
   defp mutate_target(
@@ -147,21 +215,34 @@ defmodule Pyex.Interpreter.Calls do
          env,
          ctx
        ) do
-    {container, env, ctx} = Interpreter.eval(container_expr, env, ctx)
-    {key, env, _ctx} = Interpreter.eval(key_expr, env, ctx)
-    new_container = Assignments.set_subscript_value(container, key, new_object)
-    mutate_target(container_expr, new_container, env, ctx)
+    {raw_container, env, ctx} = Interpreter.eval(container_expr, env, ctx)
+    container = Ctx.deref(ctx, raw_container)
+    {key, env, ctx} = Interpreter.eval(key_expr, env, ctx)
+
+    case Assignments.get_subscript_value(container, key) do
+      {:ref, inner_id} ->
+        {env, Ctx.heap_put(ctx, inner_id, new_object)}
+
+      _ ->
+        new_container = Assignments.set_subscript_value(container, key, new_object)
+        mutate_target(container_expr, new_container, env, ctx)
+    end
   end
 
-  defp mutate_target({:var, _, [var_name]}, new_object, env, _ctx) do
-    Env.smart_put(env, var_name, new_object)
+  defp mutate_target({:var, _, [var_name]}, new_object, env, ctx) do
+    case Env.get(env, var_name) do
+      {:ok, {:ref, id}} -> {env, Ctx.heap_put(ctx, id, new_object)}
+      _ -> {Env.smart_put(env, var_name, new_object), ctx}
+    end
   end
 
   defp mutate_target({:subscript, _, [expr, _index]}, new_object, env, ctx) do
     mutate_target(expr, new_object, env, ctx)
   end
 
-  defp mutate_target(_, _new_object, env, _ctx), do: env
+  defp mutate_target(_other, _new_object, env, ctx) do
+    {env, ctx}
+  end
 
   @spec get_mutated_instance(Env.t(), Interpreter.pyvalue()) :: Interpreter.pyvalue()
   defp get_mutated_instance(env, {:instance, _, _} = original) do

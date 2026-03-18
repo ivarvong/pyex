@@ -28,6 +28,8 @@ defmodule Pyex.Stdlib.Boto3 do
 
   @behaviour Pyex.Stdlib.Module
 
+  alias Pyex.PyDict
+
   @typep s3_result ::
            {:exception, String.t()}
            | {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
@@ -73,15 +75,15 @@ defmodule Pyex.Stdlib.Boto3 do
 
     config = %{region: region, endpoint_url: endpoint_url, signing_opts: signing_opts}
 
-    %{
-      "__boto3_s3_client__" => true,
-      "__region__" => region,
-      "__endpoint_url__" => endpoint_url,
-      "put_object" => {:builtin_kw, &s3_put_object(config, &1, &2)},
-      "get_object" => {:builtin_kw, &s3_get_object(config, &1, &2)},
-      "delete_object" => {:builtin_kw, &s3_delete_object(config, &1, &2)},
-      "list_objects_v2" => {:builtin_kw, &s3_list_objects_v2(config, &1, &2)}
-    }
+    PyDict.from_pairs([
+      {"__boto3_s3_client__", true},
+      {"__region__", region},
+      {"__endpoint_url__", endpoint_url},
+      {"put_object", {:builtin_kw, &s3_put_object(config, &1, &2)}},
+      {"get_object", {:builtin_kw, &s3_get_object(config, &1, &2)}},
+      {"delete_object", {:builtin_kw, &s3_delete_object(config, &1, &2)}},
+      {"list_objects_v2", {:builtin_kw, &s3_list_objects_v2(config, &1, &2)}}
+    ])
   end
 
   @spec check_endpoint_network(Pyex.Ctx.t(), String.t()) :: :ok | {:exception, String.t()}
@@ -163,7 +165,9 @@ defmodule Pyex.Stdlib.Boto3 do
               result =
                 case Req.put(url, req_opts) do
                   {:ok, %{status: status}} when status in [200, 201] ->
-                    %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
+                    PyDict.from_pairs([
+                      {"ResponseMetadata", PyDict.from_pairs([{"HTTPStatusCode", status}])}
+                    ])
 
                   {:ok, %{status: status, body: resp_body}} ->
                     {:exception,
@@ -208,19 +212,20 @@ defmodule Pyex.Stdlib.Boto3 do
                   {:ok, %{status: 200, body: body, headers: headers}} ->
                     body_str = body
 
-                    body_obj = %{
-                      "read" => {:builtin, fn [] -> body_str end},
-                      "__body_bytes__" => body_str
-                    }
+                    body_obj =
+                      PyDict.from_pairs([
+                        {"read", {:builtin, fn [] -> body_str end}},
+                        {"__body_bytes__", body_str}
+                      ])
 
                     content_type = extract_header(headers, "content-type")
 
-                    %{
-                      "Body" => body_obj,
-                      "ContentLength" => byte_size(body_str),
-                      "ContentType" => content_type,
-                      "ResponseMetadata" => %{"HTTPStatusCode" => 200}
-                    }
+                    PyDict.from_pairs([
+                      {"Body", body_obj},
+                      {"ContentLength", byte_size(body_str)},
+                      {"ContentType", content_type},
+                      {"ResponseMetadata", PyDict.from_pairs([{"HTTPStatusCode", 200}])}
+                    ])
 
                   {:ok, %{status: 404}} ->
                     {:exception,
@@ -267,7 +272,9 @@ defmodule Pyex.Stdlib.Boto3 do
               result =
                 case Req.delete(url, req_opts) do
                   {:ok, %{status: status}} when status in [200, 204] ->
-                    %{"ResponseMetadata" => %{"HTTPStatusCode" => status}}
+                    PyDict.from_pairs([
+                      {"ResponseMetadata", PyDict.from_pairs([{"HTTPStatusCode", status}])}
+                    ])
 
                   {:ok, %{status: status, body: resp_body}} ->
                     {:exception,
@@ -308,12 +315,12 @@ defmodule Pyex.Stdlib.Boto3 do
                 {:ok, %{status: 200, body: body}} ->
                   contents = parse_list_response(body, prefix)
 
-                  %{
-                    "Contents" => contents,
-                    "KeyCount" => length(contents),
-                    "Prefix" => prefix,
-                    "ResponseMetadata" => %{"HTTPStatusCode" => 200}
-                  }
+                  PyDict.from_pairs([
+                    {"Contents", contents},
+                    {"KeyCount", length(contents)},
+                    {"Prefix", prefix},
+                    {"ResponseMetadata", PyDict.from_pairs([{"HTTPStatusCode", 200}])}
+                  ])
 
                 {:ok, %{status: status, body: resp_body}} ->
                   {:exception,
@@ -329,10 +336,10 @@ defmodule Pyex.Stdlib.Boto3 do
     end
   end
 
-  @spec parse_list_response(String.t() | term(), String.t()) :: [map()]
+  @spec parse_list_response(String.t() | term(), String.t()) :: [PyDict.t()]
   defp parse_list_response(body, _prefix) when is_binary(body) do
     Regex.scan(~r/<Key>([^<]+)<\/Key>/, body)
-    |> Enum.map(fn [_, key] -> %{"Key" => key} end)
+    |> Enum.map(fn [_, key] -> PyDict.from_pairs([{"Key", key}]) end)
   end
 
   defp parse_list_response(_body, _prefix), do: []

@@ -57,6 +57,8 @@ defmodule Pyex.Interpreter.ControlFlow do
         ) ::
           eval_result()
   def eval_for(var_name, iterable_expr, body, else_body, env, ctx) do
+    source_var = iterable_source_var(iterable_expr)
+
     case Interpreter.eval(iterable_expr, env, ctx) do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
@@ -71,11 +73,18 @@ defmodule Pyex.Interpreter.ControlFlow do
 
       {iterable, env, ctx} ->
         case Interpreter.to_iterable(iterable, env, ctx) do
-          {:ok, items, env, ctx} -> eval_for_items(var_name, items, body, else_body, env, ctx)
-          {:exception, msg} -> {{:exception, msg}, env, ctx}
+          {:ok, items, env, ctx} ->
+            eval_for_items(var_name, items, body, else_body, env, ctx, source_var)
+
+          {:exception, msg} ->
+            {{:exception, msg}, env, ctx}
         end
     end
   end
+
+  @spec iterable_source_var(Parser.ast_node()) :: String.t() | nil
+  defp iterable_source_var({:var, _, [name]}), do: name
+  defp iterable_source_var(_), do: nil
 
   @doc false
   @spec eval_for_items(
@@ -84,10 +93,11 @@ defmodule Pyex.Interpreter.ControlFlow do
           [Parser.ast_node()],
           [Parser.ast_node()] | nil,
           Env.t(),
-          Ctx.t()
+          Ctx.t(),
+          String.t() | nil
         ) :: eval_result()
-  def eval_for_items(var_name, items, body, else_body, env, ctx) do
-    do_eval_for_items(var_name, items, body, else_body, env, ctx)
+  def eval_for_items(var_name, items, body, else_body, env, ctx, source_var \\ nil) do
+    do_eval_for_items(var_name, items, body, else_body, env, ctx, source_var, 0)
   end
 
   @doc false
@@ -212,14 +222,16 @@ defmodule Pyex.Interpreter.ControlFlow do
           [Parser.ast_node()],
           [Parser.ast_node()] | nil,
           Env.t(),
-          Ctx.t()
+          Ctx.t(),
+          String.t() | nil,
+          non_neg_integer()
         ) ::
           eval_result()
-  defp do_eval_for_items(_var_name, [], _body, else_body, env, ctx) do
+  defp do_eval_for_items(_var_name, [], _body, else_body, env, ctx, _source_var, _idx) do
     eval_loop_else(else_body, env, ctx)
   end
 
-  defp do_eval_for_items(var_names, [item | rest], body, else_body, env, ctx)
+  defp do_eval_for_items(var_names, [item | rest], body, else_body, env, ctx, source_var, idx)
        when is_list(var_names) do
     case Ctx.check_deadline(ctx) do
       {:exceeded, _} ->
@@ -228,7 +240,7 @@ defmodule Pyex.Interpreter.ControlFlow do
       :ok ->
         ctx = Ctx.record(ctx, :loop, nil)
 
-        case unpack_for_item(var_names, item) do
+        case unpack_for_item(var_names, Ctx.deref(ctx, item)) do
           {:ok, bindings} ->
             env =
               Enum.reduce(bindings, env, fn {name, val}, acc -> Env.smart_put(acc, name, val) end)
@@ -248,10 +260,10 @@ defmodule Pyex.Interpreter.ControlFlow do
                  ctx}
 
               {{:continue}, env, ctx} ->
-                do_eval_for_items(var_names, rest, body, else_body, env, ctx)
+                do_eval_for_items(var_names, rest, body, else_body, env, ctx, source_var, idx + 1)
 
               {_, env, ctx} ->
-                do_eval_for_items(var_names, rest, body, else_body, env, ctx)
+                do_eval_for_items(var_names, rest, body, else_body, env, ctx, source_var, idx + 1)
             end
 
           {:exception, msg} ->
@@ -260,7 +272,7 @@ defmodule Pyex.Interpreter.ControlFlow do
     end
   end
 
-  defp do_eval_for_items(var_name, [item | rest], body, else_body, env, ctx) do
+  defp do_eval_for_items(var_name, [item | rest], body, else_body, env, ctx, source_var, idx) do
     case Ctx.check_deadline(ctx) do
       {:exceeded, _} ->
         {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
@@ -283,11 +295,52 @@ defmodule Pyex.Interpreter.ControlFlow do
             {{:yielded, val, cont ++ [{:cont_for, var_name, rest, body, else_body}]}, env, ctx}
 
           {{:continue}, env, ctx} ->
-            do_eval_for_items(var_name, rest, body, else_body, env, ctx)
+            {env, ctx} = writeback_loop_var(var_name, source_var, idx, item, env, ctx)
+            do_eval_for_items(var_name, rest, body, else_body, env, ctx, source_var, idx + 1)
 
           {_, env, ctx} ->
-            do_eval_for_items(var_name, rest, body, else_body, env, ctx)
+            {env, ctx} = writeback_loop_var(var_name, source_var, idx, item, env, ctx)
+            do_eval_for_items(var_name, rest, body, else_body, env, ctx, source_var, idx + 1)
         end
+    end
+  end
+
+  @spec writeback_loop_var(
+          String.t(),
+          String.t() | nil,
+          non_neg_integer(),
+          Interpreter.pyvalue(),
+          Env.t(),
+          Ctx.t()
+        ) :: {Env.t(), Ctx.t()}
+  defp writeback_loop_var(_var_name, nil, _idx, _original, env, ctx), do: {env, ctx}
+
+  defp writeback_loop_var(var_name, source_var, idx, original, env, ctx) do
+    case Env.get(env, var_name) do
+      {:ok, current} when current != original ->
+        case Env.get(env, source_var) do
+          {:ok, {:ref, ref_id}} ->
+            case Ctx.deref(ctx, {:ref, ref_id}) do
+              {:py_list, reversed, len} when idx < len ->
+                real_idx = len - 1 - idx
+                updated = {:py_list, List.replace_at(reversed, real_idx, current), len}
+                {env, Ctx.heap_put(ctx, ref_id, updated)}
+
+              _ ->
+                {env, ctx}
+            end
+
+          {:ok, {:py_list, reversed, len}} when idx < len ->
+            real_idx = len - 1 - idx
+            updated = {:py_list, List.replace_at(reversed, real_idx, current), len}
+            {Env.put_at_source(env, source_var, updated), ctx}
+
+          _ ->
+            {env, ctx}
+        end
+
+      _ ->
+        {env, ctx}
     end
   end
 

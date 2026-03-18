@@ -6,17 +6,25 @@ defmodule Pyex.Interpreter.Iterables do
   updates separate from the main evaluator.
   """
 
-  alias Pyex.{Builtins, Ctx, Env, Interpreter}
+  alias Pyex.{Builtins, Ctx, Env, Interpreter, PyDict}
   alias Pyex.Interpreter.{Dunder, Helpers}
 
   @doc false
   @spec to_iterable(Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
           {:ok, [Interpreter.pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
+  def to_iterable({:ref, _} = ref, env, ctx) do
+    to_iterable(Ctx.deref(ctx, ref), env, ctx)
+  end
+
   def to_iterable({:py_list, reversed, _len}, env, ctx),
     do: {:ok, Enum.reverse(reversed), env, ctx}
 
   def to_iterable(list, env, ctx) when is_list(list), do: {:ok, list, env, ctx}
   def to_iterable(str, env, ctx) when is_binary(str), do: {:ok, String.codepoints(str), env, ctx}
+
+  def to_iterable({:py_dict, _, _} = dict, env, ctx) do
+    {:ok, PyDict.keys(Builtins.visible_dict(dict)), env, ctx}
+  end
 
   def to_iterable(map, env, ctx) when is_map(map),
     do: {:ok, map |> Builtins.visible_dict() |> Map.keys(), env, ctx}
@@ -38,7 +46,9 @@ defmodule Pyex.Interpreter.Iterables do
 
   def to_iterable({:instance, _, _} = inst, env, ctx) do
     case Dunder.call_dunder(inst, "__iter__", [], env, ctx) do
-      {:ok, result, env, ctx} ->
+      {:ok, raw_result, env, ctx} ->
+        result = Ctx.deref(ctx, raw_result)
+
         case result do
           {:exception, _} = signal ->
             signal

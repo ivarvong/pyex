@@ -827,6 +827,7 @@ defmodule Pyex.Stdlib.Datetime do
   defp py_type_name(v) when is_binary(v), do: "str"
   defp py_type_name(v) when is_boolean(v), do: "bool"
   defp py_type_name(v) when is_list(v), do: "list"
+  defp py_type_name({:py_dict, _, _}), do: "dict"
   defp py_type_name(v) when is_map(v), do: "dict"
   defp py_type_name(nil), do: "NoneType"
   defp py_type_name(_), do: "object"

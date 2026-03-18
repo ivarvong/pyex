@@ -126,7 +126,10 @@ defmodule Pyex do
           compute: Ctx.compute_time(final_ctx)
         })
 
-        {:ok, Interpreter.Helpers.to_python_view(value), %{final_ctx | duration_ms: duration_ms}}
+        derefed = Ctx.deep_deref(final_ctx, value)
+
+        {:ok, Interpreter.Helpers.to_python_view(derefed),
+         %{final_ctx | duration_ms: duration_ms}}
 
       {:error, msg} ->
         duration_ms =

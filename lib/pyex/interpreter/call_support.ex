@@ -6,7 +6,7 @@ defmodule Pyex.Interpreter.CallSupport do
   callable dispatch so `call_function/5` can stay focused on callable kinds.
   """
 
-  alias Pyex.{Ctx, Env, Interpreter, Parser}
+  alias Pyex.{Ctx, Env, Interpreter, Parser, PyDict}
 
   @typep call_result :: term()
 
@@ -19,6 +19,39 @@ defmodule Pyex.Interpreter.CallSupport do
           Ctx.t()
         ) :: {Env.t(), Ctx.t()} | {:exception, String.t(), Ctx.t()}
   def bind_params(params, args, kwargs, env, ctx) do
+    if kwargs == %{} and simple_positional?(params, args) do
+      bind_simple(params, args, env, ctx)
+    else
+      bind_params_full(params, args, kwargs, env, ctx)
+    end
+  end
+
+  @spec simple_positional?([Parser.param()], [Interpreter.pyvalue()]) :: boolean()
+  defp simple_positional?(params, args) do
+    length(params) == length(args) and
+      not Enum.any?(params, fn param ->
+        name = elem(param, 0)
+        String.starts_with?(name, "*")
+      end)
+  end
+
+  @spec bind_simple([Parser.param()], [Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
+          {Env.t(), Ctx.t()}
+  defp bind_simple([], [], env, ctx), do: {env, ctx}
+
+  defp bind_simple([param | params], [arg | args], env, ctx) do
+    name = elem(param, 0)
+    bind_simple(params, args, Env.put(env, name, arg), ctx)
+  end
+
+  @spec bind_params_full(
+          [Parser.param()],
+          [Interpreter.pyvalue()],
+          %{optional(String.t()) => Interpreter.pyvalue()},
+          Env.t(),
+          Ctx.t()
+        ) :: {Env.t(), Ctx.t()} | {:exception, String.t(), Ctx.t()}
+  defp bind_params_full(params, args, kwargs, env, ctx) do
     {regular, star_param, dstar_param} = split_variadic_params(params)
     regular_names = Enum.map(regular, &elem(&1, 0))
     defaults = Enum.map(regular, &elem(&1, 1))
@@ -68,7 +101,13 @@ defmodule Pyex.Interpreter.CallSupport do
         {env, ctx} ->
           env = if has_star, do: Env.put(env, star_name(star_param), extra_args), else: env
           extra_kwargs = Map.drop(kwargs, MapSet.to_list(consumed_kwargs))
-          env = if has_dstar, do: Env.put(env, dstar_name(dstar_param), extra_kwargs), else: env
+
+          extra_kwargs_val =
+            if has_dstar, do: PyDict.from_pairs(Enum.to_list(extra_kwargs)), else: extra_kwargs
+
+          env =
+            if has_dstar, do: Env.put(env, dstar_name(dstar_param), extra_kwargs_val), else: env
+
           {env, ctx}
       end
     end

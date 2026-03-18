@@ -20,7 +20,7 @@ defmodule Pyex.Stdlib.FastAPI do
 
   @behaviour Pyex.Stdlib.Module
 
-  alias Pyex.Interpreter
+  alias Pyex.{Interpreter, PyDict}
 
   @type route :: {{String.t(), String.t()}, Interpreter.pyvalue()}
 
@@ -48,7 +48,7 @@ defmodule Pyex.Stdlib.FastAPI do
   defp html_response([content], kwargs) when is_binary(content) do
     status = Map.get(kwargs, "status_code", 200)
     extra = Map.get(kwargs, "headers", %{})
-    headers = Map.merge(%{"content-type" => "text/html"}, extra)
+    headers = Map.merge(%{"content-type" => "text/html"}, to_plain_map(extra))
 
     %{
       "__response__" => true,
@@ -76,7 +76,7 @@ defmodule Pyex.Stdlib.FastAPI do
   defp json_response([content], kwargs) do
     status = Map.get(kwargs, "status_code", 200)
     extra = Map.get(kwargs, "headers", %{})
-    headers = Map.merge(%{"content-type" => "application/json"}, extra)
+    headers = Map.merge(%{"content-type" => "application/json"}, to_plain_map(extra))
 
     %{
       "__response__" => true,
@@ -98,7 +98,7 @@ defmodule Pyex.Stdlib.FastAPI do
     status = Map.get(kwargs, "status_code", 200)
     media = Map.get(kwargs, "media_type", "text/plain")
     extra = Map.get(kwargs, "headers", %{})
-    headers = Map.merge(%{"content-type" => media}, extra)
+    headers = Map.merge(%{"content-type" => media}, to_plain_map(extra))
 
     %{
       "__response__" => true,
@@ -173,4 +173,9 @@ defmodule Pyex.Stdlib.FastAPI do
 
     {Enum.reverse(compiled), Enum.reverse(params)}
   end
+
+  @spec to_plain_map(Interpreter.pyvalue()) :: map()
+  defp to_plain_map({:py_dict, _, _} = dict), do: PyDict.to_map(dict)
+  defp to_plain_map(%{} = map), do: map
+  defp to_plain_map(_), do: %{}
 end

@@ -6,7 +6,7 @@ defmodule Pyex.Methods do
   method callables (closures over the receiver).
   """
 
-  alias Pyex.{Builtins, Interpreter}
+  alias Pyex.{Builtins, Interpreter, PyDict}
 
   @string_methods ~w(
     capitalize center count encode endswith expandtabs find format
@@ -69,6 +69,13 @@ defmodule Pyex.Methods do
     end
   end
 
+  def resolve({:py_dict, _, _} = object, attr) do
+    case dict_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
   def resolve(object, attr) when is_map(object) do
     case dict_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
@@ -124,6 +131,7 @@ defmodule Pyex.Methods do
   def method_names(val) when is_binary(val), do: @string_methods
   def method_names({:py_list, _, _}), do: @list_methods
   def method_names(val) when is_list(val), do: @list_methods
+  def method_names({:py_dict, _, _}), do: @dict_methods
   def method_names(val) when is_map(val), do: @dict_methods
   def method_names({:set, _}), do: @set_methods
   def method_names({:frozenset, _}), do: @frozenset_methods
@@ -675,22 +683,53 @@ defmodule Pyex.Methods do
   defp str_encode(s, []), do: s
   defp str_encode(s, [_encoding]), do: s
 
-  @spec dict_get(map(), [Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  @spec dict_get(map() | PyDict.t(), [Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp dict_get({:py_dict, _, _} = dict, [key]), do: PyDict.get(dict, key)
+  defp dict_get({:py_dict, _, _} = dict, [key, default]), do: PyDict.get(dict, key, default)
   defp dict_get(map, [key]), do: Map.get(map, key, nil)
   defp dict_get(map, [key, default]), do: Map.get(map, key, default)
 
-  @spec dict_keys(map(), [Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]
+  @spec dict_keys(map() | PyDict.t(), [Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]
+  defp dict_keys({:py_dict, _, _} = dict, []),
+    do: dict |> Builtins.visible_dict() |> PyDict.keys()
+
   defp dict_keys(map, []), do: map |> Builtins.visible_dict() |> Map.keys()
 
-  @spec dict_values(map(), [Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]
+  @spec dict_values(map() | PyDict.t(), [Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]
+  defp dict_values({:py_dict, _, _} = dict, []),
+    do: dict |> Builtins.visible_dict() |> PyDict.values()
+
   defp dict_values(map, []), do: map |> Builtins.visible_dict() |> Map.values()
 
-  @spec dict_items(map(), [Interpreter.pyvalue()]) :: [{:tuple, [Interpreter.pyvalue()]}]
+  @spec dict_items(map() | PyDict.t(), [Interpreter.pyvalue()]) :: [
+          {:tuple, [Interpreter.pyvalue()]}
+        ]
+  defp dict_items({:py_dict, _, _} = dict, []),
+    do:
+      dict
+      |> Builtins.visible_dict()
+      |> PyDict.items()
+      |> Enum.map(fn {k, v} -> {:tuple, [k, v]} end)
+
   defp dict_items(map, []),
     do: map |> Builtins.visible_dict() |> Enum.map(fn {k, v} -> {:tuple, [k, v]} end)
 
-  @spec dict_pop(map(), [Interpreter.pyvalue()]) ::
-          {:mutate, map(), Interpreter.pyvalue()} | {:exception, String.t()}
+  @spec dict_pop(map() | PyDict.t(), [Interpreter.pyvalue()]) ::
+          {:mutate, map() | PyDict.t(), Interpreter.pyvalue()} | {:exception, String.t()}
+  defp dict_pop({:py_dict, _, _} = dict, [key]) do
+    if PyDict.has_key?(dict, key) do
+      {val, rest} = PyDict.pop(dict, key)
+      {:mutate, rest, val}
+    else
+      {:exception, "KeyError: #{Builtins.py_repr(key)}"}
+    end
+  end
+
+  defp dict_pop({:py_dict, _, _} = dict, [key, default]) do
+    {val, rest} = PyDict.pop(dict, key, default)
+    {:mutate, rest, val}
+  end
+
   defp dict_pop(map, [key]) do
     if Map.has_key?(map, key) do
       {val, rest} = Map.pop(map, key)
@@ -705,14 +744,46 @@ defmodule Pyex.Methods do
     {:mutate, rest, val}
   end
 
-  @spec dict_update(map(), [Interpreter.pyvalue()]) :: {:mutate, map(), nil}
+  @spec dict_update(map() | PyDict.t(), [Interpreter.pyvalue()]) ::
+          {:mutate, map() | PyDict.t(), nil}
+  defp dict_update({:py_dict, _, _} = dict, [{:py_dict, _, _} = other]) do
+    {:mutate, PyDict.merge(dict, Builtins.visible_dict(other)), nil}
+  end
+
+  defp dict_update({:py_dict, _, _} = dict, [other]) when is_map(other) do
+    {:mutate, PyDict.merge_map(dict, Builtins.visible_dict(other)), nil}
+  end
+
+  defp dict_update(map, [{:py_dict, _, _} = other]) when is_map(map) do
+    merged = Map.merge(map, PyDict.to_map(Builtins.visible_dict(other)))
+    {:mutate, merged, nil}
+  end
+
   defp dict_update(map, [other]) when is_map(other) do
     merged = Map.merge(map, Builtins.visible_dict(other))
     {:mutate, merged, nil}
   end
 
-  @spec dict_setdefault(map(), [Interpreter.pyvalue()]) ::
-          {:mutate, map(), Interpreter.pyvalue()}
+  @spec dict_setdefault(map() | PyDict.t(), [Interpreter.pyvalue()]) ::
+          {:mutate, map() | PyDict.t(), Interpreter.pyvalue()}
+  defp dict_setdefault({:py_dict, _, _} = dict, [key]) do
+    if PyDict.has_key?(dict, key) do
+      {:ok, val} = PyDict.fetch(dict, key)
+      {:mutate, dict, val}
+    else
+      {:mutate, PyDict.put(dict, key, nil), nil}
+    end
+  end
+
+  defp dict_setdefault({:py_dict, _, _} = dict, [key, default]) do
+    if PyDict.has_key?(dict, key) do
+      {:ok, val} = PyDict.fetch(dict, key)
+      {:mutate, dict, val}
+    else
+      {:mutate, PyDict.put(dict, key, default), default}
+    end
+  end
+
   defp dict_setdefault(map, [key]) do
     if Map.has_key?(map, key) do
       {:mutate, map, Map.fetch!(map, key)}
@@ -729,7 +800,15 @@ defmodule Pyex.Methods do
     end
   end
 
-  @spec dict_clear(map(), [Interpreter.pyvalue()]) :: {:mutate, map(), nil}
+  @spec dict_clear(map() | PyDict.t(), [Interpreter.pyvalue()]) ::
+          {:mutate, map() | PyDict.t(), nil}
+  defp dict_clear({:py_dict, _, _} = dict, []) do
+    case PyDict.fetch(dict, "__defaultdict_factory__") do
+      {:ok, factory} -> {:mutate, PyDict.from_pairs([{"__defaultdict_factory__", factory}]), nil}
+      :error -> {:mutate, PyDict.new(), nil}
+    end
+  end
+
   defp dict_clear(map, []) do
     case Map.fetch(map, "__defaultdict_factory__") do
       {:ok, factory} -> {:mutate, %{"__defaultdict_factory__" => factory}, nil}
@@ -737,7 +816,8 @@ defmodule Pyex.Methods do
     end
   end
 
-  @spec dict_copy(map(), [Interpreter.pyvalue()]) :: map()
+  @spec dict_copy(map() | PyDict.t(), [Interpreter.pyvalue()]) :: map() | PyDict.t()
+  defp dict_copy({:py_dict, _, _} = dict, []), do: dict
   defp dict_copy(map, []), do: map
 
   @spec list_append({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
@@ -780,6 +860,11 @@ defmodule Pyex.Methods do
       {:mutate,
        {:py_list, Enum.reverse(String.codepoints(str)) ++ reversed, len + String.length(str)},
        nil}
+
+  defp list_extend({:py_list, reversed, len}, [{:py_dict, _, _} = dict]) do
+    keys = PyDict.keys(Builtins.visible_dict(dict))
+    {:mutate, {:py_list, Enum.reverse(keys) ++ reversed, len + length(keys)}, nil}
+  end
 
   defp list_extend({:py_list, reversed, len}, [map]) when is_map(map),
     do:
@@ -1049,6 +1134,11 @@ defmodule Pyex.Methods do
 
   defp set_update({:set, a}, [str]) when is_binary(str),
     do: {:mutate, {:set, MapSet.union(a, MapSet.new(String.codepoints(str)))}, nil}
+
+  defp set_update({:set, a}, [{:py_dict, _, _} = dict]),
+    do:
+      {:mutate, {:set, MapSet.union(a, MapSet.new(PyDict.keys(Builtins.visible_dict(dict))))},
+       nil}
 
   defp set_update({:set, a}, [map]) when is_map(map),
     do: {:mutate, {:set, MapSet.union(a, MapSet.new(Map.keys(Builtins.visible_dict(map))))}, nil}

@@ -17,6 +17,7 @@ defmodule Pyex.Stdlib.Yaml do
 
   @behaviour Pyex.Stdlib.Module
 
+  alias Pyex.PyDict
   alias Pyex.Stdlib.YamlParser
 
   @max_bytes 1_000_000
@@ -69,6 +70,7 @@ defmodule Pyex.Stdlib.Yaml do
   defp to_python(list) when is_list(list), do: Enum.map(list, &to_python/1)
 
   defp to_python(map) when is_map(map) do
-    Map.new(map, fn {k, v} -> {k, to_python(v)} end)
+    pairs = Enum.map(map, fn {k, v} -> {k, to_python(v)} end)
+    PyDict.from_pairs(pairs)
   end
 end

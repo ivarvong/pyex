@@ -150,10 +150,10 @@ defmodule Pyex.CtxTest do
     test "output/1 returns captured print output as iolist" do
       ctx =
         Ctx.new()
-        |> Ctx.record(:output, "hello")
-        |> Ctx.record(:output, "world")
+        |> Ctx.record(:output, "hello\n")
+        |> Ctx.record(:output, "world\n")
 
-      assert Ctx.output(ctx) == ["hello", "\n", "world"]
+      assert Ctx.output(ctx) == ["hello\n", "world\n"]
     end
 
     test "output/1 returns empty iolist when no output" do

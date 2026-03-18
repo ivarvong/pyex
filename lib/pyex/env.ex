@@ -156,6 +156,21 @@ defmodule Pyex.Env do
   """
   @spec propagate_scopes(t(), t(), t()) :: t()
   def propagate_scopes(
+        %__MODULE__{scopes: caller_scopes, global: caller_global} = caller_env,
+        %__MODULE__{scopes: [_single_scope]},
+        %__MODULE__{scopes: post_call_scopes}
+      ) do
+    post_global = List.last(post_call_scopes)
+
+    if caller_global === post_global do
+      caller_env
+    else
+      {caller_upper, _} = Enum.split(caller_scopes, length(caller_scopes) - 1)
+      %__MODULE__{scopes: caller_upper ++ [post_global], global: post_global}
+    end
+  end
+
+  def propagate_scopes(
         %__MODULE__{scopes: caller_scopes},
         %__MODULE__{scopes: closure_scopes},
         %__MODULE__{scopes: post_call_scopes}

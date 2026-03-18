@@ -553,7 +553,7 @@ defmodule PyexTest do
   describe "Pyex.output/1" do
     test "captures print output" do
       {:ok, _val, ctx} = Pyex.run("print('hello')\nprint('world')")
-      assert IO.iodata_to_binary(Pyex.output(ctx)) == "hello\nworld"
+      assert IO.iodata_to_binary(Pyex.output(ctx)) == "hello\nworld\n"
     end
 
     test "returns empty string when no output" do
@@ -931,6 +931,134 @@ defmodule PyexTest do
       # ctx_ms from the warmup run is interpretation time only, so it should
       # be in the same ballpark as our timed iterations
       assert ctx_ms < 50.0, "ctx.duration_ms #{ctx_ms}ms should be under 50ms"
+    end
+  end
+
+  describe "end-to-end: Elixir syntax highlighter" do
+    @elixir_highlight_py File.read!("test/fixtures/programs/elixir_highlight/main.py")
+
+    test "full script runs, writes demo.html via filesystem" do
+      fs = Pyex.Filesystem.Memory.new(%{})
+      {:ok, _result, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
+      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+
+      assert html =~ "<!DOCTYPE html>"
+      assert html =~ "<style>"
+      assert html =~ ".ex .k"
+      assert html =~ "</body></html>"
+    end
+
+    test "highlights keywords" do
+      fs = Pyex.Filesystem.Memory.new(%{})
+      {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
+      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+
+      assert html =~ ~s(<span class="k">defmodule</span>)
+      assert html =~ ~s(<span class="k">def</span>)
+      assert html =~ ~s(<span class="k">defp</span>)
+      assert html =~ ~s(<span class="k">do</span>)
+      assert html =~ ~s(<span class="k">end</span>)
+      assert html =~ ~s(<span class="k">fn</span>)
+      assert html =~ ~s(<span class="k">for</span>)
+      assert html =~ ~s(<span class="k">when</span>)
+    end
+
+    test "highlights modules" do
+      fs = Pyex.Filesystem.Memory.new(%{})
+      {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
+      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+
+      assert html =~ ~s(<span class="m">MyApp</span>)
+      assert html =~ ~s(<span class="m">Greeter</span>)
+      assert html =~ ~s(<span class="m">IO</span>)
+      assert html =~ ~s(<span class="m">String</span>)
+      assert html =~ ~s(<span class="m">Enum</span>)
+    end
+
+    test "highlights atoms" do
+      fs = Pyex.Filesystem.Memory.new(%{})
+      {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
+      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+
+      assert html =~ ~s(<span class="a">:hello</span>)
+      assert html =~ ~s(<span class="a">:ok</span>)
+    end
+
+    test "highlights numbers including hex and underscored" do
+      fs = Pyex.Filesystem.Memory.new(%{})
+      {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
+      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+
+      assert html =~ ~s(<span class="n">0xFF</span>)
+      assert html =~ ~s(<span class="n">1_000</span>)
+    end
+
+    test "highlights operators" do
+      fs = Pyex.Filesystem.Memory.new(%{})
+      {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
+      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+
+      assert html =~ ~s(<span class="o">|&gt;</span>)
+      assert html =~ ~s(<span class="o">&lt;-</span>)
+      assert html =~ ~s(<span class="o">-&gt;</span>)
+      assert html =~ ~s(<span class="o">..</span>)
+    end
+
+    test "highlights comments" do
+      fs = Pyex.Filesystem.Memory.new(%{})
+      {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
+      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+
+      assert html =~ ~s(<span class="c"># Public API</span>)
+    end
+
+    test "highlights heredoc strings" do
+      fs = Pyex.Filesystem.Memory.new(%{})
+      {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
+      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+
+      assert html =~
+               ~s(<span class="s">&quot;&quot;&quot;\n  A simple greeter module.\n  &quot;&quot;&quot;</span>)
+    end
+
+    test "highlights sigils" do
+      fs = Pyex.Filesystem.Memory.new(%{})
+      {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
+      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+
+      assert html =~ ~s(<span class="sg">~r/^[a-z]+$/i</span>)
+    end
+
+    test "highlight and highlight_full functions are callable" do
+      code =
+        @elixir_highlight_py <>
+          ~S"""
+
+          result = highlight("def foo, do: :bar")
+          result
+          """
+
+      fs = Pyex.Filesystem.Memory.new(%{})
+      {:ok, result, _} = Pyex.run(code, filesystem: fs)
+      assert result =~ ~s(<span class="k">def</span>)
+      assert result =~ ~s(<span class="i">foo</span>)
+      assert result =~ ~s(<span class="a">:bar</span>)
+    end
+
+    test "highlight_full wraps with CSS and pre tag" do
+      code =
+        @elixir_highlight_py <>
+          ~S"""
+
+          result = highlight_full(":ok")
+          result
+          """
+
+      fs = Pyex.Filesystem.Memory.new(%{})
+      {:ok, result, _} = Pyex.run(code, filesystem: fs)
+      assert result =~ "<style>"
+      assert result =~ ~s(<pre class="ex"><code>)
+      assert result =~ ~s(<span class="a">:ok</span>)
     end
   end
 end

@@ -104,7 +104,7 @@ defmodule Pyex.Interpreter.Bindings do
   Evaluates tuple or iterable unpacking assignment.
   """
   @spec eval_multi_assign(
-          [String.t() | {:starred, String.t()}],
+          [Parser.unpack_target()],
           [Parser.ast_node()],
           Env.t(),
           Ctx.t()
@@ -116,7 +116,9 @@ defmodule Pyex.Interpreter.Bindings do
         {signal, env, ctx}
 
       {values, env, ctx} ->
-        case Interpreter.unpack_iterable_safe(Enum.reverse(values), names) do
+        derefed = Enum.map(Enum.reverse(values), &Ctx.deref(ctx, &1))
+
+        case Interpreter.unpack_iterable_safe(derefed, names) do
           {:ok, pairs} ->
             env =
               Enum.reduce(pairs, env, fn {name, val}, acc -> Env.smart_put(acc, name, val) end)

@@ -254,7 +254,7 @@ defmodule Pyex.FilesystemImportTest do
           }
         )
 
-      assert ctx |> Pyex.output() |> IO.iodata_to_binary() |> String.split("\n") |> length() == 1
+      assert ctx |> Pyex.output() |> IO.iodata_to_binary() == "module loaded\n"
     end
   end
 

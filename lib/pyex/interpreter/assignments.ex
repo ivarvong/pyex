@@ -6,7 +6,7 @@ defmodule Pyex.Interpreter.Assignments do
   stay isolated from the main interpreter dispatch.
   """
 
-  alias Pyex.{Ctx, Env, Interpreter, Parser}
+  alias Pyex.{Ctx, Env, Interpreter, Parser, PyDict}
   alias Pyex.Interpreter.{Dunder, Helpers}
 
   @typep eval_result :: {Interpreter.pyvalue() | tuple(), Env.t(), Ctx.t()}
@@ -70,13 +70,15 @@ defmodule Pyex.Interpreter.Assignments do
         env,
         ctx
       ) do
-    with {container, env, ctx} when not is_py_exception(container) <-
+    with {raw_container, env, ctx} when not is_py_exception(raw_container) <-
            Interpreter.eval(container_expr, env, ctx),
          {outer_key, env, ctx} when not is_py_exception(outer_key) <-
            Interpreter.eval(outer_key_expr, env, ctx),
          {inner_key, env, ctx} when not is_py_exception(inner_key) <-
            Interpreter.eval(inner_key_expr, env, ctx),
          {val, env, ctx} when not is_py_exception(val) <- Interpreter.eval(val_expr, env, ctx) do
+      container = Ctx.deref(ctx, raw_container)
+
       case get_subscript_value(container, outer_key) do
         {:exception, msg} ->
           {{:exception, msg}, env, ctx}
@@ -87,12 +89,14 @@ defmodule Pyex.Interpreter.Assignments do
               {signal, env, ctx}
 
             {default_val, env, ctx, _updated_func} ->
+              default_val = Ctx.deref(ctx, default_val)
               container = set_subscript_value(container, outer_key, default_val)
               updated_inner = set_subscript_value(default_val, inner_key, val)
               updated_outer = set_subscript_value(container, outer_key, updated_inner)
               write_back_subscript(container_expr, updated_outer, env, ctx)
 
             {default_val, env, ctx} ->
+              default_val = Ctx.deref(ctx, default_val)
               container = set_subscript_value(container, outer_key, default_val)
               updated_inner = set_subscript_value(default_val, inner_key, val)
               updated_outer = set_subscript_value(container, outer_key, updated_inner)
@@ -100,9 +104,19 @@ defmodule Pyex.Interpreter.Assignments do
           end
 
         inner_container ->
-          updated_inner = set_subscript_value(inner_container, inner_key, val)
-          updated_outer = set_subscript_value(container, outer_key, updated_inner)
-          write_back_subscript(container_expr, updated_outer, env, ctx)
+          case inner_container do
+            {:ref, inner_id} ->
+              derefed_inner = Ctx.deref(ctx, inner_container)
+              updated_inner = set_subscript_value(derefed_inner, inner_key, val)
+              ctx = Ctx.heap_put(ctx, inner_id, updated_inner)
+              {val, env, ctx}
+
+            _ ->
+              inner_container = Ctx.deref(ctx, inner_container)
+              updated_inner = set_subscript_value(inner_container, inner_key, val)
+              updated_outer = set_subscript_value(container, outer_key, updated_inner)
+              write_back_subscript(container_expr, updated_outer, env, ctx)
+          end
       end
     else
       {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
@@ -121,21 +135,33 @@ defmodule Pyex.Interpreter.Assignments do
         ) ::
           eval_result()
   def eval_attr_subscript_assign(target_expr, key_expr, val_expr, env, ctx) do
-    with {container, env, ctx} when not is_py_exception(container) <-
+    with {raw_container, env, ctx} when not is_py_exception(raw_container) <-
            Interpreter.eval(target_expr, env, ctx),
          {key, env, ctx} when not is_py_exception(key) <- Interpreter.eval(key_expr, env, ctx),
          {val, env, ctx} when not is_py_exception(val) <- Interpreter.eval(val_expr, env, ctx) do
+      container = Ctx.deref(ctx, raw_container)
+
       case container do
+        {:py_dict, _, _} = dict ->
+          updated = PyDict.put(dict, key, val)
+          {env, ctx} = ref_or_setattr(raw_container, updated, target_expr, env, ctx)
+          {val, env, ctx}
+
         %{} = map ->
-          setattr_nested(target_expr, Map.put(map, key, val), env, ctx)
+          updated = Map.put(map, key, val)
+          {env, ctx} = ref_or_setattr(raw_container, updated, target_expr, env, ctx)
+          {val, env, ctx}
 
         {:py_list, reversed, len} when is_integer(key) ->
           real_idx = if key < 0, do: len + key, else: key
           updated = {:py_list, List.replace_at(reversed, len - 1 - real_idx, val), len}
-          setattr_nested(target_expr, updated, env, ctx)
+          {env, ctx} = ref_or_setattr(raw_container, updated, target_expr, env, ctx)
+          {val, env, ctx}
 
         list when is_list(list) and is_integer(key) ->
-          setattr_nested(target_expr, List.replace_at(list, key, val), env, ctx)
+          updated = List.replace_at(list, key, val)
+          {env, ctx} = ref_or_setattr(raw_container, updated, target_expr, env, ctx)
+          {val, env, ctx}
 
         _ ->
           {{:exception, "TypeError: object does not support item assignment"}, env, ctx}
@@ -157,26 +183,39 @@ defmodule Pyex.Interpreter.Assignments do
         ) ::
           eval_result()
   def eval_name_subscript_assign(name, key_expr, val_expr, env, ctx) do
-    with {container, env, ctx} when not is_py_exception(container) <-
+    with {raw_container, env, ctx} when not is_py_exception(raw_container) <-
            Interpreter.eval({:var, [line: 1], [name]}, env, ctx),
          {key, env, ctx} when not is_py_exception(key) <- Interpreter.eval(key_expr, env, ctx),
          {val, env, ctx} when not is_py_exception(val) <- Interpreter.eval(val_expr, env, ctx) do
+      container = Ctx.deref(ctx, raw_container)
+
       case container do
+        {:py_dict, _, _} = dict ->
+          updated = PyDict.put(dict, key, val)
+          {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
+          {val, env, ctx}
+
         %{} = map ->
-          {val, Env.put_at_source(env, name, Map.put(map, key, val)), ctx}
+          updated = Map.put(map, key, val)
+          {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
+          {val, env, ctx}
 
         {:py_list, reversed, len} when is_integer(key) ->
           real_idx = if key < 0, do: len + key, else: key
           updated = {:py_list, List.replace_at(reversed, len - 1 - real_idx, val), len}
-          {val, Env.put_at_source(env, name, updated), ctx}
+          {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
+          {val, env, ctx}
 
         list when is_list(list) and is_integer(key) ->
-          {val, Env.put_at_source(env, name, List.replace_at(list, key, val)), ctx}
+          updated = List.replace_at(list, key, val)
+          {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
+          {val, env, ctx}
 
         {:instance, _, _} = inst ->
           case Dunder.call_dunder_mut(inst, "__setitem__", [key, val], env, ctx) do
             {:ok, updated_inst, _return_val, env, ctx} ->
-              {val, Env.put_at_source(env, name, updated_inst), ctx}
+              {env, ctx} = ref_write_back(raw_container, updated_inst, name, env, ctx)
+              {val, env, ctx}
 
             :not_found ->
               {{:exception,
@@ -220,6 +259,8 @@ defmodule Pyex.Interpreter.Assignments do
          {inner_key, env, ctx} when not is_py_exception(inner_key) <-
            Interpreter.eval(inner_key_expr, env, ctx),
          {val, env, ctx} when not is_py_exception(val) <- Interpreter.eval(val_expr, env, ctx) do
+      container = Ctx.deref(ctx, container)
+
       case get_subscript_value(container, outer_key) do
         {:exception, msg} ->
           {{:exception, msg}, env, ctx}
@@ -290,6 +331,8 @@ defmodule Pyex.Interpreter.Assignments do
          env,
          ctx
        ) do
+    inner_container = Ctx.deref(ctx, inner_container)
+
     case get_subscript_value(inner_container, inner_key) do
       {:exception, msg} ->
         {{:exception, msg}, env, ctx}
@@ -319,11 +362,18 @@ defmodule Pyex.Interpreter.Assignments do
           Ctx.t()
         ) :: eval_result()
   def eval_attr_aug_subscript_assign(target_expr, key_expr, op, val_expr, env, ctx) do
-    with {container, env, ctx} when not is_py_exception(container) <-
+    with {raw_container, env, ctx} when not is_py_exception(raw_container) <-
            Interpreter.eval(target_expr, env, ctx),
          {key, env, ctx} when not is_py_exception(key) <- Interpreter.eval(key_expr, env, ctx),
          {val, env, ctx} when not is_py_exception(val) <- Interpreter.eval(val_expr, env, ctx) do
+      container = Ctx.deref(ctx, raw_container)
+
       case container do
+        {:py_dict, _, _} = dict ->
+          old_val = PyDict.get(dict, key, 0)
+          new_val = Interpreter.safe_binop(op, old_val, val)
+          setattr_nested(target_expr, PyDict.put(dict, key, new_val), env, ctx)
+
         %{} = map ->
           old_val = Map.get(map, key, 0)
           new_val = Interpreter.safe_binop(op, old_val, val)
@@ -350,7 +400,9 @@ defmodule Pyex.Interpreter.Assignments do
         ) :: eval_result()
   def eval_name_aug_subscript_assign(var_name, key_expr, op, val_expr, env, ctx) do
     case Env.get(env, var_name) do
-      {:ok, obj} ->
+      {:ok, raw_obj} ->
+        obj = Ctx.deref(ctx, raw_obj)
+
         with {key, env, ctx} when not is_py_exception(key) <- Interpreter.eval(key_expr, env, ctx),
              {val, env, ctx} when not is_py_exception(val) <- Interpreter.eval(val_expr, env, ctx) do
           case get_subscript_value(obj, key) do
@@ -406,16 +458,37 @@ defmodule Pyex.Interpreter.Assignments do
   @spec setattr(Parser.ast_node(), Interpreter.pyvalue(), Env.t(), Ctx.t()) :: eval_result()
   def setattr({:getattr, _, [{:var, _, [var_name]}, attr]}, value, env, ctx) do
     case Env.get(env, var_name) do
-      {:ok, {:instance, class, attrs}} ->
-        updated = {:instance, class, Map.put(attrs, attr, value)}
-        {nil, Env.put_at_source(env, var_name, updated), ctx}
+      {:ok, raw} ->
+        case Ctx.deref(ctx, raw) do
+          {:instance, class, attrs} ->
+            updated = {:instance, class, Map.put(attrs, attr, value)}
 
-      {:ok, {:class, name, bases, class_attrs}} ->
-        updated = {:class, name, bases, Map.put(class_attrs, attr, value)}
-        {nil, Env.put_at_source(env, var_name, updated), ctx}
+            case raw do
+              {:ref, id} -> {nil, env, Ctx.heap_put(ctx, id, updated)}
+              _ -> {nil, Env.put_at_source(env, var_name, updated), ctx}
+            end
 
-      {:ok, other} when is_map(other) ->
-        {nil, Env.put_at_source(env, var_name, Map.put(other, attr, value)), ctx}
+          {:class, name, bases, class_attrs} ->
+            updated = {:class, name, bases, Map.put(class_attrs, attr, value)}
+            {nil, Env.put_at_source(env, var_name, updated), ctx}
+
+          {:py_dict, _, _} = dict ->
+            {nil, Env.put_at_source(env, var_name, PyDict.put(dict, attr, value)), ctx}
+
+          other when is_map(other) ->
+            {nil, Env.put_at_source(env, var_name, Map.put(other, attr, value)), ctx}
+
+          {:function, _, _, _, _} = func ->
+            wrapped = {:func_with_attrs, func, %{attr => value}}
+            {nil, Env.put_at_source(env, var_name, wrapped), ctx}
+
+          {:func_with_attrs, func, attrs} ->
+            wrapped = {:func_with_attrs, func, Map.put(attrs, attr, value)}
+            {nil, Env.put_at_source(env, var_name, wrapped), ctx}
+
+          _ ->
+            {{:exception, "AttributeError: cannot set attribute '#{attr}'"}, env, ctx}
+        end
 
       _ ->
         {{:exception, "AttributeError: cannot set attribute '#{attr}'"}, env, ctx}
@@ -427,12 +500,19 @@ defmodule Pyex.Interpreter.Assignments do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
-      {{:instance, class, attrs}, env, ctx} ->
-        updated = {:instance, class, Map.put(attrs, attr, value)}
-        write_back_target(inner_target, updated, env, ctx)
+      {raw, env, ctx} ->
+        case Ctx.deref(ctx, raw) do
+          {:instance, class, attrs} ->
+            updated = {:instance, class, Map.put(attrs, attr, value)}
 
-      _ ->
-        {{:exception, "AttributeError: cannot set attribute '#{attr}'"}, env, ctx}
+            case raw do
+              {:ref, id} -> {nil, env, Ctx.heap_put(ctx, id, updated)}
+              _ -> write_back_target(inner_target, updated, env, ctx)
+            end
+
+          _ ->
+            {{:exception, "AttributeError: cannot set attribute '#{attr}'"}, env, ctx}
+        end
     end
   end
 
@@ -450,6 +530,21 @@ defmodule Pyex.Interpreter.Assignments do
   @doc false
   @spec get_subscript_value(Interpreter.pyvalue(), Interpreter.pyvalue()) ::
           Interpreter.pyvalue() | {:exception, String.t()}
+  def get_subscript_value({:py_dict, _, _} = dict, key) do
+    case PyDict.fetch(dict, key) do
+      {:ok, val} ->
+        val
+
+      :error ->
+        case PyDict.fetch(dict, "__defaultdict_factory__") do
+          {:ok, {:builtin_type, _, func}} -> func.([])
+          {:ok, {:builtin, func}} -> func.([])
+          {:ok, {:function, _, _, _, _} = func} -> {:defaultdict_call_needed, func}
+          _ -> {:exception, "KeyError: #{inspect(key)}"}
+        end
+    end
+  end
+
   def get_subscript_value(obj, key) when is_map(obj) do
     case Map.fetch(obj, key) do
       {:ok, val} ->
@@ -491,6 +586,7 @@ defmodule Pyex.Interpreter.Assignments do
   @doc false
   @spec set_subscript_value(Interpreter.pyvalue(), Interpreter.pyvalue(), Interpreter.pyvalue()) ::
           Interpreter.pyvalue()
+  def set_subscript_value({:py_dict, _, _} = dict, key, val), do: PyDict.put(dict, key, val)
   def set_subscript_value(obj, key, val) when is_map(obj), do: Map.put(obj, key, val)
 
   def set_subscript_value({:py_list, reversed, len}, key, val) when is_integer(key) do
@@ -519,11 +615,15 @@ defmodule Pyex.Interpreter.Assignments do
   @spec write_back_subscript(Parser.ast_node(), Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
           eval_result()
   defp write_back_subscript({:var, _, [name]}, updated, env, ctx) do
-    {updated, Env.put_at_source(env, name, updated), ctx}
+    case Env.get(env, name) do
+      {:ok, {:ref, id}} -> {updated, env, Ctx.heap_put(ctx, id, updated)}
+      _ -> {updated, Env.put_at_source(env, name, updated), ctx}
+    end
   end
 
   defp write_back_subscript({:subscript, _, [parent_expr, key_expr]}, updated, env, ctx) do
-    {parent, env, ctx} = Interpreter.eval(parent_expr, env, ctx)
+    {raw_parent, env, ctx} = Interpreter.eval(parent_expr, env, ctx)
+    parent = Ctx.deref(ctx, raw_parent)
     {key, env, ctx} = Interpreter.eval(key_expr, env, ctx)
     updated_parent = set_subscript_value(parent, key, updated)
     write_back_subscript(parent_expr, updated_parent, env, ctx)
@@ -535,5 +635,26 @@ defmodule Pyex.Interpreter.Assignments do
 
   defp write_back_subscript(_, updated, env, ctx) do
     {updated, env, ctx}
+  end
+
+  @spec ref_write_back(Interpreter.pyvalue(), term(), String.t(), Env.t(), Ctx.t()) ::
+          {Env.t(), Ctx.t()}
+  defp ref_write_back({:ref, id}, updated, _name, env, ctx) do
+    {env, Ctx.heap_put(ctx, id, updated)}
+  end
+
+  defp ref_write_back(_raw, updated, name, env, ctx) do
+    {Env.put_at_source(env, name, updated), ctx}
+  end
+
+  @spec ref_or_setattr(Interpreter.pyvalue(), term(), Parser.ast_node(), Env.t(), Ctx.t()) ::
+          {Env.t(), Ctx.t()}
+  defp ref_or_setattr({:ref, id}, updated, _target_expr, env, ctx) do
+    {env, Ctx.heap_put(ctx, id, updated)}
+  end
+
+  defp ref_or_setattr(_raw, updated, target_expr, env, ctx) do
+    {_, env, ctx} = setattr_nested(target_expr, updated, env, ctx)
+    {env, ctx}
   end
 end

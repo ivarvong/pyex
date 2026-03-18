@@ -76,6 +76,8 @@ defmodule Pyex.Parser do
 
   @type ast_node :: {node_type(), meta(), [term()]}
 
+  @type unpack_target :: String.t() | {:starred, String.t()} | [unpack_target()]
+
   @type param ::
           {String.t(), ast_node() | nil}
           | {String.t(), ast_node() | nil, String.t()}
@@ -336,6 +338,13 @@ defmodule Pyex.Parser do
 
       :not_assign ->
         {:error, "SyntaxError: starred assignment target must be in a tuple (line #{line})"}
+    end
+  end
+
+  defp parse_statement([{:op, line, :lparen} | _] = tokens) do
+    case try_paren_unpack_assign(tokens, line) do
+      {:ok, _, _} = result -> result
+      :not_assign -> parse_expression_statement(tokens)
     end
   end
 
@@ -1184,7 +1193,7 @@ defmodule Pyex.Parser do
     {:error, "unexpected token at #{token_line(tokens)}: #{inspect_tokens(tokens)}"}
   end
 
-  @spec try_multi_assign([Lexer.token()], pos_integer(), [String.t() | {:starred, String.t()}]) ::
+  @spec try_multi_assign([Lexer.token()], pos_integer(), [unpack_target()]) ::
           parse_result() | :not_assign
   defp try_multi_assign([{:name, _, name}, {:op, _, :comma} | rest], line, acc) do
     try_multi_assign(rest, line, [name | acc])
@@ -1192,6 +1201,27 @@ defmodule Pyex.Parser do
 
   defp try_multi_assign([{:op, _, :star}, {:name, _, name}, {:op, _, :comma} | rest], line, acc) do
     try_multi_assign(rest, line, [{:starred, name} | acc])
+  end
+
+  defp try_multi_assign([{:op, _, :lparen} | _] = tokens, line, acc) do
+    case parse_paren_target(tokens) do
+      {:ok, nested, [{:op, _, :comma} | rest]} ->
+        try_multi_assign(rest, line, [nested | acc])
+
+      {:ok, nested, [{:op, _, :assign} | rest]} ->
+        names = Enum.reverse([nested | acc])
+
+        case parse_comma_exprs(rest) do
+          {:ok, exprs, rest} ->
+            {:ok, {:multi_assign, [line: line], [names, exprs]}, drop_newline(rest)}
+
+          {:error, _} = error ->
+            error
+        end
+
+      _ ->
+        :not_assign
+    end
   end
 
   defp try_multi_assign([{:name, _, name}, {:op, _, :assign} | rest], line, acc) do
@@ -1223,6 +1253,62 @@ defmodule Pyex.Parser do
   end
 
   defp try_multi_assign(_, _line, _acc), do: :not_assign
+
+  @spec try_paren_unpack_assign([Lexer.token()], pos_integer()) ::
+          parse_result() | :not_assign
+  defp try_paren_unpack_assign(tokens, line) do
+    case parse_paren_target(tokens) do
+      {:ok, nested, [{:op, _, :comma} | rest]} ->
+        try_multi_assign(rest, line, [nested])
+
+      {:ok, nested, [{:op, _, :assign} | rest]} ->
+        names = [nested]
+
+        case parse_comma_exprs(rest) do
+          {:ok, exprs, rest} ->
+            {:ok, {:multi_assign, [line: line], [names, exprs]}, drop_newline(rest)}
+
+          {:error, _} = error ->
+            error
+        end
+
+      _ ->
+        :not_assign
+    end
+  end
+
+  @spec parse_paren_target([Lexer.token()]) ::
+          {:ok, [unpack_target()], [Lexer.token()]} | :error
+  defp parse_paren_target([{:op, _, :lparen} | rest]) do
+    parse_paren_target_names(rest, [])
+  end
+
+  defp parse_paren_target(_), do: :error
+
+  @spec parse_paren_target_names([Lexer.token()], [unpack_target()]) ::
+          {:ok, [unpack_target()], [Lexer.token()]} | :error
+  defp parse_paren_target_names([{:name, _, name}, {:op, _, :comma} | rest], acc) do
+    parse_paren_target_names(rest, [name | acc])
+  end
+
+  defp parse_paren_target_names([{:name, _, name}, {:op, _, :rparen} | rest], acc) do
+    {:ok, Enum.reverse([name | acc]), rest}
+  end
+
+  defp parse_paren_target_names([{:op, _, :lparen} | _] = tokens, acc) do
+    case parse_paren_target(tokens) do
+      {:ok, nested, [{:op, _, :comma} | rest]} ->
+        parse_paren_target_names(rest, [nested | acc])
+
+      {:ok, nested, [{:op, _, :rparen} | rest]} ->
+        {:ok, Enum.reverse([nested | acc]), rest}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp parse_paren_target_names(_, _acc), do: :error
 
   @spec parse_comma_exprs([Lexer.token()]) ::
           {:ok, [ast_node()], [Lexer.token()]} | {:error, String.t()}

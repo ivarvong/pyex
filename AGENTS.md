@@ -1,5 +1,15 @@
 # Pyex Agent Guidelines
 
+## Agent behavior
+- When the user gives feedback about how to work, update this file (AGENTS.md)
+  immediately so the guidance is remembered across sessions.
+- Never worry about how hard a fix is.  Worry about making a correct and
+  performant system.  If the right fix is large, do the large fix.
+- Never work around Pyex limitations in fixture code or tests.  Fixtures
+  exist to expose bugs.  If a fixture fails, fix Pyex.
+- Known limitations go in TODO.txt, not AGENTS.md.  AGENTS.md is for how
+  to build, not what's broken.
+
 ## Project
 Pyex is a Python 3 interpreter written in Elixir, designed as a capabilities-based
 sandbox for LLMs to safely run compute. It is the core of a PaaS where customers
@@ -159,9 +169,10 @@ values are collected. This is by design.
 
 ## Verification procedure (run after every feature)
 1. `mix test` -- all tests must pass
-2. `mix format` -- code must be formatted
-3. `mix dialyzer` -- zero warnings (15 intentionally suppressed in `.dialyzer_ignore.exs`)
-4. Update the TODO below to mark the item completed
+2. `mix compile --warnings-as-errors` -- zero Elixir warnings
+3. `mix format` -- code must be formatted
+4. `mix dialyzer` -- zero warnings (15 intentionally suppressed in `.dialyzer_ignore.exs`)
+5. Update the TODO below to mark the item completed
 
 ## Procedure for adding a Python feature
 Each feature touches up to 3 layers. Work through them in order:
@@ -191,8 +202,23 @@ Always add `@spec` to new functions. Keep Dialyzer clean.
    support in `Pyex.Interpreter` (attribute access, method calls) or `Pyex.Methods`.
 5. Run verification procedure.
 
-## Known Limitations
-- Multiple closures sharing mutable state -- would require reference-based mutable
-  cells (3 conformance tests skipped for this)
-- Nested tuple unpacking -- `(a, b), c = (1, 2), 3` not supported by parser
-- Infinite generators hang in eager mode (by design -- use defer/streaming instead)
+## Fixture conformance tests
+
+Fixtures live in `test/fixtures/programs/<name>/`.  Each has a `main.py`,
+optional `fs/` input files, and a `expected.json` recorded from CPython.
+
+- `mix pyex.fixture record [name]` -- record CPython ground truth
+- `mix pyex.fixture check` -- verify recordings are fresh (for CI)
+- `test/pyex/fixture_test.exs` -- auto-generates one test per fixture
+
+### Rules
+
+- **Never work around Pyex limitations in fixture code.**  Fixtures exist
+  to expose bugs so we can fix them.  If a fixture fails because Pyex
+  doesn't support a Python feature, the correct response is to implement
+  the feature -- not to restructure the Python code to avoid it.
+- Write fixture programs the way a Python programmer would write them.
+  If the idiomatic Python pattern doesn't work in Pyex, that's a bug to fix.
+- When adding a fixture that exercises a new area (classes, regex,
+  file I/O, etc.), prefer programs that combine multiple features so one
+  fixture covers many code paths.

@@ -11,6 +11,10 @@ defmodule Pyex.Interpreter.Protocols do
 
   @doc false
   @spec eval_py_str(Interpreter.pyvalue(), Env.t(), Ctx.t()) :: {String.t(), Env.t(), Ctx.t()}
+  def eval_py_str({:ref, _} = ref, env, ctx) do
+    eval_py_str(Ctx.deref(ctx, ref), env, ctx)
+  end
+
   def eval_py_str({:instance, _, _} = inst, env, ctx) do
     case Dunder.call_dunder(inst, "__str__", [], env, ctx) do
       {:ok, str, env, ctx} when is_binary(str) ->
@@ -66,6 +70,10 @@ defmodule Pyex.Interpreter.Protocols do
 
   @doc false
   @spec eval_truthy(Interpreter.pyvalue(), Env.t(), Ctx.t()) :: {boolean(), Env.t(), Ctx.t()}
+  def eval_truthy({:ref, _} = ref, env, ctx) do
+    eval_truthy(Ctx.deref(ctx, ref), env, ctx)
+  end
+
   def eval_truthy({:instance, _, _} = inst, env, ctx) do
     case Dunder.call_dunder(inst, "__bool__", [], env, ctx) do
       {:ok, result, env, ctx} ->

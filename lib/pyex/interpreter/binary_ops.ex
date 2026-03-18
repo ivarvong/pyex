@@ -1,16 +1,18 @@
 defmodule Pyex.Interpreter.BinaryOps do
   @moduledoc """
-  Pure binary-operation evaluation for `Pyex.Interpreter`.
+  Binary-operation evaluation for `Pyex.Interpreter`.
 
-  Every function here is side-effect-free: no `Env` or `Ctx` threading.
-  The main interpreter calls into this module after evaluating operands
-  and resolving dunder methods, so all values arriving here are plain
-  Pyex values.
+  Most functions here are side-effect-free. The exception is
+  `binop_result/3` which heap-allocates mutable results (lists,
+  dicts, sets) so they participate in the reference system.
   """
+
+  alias Pyex.Ctx
 
   import Bitwise, only: [band: 2, bor: 2, bxor: 2, bsl: 2, bsr: 2]
 
   alias Pyex.Interpreter.{Format, Helpers}
+  alias Pyex.{PyDict}
   alias Pyex.Stdlib.Collections
 
   # -------------------------------------------------------------------
@@ -129,6 +131,22 @@ defmodule Pyex.Interpreter.BinaryOps do
   @doc false
   @spec binop_result(term(), term(), term()) :: {term(), term(), term()}
   def binop_result({:exception, msg}, env, ctx), do: {{:exception, msg}, env, ctx}
+
+  def binop_result({:py_list, _, _} = list, env, ctx) do
+    {ref, ctx} = Ctx.heap_alloc(ctx, list)
+    {ref, env, ctx}
+  end
+
+  def binop_result({:py_dict, _, _} = dict, env, ctx) do
+    {ref, ctx} = Ctx.heap_alloc(ctx, dict)
+    {ref, env, ctx}
+  end
+
+  def binop_result({:set, _} = set, env, ctx) do
+    {ref, ctx} = Ctx.heap_alloc(ctx, set)
+    {ref, env, ctx}
+  end
+
   def binop_result(value, env, ctx), do: {value, env, ctx}
 
   @doc false
@@ -185,6 +203,14 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   defp dispatch(:plus, l, r) when is_list(l) and is_list(r), do: l ++ r
   defp dispatch(:plus, {:tuple, l}, {:tuple, r}), do: {:tuple, l ++ r}
+
+  defp dispatch(
+         :plus,
+         {:py_dict, %{"__counter__" => true}, _} = l,
+         {:py_dict, %{"__counter__" => true}, _} = r
+       ) do
+    Collections.counter_add(l, r)
+  end
 
   defp dispatch(:plus, %{"__counter__" => true} = l, %{"__counter__" => true} = r) do
     Collections.counter_add(l, r)
@@ -341,6 +367,10 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   # -- equality -------------------------------------------------------
 
+  defp dispatch(:eq, {:py_dict, lm, _}, {:py_dict, rm, _}), do: lm == rm
+  defp dispatch(:eq, {:py_dict, lm, _}, rm) when is_map(rm), do: lm == rm
+  defp dispatch(:eq, lm, {:py_dict, rm, _}) when is_map(lm), do: lm == rm
+
   defp dispatch(:eq, {:py_list, lr, _}, {:py_list, rr, _}),
     do: Enum.reverse(lr) == Enum.reverse(rr)
 
@@ -363,6 +393,10 @@ defmodule Pyex.Interpreter.BinaryOps do
     do: class_name == builtin_type_instance_name(attrs)
 
   defp dispatch(:eq, l, r), do: l == r
+
+  defp dispatch(:neq, {:py_dict, lm, _}, {:py_dict, rm, _}), do: lm != rm
+  defp dispatch(:neq, {:py_dict, lm, _}, rm) when is_map(rm), do: lm != rm
+  defp dispatch(:neq, lm, {:py_dict, rm, _}) when is_map(lm), do: lm != rm
 
   defp dispatch(:neq, {:py_list, lr, _}, {:py_list, rr, _}),
     do: Enum.reverse(lr) != Enum.reverse(rr)
@@ -402,6 +436,9 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   defp dispatch(:in, l, r) when is_binary(l) and is_binary(r),
     do: String.contains?(r, l)
+
+  defp dispatch(:in, l, {:py_dict, _, _} = dict),
+    do: PyDict.has_key?(Pyex.Builtins.visible_dict(dict), l)
 
   defp dispatch(:in, l, r) when is_map(r),
     do: Map.has_key?(Pyex.Builtins.visible_dict(r), l)

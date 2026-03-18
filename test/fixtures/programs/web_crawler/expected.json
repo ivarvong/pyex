@@ -1,0 +1,11 @@
+{
+  "error": null,
+  "files": {
+    "report.json": "{\n  \"pages_crawled\": 10,\n  \"edges_found\": 20,\n  \"indexable\": 7,\n  \"redirects\": 1,\n  \"errors\": 1,\n  \"fingerprints\": 9,\n  \"near_dupes\": 0,\n  \"back_edges\": 7,\n  \"sccs\": 1,\n  \"top_page\": \"https://example.com/about\",\n  \"http_requests\": 12\n}"
+  },
+  "python_version": "3.14.2",
+  "recorded_at": "2026-03-17T18:29:00.973349Z",
+  "sha256": "9983e3dfcf1ce2b3b7e41ca1cbd4a223659c77f9ebf2c5e4df3623bfb8eefe87",
+  "source_file": "main.py",
+  "stdout": "canon: https://example.com/b?a=2&z=1 == https://example.com/b?a=2&z=1: True\nresolve: https://example.com/c\nsimhash near: d=4 (similar), d=15 (different)\nheap order: ['a', 'a2', 'b', 'c']\ncrawl: 10 pages, 20 edges, depths=[0, 1, 1, 2, 2, 2, 2, 3, 3, 3]\ninbound counts: 11 urls tracked\nredirect: post-2 -> https://example.com/blog/post-2-updated\nrobots blocked: 1\nfingerprints: 9, near-dupes: 0\nindexable: 7, noindex: 3\nserialize round-trip: 10 pages, 20 edges\nback-edges: 7\nSCCs (size>1): 1, sizes=[7]\npagerank sum=1.0, top=['https://example.com/about', 'https://example.com/team', 'https://example.com/']\n\n{\n  \"pages_crawled\": 10,\n  \"edges_found\": 20,\n  \"indexable\": 7,\n  \"redirects\": 1,\n  \"errors\": 1,\n  \"fingerprints\": 9,\n  \"near_dupes\": 0,\n  \"back_edges\": 7,\n  \"sccs\": 1,\n  \"top_page\": \"https://example.com/about\",\n  \"http_requests\": 12\n}\n"
+}

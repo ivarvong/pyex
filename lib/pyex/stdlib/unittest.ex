@@ -25,7 +25,7 @@ defmodule Pyex.Stdlib.Unittest do
 
   @behaviour Pyex.Stdlib.Module
 
-  alias Pyex.Interpreter
+  alias Pyex.{Interpreter, PyDict}
 
   @doc """
   Returns the module value map containing `TestCase` class
@@ -217,6 +217,7 @@ defmodule Pyex.Stdlib.Unittest do
   defp member?(item, list) when is_list(list), do: item in list
   defp member?(item, {:tuple, items}), do: item in items
   defp member?(item, {:set, s}), do: MapSet.member?(s, item)
+  defp member?(key, {:py_dict, _, _} = dict), do: PyDict.has_key?(dict, key)
   defp member?(key, map) when is_map(map), do: Map.has_key?(map, key)
 
   defp member?(substr, str) when is_binary(substr) and is_binary(str),
@@ -249,6 +250,16 @@ defmodule Pyex.Stdlib.Unittest do
 
   defp inspect_py({:set, s}),
     do: "{#{s |> MapSet.to_list() |> Enum.map_join(", ", &inspect_py/1)}}"
+
+  defp inspect_py({:py_dict, _, _} = dict) do
+    inner =
+      dict
+      |> Pyex.Builtins.visible_dict()
+      |> PyDict.items()
+      |> Enum.map_join(", ", fn {k, v} -> "#{inspect_py(k)}: #{inspect_py(v)}" end)
+
+    "{#{inner}}"
+  end
 
   defp inspect_py(map) when is_map(map) do
     inner =

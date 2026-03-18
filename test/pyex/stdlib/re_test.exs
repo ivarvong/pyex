@@ -400,4 +400,178 @@ defmodule Pyex.Stdlib.ReTest do
       assert result == ["a", "b", "c", "d"]
     end
   end
+
+  describe "match object .start() and .end()" do
+    test "start and end on search match" do
+      result =
+        Pyex.run!("""
+        import re
+        m = re.search("world", "hello world")
+        [m.start(), m.end()]
+        """)
+
+      assert result == [6, 11]
+    end
+
+    test "start and end default to group 0" do
+      result =
+        Pyex.run!("""
+        import re
+        m = re.search("(\\d+)", "abc123def")
+        [m.start(0), m.end(0)]
+        """)
+
+      assert result == [3, 6]
+    end
+
+    test "start and end for capture group" do
+      result =
+        Pyex.run!("""
+        import re
+        m = re.search("(\\w+)@(\\w+)", "foo user@host bar")
+        [m.start(1), m.end(1), m.start(2), m.end(2)]
+        """)
+
+      assert result == [4, 8, 9, 13]
+    end
+
+    test "span returns tuple of start and end" do
+      result =
+        Pyex.run!("""
+        import re
+        m = re.search("world", "hello world")
+        m.span()
+        """)
+
+      assert result == {:tuple, [6, 11]}
+    end
+  end
+
+  describe "match object .groups()" do
+    test "groups returns tuple of all capture groups" do
+      result =
+        Pyex.run!("""
+        import re
+        m = re.search("(\\w+)@(\\w+)", "user@host")
+        m.groups()
+        """)
+
+      assert result == {:tuple, ["user", "host"]}
+    end
+  end
+
+  describe "match object .lastgroup" do
+    test "lastgroup returns name of last matched named group" do
+      result =
+        Pyex.run!(~S"""
+        import re
+        m = re.search(r"(?P<first>\w+)\s+(?P<second>\w+)", "hello world")
+        m.lastgroup
+        """)
+
+      assert result == "second"
+    end
+
+    test "lastgroup is None when no named groups" do
+      result =
+        Pyex.run!("""
+        import re
+        m = re.search("(\\w+)", "hello")
+        m.lastgroup
+        """)
+
+      assert result == nil
+    end
+
+    test "group by name" do
+      result =
+        Pyex.run!(~S"""
+        import re
+        m = re.search(r"(?P<word>\w+)\s+(?P<num>\d+)", "hello 42")
+        [m.group("word"), m.group("num")]
+        """)
+
+      assert result == ["hello", "42"]
+    end
+  end
+
+  describe "re.finditer" do
+    test "iterates over all matches" do
+      result =
+        Pyex.run!("""
+        import re
+        results = []
+        for m in re.finditer("[0-9]+", "abc 123 def 456"):
+            results.append(m.group())
+        results
+        """)
+
+      assert result == ["123", "456"]
+    end
+
+    test "finditer with start and end positions" do
+      result =
+        Pyex.run!("""
+        import re
+        results = []
+        for m in re.finditer("[0-9]+", "abc 123 def 456"):
+            results.append([m.start(), m.end()])
+        results
+        """)
+
+      assert result == [[4, 7], [12, 15]]
+    end
+
+    test "finditer with named groups and lastgroup" do
+      result =
+        Pyex.run!(~S"""
+        import re
+        pattern = r"(?P<word>[a-zA-Z]+)|(?P<num>\d+)"
+        groups = []
+        for m in re.finditer(pattern, "hello 42"):
+            groups.append(m.lastgroup)
+        groups
+        """)
+
+      assert result == ["word", "num"]
+    end
+
+    test "finditer on compiled pattern" do
+      result =
+        Pyex.run!("""
+        import re
+        pat = re.compile("[a-z]+")
+        results = []
+        for m in pat.finditer("abc 123 def"):
+            results.append(m.group())
+        results
+        """)
+
+      assert result == ["abc", "def"]
+    end
+
+    test "finditer returns empty iterator for no matches" do
+      result =
+        Pyex.run!("""
+        import re
+        results = []
+        for m in re.finditer("[0-9]+", "no digits"):
+            results.append(m.group())
+        results
+        """)
+
+      assert result == []
+    end
+
+    test "finditer with list conversion" do
+      result =
+        Pyex.run!("""
+        import re
+        matches = list(re.finditer("\\w+", "hello world"))
+        len(matches)
+        """)
+
+      assert result == 2
+    end
+  end
 end

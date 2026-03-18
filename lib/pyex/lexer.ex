@@ -487,8 +487,8 @@ defmodule Pyex.Lexer do
               :ok ->
                 tokens =
                   tokens
-                  |> merge_adjacent_strings()
                   |> suppress_bracketed_newlines()
+                  |> merge_adjacent_strings()
                   |> process_indentation()
 
                 {:ok, tokens}
@@ -864,7 +864,12 @@ defmodule Pyex.Lexer do
   @close_brackets [:rparen, :rbracket, :rbrace]
 
   # Merge adjacent string tokens (Python implicit string concatenation).
-  # e.g. 'hello' ' ' 'world' → 'hello world'
+  # Runs after suppress_bracketed_newlines, so strings on adjacent lines
+  # inside brackets are already directly adjacent (newlines removed).
+  # Also handles f-string concatenation:
+  #   f"hello " f"world"   → f"hello world"
+  #   "prefix" f"{x}"      → f"prefix{x}"
+  #   f"{x}" "suffix"      → f"{x}suffix"
   @spec merge_adjacent_strings([raw_token() | token()]) :: [raw_token() | token()]
   defp merge_adjacent_strings([]), do: []
 
@@ -872,12 +877,27 @@ defmodule Pyex.Lexer do
     merge_adjacent_strings([{:string, line, s1 <> s2} | rest])
   end
 
-  defp merge_adjacent_strings([{:string, line, s1}, {:newline_raw, _}, {:string, _, s2} | rest]) do
-    merge_adjacent_strings([{:string, line, s1 <> s2} | rest])
+  defp merge_adjacent_strings([{:fstring, line, s1}, {:fstring, _, s2} | rest]) do
+    merge_adjacent_strings([{:fstring, line, s1 <> s2} | rest])
+  end
+
+  defp merge_adjacent_strings([{:string, line, s1}, {:fstring, _, s2} | rest]) do
+    merge_adjacent_strings([{:fstring, line, escape_braces(s1) <> s2} | rest])
+  end
+
+  defp merge_adjacent_strings([{:fstring, line, s1}, {:string, _, s2} | rest]) do
+    merge_adjacent_strings([{:fstring, line, s1 <> escape_braces(s2)} | rest])
   end
 
   defp merge_adjacent_strings([token | rest]) do
     [token | merge_adjacent_strings(rest)]
+  end
+
+  @spec escape_braces(String.t()) :: String.t()
+  defp escape_braces(s) do
+    s
+    |> String.replace("{", "{{")
+    |> String.replace("}", "}}")
   end
 
   @spec suppress_bracketed_newlines([raw_token() | token()]) :: [raw_token() | token()]
