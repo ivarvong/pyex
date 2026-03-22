@@ -71,6 +71,7 @@ defmodule Pyex.Builtins do
     Enum.reduce(type_constructors(), env, fn {name, fun}, env ->
       Env.put(env, name, {:builtin_type, name, fun})
     end)
+    |> Env.put("Ellipsis", :ellipsis)
   end
 
   @spec all() :: [{String.t(), ([Interpreter.pyvalue()] -> Interpreter.pyvalue())}]
@@ -1554,6 +1555,7 @@ defmodule Pyex.Builtins do
   @spec pytype(Interpreter.pyvalue()) :: String.t()
   defp pytype(val) when is_integer(val), do: "int"
   defp pytype(val) when is_float(val), do: "float"
+  defp pytype(:ellipsis), do: "ellipsis"
   defp pytype(val) when is_binary(val), do: "str"
   defp pytype(val) when is_boolean(val), do: "bool"
   defp pytype(nil), do: "NoneType"
@@ -1585,6 +1587,7 @@ defmodule Pyex.Builtins do
   def py_repr(:infinity), do: "inf"
   def py_repr(:neg_infinity), do: "-inf"
   def py_repr(:nan), do: "nan"
+  def py_repr(:ellipsis), do: "Ellipsis"
   def py_repr(val) when is_float(val), do: Float.to_string(val)
 
   def py_repr({:py_list, reversed, _len}) do

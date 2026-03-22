@@ -32,6 +32,15 @@ defmodule Pyex.Parser.Definitions do
                 error
             end
 
+          [{:op, _, :colon} | inline_rest] ->
+            case Parser.parse_inline_body(inline_rest) do
+              {:ok, stmt, rest} ->
+                {:ok, {:def, [line: line], [name, params, [stmt]]}, drop_newline(rest)}
+
+              {:error, _} = error ->
+                error
+            end
+
           _ ->
             {:error, "expected ':' after function definition on line #{line}"}
         end
@@ -95,6 +104,15 @@ defmodule Pyex.Parser.Definitions do
                 error
             end
 
+          [{:op, _, :colon} | inline_rest] ->
+            case Parser.parse_inline_body(inline_rest) do
+              {:ok, stmt, rest} ->
+                {:ok, {:class, [line: line], [name, bases, [stmt]]}, drop_newline(rest)}
+
+              {:error, _} = error ->
+                error
+            end
+
           _ ->
             {:error, "expected ':' after class definition on line #{line}"}
         end
@@ -108,6 +126,16 @@ defmodule Pyex.Parser.Definitions do
     case Parser.parse_block(rest) do
       {:ok, body, rest} ->
         {:ok, {:class, [line: line], [name, [], body]}, drop_newline(rest)}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  def parse_class_def([{:name, line, name}, {:op, _, :colon} | inline_rest]) do
+    case Parser.parse_inline_body(inline_rest) do
+      {:ok, stmt, rest} ->
+        {:ok, {:class, [line: line], [name, [], [stmt]]}, drop_newline(rest)}
 
       {:error, _} = error ->
         error
@@ -235,6 +263,9 @@ defmodule Pyex.Parser.Definitions do
 
   defp collect_brackets([{:op, _, :comma} | rest], depth, acc),
     do: collect_brackets(rest, depth, [", " | acc])
+
+  defp collect_brackets([{:op, _, :ellipsis} | rest], depth, acc),
+    do: collect_brackets(rest, depth, ["..." | acc])
 
   defp collect_brackets([{:name, _, name} | rest], depth, acc),
     do: collect_brackets(rest, depth, [name | acc])

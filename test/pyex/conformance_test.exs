@@ -809,6 +809,85 @@ defmodule Pyex.ConformanceTest do
     end
   end
 
+  describe "parser regressions" do
+    test "ellipsis literal binding" do
+      assert_conforms("""
+      x = ...
+      print(x)
+      """)
+    end
+
+    test "single-line function body with ellipsis" do
+      assert_conforms("""
+      def foo(): ...
+      print(repr(foo()))
+      """)
+    end
+
+    test "indented ellipsis statement" do
+      assert_conforms("""
+      def foo():
+          ...
+      print(repr(foo()))
+      """)
+    end
+
+    test "list literal star unpacking" do
+      assert_conforms("""
+      a = [1, 2, 3]
+      b = [*a, 4]
+      print(repr(b))
+      """)
+    end
+
+    test "tuple literal star unpacking" do
+      assert_conforms("""
+      a = [1, 2, 3]
+      b = (*a, 4)
+      print(repr(b))
+      """)
+    end
+
+    test "dict literal double-star unpacking" do
+      assert_conforms("""
+      a = {'x': 1}
+      b = {**a, 'y': 2}
+      print(repr(b))
+      """)
+    end
+
+    test "multiple list star unpacks" do
+      assert_conforms("""
+      a = [1, 2, 3]
+      c = [4, 5, 6]
+      b = [*a, *c]
+      print(repr(b))
+      """)
+    end
+
+    test "single-line def return" do
+      assert_conforms("""
+      def foo(): return 42
+      print(repr(foo()))
+      """)
+    end
+
+    test "single-line def pass" do
+      assert_conforms("""
+      def foo(): pass
+      print(repr(foo()))
+      """)
+    end
+
+    test "single-line class pass" do
+      assert_conforms("""
+      class Foo: pass
+      f = Foo()
+      print(f.__class__.__name__)
+      """)
+    end
+  end
+
   # ── Generators ──────────────────────────────────────────────
 
   describe "generators" do

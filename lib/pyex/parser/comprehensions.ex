@@ -22,6 +22,12 @@ defmodule Pyex.Parser.Comprehensions do
     {:ok, {:tuple, [line: line], [[]]}, rest}
   end
 
+  def parse_parenthesized([{:op, star_line, :star} | rest], line) do
+    with {:ok, expr, rest} <- Parser.parse_expression(rest) do
+      parse_tuple_elements_rest(rest, line, [{:star_arg, [line: star_line], [expr]}])
+    end
+  end
+
   def parse_parenthesized(tokens, line) do
     with {:ok, expr, rest} <- Parser.parse_expression(tokens) do
       case rest do
@@ -29,7 +35,7 @@ defmodule Pyex.Parser.Comprehensions do
           parse_gen_expr(expr, for_rest, line)
 
         [{:op, _, :comma} | rest] ->
-          parse_tuple_rest(rest, line, [expr])
+          parse_tuple_elements(rest, line, [expr])
 
         [{:op, _, :rparen} | rest] ->
           {:ok, expr, rest}
@@ -46,6 +52,12 @@ defmodule Pyex.Parser.Comprehensions do
   @spec parse_list_literal([Lexer.token()], pos_integer()) :: parse_result()
   def parse_list_literal([{:op, _, :rbracket} | rest], line) do
     {:ok, {:list, [line: line], [[]]}, rest}
+  end
+
+  def parse_list_literal([{:op, star_line, :star} | rest], line) do
+    with {:ok, expr, rest} <- Parser.parse_expression(rest) do
+      parse_list_elements_rest(rest, line, [{:star_arg, [line: star_line], [expr]}])
+    end
   end
 
   def parse_list_literal(tokens, line) do
@@ -77,6 +89,20 @@ defmodule Pyex.Parser.Comprehensions do
   @spec parse_dict_literal([Lexer.token()], pos_integer()) :: parse_result()
   def parse_dict_literal([{:op, _, :rbrace} | rest], line) do
     {:ok, {:dict, [line: line], [[]]}, rest}
+  end
+
+  def parse_dict_literal([{:op, line, :double_star} | rest], dict_line) do
+    with {:ok, expr, rest} <- Parser.parse_expression(rest) do
+      entry = {:double_star_arg, [line: line], [expr]}
+      parse_dict_entries_rest(rest, dict_line, [entry])
+    end
+  end
+
+  def parse_dict_literal([{:op, line, :star} | rest], set_line) do
+    with {:ok, expr, rest} <- Parser.parse_expression(rest) do
+      entry = {:star_arg, [line: line], [expr]}
+      parse_set_entries_rest(rest, set_line, [entry])
+    end
   end
 
   def parse_dict_literal(tokens, line) do
@@ -129,18 +155,15 @@ defmodule Pyex.Parser.Comprehensions do
     {:ok, {:list, [line: line], [Enum.reverse(acc)]}, rest}
   end
 
+  defp parse_list_elements([{:op, star_line, :star} | rest], line, acc) do
+    with {:ok, expr, rest} <- Parser.parse_expression(rest) do
+      parse_list_elements_rest(rest, line, [{:star_arg, [line: star_line], [expr]} | acc])
+    end
+  end
+
   defp parse_list_elements(tokens, line, acc) do
     with {:ok, expr, rest} <- Parser.parse_expression(tokens) do
-      case rest do
-        [{:op, _, :comma} | rest] ->
-          parse_list_elements(rest, line, [expr | acc])
-
-        [{:op, _, :rbracket} | rest] ->
-          {:ok, {:list, [line: line], [Enum.reverse([expr | acc])]}, rest}
-
-        _ ->
-          {:error, "expected ',' or ']' in list at #{token_line(rest)}"}
-      end
+      parse_list_elements_rest(rest, line, [expr | acc])
     end
   end
 
@@ -218,30 +241,49 @@ defmodule Pyex.Parser.Comprehensions do
      "expected variable name after 'for' in generator expression at #{token_line(tokens)}"}
   end
 
-  @spec parse_tuple_rest([Lexer.token()], pos_integer(), [Parser.ast_node()]) :: parse_result()
-  defp parse_tuple_rest([{:op, _, :rparen} | rest], line, acc) do
+  @spec parse_tuple_elements_rest([Lexer.token()], pos_integer(), [Parser.ast_node()]) ::
+          parse_result()
+  defp parse_tuple_elements_rest([{:op, _, :rparen} | rest], line, acc) do
     {:ok, {:tuple, [line: line], [Enum.reverse(acc)]}, rest}
   end
 
-  defp parse_tuple_rest(tokens, line, acc) do
+  defp parse_tuple_elements_rest([{:op, _, :comma} | rest], line, acc) do
+    parse_tuple_elements(rest, line, acc)
+  end
+
+  defp parse_tuple_elements_rest(rest, _line, _acc) do
+    {:error, "expected ',' or ')' in tuple at #{token_line(rest)}"}
+  end
+
+  @spec parse_tuple_elements([Lexer.token()], pos_integer(), [Parser.ast_node()]) ::
+          parse_result()
+  defp parse_tuple_elements([{:op, _, :rparen} | rest], line, acc) do
+    {:ok, {:tuple, [line: line], [Enum.reverse(acc)]}, rest}
+  end
+
+  defp parse_tuple_elements([{:op, star_line, :star} | rest], line, acc) do
+    with {:ok, expr, rest} <- Parser.parse_expression(rest) do
+      parse_tuple_elements_rest(rest, line, [{:star_arg, [line: star_line], [expr]} | acc])
+    end
+  end
+
+  defp parse_tuple_elements(tokens, line, acc) do
     with {:ok, expr, rest} <- Parser.parse_expression(tokens) do
-      case rest do
-        [{:op, _, :comma} | rest] ->
-          parse_tuple_rest(rest, line, [expr | acc])
-
-        [{:op, _, :rparen} | rest] ->
-          {:ok, {:tuple, [line: line], [Enum.reverse([expr | acc])]}, rest}
-
-        _ ->
-          {:error, "expected ',' or ')' in tuple at #{token_line(rest)}"}
-      end
+      parse_tuple_elements_rest(rest, line, [expr | acc])
     end
   end
 
   @spec parse_dict_entries([Lexer.token()], pos_integer(), [
-          {Parser.ast_node(), Parser.ast_node()}
+          {Parser.ast_node(), Parser.ast_node()} | Parser.ast_node()
         ]) ::
           parse_result()
+  defp parse_dict_entries([{:op, line, :double_star} | rest], dict_line, acc) do
+    with {:ok, expr, rest} <- Parser.parse_expression(rest) do
+      entry = {:double_star_arg, [line: line], [expr]}
+      parse_dict_entries_rest(rest, dict_line, [entry | acc])
+    end
+  end
+
   defp parse_dict_entries(tokens, line, acc) do
     with {:ok, key, rest} <- Parser.parse_or(tokens) do
       case rest do
@@ -252,21 +294,7 @@ defmodule Pyex.Parser.Comprehensions do
                 parse_dict_comp(key, value, comp_rest, line)
 
               _ ->
-                pair = {key, value}
-
-                case rest do
-                  [{:op, _, :comma}, {:op, _, :rbrace} | rest] ->
-                    {:ok, {:dict, [line: line], [Enum.reverse([pair | acc])]}, rest}
-
-                  [{:op, _, :comma} | rest] ->
-                    parse_dict_entries(rest, line, [pair | acc])
-
-                  [{:op, _, :rbrace} | rest] ->
-                    {:ok, {:dict, [line: line], [Enum.reverse([pair | acc])]}, rest}
-
-                  _ ->
-                    {:error, "expected ',' or '}' in dict at #{token_line(rest)}"}
-                end
+                parse_dict_entries_rest(rest, line, [{key, value} | acc])
             end
           end
 
@@ -285,24 +313,54 @@ defmodule Pyex.Parser.Comprehensions do
     end
   end
 
+  @spec parse_dict_entries_rest([Lexer.token()], pos_integer(), [
+          {Parser.ast_node(), Parser.ast_node()} | Parser.ast_node()
+        ]) :: parse_result()
+  defp parse_dict_entries_rest([{:op, _, :comma}, {:op, _, :rbrace} | rest], line, acc) do
+    {:ok, {:dict, [line: line], [Enum.reverse(acc)]}, rest}
+  end
+
+  defp parse_dict_entries_rest([{:op, _, :comma} | rest], line, acc) do
+    parse_dict_entries(rest, line, acc)
+  end
+
+  defp parse_dict_entries_rest([{:op, _, :rbrace} | rest], line, acc) do
+    {:ok, {:dict, [line: line], [Enum.reverse(acc)]}, rest}
+  end
+
+  defp parse_dict_entries_rest(rest, _line, _acc) do
+    {:error, "expected ',' or '}' in dict at #{token_line(rest)}"}
+  end
+
   @spec parse_set_entries([Lexer.token()], pos_integer(), [Parser.ast_node()]) :: parse_result()
   defp parse_set_entries([{:op, _, :rbrace} | rest], line, acc) do
     {:ok, {:set, [line: line], [Enum.reverse(acc)]}, rest}
   end
 
+  defp parse_set_entries([{:op, star_line, :star} | rest], line, acc) do
+    with {:ok, expr, rest} <- Parser.parse_expression(rest) do
+      parse_set_entries_rest(rest, line, [{:star_arg, [line: star_line], [expr]} | acc])
+    end
+  end
+
   defp parse_set_entries(tokens, line, acc) do
     with {:ok, elem, rest} <- Parser.parse_or(tokens) do
-      case rest do
-        [{:op, _, :comma} | rest] ->
-          parse_set_entries(rest, line, [elem | acc])
-
-        [{:op, _, :rbrace} | rest] ->
-          {:ok, {:set, [line: line], [Enum.reverse([elem | acc])]}, rest}
-
-        _ ->
-          {:error, "expected ',' or '}' in set literal at #{token_line(rest)}"}
-      end
+      parse_set_entries_rest(rest, line, [elem | acc])
     end
+  end
+
+  @spec parse_set_entries_rest([Lexer.token()], pos_integer(), [Parser.ast_node()]) ::
+          parse_result()
+  defp parse_set_entries_rest([{:op, _, :comma} | rest], line, acc) do
+    parse_set_entries(rest, line, acc)
+  end
+
+  defp parse_set_entries_rest([{:op, _, :rbrace} | rest], line, acc) do
+    {:ok, {:set, [line: line], [Enum.reverse(acc)]}, rest}
+  end
+
+  defp parse_set_entries_rest(rest, _line, _acc) do
+    {:error, "expected ',' or '}' in set literal at #{token_line(rest)}"}
   end
 
   @spec parse_set_comp(Parser.ast_node(), [Lexer.token()], pos_integer()) :: parse_result()

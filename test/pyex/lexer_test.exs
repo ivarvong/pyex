@@ -169,6 +169,11 @@ defmodule Pyex.LexerTest do
                {:name, 1, "bar"}
              ] = tokens
     end
+
+    test "ellipsis literal" do
+      {:ok, tokens} = Lexer.tokenize("...")
+      assert [{:op, 1, :ellipsis}] = tokens
+    end
   end
 
   describe "import keyword" do

@@ -1155,6 +1155,9 @@ defmodule Pyex.Parser do
   defp parse_atom([{:keyword, line, "None"} | rest]),
     do: {:ok, {:lit, [line: line], [nil]}, rest}
 
+  defp parse_atom([{:op, line, :ellipsis} | rest]),
+    do: {:ok, {:lit, [line: line], [:ellipsis]}, rest}
+
   defp parse_atom([{:name, line, name} | rest]), do: {:ok, {:var, [line: line], [name]}, rest}
 
   defp parse_atom([{:keyword, line, "lambda"} | rest]) do

@@ -75,6 +75,15 @@ defmodule Pyex.ParserTest do
       ast = parse!("def f(x, y=10):\n    return x + y")
       {:module, _, [{:def, _, ["f", [{"x", nil}, {"y", {:lit, _, [10]}}], _body]}]} = ast
     end
+
+    test "single-line function definition" do
+      {:module, _, [{:def, _, ["f", [], [{:return, _, [{:lit, _, [42]}]}]]}]} =
+        parse!("def f(): return 42")
+    end
+
+    test "single-line class definition" do
+      {:module, _, [{:class, _, ["Foo", [], [{:pass, _, []}]]}]} = parse!("class Foo: pass")
+    end
   end
 
   describe "control flow" do
@@ -94,11 +103,20 @@ defmodule Pyex.ParserTest do
       assert {:var, _, ["x"]} = condition
       assert [{:expr, _, [{:var, _, ["y"]}]}] = body
     end
+
+    test "single-line while loop structure" do
+      {:module, _, [{:while, _, [{:var, _, ["x"]}, [{:pass, _, []}], nil]}]} =
+        parse!("while x: pass")
+    end
   end
 
   describe "new expressions" do
     test "string literal" do
       {:module, _, [{:expr, _, [{:lit, [line: 1], ["hello"]}]}]} = parse!(~s("hello"))
+    end
+
+    test "ellipsis literal" do
+      {:module, _, [{:expr, _, [{:lit, [line: 1], [:ellipsis]}]}]} = parse!("...")
     end
 
     test "attribute access" do
@@ -134,6 +152,16 @@ defmodule Pyex.ParserTest do
       assert {:list, _, [[]]} = node
     end
 
+    test "list literal with starred unpacking" do
+      {:module, _, [{:expr, _, [node]}]} = parse!("[*a, 4]")
+      assert {:list, _, [[{:star_arg, _, [{:var, _, ["a"]}]}, {:lit, _, [4]}]]} = node
+    end
+
+    test "tuple literal with starred unpacking" do
+      {:module, _, [{:expr, _, [node]}]} = parse!("(*a, 4)")
+      assert {:tuple, _, [[{:star_arg, _, [{:var, _, ["a"]}]}, {:lit, _, [4]}]]} = node
+    end
+
     test "dict literal" do
       {:module, _, [{:expr, _, [node]}]} = parse!(~s({"a": 1, "b": 2}))
       assert {:dict, _, [entries]} = node
@@ -144,6 +172,14 @@ defmodule Pyex.ParserTest do
       {:module, _, [{:expr, _, [node]}]} = parse!("{}")
       assert {:dict, _, [[]]} = node
     end
+
+    test "dict literal with double-star unpacking" do
+      {:module, _, [{:expr, _, [node]}]} = parse!("{**a, 'y': 2}")
+
+      assert {:dict, _,
+              [[{:double_star_arg, _, [{:var, _, ["a"]}]}, {{:lit, _, ["y"]}, {:lit, _, [2]}}]]} =
+               node
+    end
   end
 
   describe "new statements" do
@@ -151,6 +187,11 @@ defmodule Pyex.ParserTest do
       source = "for x in items:\n    x"
       {:module, _, [{:for, _, ["x", {:var, _, ["items"]}, body, nil]}]} = parse!(source)
       assert [{:expr, _, [{:var, _, ["x"]}]}] = body
+    end
+
+    test "single-line for loop" do
+      {:module, _, [{:for, _, ["x", {:call, _, _}, [{:expr, _, [{:var, _, ["x"]}]}], nil]}]} =
+        parse!("for x in range(3): x")
     end
 
     test "import statement" do

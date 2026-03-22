@@ -231,6 +231,56 @@ defmodule Pyex.InterpreterTest do
 
       assert result == 3_628_800
     end
+
+    test "ellipsis statement in function returns None" do
+      result =
+        Pyex.run!("""
+        def foo(): ...
+
+        foo()
+        """)
+
+      assert result == nil
+    end
+  end
+
+  describe "parser regressions" do
+    test "ellipsis literal prints as Ellipsis" do
+      code = """
+      x = ...
+      print(x)
+      """
+
+      {:ok, _result, ctx} = Pyex.run(code)
+      assert Pyex.output(ctx) == "Ellipsis\n"
+    end
+
+    test "star unpacking works in collection literals" do
+      result =
+        Pyex.run!("""
+        a = [1, 2, 3]
+        b = [*a, 4]
+        c = (*a, 4)
+        d = {**{'x': 1}, 'y': 2}
+        [b, c, d['x'], d['y']]
+        """)
+
+      assert result == [[1, 2, 3, 4], {:tuple, [1, 2, 3, 4]}, 1, 2]
+    end
+
+    test "single-line compound statements execute" do
+      result =
+        Pyex.run!("""
+        def foo(): return 42
+        class Foo: pass
+        total = 0
+        for i in range(3): total += i
+        while False: pass
+        [foo(), Foo().__class__.__name__, total]
+        """)
+
+      assert result == [42, "Foo", 3]
+    end
   end
 
   describe "strings" do

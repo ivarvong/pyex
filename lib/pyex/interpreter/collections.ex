@@ -13,13 +13,14 @@ defmodule Pyex.Interpreter.Collections do
   @typep comp_clause ::
            {:comp_for, String.t() | [String.t()], Parser.ast_node()}
            | {:comp_if, Parser.ast_node()}
+  @typep dict_entry :: {Parser.ast_node(), Parser.ast_node()} | Parser.ast_node()
 
   @doc """
   Evaluates tuple construction.
   """
   @spec eval_tuple([Parser.ast_node()], Env.t(), Ctx.t()) :: eval_result()
   def eval_tuple(elements, env, ctx) do
-    case Interpreter.eval_list(elements, env, ctx) do
+    case eval_sequence_elements(elements, env, ctx) do
       {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
       {values, env, ctx} -> {{:tuple, Enum.reverse(values)}, env, ctx}
     end
@@ -30,7 +31,7 @@ defmodule Pyex.Interpreter.Collections do
   """
   @spec eval_list_literal([Parser.ast_node()], Env.t(), Ctx.t()) :: eval_result()
   def eval_list_literal(elements, env, ctx) do
-    case Interpreter.eval_list(elements, env, ctx) do
+    case eval_sequence_elements(elements, env, ctx) do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
@@ -43,7 +44,7 @@ defmodule Pyex.Interpreter.Collections do
   @doc """
   Evaluates dict construction.
   """
-  @spec eval_dict_literal([{Parser.ast_node(), Parser.ast_node()}], Env.t(), Ctx.t()) ::
+  @spec eval_dict_literal([dict_entry()], Env.t(), Ctx.t()) ::
           eval_result()
   def eval_dict_literal(entries, env, ctx) do
     case eval_dict(entries, env, ctx) do
@@ -61,12 +62,12 @@ defmodule Pyex.Interpreter.Collections do
   """
   @spec eval_set_literal([Parser.ast_node()], Env.t(), Ctx.t()) :: eval_result()
   def eval_set_literal(elements, env, ctx) do
-    case Interpreter.eval_list(elements, env, ctx) do
+    case eval_sequence_elements(elements, env, ctx) do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
       {values, env, ctx} ->
-        {ref, ctx} = Ctx.heap_alloc(ctx, {:set, MapSet.new(values)})
+        {ref, ctx} = Ctx.heap_alloc(ctx, {:set, MapSet.new(Enum.reverse(values))})
         {ref, env, ctx}
     end
   end
@@ -249,28 +250,81 @@ defmodule Pyex.Interpreter.Collections do
     end
   end
 
-  @spec eval_dict([{Parser.ast_node(), Parser.ast_node()}], Env.t(), Ctx.t()) :: eval_result()
-  defp eval_dict(entries, env, ctx) do
-    Enum.reduce_while(entries, {PyDict.new(), env, ctx}, fn {key_expr, val_expr},
-                                                            {map, env, ctx} ->
-      case Interpreter.eval(key_expr, env, ctx) do
-        {{:exception, _} = signal, env, ctx} ->
-          {:halt, {signal, env, ctx}}
+  @spec eval_sequence_elements([Parser.ast_node()], Env.t(), Ctx.t()) ::
+          {[Interpreter.pyvalue()], Env.t(), Ctx.t()}
+          | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  defp eval_sequence_elements(elements, env, ctx) do
+    Enum.reduce_while(elements, {[], env, ctx}, fn
+      {:star_arg, _, [expr]}, {acc, env, ctx} ->
+        case Interpreter.eval(expr, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {:halt, {signal, env, ctx}}
 
-        {key, env, ctx} ->
-          derefed_key = Ctx.deref(ctx, key)
+          {val, env, ctx} ->
+            case Interpreter.to_iterable(val, env, ctx) do
+              {:ok, items, env, ctx} ->
+                {:cont, {Enum.reverse(items) ++ acc, env, ctx}}
 
-          if unhashable?(derefed_key) do
-            {:halt,
-             {{:exception, "TypeError: unhashable type: '#{Helpers.py_type(derefed_key)}'"}, env,
-              ctx}}
-          else
-            case Interpreter.eval(val_expr, env, ctx) do
-              {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
-              {val, env, ctx} -> {:cont, {PyDict.put(map, key, val), env, ctx}}
+              {:exception, msg} ->
+                {:halt, {{:exception, msg}, env, ctx}}
             end
-          end
-      end
+        end
+
+      expr, {acc, env, ctx} ->
+        case Interpreter.eval(expr, env, ctx) do
+          {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
+          {val, env, ctx} -> {:cont, {[val | acc], env, ctx}}
+        end
+    end)
+  end
+
+  @spec eval_dict([dict_entry()], Env.t(), Ctx.t()) :: eval_result()
+  defp eval_dict(entries, env, ctx) do
+    Enum.reduce_while(entries, {PyDict.new(), env, ctx}, fn
+      {:double_star_arg, _, [expr]}, {map, env, ctx} ->
+        case Interpreter.eval(expr, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {:halt, {signal, env, ctx}}
+
+          {raw_val, env, ctx} ->
+            case Ctx.deref(ctx, raw_val) do
+              {:py_dict, _, _} = dict ->
+                merged =
+                  Enum.reduce(PyDict.items(dict), map, fn {k, v}, acc -> PyDict.put(acc, k, v) end)
+
+                {:cont, {merged, env, ctx}}
+
+              value when is_map(value) ->
+                merged = Enum.reduce(value, map, fn {k, v}, acc -> PyDict.put(acc, k, v) end)
+                {:cont, {merged, env, ctx}}
+
+              value ->
+                {:halt,
+                 {{:exception,
+                   "TypeError: argument after ** must be a mapping, not '#{Helpers.py_type(value)}'"},
+                  env, ctx}}
+            end
+        end
+
+      {key_expr, val_expr}, {map, env, ctx} ->
+        case Interpreter.eval(key_expr, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {:halt, {signal, env, ctx}}
+
+          {key, env, ctx} ->
+            derefed_key = Ctx.deref(ctx, key)
+
+            if unhashable?(derefed_key) do
+              {:halt,
+               {{:exception, "TypeError: unhashable type: '#{Helpers.py_type(derefed_key)}'"},
+                env, ctx}}
+            else
+              case Interpreter.eval(val_expr, env, ctx) do
+                {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
+                {val, env, ctx} -> {:cont, {PyDict.put(map, key, val), env, ctx}}
+              end
+            end
+        end
     end)
   end
 

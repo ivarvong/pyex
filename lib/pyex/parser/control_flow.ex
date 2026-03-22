@@ -45,8 +45,7 @@ defmodule Pyex.Parser.ControlFlow do
   @spec parse_while([Lexer.token()]) :: parse_result()
   def parse_while(tokens) do
     with {:ok, condition, rest} <- Parser.parse_expression(tokens),
-         {:ok, rest} <- expect_block_start(rest, "while"),
-         {:ok, body, rest} <- Parser.parse_block(rest),
+         {:ok, body, rest} <- parse_loop_body(rest, "while"),
          {:ok, else_body, rest} <- parse_loop_else(rest) do
       line = Parser.node_line(condition)
       {:ok, {:while, [line: line], [condition, body, else_body]}, drop_newline(rest)}
@@ -60,8 +59,7 @@ defmodule Pyex.Parser.ControlFlow do
   def parse_for([{:name, line, first_name}, {:op, _, :comma} | rest]) do
     with {:ok, var_names, rest} <- collect_for_vars(rest, [first_name]),
          {:ok, iterable, rest} <- Parser.parse_expression(rest),
-         {:ok, rest} <- expect_block_start(rest, "for"),
-         {:ok, body, rest} <- Parser.parse_block(rest),
+         {:ok, body, rest} <- parse_loop_body(rest, "for"),
          {:ok, else_body, rest} <- parse_loop_else(rest) do
       {:ok, {:for, [line: line], [var_names, iterable, body, else_body]}, drop_newline(rest)}
     end
@@ -69,8 +67,7 @@ defmodule Pyex.Parser.ControlFlow do
 
   def parse_for([{:name, line, var_name}, {:keyword, _, "in"} | rest]) do
     with {:ok, iterable, rest} <- Parser.parse_expression(rest),
-         {:ok, rest} <- expect_block_start(rest, "for"),
-         {:ok, body, rest} <- Parser.parse_block(rest),
+         {:ok, body, rest} <- parse_loop_body(rest, "for"),
          {:ok, else_body, rest} <- parse_loop_else(rest) do
       {:ok, {:for, [line: line], [var_name, iterable, body, else_body]}, drop_newline(rest)}
     end
@@ -148,7 +145,31 @@ defmodule Pyex.Parser.ControlFlow do
     end
   end
 
+  defp parse_loop_else([{:keyword, _, "else"}, {:op, _, :colon} | rest]) do
+    case Parser.parse_inline_body(rest) do
+      {:ok, stmt, rest} -> {:ok, [stmt], rest}
+      {:error, _} = error -> error
+    end
+  end
+
   defp parse_loop_else(rest), do: {:ok, nil, rest}
+
+  @spec parse_loop_body([Lexer.token()], String.t()) ::
+          {:ok, [Parser.ast_node()], [Lexer.token()]} | {:error, String.t()}
+  defp parse_loop_body([{:op, _, :colon}, :newline, :indent | rest], _context) do
+    Parser.parse_block(rest)
+  end
+
+  defp parse_loop_body([{:op, _, :colon} | rest], _context) do
+    case Parser.parse_inline_body(rest) do
+      {:ok, stmt, rest} -> {:ok, [stmt], rest}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp parse_loop_body(tokens, context) do
+    {:error, "expected ':' after #{context} at #{token_line(tokens)}"}
+  end
 
   @spec collect_for_vars([Lexer.token()], [String.t()]) ::
           {:ok, [String.t()], [Lexer.token()]} | {:error, String.t()}

@@ -34,6 +34,7 @@ defmodule Pyex.Lexer do
           | :comma
           | :walrus
           | :colon
+          | :ellipsis
           | :dot
           | :eq
           | :neq
@@ -361,6 +362,7 @@ defmodule Pyex.Lexer do
   comma = string(",") |> replace(:comma)
   walrus = string(":=") |> replace(:walrus)
   colon = string(":") |> replace(:colon)
+  ellipsis = string("...") |> replace(:ellipsis)
   dot = string(".") |> replace(:dot)
   eq = string("==") |> replace(:eq)
   neq = string("!=") |> replace(:neq)
@@ -424,6 +426,7 @@ defmodule Pyex.Lexer do
       comma,
       walrus,
       colon,
+      ellipsis,
       dot,
       assign,
       at

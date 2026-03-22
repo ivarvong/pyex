@@ -19,6 +19,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type(:infinity), do: "float"
   def py_type(:neg_infinity), do: "float"
   def py_type(:nan), do: "float"
+  def py_type(:ellipsis), do: "ellipsis"
   def py_type(val) when is_float(val), do: "float"
   def py_type(val) when is_binary(val), do: "str"
   def py_type(val) when is_boolean(val), do: "bool"
@@ -62,6 +63,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_str(:infinity), do: "inf"
   def py_str(:neg_infinity), do: "-inf"
   def py_str(:nan), do: "nan"
+  def py_str(:ellipsis), do: "Ellipsis"
   def py_str(val) when is_float(val), do: Float.to_string(val)
 
   def py_str({:py_list, reversed, _len}) do
@@ -189,6 +191,13 @@ defmodule Pyex.Interpreter.Helpers do
   def unwrap({:returned, value}), do: to_python_view(value)
   def unwrap({:exception, _} = signal), do: signal
   def unwrap(value), do: to_python_view(value)
+
+  @doc false
+  @spec unwrap_function_result(Pyex.Interpreter.pyvalue() | {atom(), term()}) ::
+          Pyex.Interpreter.pyvalue()
+  def unwrap_function_result({:returned, value}), do: to_python_view(value)
+  def unwrap_function_result({:exception, _} = signal), do: signal
+  def unwrap_function_result(_value), do: nil
 
   @doc false
   @spec unwrap_def(Parser.ast_node()) :: Parser.ast_node()

@@ -43,6 +43,7 @@ defmodule Pyex.Interpreter do
           | :infinity
           | :neg_infinity
           | :nan
+          | :ellipsis
           | String.t()
           | boolean()
           | nil
@@ -322,6 +323,7 @@ defmodule Pyex.Interpreter do
         Enum.reduce(class_scope, %{}, fn {k, v}, acc ->
           Map.put(acc, k, v)
         end)
+        |> Map.put("__name__", name)
 
       class_val = {:class, name, bases, class_attrs}
       {nil, Env.smart_put(env, name, class_val), ctx}
@@ -565,30 +567,36 @@ defmodule Pyex.Interpreter do
       {:ok, raw} ->
         case Ctx.deref(ctx, raw) do
           {:instance, {:class, _, _, _} = class, inst_attrs} = instance ->
-            case Map.fetch(inst_attrs, attr) do
-              {:ok, value} ->
-                {value, env, ctx}
+            case attr do
+              "__class__" ->
+                {class, env, ctx}
 
-              :error ->
-                case ClassLookup.resolve_class_attr_with_owner(class, attr) do
-                  {:ok, {:function, _, _, _, _} = func, owner_class} ->
-                    {{:bound_method, raw, func, owner_class}, env, ctx}
-
-                  {:ok, {:builtin_kw, _} = bkw, _owner} ->
-                    {{:bound_method, raw, bkw}, env, ctx}
-
-                  {:ok, value, _owner} ->
+              _ ->
+                case Map.fetch(inst_attrs, attr) do
+                  {:ok, value} ->
                     {value, env, ctx}
 
                   :error ->
-                    case Methods.resolve(instance, attr) do
-                      {:ok, method} ->
-                        {method, env, ctx}
+                    case ClassLookup.resolve_class_attr_with_owner(class, attr) do
+                      {:ok, {:function, _, _, _, _} = func, owner_class} ->
+                        {{:bound_method, raw, func, owner_class}, env, ctx}
+
+                      {:ok, {:builtin_kw, _} = bkw, _owner} ->
+                        {{:bound_method, raw, bkw}, env, ctx}
+
+                      {:ok, value, _owner} ->
+                        {value, env, ctx}
 
                       :error ->
-                        {{:exception,
-                          "AttributeError: '#{Helpers.py_type(instance)}' object has no attribute '#{attr}'"},
-                         env, ctx}
+                        case Methods.resolve(instance, attr) do
+                          {:ok, method} ->
+                            {method, env, ctx}
+
+                          :error ->
+                            {{:exception,
+                              "AttributeError: '#{Helpers.py_type(instance)}' object has no attribute '#{attr}'"},
+                             env, ctx}
+                        end
                     end
                 end
             end
@@ -612,31 +620,69 @@ defmodule Pyex.Interpreter do
 
         case object do
           {:instance, {:class, _, _, _} = class, inst_attrs} ->
-            case Map.fetch(inst_attrs, attr) do
-              {:ok, value} ->
-                {value, env, ctx}
+            case attr do
+              "__class__" ->
+                {class, env, ctx}
 
-              :error ->
-                case ClassLookup.resolve_class_attr_with_owner(class, attr) do
-                  {:ok, {:function, _, _, _, _} = func, owner_class} ->
-                    {{:bound_method, raw_object, func, owner_class}, env, ctx}
-
-                  {:ok, {:builtin_kw, _} = bkw, _owner} ->
-                    {{:bound_method, raw_object, bkw}, env, ctx}
-
-                  {:ok, value, _owner} ->
+              _ ->
+                case Map.fetch(inst_attrs, attr) do
+                  {:ok, value} ->
                     {value, env, ctx}
 
                   :error ->
-                    case Methods.resolve(object, attr) do
-                      {:ok, method} ->
-                        {method, env, ctx}
+                    case ClassLookup.resolve_class_attr_with_owner(class, attr) do
+                      {:ok, {:function, _, _, _, _} = func, owner_class} ->
+                        {{:bound_method, raw_object, func, owner_class}, env, ctx}
+
+                      {:ok, {:builtin_kw, _} = bkw, _owner} ->
+                        {{:bound_method, raw_object, bkw}, env, ctx}
+
+                      {:ok, value, _owner} ->
+                        {value, env, ctx}
+
+                      :error ->
+                        case Methods.resolve(object, attr) do
+                          {:ok, method} ->
+                            {method, env, ctx}
+
+                          :error ->
+                            {{:exception,
+                              "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
+                             env, ctx}
+                        end
+                    end
+                end
+            end
+
+          {:class, class_name, _, class_attrs} = class_val ->
+            case attr do
+              "__class__" ->
+                {{:class, "type", [], %{"__name__" => "type"}}, env, ctx}
+
+              _ ->
+                case Map.get(class_attrs, attr) do
+                  nil ->
+                    case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
+                      {:ok, {:function, _, _, _, _} = func, _owner} ->
+                        {{:bound_method, class_val, func}, env, ctx}
+
+                      {:ok, {:builtin_kw, _} = bkw, _owner} ->
+                        {{:bound_method, class_val, bkw}, env, ctx}
+
+                      {:ok, value, _owner} ->
+                        {value, env, ctx}
 
                       :error ->
                         {{:exception,
-                          "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
+                          "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"},
                          env, ctx}
                     end
+
+                  {:builtin_kw, _} = bkw ->
+                    {{:bound_method, class_val, bkw}, env, ctx}
+
+                  value ->
+                    {value, env, ctx}
                 end
             end
 
@@ -659,32 +705,6 @@ defmodule Pyex.Interpreter do
               :error ->
                 {{:exception, "AttributeError: 'super' object has no attribute '#{attr}'"}, env,
                  ctx}
-            end
-
-          {:class, class_name, _, class_attrs} = class_val ->
-            case Map.get(class_attrs, attr) do
-              nil ->
-                case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
-                  {:ok, {:function, _, _, _, _} = func, _owner} ->
-                    {{:bound_method, class_val, func}, env, ctx}
-
-                  {:ok, {:builtin_kw, _} = bkw, _owner} ->
-                    {{:bound_method, class_val, bkw}, env, ctx}
-
-                  {:ok, value, _owner} ->
-                    {value, env, ctx}
-
-                  :error ->
-                    {{:exception,
-                      "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"},
-                     env, ctx}
-                end
-
-              {:builtin_kw, _} = bkw ->
-                {{:bound_method, class_val, bkw}, env, ctx}
-
-              value ->
-                {value, env, ctx}
             end
 
           {:py_dict, %{^attr => _}, _} = dict ->
@@ -1035,58 +1055,70 @@ defmodule Pyex.Interpreter do
         end
 
       {:instance, {:class, _, _, _} = class, inst_attrs} ->
-        case Map.fetch(inst_attrs, attr) do
-          {:ok, value} ->
-            {value, env, ctx}
+        case attr do
+          "__class__" ->
+            {class, env, ctx}
 
-          :error ->
-            case ClassLookup.resolve_class_attr_with_owner(class, attr) do
-              {:ok, {:function, _, _, _, _} = func, owner_class} ->
-                {{:bound_method, object, func, owner_class}, env, ctx}
-
-              {:ok, {:builtin_kw, _} = bkw, _owner} ->
-                {{:bound_method, object, bkw}, env, ctx}
-
-              {:ok, value, _owner} ->
+          _ ->
+            case Map.fetch(inst_attrs, attr) do
+              {:ok, value} ->
                 {value, env, ctx}
 
               :error ->
-                case Methods.resolve(object, attr) do
-                  {:ok, method} ->
-                    {method, env, ctx}
+                case ClassLookup.resolve_class_attr_with_owner(class, attr) do
+                  {:ok, {:function, _, _, _, _} = func, owner_class} ->
+                    {{:bound_method, object, func, owner_class}, env, ctx}
+
+                  {:ok, {:builtin_kw, _} = bkw, _owner} ->
+                    {{:bound_method, object, bkw}, env, ctx}
+
+                  {:ok, value, _owner} ->
+                    {value, env, ctx}
 
                   :error ->
-                    {{:exception,
-                      "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
-                     env, ctx}
+                    case Methods.resolve(object, attr) do
+                      {:ok, method} ->
+                        {method, env, ctx}
+
+                      :error ->
+                        {{:exception,
+                          "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
+                         env, ctx}
+                    end
                 end
             end
         end
 
       {:class, class_name, _, class_attrs} = class_val ->
-        case Map.get(class_attrs, attr) do
-          nil ->
-            case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
-              {:ok, {:function, _, _, _, _} = func, _owner} ->
-                {{:bound_method, class_val, func}, env, ctx}
+        case attr do
+          "__class__" ->
+            {{:class, "type", [], %{"__name__" => "type"}}, env, ctx}
 
-              {:ok, {:builtin_kw, _} = bkw, _owner} ->
+          _ ->
+            case Map.get(class_attrs, attr) do
+              nil ->
+                case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
+                  {:ok, {:function, _, _, _, _} = func, _owner} ->
+                    {{:bound_method, class_val, func}, env, ctx}
+
+                  {:ok, {:builtin_kw, _} = bkw, _owner} ->
+                    {{:bound_method, class_val, bkw}, env, ctx}
+
+                  {:ok, value, _owner} ->
+                    {value, env, ctx}
+
+                  :error ->
+                    {{:exception,
+                      "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"},
+                     env, ctx}
+                end
+
+              {:builtin_kw, _} = bkw ->
                 {{:bound_method, class_val, bkw}, env, ctx}
 
-              {:ok, value, _owner} ->
+              value ->
                 {value, env, ctx}
-
-              :error ->
-                {{:exception,
-                  "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"}, env,
-                 ctx}
             end
-
-          {:builtin_kw, _} = bkw ->
-            {{:bound_method, class_val, bkw}, env, ctx}
-
-          value ->
-            {value, env, ctx}
         end
 
       {:py_dict, %{^attr => _}, _} = dict ->

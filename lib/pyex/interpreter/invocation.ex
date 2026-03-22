@@ -91,7 +91,7 @@ defmodule Pyex.Interpreter.Invocation do
       {call_env, ctx} ->
         {result, post_call_env, ctx} = Interpreter.eval_statements(body, call_env, ctx)
         env = Env.propagate_scopes(env, fresh_closure, post_call_env)
-        return_val = Helpers.unwrap(result)
+        return_val = Helpers.unwrap_function_result(result)
 
         case instance do
           {:ref, _} ->
@@ -336,7 +336,7 @@ defmodule Pyex.Interpreter.Invocation do
   defp eval_regular_function(func, fresh_closure, body, call_env, env, ctx) do
     {result, post_call_env, ctx} = Interpreter.eval_statements(body, call_env, ctx)
     env = Env.propagate_scopes(env, fresh_closure, post_call_env)
-    return_val = Helpers.unwrap(result)
+    return_val = Helpers.unwrap_function_result(result)
 
     if Helpers.has_scope_declarations?(post_call_env) do
       return_val = Helpers.refresh_closure(return_val, post_call_env)
