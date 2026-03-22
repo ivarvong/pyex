@@ -792,6 +792,21 @@ defmodule Pyex.ConformanceTest do
       print(repr(Counter.count))
       """)
     end
+
+    test "multiple local instance bindings stay live" do
+      assert_conforms("""
+      class R:
+          def __init__(self, d):
+              self.d = d
+
+      def make():
+          a = R(3)
+          b = R(5)
+          return a.d
+
+      print(repr(make()))
+      """)
+    end
   end
 
   # ── Generators ──────────────────────────────────────────────

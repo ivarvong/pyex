@@ -730,7 +730,12 @@ defmodule Pyex.Lambda do
   defp extract_closure_env(post_env, closure_env) do
     closure_depth = length(closure_env.scopes)
     post_depth = length(post_env.scopes)
-    %Env{scopes: Enum.drop(post_env.scopes, post_depth - closure_depth)}
+
+    %Env{
+      scopes: Enum.drop(post_env.scopes, post_depth - closure_depth),
+      scope_ids: Enum.drop(post_env.scope_ids, post_depth - closure_depth),
+      global: post_env.global
+    }
   end
 
   @spec update_route_handler([compiled_route()], Interpreter.pyvalue(), Interpreter.pyvalue()) ::

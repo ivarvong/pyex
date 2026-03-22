@@ -28,7 +28,9 @@ defmodule Pyex.Interpreter.Invocation do
     else
       ctx = %{ctx | call_depth: ctx.call_depth + 1}
 
-      fresh_closure = Env.put_global_scope(closure_env, Env.global_scope(env))
+      fresh_closure =
+        Env.put_global_scope(closure_env, Env.global_scope(env), Env.global_scope_id(env))
+
       base_env = Env.push_scope(Env.put(fresh_closure, name, func))
 
       case CallSupport.bind_params(params, args, kwargs, base_env, ctx) do
@@ -72,7 +74,10 @@ defmodule Pyex.Interpreter.Invocation do
         ctx
       ) do
     method_args = [instance | args]
-    fresh_closure = Env.put_global_scope(closure_env, Env.global_scope(env))
+
+    fresh_closure =
+      Env.put_global_scope(closure_env, Env.global_scope(env), Env.global_scope_id(env))
+
     func = {:function, fname, params, body, closure_env}
     base_env = Env.push_scope(Env.put(fresh_closure, fname, func))
 
@@ -391,7 +396,10 @@ defmodule Pyex.Interpreter.Invocation do
          ctx
        ) do
     init_args = [instance | args]
-    fresh_closure = Env.put_global_scope(closure_env, Env.global_scope(env))
+
+    fresh_closure =
+      Env.put_global_scope(closure_env, Env.global_scope(env), Env.global_scope_id(env))
+
     init_fn = {:function, init_name, params, body, closure_env}
     base_env = Env.push_scope(Env.put(fresh_closure, init_name, init_fn))
     base_env = Env.put(base_env, "__class__", defining_class)

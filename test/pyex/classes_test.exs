@@ -207,6 +207,42 @@ defmodule Pyex.ClassesTest do
       assert Pyex.run!(code) == 30
     end
 
+    test "multiple local instance assignments remain accessible" do
+      code = """
+      class Box:
+          def __init__(self, val):
+              self.val = val
+
+      def make_total():
+          a = Box(10)
+          b = Box(20)
+          return a.val + b.val
+
+      make_total()
+      """
+
+      assert Pyex.run!(code) == 30
+    end
+
+    test "local containers survive later instance assignments" do
+      code = """
+      class Box:
+          def __init__(self, val):
+              self.val = val
+
+      def collect():
+          first = Box(10)
+          items = [first]
+          second = Box(20)
+          items.append(second)
+          return items[0].val + items[1].val
+
+      collect()
+      """
+
+      assert Pyex.run!(code) == 30
+    end
+
     test "instance attribute access" do
       code = """
       class Person:
