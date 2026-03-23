@@ -114,10 +114,12 @@ defmodule Pyex do
 
     env = Builtins.runtime_env(ctx)
 
-    result = Interpreter.run_with_ctx(ast, env, ctx)
+    result = Interpreter.run_with_ctx_result(ast, env, ctx)
 
     case result do
       {:ok, value, _env, final_ctx} ->
+        final_ctx = close_open_handles(final_ctx)
+
         duration_ms =
           System.convert_time_unit(System.monotonic_time() - start_mono, :native, :microsecond) /
             1000.0
@@ -131,7 +133,9 @@ defmodule Pyex do
         {:ok, Interpreter.Helpers.to_python_view(derefed),
          %{final_ctx | duration_ms: duration_ms}}
 
-      {:error, msg} ->
+      {:error, msg, final_ctx} ->
+        close_open_handles(final_ctx)
+
         duration_ms =
           System.convert_time_unit(System.monotonic_time() - start_mono, :native, :microsecond) /
             1000.0
@@ -185,4 +189,14 @@ defmodule Pyex do
   """
   @spec output(Ctx.t()) :: String.t()
   def output(%Ctx{} = ctx), do: ctx |> Ctx.output() |> IO.iodata_to_binary()
+
+  @spec close_open_handles(Ctx.t()) :: Ctx.t()
+  defp close_open_handles(final_ctx) do
+    Enum.reduce(Map.keys(final_ctx.handles), final_ctx, fn id, ctx ->
+      case Ctx.close_handle(ctx, id) do
+        {:ok, ctx} -> ctx
+        {:error, _} -> ctx
+      end
+    end)
+  end
 end

@@ -15,8 +15,27 @@ defmodule Pyex.FilesystemTest do
     ctx = Ctx.new(filesystem: fs)
 
     case Interpreter.run_with_ctx(ast, Builtins.env(), ctx) do
-      {:ok, value, _env, ctx} -> {value, ctx}
-      {:error, msg} -> {:error, msg}
+      {:ok, value, _env, ctx} ->
+        {value, close_handles(ctx)}
+
+      {:error, msg} ->
+        {:error, msg}
+    end
+  end
+
+  defp close_handles(ctx) do
+    Enum.reduce(Map.keys(ctx.handles), ctx, fn id, ctx ->
+      case Ctx.close_handle(ctx, id) do
+        {:ok, ctx} -> ctx
+        {:error, _} -> ctx
+      end
+    end)
+  end
+
+  defp run_with_fs_public!(source, fs \\ Memory.new()) do
+    case Pyex.run(source, filesystem: fs) do
+      {:ok, value, ctx} -> {value, ctx}
+      {:error, error} -> {:error, error.message}
     end
   end
 
@@ -160,15 +179,124 @@ defmodule Pyex.FilesystemTest do
       assert msg =~ "FileNotFoundError"
     end
 
-    test "writing without close doesn't persist" do
+    test "writing without close persists to filesystem on program exit" do
       code = """
       f = open("test.txt", "w")
-      f.write("not flushed")
-      g = open("test.txt", "r")
+      f.write("not explicitly closed")
       """
 
-      assert {:error, msg} = run_with_fs!(code)
-      assert msg =~ "FileNotFoundError"
+      {_value, ctx} = run_with_fs!(code)
+
+      assert {:ok, "not explicitly closed"} =
+               Pyex.Filesystem.Memory.read(ctx.filesystem, "test.txt")
+    end
+
+    test "one-liner open().write() persists to filesystem" do
+      code = ~S|open("out.txt", "w").write("hello")|
+
+      {_value, ctx} = run_with_fs!(code)
+      assert {:ok, "hello"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "out.txt")
+    end
+
+    test "unclosed append handle flushes on program exit" do
+      fs = Pyex.Filesystem.Memory.new(%{"log.txt" => "line1,"})
+
+      code = """
+      f = open("log.txt", "a")
+      f.write("line2")
+      """
+
+      {_value, ctx} = run_with_fs!(code, fs)
+      assert {:ok, "line1,line2"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "log.txt")
+    end
+
+    test "multiple unclosed handles all flush on program exit" do
+      code = """
+      a = open("a.txt", "w")
+      b = open("b.txt", "w")
+      a.write("aaa")
+      b.write("bbb")
+      """
+
+      {_value, ctx} = run_with_fs!(code)
+      assert {:ok, "aaa"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "a.txt")
+      assert {:ok, "bbb"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "b.txt")
+    end
+
+    test "no open handles remain in ctx after program exit" do
+      code = """
+      f = open("test.txt", "w")
+      f.write("data")
+      """
+
+      {_value, ctx} = run_with_fs!(code)
+      assert ctx.handles == %{}
+    end
+
+    test "Pyex.run flushes unclosed handles on program exit" do
+      code = ~S|open("out.txt", "w").write("hello")|
+
+      assert {:ok, _, ctx} = Pyex.run(code, filesystem: Memory.new())
+      assert {:ok, "hello"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "out.txt")
+      assert ctx.handles == %{}
+    end
+
+    test "Pyex.run flushes unclosed append handles on program exit" do
+      fs = Memory.new(%{"log.txt" => "line1,"})
+
+      code = """
+      f = open("log.txt", "a")
+      f.write("line2")
+      """
+
+      {_value, ctx} = run_with_fs_public!(code, fs)
+      assert {:ok, "line1,line2"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "log.txt")
+      assert ctx.handles == %{}
+    end
+
+    test "Pyex.run flushes multiple unclosed handles on program exit" do
+      code = """
+      a = open("a.txt", "w")
+      b = open("b.txt", "w")
+      a.write("aaa")
+      b.write("bbb")
+      """
+
+      {_value, ctx} = run_with_fs_public!(code)
+      assert {:ok, "aaa"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "a.txt")
+      assert {:ok, "bbb"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "b.txt")
+      assert ctx.handles == %{}
+    end
+
+    test "Pyex.run clears unclosed read handles on program exit" do
+      fs = Memory.new(%{"in.txt" => "data"})
+
+      code = """
+      f = open("in.txt", "r")
+      f.read()
+      """
+
+      {_value, ctx} = run_with_fs_public!(code, fs)
+      assert {:ok, "data"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "in.txt")
+      assert ctx.handles == %{}
+    end
+
+    test "error results preserve ctx so unclosed writes can be flushed purely" do
+      code = """
+      f = open("boom.txt", "w")
+      f.write("before error")
+      raise ValueError("boom")
+      """
+
+      ast = parse!(code)
+      ctx = Ctx.new(filesystem: Memory.new())
+
+      assert {:error, msg, final_ctx} = Interpreter.run_with_ctx_result(ast, Builtins.env(), ctx)
+      assert msg =~ "ValueError"
+
+      final_ctx = close_handles(final_ctx)
+      assert {:ok, "before error"} = Pyex.Filesystem.Memory.read(final_ctx.filesystem, "boom.txt")
+      assert final_ctx.handles == %{}
     end
 
     test "multiple file handles simultaneously" do
