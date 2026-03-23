@@ -141,11 +141,25 @@ defmodule Pyex.Interpreter do
           {:ok, pyvalue(), Env.t(), Ctx.t()}
           | {:error, String.t()}
   def run_with_ctx(ast, env, ctx) do
+    case run_with_ctx_result(ast, env, ctx) do
+      {:ok, value, env, ctx} -> {:ok, value, env, ctx}
+      {:error, msg, _ctx} -> {:error, msg}
+    end
+  end
+
+  @doc """
+  Evaluates an AST with a provided context, preserving the
+  final context even when execution ends with an exception.
+  """
+  @spec run_with_ctx_result(Parser.ast_node(), Env.t(), Ctx.t()) ::
+          {:ok, pyvalue(), Env.t(), Ctx.t()}
+          | {:error, String.t(), Ctx.t()}
+  def run_with_ctx_result(ast, env, ctx) do
     ctx = init_profile(ctx)
 
     case eval(ast, env, ctx) do
       {{:exception, msg}, _env, ctx} ->
-        {:error, Helpers.format_error(msg, ctx)}
+        {:error, Helpers.format_error(msg, ctx), ctx}
 
       {result, env, ctx} ->
         value = Helpers.unwrap(result)

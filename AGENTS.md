@@ -3,6 +3,11 @@
 ## Agent behavior
 - When the user gives feedback about how to work, update this file (AGENTS.md)
   immediately so the guidance is remembered across sessions.
+- Always match real Python behavior when choosing semantics.  If Pyex differs,
+  fix Pyex instead of documenting or depending on the mismatch.
+- Keep tests and implementation pure.  Do not introduce process messaging or
+  process-coupled test probes to observe behavior that should be verified via
+  returned state.
 - Never worry about how hard a fix is.  Worry about making a correct and
   performant system.  If the right fix is large, do the large fix.
 - Never work around Pyex limitations in fixture code or tests.  Fixtures
