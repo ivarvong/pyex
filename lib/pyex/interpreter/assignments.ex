@@ -379,6 +379,41 @@ defmodule Pyex.Interpreter.Assignments do
           new_val = Interpreter.safe_binop(op, old_val, val)
           setattr_nested(target_expr, Map.put(map, key, new_val), env, ctx)
 
+        {:py_list, reversed, len} when is_integer(key) ->
+          idx = if key < 0, do: len + key, else: key
+
+          if idx < 0 or idx >= len do
+            {{:exception, "IndexError: list index out of range"}, env, ctx}
+          else
+            old_val = Enum.at(reversed, len - 1 - idx)
+
+            case Interpreter.safe_binop(op, old_val, val) do
+              {:exception, msg} ->
+                {{:exception, msg}, env, ctx}
+
+              new_val ->
+                updated = {:py_list, List.replace_at(reversed, len - 1 - idx, new_val), len}
+                setattr_nested(target_expr, updated, env, ctx)
+            end
+          end
+
+        list when is_list(list) and is_integer(key) ->
+          idx = if key < 0, do: length(list) + key, else: key
+
+          if idx < 0 or idx >= length(list) do
+            {{:exception, "IndexError: list index out of range"}, env, ctx}
+          else
+            old_val = Enum.at(list, idx)
+
+            case Interpreter.safe_binop(op, old_val, val) do
+              {:exception, msg} ->
+                {{:exception, msg}, env, ctx}
+
+              new_val ->
+                setattr_nested(target_expr, List.replace_at(list, idx, new_val), env, ctx)
+            end
+          end
+
         _ ->
           {{:exception, "TypeError: object does not support item assignment"}, env, ctx}
       end
@@ -598,6 +633,36 @@ defmodule Pyex.Interpreter.Assignments do
     List.replace_at(obj, key, val)
   end
 
+  @doc false
+  @spec delete_subscript_value(Interpreter.pyvalue(), Interpreter.pyvalue()) ::
+          Interpreter.pyvalue() | {:exception, String.t()}
+  def delete_subscript_value({:py_dict, _, _} = dict, key), do: PyDict.delete(dict, key)
+  def delete_subscript_value(obj, key) when is_map(obj), do: Map.delete(obj, key)
+
+  def delete_subscript_value({:py_list, reversed, len}, key) when is_integer(key) do
+    idx = if key < 0, do: len + key, else: key
+
+    if idx < 0 or idx >= len do
+      {:exception, "IndexError: list index out of range"}
+    else
+      {:py_list, List.delete_at(reversed, len - 1 - idx), len - 1}
+    end
+  end
+
+  def delete_subscript_value(obj, key) when is_list(obj) and is_integer(key) do
+    len = length(obj)
+    idx = if key < 0, do: len + key, else: key
+
+    if idx < 0 or idx >= len do
+      {:exception, "IndexError: list index out of range"}
+    else
+      List.delete_at(obj, idx)
+    end
+  end
+
+  def delete_subscript_value(_, _),
+    do: {:exception, "TypeError: object does not support item deletion"}
+
   @spec write_back_target(Parser.ast_node(), Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
           eval_result()
   defp write_back_target({:var, _, [name]}, updated, env, ctx) do
@@ -612,16 +677,17 @@ defmodule Pyex.Interpreter.Assignments do
     {updated, env, ctx}
   end
 
+  @doc false
   @spec write_back_subscript(Parser.ast_node(), Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
           eval_result()
-  defp write_back_subscript({:var, _, [name]}, updated, env, ctx) do
+  def write_back_subscript({:var, _, [name]}, updated, env, ctx) do
     case Env.get(env, name) do
       {:ok, {:ref, id}} -> {updated, env, Ctx.heap_put(ctx, id, updated)}
       _ -> {updated, Env.put_at_source(env, name, updated), ctx}
     end
   end
 
-  defp write_back_subscript({:subscript, _, [parent_expr, key_expr]}, updated, env, ctx) do
+  def write_back_subscript({:subscript, _, [parent_expr, key_expr]}, updated, env, ctx) do
     {raw_parent, env, ctx} = Interpreter.eval(parent_expr, env, ctx)
     parent = Ctx.deref(ctx, raw_parent)
     {key, env, ctx} = Interpreter.eval(key_expr, env, ctx)
@@ -629,11 +695,11 @@ defmodule Pyex.Interpreter.Assignments do
     write_back_subscript(parent_expr, updated_parent, env, ctx)
   end
 
-  defp write_back_subscript({:getattr, _, _} = target, updated, env, ctx) do
+  def write_back_subscript({:getattr, _, _} = target, updated, env, ctx) do
     setattr_nested(target, updated, env, ctx)
   end
 
-  defp write_back_subscript(_, updated, env, ctx) do
+  def write_back_subscript(_, updated, env, ctx) do
     {updated, env, ctx}
   end
 

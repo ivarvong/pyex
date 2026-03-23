@@ -130,6 +130,24 @@ defmodule Pyex.Interpreter.Invocation do
   end
 
   @doc false
+  @spec call_builtin_raw((list() -> term()), [Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
+          Interpreter.call_result()
+  def call_builtin_raw(fun, args, env, ctx) do
+    result =
+      try do
+        fun.(args)
+      rescue
+        FunctionClauseError ->
+          {:exception, "TypeError: invalid arguments"}
+
+        e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
+          {:exception, "TypeError: #{Exception.message(e)}"}
+      end
+
+    BuiltinResults.handle_builtin_result(result, env, ctx)
+  end
+
+  @doc false
   @spec call_builtin_kw(
           (list(), %{optional(String.t()) => Interpreter.pyvalue()} -> term()),
           [Interpreter.pyvalue()],
@@ -156,6 +174,29 @@ defmodule Pyex.Interpreter.Invocation do
   end
 
   @doc false
+  @spec call_builtin_kw_raw(
+          (list(), %{optional(String.t()) => Interpreter.pyvalue()} -> term()),
+          [Interpreter.pyvalue()],
+          %{optional(String.t()) => Interpreter.pyvalue()},
+          Env.t(),
+          Ctx.t()
+        ) :: Interpreter.call_result()
+  def call_builtin_kw_raw(fun, args, kwargs, env, ctx) do
+    result =
+      try do
+        fun.(args, kwargs)
+      rescue
+        FunctionClauseError ->
+          {:exception, "TypeError: invalid arguments"}
+
+        e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
+          {:exception, "TypeError: #{Exception.message(e)}"}
+      end
+
+    BuiltinResults.handle_builtin_kw_result(result, env, ctx)
+  end
+
+  @doc false
   @spec call_bound_builtin_kw(
           Interpreter.pyvalue(),
           (list(), %{optional(String.t()) => Interpreter.pyvalue()} -> term()),
@@ -169,15 +210,13 @@ defmodule Pyex.Interpreter.Invocation do
     derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
     derefed_kwargs = Map.new(kwargs, fn {k, v} -> {k, Ctx.deep_deref(ctx, v)} end)
 
-    case fun.([derefed_instance | derefed_args], derefed_kwargs) do
-      {:exception, _} = signal ->
-        {signal, env, ctx}
-
-      {:mutate, new_obj, return_val, new_ctx} ->
-        {:mutate, new_obj, return_val, new_ctx}
-
-      result ->
-        {result, env, ctx}
+    case BuiltinResults.handle_builtin_kw_result(
+           fun.([derefed_instance | derefed_args], derefed_kwargs),
+           env,
+           ctx
+         ) do
+      {:mutate, new_obj, return_val, new_ctx} -> {:mutate, new_obj, return_val, new_ctx}
+      other -> other
     end
   end
 
@@ -193,12 +232,10 @@ defmodule Pyex.Interpreter.Invocation do
     derefed_instance = Ctx.deep_deref(ctx, instance)
     derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
 
-    case fun.([derefed_instance | derefed_args]) do
-      {:exception, _} = signal ->
-        {signal, env, ctx}
-
-      result ->
-        {result, env, ctx}
+    BuiltinResults.handle_builtin_result(fun.([derefed_instance | derefed_args]), env, ctx)
+    |> case do
+      {:mutate, new_obj, return_val, new_ctx} -> {:mutate, new_obj, return_val, new_ctx}
+      other -> other
     end
   end
 

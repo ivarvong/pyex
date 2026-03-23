@@ -239,17 +239,18 @@ defmodule Pyex.Parser do
   end
 
   defp parse_statement([{:keyword, line, "del"} | rest]) do
-    case rest do
-      [{:name, _, var_name}, {:op, _, :lbracket} | subscript_rest] ->
-        with {:ok, key_expr, [{:op, _, :rbracket} | rest]} <- parse_expression(subscript_rest) do
-          {:ok, {:del, [line: line], [:subscript, var_name, key_expr]}, drop_newline(rest)}
-        end
-
-      [{:name, _, var_name} | rest] ->
+    case parse_expression(rest) do
+      {:ok, {:var, _, [var_name]}, rest} ->
         {:ok, {:del, [line: line], [:var, var_name]}, drop_newline(rest)}
 
-      _ ->
+      {:ok, {:subscript, _, [target_expr, key_expr]}, rest} ->
+        {:ok, {:del, [line: line], [:subscript, target_expr, key_expr]}, drop_newline(rest)}
+
+      {:ok, _expr, _rest} ->
         {:error, "expected variable or subscript after 'del' at line #{line}"}
+
+      {:error, _} = error ->
+        error
     end
   end
 

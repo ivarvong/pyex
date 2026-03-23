@@ -23,11 +23,12 @@ defmodule Pyex.Interpreter.Import do
           module_name when is_binary(module_name) -> {module_name, nil}
         end
 
-      bind_as = alias_name || module_name
+      bind_as = alias_name || import_binding_name(module_name)
 
       case resolve_module(module_name, env, ctx) do
         {:ok, module_value, ctx} ->
-          {:cont, {nil, Env.put(env, bind_as, module_value), ctx}}
+          bound_value = binding_value(module_name, alias_name, module_value, env, ctx)
+          {:cont, {nil, Env.put(env, bind_as, bound_value), ctx}}
 
         {:import_error, msg, ctx} ->
           {:halt, {{:exception, msg}, env, ctx}}
@@ -76,8 +77,8 @@ defmodule Pyex.Interpreter.Import do
   Returns a helpful error suffix for unknown module names.
   """
   @spec import_hint(String.t()) :: String.t()
-  def import_hint("urllib"), do: ". Use 'import requests' instead"
-  def import_hint("urllib." <> _), do: ". Use 'import requests' instead"
+  def import_hint("urllib.request"), do: ". Use 'import requests' instead"
+  def import_hint("urllib.error"), do: ". Use 'import requests' instead"
 
   def import_hint(name) when name in ["urllib2", "http", "httplib", "httpx", "aiohttp"],
     do: ". Use 'import requests' instead"
@@ -91,6 +92,29 @@ defmodule Pyex.Interpreter.Import do
   def import_hint(_) do
     names = ["os" | Pyex.Stdlib.module_names()] |> Enum.join(", ")
     ". Available modules: #{names}"
+  end
+
+  @spec import_binding_name(String.t()) :: String.t()
+  defp import_binding_name(module_name) do
+    module_name
+    |> String.split(".")
+    |> hd()
+  end
+
+  @spec binding_value(String.t(), String.t() | nil, map(), Env.t(), Ctx.t()) :: map()
+  defp binding_value(module_name, alias_name, module_value, env, ctx) do
+    cond do
+      alias_name != nil ->
+        module_value
+
+      String.contains?(module_name, ".") ->
+        root = import_binding_name(module_name)
+        {:ok, root_module, _ctx} = resolve_single_module(root, env, ctx)
+        root_module
+
+      true ->
+        module_value
+    end
   end
 
   @doc """
@@ -169,7 +193,8 @@ defmodule Pyex.Interpreter.Import do
        "environ" => ctx.env,
        "path" => path_module,
        "makedirs" => {:builtin, &os_makedirs/1},
-       "listdir" => {:builtin, &os_listdir/1}
+       "listdir" => {:builtin, &os_listdir/1},
+       "walk" => {:builtin, &os_walk/1}
      }}
   end
 
@@ -184,32 +209,70 @@ defmodule Pyex.Interpreter.Import do
     os_listdir([""])
   end
 
-  defp os_listdir([path]) when is_binary(path) do
-    {:ctx_call,
-     fn env, ctx ->
-       case ctx.filesystem do
-         nil ->
-           {{:exception, "OSError: no filesystem configured"}, env, ctx}
+  defp os_listdir([path]) do
+    case Pyex.Path.coerce(path) do
+      {:ok, path} ->
+        {:ctx_call,
+         fn env, ctx ->
+           case ctx.filesystem do
+             nil ->
+               {{:exception, "OSError: no filesystem configured"}, env, ctx}
 
-         fs ->
-           case fs.__struct__.list_dir(fs, path) do
-             {:ok, entries} ->
-               {entries, env, ctx}
+             fs ->
+               case fs.__struct__.list_dir(fs, path) do
+                 {:ok, entries} ->
+                   {entries, env, ctx}
 
-             {:error, msg} ->
-               {{:exception, msg}, env, ctx}
+                 {:error, msg} ->
+                   {{:exception, msg}, env, ctx}
+               end
            end
-       end
-     end}
-  end
+         end}
 
-  defp os_listdir([_arg]) do
-    {:exception, "TypeError: listdir: path should be string"}
+      :error ->
+        {:exception, "TypeError: listdir: path should be string"}
+    end
   end
 
   defp os_listdir(_args) do
     {:exception, "TypeError: listdir expected at most 1 argument"}
   end
+
+  @spec os_walk([Interpreter.pyvalue()]) ::
+          {:ctx_call, (Pyex.Env.t(), Ctx.t() -> {term(), Pyex.Env.t(), Ctx.t()})}
+          | {:exception, String.t()}
+  defp os_walk([path]) do
+    case Pyex.Path.coerce(path) do
+      {:ok, path} ->
+        {:ctx_call,
+         fn env, ctx ->
+           case ctx.filesystem do
+             nil ->
+               {{:exception, "OSError: no filesystem configured"}, env, ctx}
+
+             fs ->
+               case Pyex.Path.walk(fs, path) do
+                 {:ok, entries} ->
+                   rows =
+                     Enum.map(entries, fn {root, dirs, files} ->
+                       {:tuple, [root, dirs, Enum.map(files, &Pyex.Path.basename/1)]}
+                     end)
+
+                   {token, ctx} = Ctx.new_iterator(ctx, rows)
+                   {token, env, ctx}
+
+                 {:error, msg} ->
+                   {{:exception, msg}, env, ctx}
+               end
+           end
+         end}
+
+      :error ->
+        {:exception, "TypeError: walk: top should be string"}
+    end
+  end
+
+  defp os_walk(_args), do: {:exception, "TypeError: walk expected exactly 1 argument"}
 
   @spec resolve_filesystem_module(String.t(), Env.t(), Ctx.t()) ::
           {:ok, Pyex.Stdlib.Module.module_value(), Ctx.t()}
@@ -267,51 +330,133 @@ defmodule Pyex.Interpreter.Import do
   end
 
   # os.path module functions
-  defp os_path_join([a, b]) when is_binary(a) and is_binary(b) do
-    Path.join(a, b)
-  end
-
-  defp os_path_join([a, b, c]) when is_binary(a) and is_binary(b) and is_binary(c) do
-    Path.join([a, b, c])
-  end
-
-  defp os_path_exists([path]) when is_binary(path) do
-    # For now, always return False since we don't have real filesystem access
-    false
-  end
-
-  defp os_path_basename([path]) when is_binary(path) do
-    Path.basename(path)
-  end
-
-  defp os_path_dirname([path]) when is_binary(path) do
-    Path.dirname(path)
-  end
-
-  defp os_path_splitext([path]) when is_binary(path) do
-    # Split path into base and extension
-    case Regex.run(~r/^(.*)(\.[^.]+)$/, path) do
-      [_, base, ext] -> {:tuple, [base, ext]}
-      nil -> {:tuple, [path, ""]}
+  defp os_path_join(args) when args != [] do
+    case coerce_paths(args) do
+      {:ok, parts} -> Pyex.Path.join(parts)
+      {:error, msg} -> {:exception, msg}
     end
   end
 
-  defp os_path_isfile([path]) when is_binary(path) do
-    # For now, always return False
-    false
+  defp os_path_join(_args) do
+    {:exception, "TypeError: join() takes at least 1 argument"}
   end
 
-  defp os_path_isdir([path]) when is_binary(path) do
-    # For now, always return False
-    false
+  defp os_path_exists([path]) do
+    case Pyex.Path.coerce(path) do
+      {:ok, path} ->
+        {:ctx_call,
+         fn env, ctx ->
+           case ctx.filesystem do
+             nil -> {false, env, ctx}
+             fs -> {Pyex.Path.exists?(fs, path), env, ctx}
+           end
+         end}
+
+      :error ->
+        {:exception, "TypeError: path should be string"}
+    end
   end
 
-  defp os_makedirs([path]) when is_binary(path) do
-    # For now, just return nil (no-op)
-    nil
+  defp os_path_basename([path]) do
+    case Pyex.Path.coerce(path) do
+      {:ok, path} -> Pyex.Path.basename(path)
+      :error -> {:exception, "TypeError: path should be string"}
+    end
   end
 
-  defp os_makedirs([path, kwargs]) when is_binary(path) and is_map(kwargs) do
-    nil
+  defp os_path_dirname([path]) do
+    case Pyex.Path.coerce(path) do
+      {:ok, path} -> Pyex.Path.dirname(path)
+      :error -> {:exception, "TypeError: path should be string"}
+    end
+  end
+
+  defp os_path_splitext([path]) do
+    case Pyex.Path.coerce(path) do
+      {:ok, path} ->
+        {root, ext} = Pyex.Path.splitext(path)
+        {:tuple, [root, ext]}
+
+      :error ->
+        {:exception, "TypeError: path should be string"}
+    end
+  end
+
+  defp os_path_isfile([path]) do
+    case Pyex.Path.coerce(path) do
+      {:ok, path} ->
+        {:ctx_call,
+         fn env, ctx ->
+           case ctx.filesystem do
+             nil -> {false, env, ctx}
+             fs -> {Pyex.Path.file?(fs, path), env, ctx}
+           end
+         end}
+
+      :error ->
+        {:exception, "TypeError: path should be string"}
+    end
+  end
+
+  defp os_path_isdir([path]) do
+    case Pyex.Path.coerce(path) do
+      {:ok, path} ->
+        {:ctx_call,
+         fn env, ctx ->
+           case ctx.filesystem do
+             nil -> {false, env, ctx}
+             fs -> {Pyex.Path.dir?(fs, path), env, ctx}
+           end
+         end}
+
+      :error ->
+        {:exception, "TypeError: path should be string"}
+    end
+  end
+
+  defp os_makedirs([path]) do
+    case Pyex.Path.coerce(path) do
+      {:ok, path} ->
+        {:ctx_call,
+         fn env, ctx ->
+           case ctx.filesystem do
+             nil ->
+               {{:exception, "OSError: no filesystem configured"}, env, ctx}
+
+             fs ->
+               case Pyex.Path.mkdir_p(fs, path) do
+                 {:ok, fs} -> {nil, env, %{ctx | filesystem: fs}}
+                 {:error, msg} -> {{:exception, msg}, env, ctx}
+               end
+           end
+         end}
+
+      :error ->
+        {:exception, "TypeError: path should be string"}
+    end
+  end
+
+  defp os_makedirs([path, kwargs]) when is_map(kwargs) do
+    case Map.keys(kwargs) -- ["exist_ok"] do
+      [] ->
+        os_makedirs([path])
+
+      [name | _] ->
+        {:exception, "TypeError: makedirs() got an unexpected keyword argument '#{name}'"}
+    end
+  end
+
+  @spec coerce_paths([Interpreter.pyvalue()]) :: {:ok, [String.t()]} | {:error, String.t()}
+  defp coerce_paths(paths) do
+    Enum.reduce_while(paths, {:ok, []}, fn path, {:ok, acc} ->
+      case Pyex.Path.coerce(path) do
+        {:ok, path} -> {:cont, {:ok, [path | acc]}}
+        :error -> {:halt, {:error, "TypeError: path should be string"}}
+      end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      {:error, _} = error -> error
+    end
   end
 end

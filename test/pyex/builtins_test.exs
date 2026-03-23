@@ -570,6 +570,40 @@ defmodule Pyex.BuiltinsTest do
     test "dict with no args" do
       assert Pyex.run!("dict()") == %{}
     end
+
+    test "dict with keyword arguments" do
+      assert Pyex.run!("dict(slug='post', body='hello')") == %{
+               "body" => "hello",
+               "slug" => "post"
+             }
+    end
+
+    test "dict merges mapping and keyword arguments without mutating source" do
+      result =
+        Pyex.run!("""
+        front = {"title": "Hello"}
+        merged = dict(front, slug="hello", body="Body")
+        (front, merged)
+        """)
+
+      assert result ==
+               {:tuple,
+                [
+                  %{"title" => "Hello"},
+                  %{"body" => "Body", "slug" => "hello", "title" => "Hello"}
+                ]}
+    end
+
+    test "dict merges unpacked kwargs" do
+      result =
+        Pyex.run!("""
+        base = {"title": "Hello"}
+        extra = {"slug": "hello", "body": "Body"}
+        dict(base, **extra)
+        """)
+
+      assert result == %{"body" => "Body", "slug" => "hello", "title" => "Hello"}
+    end
   end
 
   describe "isinstance()" do

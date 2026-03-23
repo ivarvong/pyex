@@ -777,6 +777,18 @@ defmodule Pyex.MethodsTest do
 
       assert Pyex.run!(code) == {:tuple, [nil, true]}
     end
+
+    test "returns the inserted mutable object, not a detached copy" do
+      code = """
+      d = {}
+      child = d.setdefault("a", {})
+      child["b"] = 2
+      (child, d["a"], d)
+      """
+
+      assert Pyex.run!(code) ==
+               {:tuple, [%{"b" => 2}, %{"b" => 2}, %{"a" => %{"b" => 2}}]}
+    end
   end
 
   describe "dict.clear()" do

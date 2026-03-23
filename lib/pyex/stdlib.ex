@@ -34,7 +34,14 @@ defmodule Pyex.Stdlib do
     "secrets" => Pyex.Stdlib.Secrets,
     "pandas" => Pyex.Stdlib.Pandas,
     "yaml" => Pyex.Stdlib.Yaml,
-    "decimal" => Pyex.Stdlib.DecimalModule
+    "decimal" => Pyex.Stdlib.DecimalModule,
+    "glob" => Pyex.Stdlib.Glob,
+    "pathlib" => Pyex.Stdlib.Pathlib,
+    "fnmatch" => Pyex.Stdlib.Fnmatch,
+    "urllib" => Pyex.Stdlib.Urllib,
+    "shutil" => Pyex.Stdlib.Shutil,
+    "dataclasses" => Pyex.Stdlib.Dataclasses,
+    "heapq" => Pyex.Stdlib.Heapq
   }
 
   @doc """
