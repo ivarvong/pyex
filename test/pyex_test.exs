@@ -210,6 +210,296 @@ defmodule PyexTest do
     end
   end
 
+  describe "end-to-end: staff-level LRU cache" do
+    test "hash map plus doubly linked list stays correct under updates and eviction" do
+      result =
+        Pyex.run!("""
+        class Node:
+            def __init__(self, key, value):
+                self.key = key
+                self.value = value
+                self.prev = None
+                self.next = None
+
+        class LRUCache:
+            def __init__(self, capacity):
+                if capacity <= 0:
+                    raise ValueError("capacity must be positive")
+
+                self.capacity = capacity
+                self.lookup = {}
+                self.head = Node(None, None)
+                self.tail = Node(None, None)
+                self.head.next = self.tail
+                self.tail.prev = self.head
+
+            def _detach(self, node):
+                prev = node.prev
+                nxt = node.next
+                prev.next = nxt
+                nxt.prev = prev
+
+            def _add_after_head(self, node):
+                first = self.head.next
+                node.prev = self.head
+                node.next = first
+                self.head.next = node
+                first.prev = node
+
+            def get(self, key):
+                node = self.lookup.get(key)
+                if node is None:
+                    return -1
+
+                self._detach(node)
+                self._add_after_head(node)
+                return node.value
+
+            def put(self, key, value):
+                node = self.lookup.get(key)
+                if node is not None:
+                    node.value = value
+                    self._detach(node)
+                    self._add_after_head(node)
+                    return
+
+                node = Node(key, value)
+                self.lookup[key] = node
+                self._add_after_head(node)
+
+                if len(self.lookup) > self.capacity:
+                    lru = self.tail.prev
+                    self._detach(lru)
+                    del self.lookup[lru.key]
+
+            def items(self):
+                out = []
+                node = self.head.next
+                while node is not self.tail:
+                    out.append((node.key, node.value))
+                    node = node.next
+                return out
+
+        cache = LRUCache(2)
+        cache.put("a", 1)
+        cache.put("b", 2)
+        first_hit = cache.get("a")
+        cache.put("c", 3)
+        missing_b = cache.get("b")
+        cache.put("a", 10)
+        cache.put("d", 4)
+
+        (
+            first_hit,
+            missing_b,
+            cache.get("a"),
+            cache.get("c"),
+            cache.items(),
+            sorted(cache.lookup.keys())
+        )
+        """)
+
+      assert result ==
+               {:tuple,
+                [
+                  1,
+                  -1,
+                  10,
+                  -1,
+                  [{:tuple, ["a", 10]}, {:tuple, ["d", 4]}],
+                  ["a", "d"]
+                ]}
+    end
+  end
+
+  describe "end-to-end: staff-level trie" do
+    test "prefix index supports insert, search, starts_with, and prefix expansion" do
+      result =
+        Pyex.run!("""
+        class Trie:
+            def __init__(self):
+                self.root = {}
+                self.end = "#"
+
+            def insert(self, word):
+                node = self.root
+                for ch in word:
+                    node = node.setdefault(ch, {})
+                node[self.end] = True
+
+            def _walk(self, text):
+                node = self.root
+                for ch in text:
+                    node = node.get(ch)
+                    if node is None:
+                        return None
+                return node
+
+            def search(self, word):
+                node = self._walk(word)
+                return node is not None and self.end in node
+
+            def starts_with(self, prefix):
+                return self._walk(prefix) is not None
+
+            def words_with_prefix(self, prefix):
+                start = self._walk(prefix)
+                if start is None:
+                    return []
+
+                out = []
+
+                def dfs(node, path):
+                    if self.end in node:
+                        out.append(path)
+
+                    for ch in sorted(node.keys()):
+                        if ch != self.end:
+                            dfs(node[ch], path + ch)
+
+                dfs(start, prefix)
+                return out
+
+        trie = Trie()
+        for word in ["app", "apple", "apply", "apt", "bat"]:
+            trie.insert(word)
+
+        (
+            trie.search("app"),
+            trie.search("appl"),
+            trie.starts_with("ap"),
+            trie.starts_with("cat"),
+            trie.words_with_prefix("app"),
+            trie.words_with_prefix("ba"),
+            trie.words_with_prefix("cat")
+        )
+        """)
+
+      assert result ==
+               {:tuple,
+                [
+                  true,
+                  false,
+                  true,
+                  false,
+                  ["app", "apple", "apply"],
+                  ["bat"],
+                  []
+                ]}
+    end
+  end
+
+  describe "end-to-end: staff-level union find" do
+    test "path compression and union by size keep connectivity queries correct" do
+      result =
+        Pyex.run!("""
+        class UnionFind:
+            def __init__(self, size):
+                self.parent = list(range(size))
+                self.sz = [1] * size
+
+            def find(self, x):
+                if self.parent[x] != x:
+                    self.parent[x] = self.find(self.parent[x])
+                return self.parent[x]
+
+            def union(self, a, b):
+                ra = self.find(a)
+                rb = self.find(b)
+                if ra == rb:
+                    return False
+
+                if self.sz[ra] < self.sz[rb]:
+                    ra, rb = rb, ra
+
+                self.parent[rb] = ra
+                self.sz[ra] += self.sz[rb]
+                return True
+
+            def connected(self, a, b):
+                return self.find(a) == self.find(b)
+
+            def component_size(self, x):
+                return self.sz[self.find(x)]
+
+        uf = UnionFind(8)
+        ops = [
+            uf.union(0, 1),
+            uf.union(1, 2),
+            uf.union(3, 4),
+            uf.union(5, 6),
+            uf.union(6, 7),
+            uf.union(2, 7),
+            uf.union(0, 7)
+        ]
+
+        root_before = uf.parent[7]
+        connected = uf.connected(0, 6)
+        root_after = uf.parent[7]
+
+        (
+            ops,
+            connected,
+            uf.connected(0, 4),
+            uf.component_size(0),
+            uf.component_size(3),
+            root_before,
+            root_after,
+            uf.parent
+        )
+        """)
+
+      assert result ==
+               {:tuple,
+                [
+                  [true, true, true, true, true, true, false],
+                  true,
+                  false,
+                  6,
+                  2,
+                  0,
+                  0,
+                  [0, 0, 0, 3, 3, 0, 0, 0]
+                ]}
+    end
+  end
+
+  describe "end-to-end: staff-level top-k min-heap" do
+    test "streaming kth-largest uses heapq min-heap correctly" do
+      result =
+        Pyex.run!("""
+        import heapq
+
+        class KthLargest:
+            def __init__(self, k, nums):
+                self.k = k
+                self.heap = []
+                for n in nums:
+                    self.add(n)
+
+            def add(self, val):
+                if len(self.heap) < self.k:
+                    heapq.heappush(self.heap, val)
+                elif val > self.heap[0]:
+                    heapq.heapreplace(self.heap, val)
+                return self.heap[0]
+
+        kth = KthLargest(3, [4, 5, 8, 2])
+        results = [
+            kth.add(3),
+            kth.add(5),
+            kth.add(10),
+            kth.add(9),
+            kth.add(4)
+        ]
+
+        (results, kth.heap, kth.heap[0])
+        """)
+
+      assert result == {:tuple, [[4, 5, 5, 8, 8], [8, 10, 9], 8]}
+    end
+  end
+
   describe "end-to-end: FastAPI handler calls external API" do
     setup do
       bypass = Bypass.open()

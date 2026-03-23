@@ -268,6 +268,22 @@ defmodule Pyex.InterpreterTest do
       assert result == [[1, 2, 3, 4], {:tuple, [1, 2, 3, 4]}, 1, 2]
     end
 
+    test "dict unpacking creates a new dict without mutating the source" do
+      result =
+        Pyex.run!("""
+        post = {"title": "Hello"}
+        final_data = {**post, "css": "body {}"}
+        (post, final_data)
+        """)
+
+      assert result ==
+               {:tuple,
+                [
+                  %{"title" => "Hello"},
+                  %{"css" => "body {}", "title" => "Hello"}
+                ]}
+    end
+
     test "single-line compound statements execute" do
       result =
         Pyex.run!("""
@@ -482,11 +498,14 @@ defmodule Pyex.InterpreterTest do
 
     test "os.makedirs" do
       result =
-        Pyex.run!("""
-        import os
-        os.makedirs("public/posts", exist_ok=True)
-        "ok"
-        """)
+        Pyex.run!(
+          """
+          import os
+          os.makedirs("public/posts", exist_ok=True)
+          "ok"
+          """,
+          filesystem: Pyex.Filesystem.Memory.new()
+        )
 
       assert result == "ok"
     end
@@ -1556,6 +1575,18 @@ defmodule Pyex.InterpreterTest do
              del lst[1]
              lst
              """) == [1, 3]
+    end
+
+    test "del attribute-backed dict key" do
+      assert Pyex.run!("""
+             class Box:
+                 def __init__(self):
+                     self.data = {"a": 1, "b": 2}
+
+             box = Box()
+             del box.data["a"]
+             box.data
+             """) == %{"b" => 2}
     end
   end
 

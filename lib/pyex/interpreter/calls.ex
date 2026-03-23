@@ -34,11 +34,21 @@ defmodule Pyex.Interpreter.Calls do
                   _ -> {return_value, Env.put_at_source(new_env, var_name, new_object), ctx}
                 end
 
+              {:mutate_arg, index, new_object, return_value, new_env, ctx} ->
+                {new_env, ctx} =
+                  mutate_target(Enum.at(arg_exprs, index), new_object, new_env, ctx)
+
+                {return_value, new_env, ctx}
+
               {:mutate, new_object, return_value, ctx} ->
                 case Env.get(env, var_name) do
                   {:ok, {:ref, id}} -> {return_value, env, Ctx.heap_put(ctx, id, new_object)}
                   _ -> {return_value, Env.put_at_source(env, var_name, new_object), ctx}
                 end
+
+              {:mutate_arg, index, new_object, return_value, ctx} ->
+                {env, ctx} = mutate_target(Enum.at(arg_exprs, index), new_object, env, ctx)
+                {return_value, env, ctx}
 
               {{:exception, _} = signal, env, ctx} ->
                 {signal, env, ctx}
@@ -76,9 +86,19 @@ defmodule Pyex.Interpreter.Calls do
                 {new_env, ctx} = mutate_target(target, new_object, new_env, ctx)
                 {return_value, new_env, ctx}
 
+              {:mutate_arg, index, new_object, return_value, new_env, ctx} ->
+                {new_env, ctx} =
+                  mutate_target(Enum.at(arg_exprs, index), new_object, new_env, ctx)
+
+                {return_value, new_env, ctx}
+
               {:mutate, new_object, return_value, ctx} ->
                 target = mutate_target_expr(func_expr, arg_exprs)
                 {env, ctx} = mutate_target(target, new_object, env, ctx)
+                {return_value, env, ctx}
+
+              {:mutate_arg, index, new_object, return_value, ctx} ->
+                {env, ctx} = mutate_target(Enum.at(arg_exprs, index), new_object, env, ctx)
                 {return_value, env, ctx}
 
               {{:exception, _} = signal, env, ctx} ->

@@ -87,6 +87,7 @@ defmodule Pyex.Interpreter do
           | {:io_call, (Env.t(), Ctx.t() -> {term(), Env.t(), Ctx.t()})}
           | {:ctx_call, (Env.t(), Ctx.t() -> term())}
           | {:mutate, pyvalue(), pyvalue()}
+          | {:mutate_arg, non_neg_integer(), pyvalue(), pyvalue()}
           | {:dunder_call, pyvalue(), String.t(), [pyvalue()]}
           | {:map_call, pyvalue(), [pyvalue()]}
           | {:filter_call, pyvalue(), [pyvalue()]}
@@ -548,8 +549,8 @@ defmodule Pyex.Interpreter do
     Statements.eval_del_var(var_name, env, ctx)
   end
 
-  def eval({:del, _, [:subscript, var_name, key_expr]}, env, ctx) do
-    Statements.eval_del_subscript(var_name, key_expr, env, ctx)
+  def eval({:del, _, [:subscript, target_expr, key_expr]}, env, ctx) do
+    Statements.eval_del_subscript(target_expr, key_expr, env, ctx)
   end
 
   def eval({:aug_subscript_assign, _, [var_name, key_expr, op, val_expr]}, env, ctx) do
@@ -1276,6 +1277,8 @@ defmodule Pyex.Interpreter do
           | {pyvalue(), Env.t(), Ctx.t(), pyvalue()}
           | {:mutate, pyvalue(), pyvalue(), Ctx.t()}
           | {:mutate, pyvalue(), pyvalue(), Env.t(), Ctx.t()}
+          | {:mutate_arg, non_neg_integer(), pyvalue(), pyvalue(), Ctx.t()}
+          | {:mutate_arg, non_neg_integer(), pyvalue(), pyvalue(), Env.t(), Ctx.t()}
           | {{:register_route, String.t(), String.t(), pyvalue()}, Env.t(), Ctx.t()}
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
 
@@ -1302,12 +1305,24 @@ defmodule Pyex.Interpreter do
     Invocation.call_builtin(fun, args, env, ctx)
   end
 
+  def call_function({:builtin_raw, fun}, args, _kwargs, env, ctx) do
+    Invocation.call_builtin_raw(fun, args, env, ctx)
+  end
+
+  def call_function({:builtin_type, "dict", _fun}, args, kwargs, env, ctx) do
+    Invocation.call_builtin_kw(&Builtins.builtin_dict/2, args, kwargs, env, ctx)
+  end
+
   def call_function({:builtin_type, _name, fun}, args, kwargs, env, ctx) do
     call_function({:builtin, fun}, args, kwargs, env, ctx)
   end
 
   def call_function({:builtin_kw, fun}, args, kwargs, env, ctx) do
     Invocation.call_builtin_kw(fun, args, kwargs, env, ctx)
+  end
+
+  def call_function({:builtin_kw_raw, fun}, args, kwargs, env, ctx) do
+    Invocation.call_builtin_kw_raw(fun, args, kwargs, env, ctx)
   end
 
   def call_function(

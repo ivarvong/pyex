@@ -583,6 +583,47 @@ defmodule Pyex.FilesystemTest do
       assert value == ["main.py", "utils.py"]
     end
 
+    test "lists files from absolute subdirectory paths" do
+      fs =
+        Memory.new(%{
+          "posts/hello.md" => "",
+          "posts/intro.md" => "",
+          "posts/readme.txt" => ""
+        })
+
+      code = """
+      import os
+      slugs = [os.path.splitext(name)[0] for name in sorted(os.listdir("/posts")) if name.endswith(".md")]
+      slugs
+      """
+
+      {value, _ctx} = run_with_fs_public!(code, fs)
+      assert value == ["hello", "intro"]
+    end
+
+    test "os.walk traverses nested directories" do
+      fs =
+        Memory.new(%{
+          "posts/a.md" => "A",
+          "posts/nested/b.md" => "B"
+        })
+
+      code = """
+      import os
+      rows = []
+      for root, dirs, files in os.walk("/posts"):
+          rows.append((root, sorted(dirs), sorted(files)))
+      rows
+      """
+
+      {value, _ctx} = run_with_fs_public!(code, fs)
+
+      assert value == [
+               {:tuple, ["/posts", ["nested"], ["a.md"]]},
+               {:tuple, ["/posts/nested", [], ["b.md"]]}
+             ]
+    end
+
     test "lists subdirectories as entries" do
       fs =
         Memory.new(%{
