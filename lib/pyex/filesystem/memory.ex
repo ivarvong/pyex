@@ -19,7 +19,7 @@ defmodule Pyex.Filesystem.Memory do
   Creates a new empty in-memory filesystem.
   """
   @spec new() :: t()
-  def new, do: %__MODULE__{}
+  def new, do: new(%{})
 
   @doc """
   Creates an in-memory filesystem pre-populated with files.

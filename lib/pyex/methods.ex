@@ -222,6 +222,10 @@ defmodule Pyex.Methods do
            (%{optional(Interpreter.pyvalue()) => Interpreter.pyvalue()},
             [Interpreter.pyvalue()] ->
               Interpreter.pyvalue())}
+          | {:ok_raw,
+             (%{optional(Interpreter.pyvalue()) => Interpreter.pyvalue()},
+              [Interpreter.pyvalue()] ->
+                term())}
           | :error
   defp dict_method("get"), do: {:ok, &dict_get/2}
   defp dict_method("keys"), do: {:ok, &dict_keys/2}

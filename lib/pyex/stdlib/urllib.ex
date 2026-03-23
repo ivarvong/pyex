@@ -41,11 +41,11 @@ defmodule Pyex.Stdlib.Urllib do
 
     {:tuple,
      [
-       uri.scheme || "",
-       uri.authority || "",
-       uri.path || "",
-       uri.query || "",
-       uri.fragment || ""
+       uri_part(uri.scheme),
+       uri_part(uri.authority),
+       uri_part(uri.path),
+       uri_part(uri.query),
+       uri_part(uri.fragment)
      ]}
   end
 
@@ -66,4 +66,8 @@ defmodule Pyex.Stdlib.Urllib do
   end
 
   defp urlencode(_args), do: {:exception, "TypeError: urlencode() expects a mapping"}
+
+  @spec uri_part(String.t() | nil) :: String.t()
+  defp uri_part(nil), do: ""
+  defp uri_part(value), do: value
 end

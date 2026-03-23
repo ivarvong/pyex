@@ -229,10 +229,8 @@ defmodule Pyex.Stdlib.Pathlib do
              {{:exception, "OSError: no filesystem configured"}, env, ctx}
 
            fs ->
-             case Pyex.Path.mkdir_p(fs, path) do
-               {:ok, fs} -> {nil, env, %{ctx | filesystem: fs}}
-               {:error, msg} -> {{:exception, msg}, env, ctx}
-             end
+             {:ok, fs} = Pyex.Path.mkdir_p(fs, path)
+             {nil, env, %{ctx | filesystem: fs}}
          end
        end}
     end

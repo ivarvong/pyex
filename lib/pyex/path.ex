@@ -109,7 +109,7 @@ defmodule Pyex.Path do
   @doc """
   Creates a directory and any missing parents.
   """
-  @spec mkdir_p(term(), String.t()) :: {:ok, term()} | {:error, String.t()}
+  @spec mkdir_p(term(), String.t()) :: {:ok, term()}
   def mkdir_p(%Pyex.Filesystem.Memory{} = fs, path), do: Pyex.Filesystem.Memory.mkdir(fs, path)
   def mkdir_p(fs, _path), do: {:ok, fs}
 

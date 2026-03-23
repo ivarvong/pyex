@@ -87,6 +87,7 @@ defmodule Pyex.Interpreter do
           | {:io_call, (Env.t(), Ctx.t() -> {term(), Env.t(), Ctx.t()})}
           | {:ctx_call, (Env.t(), Ctx.t() -> term())}
           | {:mutate, pyvalue(), pyvalue()}
+          | {:mutate_arg, non_neg_integer(), pyvalue(), pyvalue()}
           | {:dunder_call, pyvalue(), String.t(), [pyvalue()]}
           | {:map_call, pyvalue(), [pyvalue()]}
           | {:filter_call, pyvalue(), [pyvalue()]}
@@ -1276,6 +1277,8 @@ defmodule Pyex.Interpreter do
           | {pyvalue(), Env.t(), Ctx.t(), pyvalue()}
           | {:mutate, pyvalue(), pyvalue(), Ctx.t()}
           | {:mutate, pyvalue(), pyvalue(), Env.t(), Ctx.t()}
+          | {:mutate_arg, non_neg_integer(), pyvalue(), pyvalue(), Ctx.t()}
+          | {:mutate_arg, non_neg_integer(), pyvalue(), pyvalue(), Env.t(), Ctx.t()}
           | {{:register_route, String.t(), String.t(), pyvalue()}, Env.t(), Ctx.t()}
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
 
