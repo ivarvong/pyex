@@ -50,6 +50,7 @@ defmodule Pyex.Interpreter.Bindings do
     annotations = current_annotations(env)
     resolved = Interpreter.resolve_annotation(type_str, env)
     env = Env.smart_put(env, "__annotations__", Map.put(annotations, name, resolved))
+    env = Env.smart_put(env, "__annotations_order__", update_annotation_order(env, name))
     {nil, env, ctx}
   end
 
@@ -67,6 +68,7 @@ defmodule Pyex.Interpreter.Bindings do
         annotations = current_annotations(env)
         resolved = Interpreter.resolve_annotation(type_str, env)
         env = Env.smart_put(env, "__annotations__", Map.put(annotations, name, resolved))
+        env = Env.smart_put(env, "__annotations_order__", update_annotation_order(env, name))
         {value, Env.smart_put(env, name, value), ctx}
     end
   end
@@ -149,5 +151,19 @@ defmodule Pyex.Interpreter.Bindings do
       {:ok, map} when is_map(map) -> map
       _ -> %{}
     end
+  end
+
+  @spec current_annotation_order(Env.t()) :: [String.t()]
+  defp current_annotation_order(env) do
+    case Env.get(env, "__annotations_order__") do
+      {:ok, names} when is_list(names) -> names
+      _ -> []
+    end
+  end
+
+  @spec update_annotation_order(Env.t(), String.t()) :: [String.t()]
+  defp update_annotation_order(env, name) do
+    order = current_annotation_order(env)
+    if name in order, do: order, else: order ++ [name]
   end
 end

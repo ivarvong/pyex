@@ -27,6 +27,9 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:mutate, new_object, return_value} ->
         {:mutate, new_object, return_value, ctx}
 
+      {:mutate_arg, index, new_object, return_value} ->
+        {:mutate_arg, index, new_object, return_value, ctx}
+
       {:method_call, instance, func, method_args} ->
         Calls.call_method(instance, func, method_args, %{}, env, ctx)
 

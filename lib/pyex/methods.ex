@@ -72,6 +72,7 @@ defmodule Pyex.Methods do
   def resolve({:py_dict, _, _} = object, attr) do
     case dict_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      {:ok_raw, method_fn} -> {:ok, {:builtin_raw, bound(method_fn, object)}}
       :error -> :error
     end
   end
@@ -79,6 +80,7 @@ defmodule Pyex.Methods do
   def resolve(object, attr) when is_map(object) do
     case dict_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      {:ok_raw, method_fn} -> {:ok, {:builtin_raw, bound(method_fn, object)}}
       :error -> :error
     end
   end
@@ -227,7 +229,7 @@ defmodule Pyex.Methods do
   defp dict_method("items"), do: {:ok, &dict_items/2}
   defp dict_method("pop"), do: {:ok, &dict_pop/2}
   defp dict_method("update"), do: {:ok, &dict_update/2}
-  defp dict_method("setdefault"), do: {:ok, &dict_setdefault/2}
+  defp dict_method("setdefault"), do: {:ok_raw, &dict_setdefault/2}
   defp dict_method("clear"), do: {:ok, &dict_clear/2}
   defp dict_method("copy"), do: {:ok, &dict_copy/2}
   defp dict_method(_), do: :error

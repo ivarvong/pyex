@@ -205,13 +205,13 @@ defmodule Pyex.ErrorMessagesTest do
       end
     end
 
-    test "http-like module suggests requests" do
-      {:error, %Error{message: msg}} = Pyex.run("import urllib")
+    test "unsupported urllib submodule suggests requests" do
+      {:error, %Error{message: msg}} = Pyex.run("import urllib.request")
       assert msg =~ "requests"
     end
 
-    test "dotted urllib.request suggests requests" do
-      {:error, %Error{message: msg}} = Pyex.run("import urllib.request")
+    test "urllib.error suggests requests" do
+      {:error, %Error{message: msg}} = Pyex.run("import urllib.error")
       assert msg =~ "requests"
     end
 

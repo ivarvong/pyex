@@ -705,44 +705,60 @@ defmodule Pyex.Builtins do
   defp builtin_list([{:instance, _, _} = inst]), do: {:iter_to_list, inst}
   defp builtin_list([{:iterator, _} = it]), do: {:iter_to_list, it}
 
-  @spec builtin_dict([Interpreter.pyvalue()]) :: PyDict.t() | {:exception, String.t()}
-  defp builtin_dict([]), do: PyDict.new()
-
-  defp builtin_dict([{:py_dict, _, _} = dict]) do
-    visible_dict(dict)
+  @doc false
+  @spec builtin_dict([Interpreter.pyvalue()], %{optional(String.t()) => Interpreter.pyvalue()}) ::
+          PyDict.t() | {:exception, String.t()}
+  def builtin_dict(args, kwargs \\ %{}) do
+    with {:ok, dict} <- builtin_dict_positional(args) do
+      Enum.reduce(kwargs, dict, fn {k, v}, acc -> PyDict.put(acc, k, v) end)
+    end
   end
 
-  defp builtin_dict([map]) when is_map(map) do
-    map
-    |> visible_dict()
-    |> Map.reject(fn {_k, v} ->
-      match?({:builtin, _}, v) or match?({:builtin_kw, _}, v) or
-        match?({:function, _, _, _, _}, v) or match?({:bound_method, _, _}, v) or
-        match?({:bound_method, _, _, _}, v)
-    end)
-    |> PyDict.from_map()
+  @spec builtin_dict_positional([Interpreter.pyvalue()]) ::
+          {:ok, PyDict.t()} | {:exception, String.t()}
+  defp builtin_dict_positional([]), do: {:ok, PyDict.new()}
+
+  defp builtin_dict_positional([{:py_dict, _, _} = dict]) do
+    {:ok, visible_dict(dict)}
   end
 
-  defp builtin_dict([list]) when is_list(list) do
-    Enum.reduce(list, PyDict.new(), fn
-      {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
-      [k, v], acc -> PyDict.put(acc, k, v)
-      _, acc -> acc
-    end)
+  defp builtin_dict_positional([map]) when is_map(map) do
+    {:ok,
+     map
+     |> visible_dict()
+     |> Map.reject(fn {_k, v} ->
+       match?({:builtin, _}, v) or match?({:builtin_kw, _}, v) or
+         match?({:function, _, _, _, _}, v) or match?({:bound_method, _, _}, v) or
+         match?({:bound_method, _, _, _}, v)
+     end)
+     |> PyDict.from_map()}
   end
 
-  defp builtin_dict([{:py_list, reversed, _}]) do
+  defp builtin_dict_positional([list]) when is_list(list) do
+    {:ok,
+     Enum.reduce(list, PyDict.new(), fn
+       {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
+       [k, v], acc -> PyDict.put(acc, k, v)
+       _, acc -> acc
+     end)}
+  end
+
+  defp builtin_dict_positional([{:py_list, reversed, _}]) do
     list = Enum.reverse(reversed)
 
-    Enum.reduce(list, PyDict.new(), fn
-      {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
-      [k, v], acc -> PyDict.put(acc, k, v)
-      _, acc -> acc
-    end)
+    {:ok,
+     Enum.reduce(list, PyDict.new(), fn
+       {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
+       [k, v], acc -> PyDict.put(acc, k, v)
+       _, acc -> acc
+     end)}
   end
 
-  defp builtin_dict([_]),
-    do: {:exception, "TypeError: cannot convert to dict"}
+  defp builtin_dict_positional([_]), do: {:exception, "TypeError: cannot convert to dict"}
+
+  defp builtin_dict_positional(args) do
+    {:exception, "TypeError: dict expected at most 1 argument, got #{length(args)}"}
+  end
 
   @spec builtin_isinstance([Interpreter.pyvalue()]) :: boolean()
   defp builtin_isinstance([val, type_name]) when is_binary(type_name) do
@@ -957,17 +973,26 @@ defmodule Pyex.Builtins do
       length(args) >= 1 and Map.has_key?(kwargs, "file") ->
         {:exception, "TypeError: argument for open() given by name ('file') and position (1)"}
 
-      match?([path | _] when is_binary(path), args) ->
-        {:ok, hd(args)}
+      length(args) >= 1 ->
+        coerce_pathlike(hd(args), "open() argument 'file'")
 
-      match?(%{"file" => path} when is_binary(path), kwargs) ->
-        {:ok, Map.fetch!(kwargs, "file")}
+      Map.has_key?(kwargs, "file") ->
+        coerce_pathlike(Map.fetch!(kwargs, "file"), "open() argument 'file'")
 
       args == [] and not Map.has_key?(kwargs, "file") ->
         {:exception, "TypeError: open() missing required argument 'file' (pos 1)"}
 
       true ->
         {:exception, "TypeError: invalid arguments"}
+    end
+  end
+
+  @spec coerce_pathlike(Interpreter.pyvalue(), String.t()) ::
+          {:ok, String.t()} | {:exception, String.t()}
+  defp coerce_pathlike(value, label) do
+    case Pyex.Path.coerce(value) do
+      {:ok, path} -> {:ok, path}
+      :error -> {:exception, "TypeError: #{label} must be str or PathLike"}
     end
   end
 
