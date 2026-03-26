@@ -5,8 +5,12 @@ defmodule Pyex.Stdlib.Requests do
   Provides `requests.get`, `requests.post`, `requests.put`,
   `requests.patch`, `requests.delete`, `requests.head`, and
   `requests.options` which return an object with `.text`,
-  `.status_code`, `.ok`, `.headers`, and `.json()` attributes,
-  matching the real `requests.Response` interface.
+  `.status_code`, `.ok`, `.headers`, `.json()`, and
+  `.raise_for_status()` attributes, matching the real
+  `requests.Response` interface.
+
+  Also provides `requests.Session()` for persistent headers and
+  `requests.HTTPError` for exception catching.
 
   All HTTP calls emit `:telemetry` events (`[:pyex, :request, :start]`
   and `[:pyex, :request, :stop]`). I/O time is excluded from the
@@ -30,7 +34,9 @@ defmodule Pyex.Stdlib.Requests do
       "patch" => {:builtin_kw, &do_patch/2},
       "delete" => {:builtin_kw, &do_delete/2},
       "head" => {:builtin_kw, &do_head/2},
-      "options" => {:builtin_kw, &do_options/2}
+      "options" => {:builtin_kw, &do_options/2},
+      "Session" => {:builtin, fn [] -> build_session() end},
+      "HTTPError" => "requests.HTTPError"
     }
   end
 
@@ -76,6 +82,84 @@ defmodule Pyex.Stdlib.Requests do
         ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
   defp do_options([url], kwargs) when is_binary(url), do: do_request(:options, url, kwargs)
 
+  # ── Session ─────────────────────────────────────────────────────
+
+  @spec build_session() :: Pyex.Interpreter.pyvalue()
+  defp build_session do
+    # Use an Agent to hold mutable session headers so closures always
+    # read the latest state, matching Python's mutable Session semantics.
+    {:ok, agent} = Agent.start_link(fn -> PyDict.new() end)
+
+    session_method = fn method ->
+      {:builtin_kw,
+       fn [url], kwargs when is_binary(url) ->
+         current_headers = Agent.get(agent, & &1)
+         merged_kwargs = merge_session_headers(kwargs, current_headers)
+         do_request(method, url, merged_kwargs)
+       end}
+    end
+
+    # The "headers" value is a PyDict that supports .update() and []= via
+    # the interpreter's normal dict mutation paths. We intercept reads of
+    # session.headers to return the agent's current value, and intercept
+    # mutations by wrapping update in a custom builtin.
+    headers_obj =
+      PyDict.from_pairs([
+        {"update",
+         {:builtin,
+          fn [new_headers] ->
+            Agent.update(agent, fn current ->
+              case new_headers do
+                {:py_dict, _, _} = h -> PyDict.merge(current, h)
+                %{} = m -> PyDict.merge_map(current, m)
+                _ -> current
+              end
+            end)
+
+            nil
+          end}},
+        {"__setitem__",
+         {:builtin,
+          fn [key, value] ->
+            Agent.update(agent, fn current -> PyDict.put(current, key, value) end)
+            nil
+          end}}
+      ])
+
+    PyDict.from_pairs([
+      {"headers", headers_obj},
+      {"get", session_method.(:get)},
+      {"post", session_method.(:post)},
+      {"put", session_method.(:put)},
+      {"patch", session_method.(:patch)},
+      {"delete", session_method.(:delete)},
+      {"head", session_method.(:head)},
+      {"options", session_method.(:options)}
+    ])
+  end
+
+  @spec merge_session_headers(
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()},
+          PyDict.t()
+        ) :: %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+  defp merge_session_headers(kwargs, session_headers) do
+    per_request = Map.get(kwargs, "headers")
+
+    merged =
+      case per_request do
+        {:py_dict, _, _} = h -> PyDict.merge(session_headers, h)
+        _ -> session_headers
+      end
+
+    if PyDict.empty?(merged) do
+      kwargs
+    else
+      Map.put(kwargs, "headers", merged)
+    end
+  end
+
+  # ── Core request ────────────────────────────────────────────────
+
   @spec do_request(
           atom(),
           String.t(),
@@ -84,6 +168,7 @@ defmodule Pyex.Stdlib.Requests do
   defp do_request(method, url, kwargs) do
     user_headers = build_headers(kwargs)
     method_str = method |> Atom.to_string() |> String.upcase()
+    url = append_params(url, kwargs)
 
     {:io_call,
      fn env, ctx ->
@@ -96,7 +181,8 @@ defmodule Pyex.Stdlib.Requests do
            headers = merge_headers(user_headers, inject_headers)
 
            req_opts =
-             [headers: headers, method: method, url: url, redirect: false] ++ body_opts(kwargs)
+             [headers: headers, method: method, url: url, redirect: false, retry: false] ++
+               body_opts(kwargs)
 
            start_mono = System.monotonic_time()
            telemetry_meta = %{method: method_str, url: url}
@@ -151,6 +237,29 @@ defmodule Pyex.Stdlib.Requests do
     filtered ++ inject_headers
   end
 
+  # ── params= kwarg ───────────────────────────────────────────────
+
+  @spec append_params(String.t(), %{optional(String.t()) => Pyex.Interpreter.pyvalue()}) ::
+          String.t()
+  defp append_params(url, kwargs) do
+    case Map.get(kwargs, "params") do
+      {:py_dict, _, _} = params ->
+        query =
+          params
+          |> PyDict.items()
+          |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)
+          |> URI.encode_query()
+
+        separator = if String.contains?(url, "?"), do: "&", else: "?"
+        url <> separator <> query
+
+      _ ->
+        url
+    end
+  end
+
+  # ── body opts ───────────────────────────────────────────────────
+
   @spec body_opts(%{optional(String.t()) => Pyex.Interpreter.pyvalue()}) :: keyword()
   defp body_opts(kwargs) do
     json_data = Map.get(kwargs, "json")
@@ -159,9 +268,26 @@ defmodule Pyex.Stdlib.Requests do
     cond do
       json_data != nil -> [json: to_jason_compatible(json_data)]
       data != nil && is_binary(data) -> [body: data]
+      data != nil -> [body: form_encode(data)]
       true -> []
     end
   end
+
+  @spec form_encode(Pyex.Interpreter.pyvalue()) :: String.t()
+  defp form_encode({:py_dict, _, _} = dict) do
+    dict
+    |> PyDict.items()
+    |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)
+    |> URI.encode_query()
+  end
+
+  defp form_encode(%{} = map) do
+    map
+    |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)
+    |> URI.encode_query()
+  end
+
+  # ── Response ────────────────────────────────────────────────────
 
   @spec build_response(Req.Response.t()) :: Pyex.Interpreter.pyvalue()
   defp build_response(%Req.Response{status: status, body: body, headers: resp_headers}) do
@@ -179,6 +305,13 @@ defmodule Pyex.Stdlib.Requests do
       Enum.map(resp_headers, fn {k, v} -> {String.downcase(k), v} end)
       |> PyDict.from_pairs()
 
+    error_kind =
+      cond do
+        status >= 400 and status < 500 -> "Client Error"
+        status >= 500 -> "Server Error"
+        true -> nil
+      end
+
     PyDict.from_pairs([
       {"text", text},
       {"content", text},
@@ -191,6 +324,15 @@ defmodule Pyex.Stdlib.Requests do
           case Jason.decode(text) do
             {:ok, value} -> value
             {:error, reason} -> {:exception, "json.JSONDecodeError: #{inspect(reason)}"}
+          end
+        end}},
+      {"raise_for_status",
+       {:builtin,
+        fn [] ->
+          if error_kind do
+            {:exception, "requests.HTTPError: #{status} #{error_kind}"}
+          else
+            nil
           end
         end}}
     ])

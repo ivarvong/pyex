@@ -240,16 +240,21 @@ defmodule Pyex.Parser.ControlFlow do
             error
         end
 
-      [{:name, _, exc_name}, {:keyword, _, "as"}, {:name, _, var_name} | rest] ->
-        with {:ok, rest} <- expect_block_start(rest, "except"),
-             {:ok, handler_body, rest} <- Parser.parse_block(rest) do
-          parse_except_clauses(rest, [{exc_name, var_name, handler_body} | acc])
-        end
+      [{:name, _, _} | _] ->
+        {exc_name, rest} = collect_dotted_name(rest)
 
-      [{:name, _, exc_name} | rest] ->
-        with {:ok, rest} <- expect_block_start(rest, "except"),
-             {:ok, handler_body, rest} <- Parser.parse_block(rest) do
-          parse_except_clauses(rest, [{exc_name, nil, handler_body} | acc])
+        case rest do
+          [{:keyword, _, "as"}, {:name, _, var_name} | rest] ->
+            with {:ok, rest} <- expect_block_start(rest, "except"),
+                 {:ok, handler_body, rest} <- Parser.parse_block(rest) do
+              parse_except_clauses(rest, [{exc_name, var_name, handler_body} | acc])
+            end
+
+          _ ->
+            with {:ok, rest} <- expect_block_start(rest, "except"),
+                 {:ok, handler_body, rest} <- Parser.parse_block(rest) do
+              parse_except_clauses(rest, [{exc_name, nil, handler_body} | acc])
+            end
         end
 
       _ ->
@@ -261,14 +266,31 @@ defmodule Pyex.Parser.ControlFlow do
     {:ok, Enum.reverse(acc), rest}
   end
 
-  @spec collect_except_names([Lexer.token()], [String.t()]) ::
-          {:ok, [String.t()], [Lexer.token()]} | {:error, String.t()}
-  defp collect_except_names([{:name, _, name}, {:op, _, :rparen} | rest], acc) do
-    {:ok, Enum.reverse([name | acc]), rest}
+  @spec collect_dotted_name([Lexer.token()]) :: {String.t(), [Lexer.token()]}
+  defp collect_dotted_name([{:name, _, name}, {:op, _, :dot} | rest]) do
+    {suffix, rest} = collect_dotted_name(rest)
+    {name <> "." <> suffix, rest}
   end
 
-  defp collect_except_names([{:name, _, name}, {:op, _, :comma} | rest], acc) do
-    collect_except_names(rest, [name | acc])
+  defp collect_dotted_name([{:name, _, name} | rest]) do
+    {name, rest}
+  end
+
+  @spec collect_except_names([Lexer.token()], [String.t()]) ::
+          {:ok, [String.t()], [Lexer.token()]} | {:error, String.t()}
+  defp collect_except_names([{:name, _, _} | _] = tokens, acc) do
+    {name, rest} = collect_dotted_name(tokens)
+
+    case rest do
+      [{:op, _, :rparen} | rest] ->
+        {:ok, Enum.reverse([name | acc]), rest}
+
+      [{:op, _, :comma} | rest] ->
+        collect_except_names(rest, [name | acc])
+
+      _ ->
+        {:error, "expected ')' or ',' in except tuple at #{token_line(rest)}"}
+    end
   end
 
   defp collect_except_names(tokens, _acc) do
