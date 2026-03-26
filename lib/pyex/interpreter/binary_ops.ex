@@ -526,6 +526,14 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   defp dispatch(:pipe, {:set, a}, {:frozenset, b}), do: {:set, MapSet.union(a, b)}
 
+  defp dispatch(:pipe, {:py_dict, _, _} = l, {:py_dict, _, _} = r), do: PyDict.merge(l, r)
+  defp dispatch(:pipe, {:py_dict, _, _} = l, r) when is_map(r), do: PyDict.merge_map(l, r)
+
+  defp dispatch(:pipe, l, {:py_dict, _, _} = r) when is_map(l),
+    do: PyDict.merge(PyDict.from_map(l), r)
+
+  defp dispatch(:pipe, l, r) when is_map(l) and is_map(r), do: Map.merge(l, r)
+
   defp dispatch(:pipe, l, r) when is_integer(l) and is_integer(r), do: bor(l, r)
 
   defp dispatch(:pipe, l, r),

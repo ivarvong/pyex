@@ -2753,4 +2753,61 @@ defmodule Pyex.InterpreterTest do
       assert msg =~ "ValueError"
     end
   end
+
+  describe "dict | dict merge (PEP 584)" do
+    test "basic dict merge with |" do
+      result =
+        Pyex.run!("""
+        a = {"x": 1, "y": 2}
+        b = {"y": 3, "z": 4}
+        c = a | b
+        [c["x"], c["y"], c["z"]]
+        """)
+
+      assert result == [1, 3, 4]
+    end
+
+    test "dict |= augmented assignment" do
+      result =
+        Pyex.run!("""
+        a = {"x": 1}
+        a |= {"y": 2, "x": 10}
+        [a["x"], a["y"]]
+        """)
+
+      assert result == [10, 2]
+    end
+
+    test "dict merge preserves insertion order" do
+      result =
+        Pyex.run!("""
+        a = {"a": 1, "b": 2}
+        b = {"c": 3, "b": 99}
+        c = a | b
+        list(c.keys())
+        """)
+
+      assert result == ["a", "b", "c"]
+    end
+
+    test "building request params with |" do
+      result =
+        Pyex.run!("""
+        base_params = {"api_key": "abc", "format": "json"}
+        day_params = base_params | {"day": "2026-04-02"}
+        list(day_params.keys())
+        """)
+
+      assert result == ["api_key", "format", "day"]
+    end
+
+    test "dict | non-dict raises TypeError" do
+      assert {:error, %Pyex.Error{message: msg}} = Pyex.run(~s[{"a": 1} | 42])
+      assert msg =~ "TypeError"
+    end
+
+    test "int | int still works (bitwise OR unchanged)" do
+      assert Pyex.run!("5 | 3") == 7
+    end
+  end
 end
