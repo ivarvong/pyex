@@ -1263,4 +1263,791 @@ defmodule Pyex.DifferentialFuzzTest do
       end
     end
   end
+
+  # ── Format string differential fuzzing ────────────────────────────────────
+
+  describe "percent format differential fuzzing" do
+    property "%d with integers" do
+      check all(
+              n <- integer(-10_000..10_000),
+              width <- integer(0..10),
+              max_runs: 200
+            ) do
+        assert_differential("print(repr('%#{width}d' % #{n}))")
+      end
+    end
+
+    property "%-*s dynamic width left-align" do
+      check all(
+              s <- string(:alphanumeric, min_length: 0, max_length: 10),
+              width <- integer(0..20),
+              max_runs: 200
+            ) do
+        assert_differential("print(repr('%-*s' % (#{width}, '#{s}')))")
+      end
+    end
+
+    property "%*s dynamic width right-align" do
+      check all(
+              s <- string(:alphanumeric, min_length: 0, max_length: 10),
+              width <- integer(0..20),
+              max_runs: 200
+            ) do
+        assert_differential("print(repr('%*s' % (#{width}, '#{s}')))")
+      end
+    end
+
+    property "%*d dynamic width integer" do
+      check all(
+              n <- integer(-1000..1000),
+              width <- integer(0..15),
+              max_runs: 200
+            ) do
+        assert_differential("print(repr('%*d' % (#{width}, #{n})))")
+      end
+    end
+
+    property "%.*f dynamic precision float" do
+      check all(
+              f <- float(min: -100.0, max: 100.0),
+              prec <- integer(0..6),
+              max_runs: 200
+            ) do
+        assert_differential("print(repr('%.*f' % (#{prec}, #{f})))")
+      end
+    end
+
+    property "%-*s negative width reverses alignment" do
+      check all(
+              s <- string(:alphanumeric, min_length: 0, max_length: 8),
+              width <- integer(1..15),
+              max_runs: 100
+            ) do
+        assert_differential("print(repr('%*s' % (-#{width}, '#{s}')))")
+      end
+    end
+
+    property "%f with floats" do
+      check all(
+              f <- float(min: -1000.0, max: 1000.0),
+              prec <- integer(0..6),
+              max_runs: 200
+            ) do
+        assert_differential("print(repr('%.#{prec}f' % #{f}))")
+      end
+    end
+
+    property "%e scientific notation" do
+      check all(
+              f <- float(min: -1.0e10, max: 1.0e10),
+              prec <- integer(0..8),
+              max_runs: 200
+            ) do
+        assert_differential("print(repr('%.#{prec}e' % #{f}))")
+      end
+    end
+
+    property "%g general float" do
+      check all(
+              f <-
+                one_of([
+                  float(min: -1000.0, max: 1000.0),
+                  float(min: -0.0001, max: 0.0001),
+                  float(min: 1.0e5, max: 1.0e8)
+                ]),
+              prec <- integer(1..8),
+              max_runs: 200
+            ) do
+        assert_differential("print(repr('%.#{prec}g' % #{f}))")
+      end
+    end
+
+    property "%s with strings and instances" do
+      check all(
+              s <- string(:alphanumeric, min_length: 0, max_length: 12),
+              max_runs: 100
+            ) do
+        assert_differential("print(repr('%s' % '#{s}'))")
+      end
+    end
+
+    property "%(name)s named key substitution" do
+      check all(
+              key <- string(:alphanumeric, min_length: 1, max_length: 6),
+              val <- string(:alphanumeric, min_length: 0, max_length: 10),
+              max_runs: 100
+            ) do
+        assert_differential(~s[print(repr('%("#{key}")s' % {"#{key}": "#{val}"}))])
+      end
+    end
+
+    property "%r repr formatting" do
+      check all(
+              s <- string(:alphanumeric, min_length: 0, max_length: 10),
+              max_runs: 100
+            ) do
+        assert_differential("print(repr('%r' % '#{s}'))")
+      end
+    end
+
+    property "multi-format string" do
+      check all(
+              n <- integer(-100..100),
+              s <- string(:alphanumeric, min_length: 1, max_length: 8),
+              f <- float(min: -100.0, max: 100.0),
+              max_runs: 100
+            ) do
+        assert_differential("print(repr('%d %s %.2f' % (#{n}, '#{s}', #{f})))")
+      end
+    end
+  end
+
+  describe "str.format() differential fuzzing" do
+    property "positional format" do
+      check all(
+              n <- integer(-1000..1000),
+              s <- string(:alphanumeric, min_length: 0, max_length: 10),
+              max_runs: 100
+            ) do
+        assert_differential("print(repr('{} {}'.format(#{n}, '#{s}')))")
+      end
+    end
+
+    property "float format spec :f" do
+      check all(
+              f <- float(min: -1000.0, max: 1000.0),
+              prec <- integer(0..6),
+              max_runs: 200
+            ) do
+        assert_differential("print(repr('{:.#{prec}f}'.format(#{f})))")
+      end
+    end
+
+    property "float format spec :e" do
+      check all(
+              f <- float(min: -1.0e8, max: 1.0e8),
+              prec <- integer(0..8),
+              max_runs: 200
+            ) do
+        assert_differential("print(repr('{:.#{prec}e}'.format(#{f})))")
+      end
+    end
+
+    property "integer format spec :d with sign" do
+      check all(
+              n <- integer(-10_000..10_000),
+              sign <- member_of(["+", "-", ""]),
+              width <- integer(0..8),
+              max_runs: 200
+            ) do
+        spec = "#{sign}#{width}d"
+        assert_differential("print(repr('{:#{spec}}'.format(#{n})))")
+      end
+    end
+
+    property "integer format spec :b :o :x :X" do
+      check all(
+              n <- integer(0..65535),
+              type <- member_of(["b", "o", "x", "X", "#b", "#o", "#x", "#X"]),
+              max_runs: 200
+            ) do
+        assert_differential("print(repr('{:#{type}}'.format(#{n})))")
+      end
+    end
+
+    property "string alignment" do
+      check all(
+              s <- string(:alphanumeric, min_length: 1, max_length: 8),
+              width <- integer(1..20),
+              align <- member_of(["<", ">", "^"]),
+              max_runs: 100
+            ) do
+        assert_differential("print(repr('{:#{align}#{width}}'.format('#{s}')))")
+      end
+    end
+
+    property "named format kwargs" do
+      check all(
+              n <- integer(-100..100),
+              s <- string(:alphanumeric, min_length: 1, max_length: 8),
+              max_runs: 100
+            ) do
+        assert_differential("print(repr('{n} {s}'.format(n=#{n}, s='#{s}')))")
+      end
+    end
+
+    property "percentage format :%" do
+      check all(
+              f <- float(min: 0.0, max: 2.0),
+              prec <- integer(0..4),
+              max_runs: 100
+            ) do
+        assert_differential("print(repr('{:.#{prec}%}'.format(#{f})))")
+      end
+    end
+  end
+
+  # ── Exception handling differential fuzzing ───────────────────────────────
+
+  describe "exception hierarchy differential fuzzing" do
+    property "custom exception class hierarchy" do
+      check all(
+              msg <- string(:alphanumeric, min_length: 1, max_length: 12),
+              max_runs: 100
+            ) do
+        code = """
+        class AppError(Exception): pass
+        class DBError(AppError): pass
+        try:
+            raise DBError("#{msg}")
+        except AppError as e:
+            print(repr((type(e).__name__, str(e))))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "except catches built-in exception subclasses" do
+      check all(
+              exc <- member_of(["ValueError", "TypeError", "IndexError", "KeyError"]),
+              msg <- string(:alphanumeric, min_length: 1, max_length: 10),
+              max_runs: 100
+            ) do
+        code = """
+        try:
+            raise #{exc}("#{msg}")
+        except Exception as e:
+            print(repr((type(e).__name__, str(e))))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "try/except/else/finally with custom exception" do
+      check all(
+              should_raise <- boolean(),
+              msg <- string(:alphanumeric, min_length: 1, max_length: 8),
+              max_runs: 100
+            ) do
+        raise_line = if should_raise, do: "raise ValueError('#{msg}')", else: "pass"
+
+        code = """
+        log = []
+        try:
+            log.append("try")
+            #{raise_line}
+        except ValueError as e:
+            log.append("except:" + str(e))
+        else:
+            log.append("else")
+        finally:
+            log.append("finally")
+        print(repr(log))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "raise from None" do
+      check all(
+              msg <- string(:alphanumeric, min_length: 1, max_length: 10),
+              max_runs: 50
+            ) do
+        code = """
+        try:
+            raise RuntimeError("#{msg}") from None
+        except RuntimeError as e:
+            print(repr(str(e)))
+        """
+
+        assert_differential(code)
+      end
+    end
+  end
+
+  # ── Context manager differential fuzzing ──────────────────────────────────
+
+  describe "context manager differential fuzzing" do
+    property "with statement enter/exit order" do
+      check all(
+              n <- integer(1..5),
+              max_runs: 100
+            ) do
+        managers = Enum.map_join(1..n, ", ", &"CM(#{&1})")
+
+        code = """
+        log = []
+        class CM:
+            def __init__(self, n): self.n = n
+            def __enter__(self):
+                log.append(f"enter{self.n}")
+                return self.n
+            def __exit__(self, *a):
+                log.append(f"exit{self.n}")
+        with #{managers}:
+            log.append("body")
+        print(repr(log))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "context manager exception suppression" do
+      check all(
+              suppress <- boolean(),
+              msg <- string(:alphanumeric, min_length: 1, max_length: 8),
+              max_runs: 100
+            ) do
+        return_val = if suppress, do: "True", else: "False"
+
+        code = """
+        class CM:
+            def __enter__(self): return self
+            def __exit__(self, t, v, tb): return #{return_val}
+        result = "before"
+        try:
+            with CM():
+                raise ValueError("#{msg}")
+            result = "after"
+        except ValueError:
+            result = "caught"
+        print(repr(result))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "context manager __exit__ receives exception type" do
+      check all(
+              exc <- member_of(["ValueError", "TypeError", "RuntimeError"]),
+              msg <- string(:alphanumeric, min_length: 1, max_length: 8),
+              max_runs: 50
+            ) do
+        code = """
+        received = []
+        class Log:
+            def __enter__(self): return self
+            def __exit__(self, t, v, tb):
+                received.append(t.__name__ if t else None)
+                return False
+        try:
+            with Log():
+                raise #{exc}("#{msg}")
+        except #{exc}:
+            pass
+        print(repr(received))
+        """
+
+        assert_differential(code)
+      end
+    end
+  end
+
+  # ── Keyword-only parameter differential fuzzing ────────────────────────────
+
+  describe "keyword-only parameter differential fuzzing" do
+    property "keyword-only with default" do
+      check all(
+              a <- integer(-20..20),
+              x <- integer(-20..20),
+              y <- integer(-20..20),
+              max_runs: 100
+            ) do
+        code = """
+        def f(a, *, x, y=10):
+            return a + x + y
+        print(repr(f(#{a}, x=#{x})))
+        print(repr(f(#{a}, x=#{x}, y=#{y})))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "keyword-only raises on positional" do
+      check all(
+              a <- integer(-10..10),
+              b <- integer(-10..10),
+              max_runs: 100
+            ) do
+        code = """
+        def f(a, *, x):
+            return a + x
+        try:
+            f(#{a}, #{b})
+            print(repr("no_error"))
+        except TypeError:
+            print(repr("type_error"))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "*args combined with keyword-only" do
+      check all(
+              args <- list_of(integer(-10..10), min_length: 1, max_length: 5),
+              sep <- member_of([",", "-", " "]),
+              max_runs: 100
+            ) do
+        args_str = Enum.join(args, ", ")
+
+        code = """
+        def join_with(*args, sep=","):
+            return sep.join(str(a) for a in args)
+        print(repr(join_with(#{args_str}, sep="#{sep}")))
+        """
+
+        assert_differential(code)
+      end
+    end
+  end
+
+  # ── Tuple slicing differential fuzzing ────────────────────────────────────
+
+  describe "tuple slicing differential fuzzing" do
+    property "tuple basic slice" do
+      check all(
+              items <- list_of(small_int(), min_length: 1, max_length: 10),
+              start <- integer(-5..5),
+              stop <- integer(-5..15),
+              max_runs: 200
+            ) do
+        tuple_str =
+          case items do
+            [x] -> "#{x},"
+            xs -> Enum.join(xs, ", ")
+          end
+
+        assert_differential("print(repr((#{tuple_str})[#{start}:#{stop}]))")
+      end
+    end
+
+    property "tuple step slice" do
+      check all(
+              items <- list_of(small_int(), min_length: 2, max_length: 10),
+              step <- filter(integer(-4..4), &(&1 != 0)),
+              max_runs: 100
+            ) do
+        tuple_str = Enum.join(items, ", ")
+        assert_differential("print(repr((#{tuple_str})[::#{step}]))")
+      end
+    end
+  end
+
+  # ── del attribute differential fuzzing ────────────────────────────────────
+
+  describe "del object attribute differential fuzzing" do
+    property "del then hasattr" do
+      check all(
+              val <- integer(-100..100),
+              max_runs: 100
+            ) do
+        code = """
+        class X:
+            def __init__(self, v):
+                self.v = v
+        x = X(#{val})
+        print(repr(hasattr(x, "v")))
+        del x.v
+        print(repr(hasattr(x, "v")))
+        """
+
+        assert_differential(code)
+      end
+    end
+  end
+
+  # ── Closure and scoping differential fuzzing ──────────────────────────────
+
+  describe "closure scoping differential fuzzing" do
+    property "closure captures loop variable (late binding)" do
+      check all(
+              n <- integer(1..6),
+              val <- integer(-10..10),
+              max_runs: 100
+            ) do
+        code = """
+        funcs = []
+        for i in range(#{n}):
+            funcs.append(lambda x, i=i: x + i)
+        print(repr([f(#{val}) for f in funcs]))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "nonlocal in nested closure" do
+      check all(
+              n <- integer(1..10),
+              max_runs: 100
+            ) do
+        code = """
+        def make_counter():
+            count = 0
+            def inc():
+                nonlocal count
+                count += 1
+                return count
+            return inc
+        c = make_counter()
+        print(repr([c() for _ in range(#{n})]))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "comprehension scope isolation" do
+      check all(
+              outer_val <- integer(-20..20),
+              n <- integer(1..10),
+              max_runs: 100
+            ) do
+        code = """
+        x = #{outer_val}
+        result = [x for x in range(#{n})]
+        print(repr((x, result)))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "dict comprehension scope isolation" do
+      check all(
+              outer_val <- integer(-20..20),
+              n <- integer(1..8),
+              max_runs: 100
+            ) do
+        code = """
+        k = #{outer_val}
+        d = {k: k * 2 for k in range(#{n})}
+        print(repr((k, sorted(d.items()))))
+        """
+
+        assert_differential(code)
+      end
+    end
+  end
+
+  # ── dict.fromkeys differential fuzzing ────────────────────────────────────
+
+  describe "dict.fromkeys differential fuzzing" do
+    property "fromkeys with integer keys" do
+      check all(
+              keys <- list_of(integer(0..20), min_length: 0, max_length: 8) |> map(&Enum.uniq/1),
+              default <- integer(-10..10),
+              max_runs: 100
+            ) do
+        keys_str = Enum.join(keys, ", ")
+
+        assert_differential(
+          "print(repr(sorted(dict.fromkeys([#{keys_str}], #{default}).items())))"
+        )
+      end
+    end
+
+    property "fromkeys with None default" do
+      check all(
+              keys <-
+                list_of(string(:alphanumeric, min_length: 1, max_length: 4),
+                  min_length: 1,
+                  max_length: 5
+                )
+                |> map(&Enum.uniq/1),
+              max_runs: 100
+            ) do
+        keys_str = Enum.map_join(keys, ", ", &"'#{&1}'")
+        assert_differential("print(repr(sorted(dict.fromkeys([#{keys_str}]).items())))")
+      end
+    end
+  end
+
+  # ── Class dunder methods ───────────────────────────────────────────────────
+
+  describe "class dunder differential fuzzing" do
+    property "__str__ and __repr__ dispatch" do
+      check all(
+              val <- integer(-50..50),
+              max_runs: 100
+            ) do
+        code = """
+        class Wrap:
+            def __init__(self, v): self.v = v
+            def __str__(self): return f"Wrap({self.v})"
+            def __repr__(self): return f"Wrap({self.v!r})"
+        w = Wrap(#{val})
+        print(repr(str(w)))
+        print(repr(repr(w)))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "__eq__ and __hash__ in sets" do
+      check all(
+              vals <- list_of(integer(0..10), min_length: 1, max_length: 8),
+              max_runs: 100
+            ) do
+        vals_str = Enum.join(vals, ", ")
+
+        code = """
+        class Num:
+            def __init__(self, v): self.v = v
+            def __eq__(self, o): return isinstance(o, Num) and self.v == o.v
+            def __hash__(self): return hash(self.v)
+        nums = [Num(v) for v in [#{vals_str}]]
+        s = set(nums)
+        print(repr(len(s)))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "__lt__ for sorting" do
+      check all(
+              vals <- list_of(integer(-10..10), min_length: 1, max_length: 8),
+              max_runs: 100
+            ) do
+        vals_str = Enum.join(vals, ", ")
+
+        code = """
+        class Num:
+            def __init__(self, v): self.v = v
+            def __lt__(self, o): return self.v < o.v
+            def __repr__(self): return str(self.v)
+        nums = [Num(v) for v in [#{vals_str}]]
+        print(repr(sorted(nums)))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "__len__ and __getitem__" do
+      check all(
+              items <- list_of(integer(-10..10), min_length: 0, max_length: 8),
+              max_runs: 100
+            ) do
+        items_str = Enum.join(items, ", ")
+
+        code = """
+        class Seq:
+            def __init__(self, data): self.data = data
+            def __len__(self): return len(self.data)
+            def __getitem__(self, i): return self.data[i]
+        s = Seq([#{items_str}])
+        print(repr(len(s)))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "__contains__ in operator" do
+      check all(
+              items <- list_of(integer(0..10), min_length: 1, max_length: 8),
+              needle <- integer(0..10),
+              max_runs: 100
+            ) do
+        items_str = Enum.join(items, ", ")
+
+        code = """
+        class Bag:
+            def __init__(self, *items): self.items = list(items)
+            def __contains__(self, item): return item in self.items
+        b = Bag(#{items_str})
+        print(repr(#{needle} in b))
+        """
+
+        assert_differential(code)
+      end
+    end
+  end
+
+  # ── With-statement multi-target ───────────────────────────────────────────
+
+  describe "multi-target with statement differential fuzzing" do
+    property "multi with as values are bound" do
+      check all(
+              vals <- list_of(integer(-10..10), min_length: 2, max_length: 4),
+              max_runs: 100
+            ) do
+        managers =
+          vals
+          |> Enum.with_index(97)
+          |> Enum.map_join(", ", fn {v, letter} ->
+            name = <<letter::utf8>>
+            "CM(#{v}) as #{name}"
+          end)
+
+        var_names = Enum.map_join(0..(length(vals) - 1), "+", &<<&1 + 97::utf8>>)
+
+        code = """
+        class CM:
+            def __init__(self, v): self.v = v
+            def __enter__(self): return self.v
+            def __exit__(self, *a): pass
+        with #{managers}:
+            result = #{var_names}
+        print(repr(result))
+        """
+
+        assert_differential(code)
+      end
+    end
+  end
+
+  # ── sort stability differential fuzzing ───────────────────────────────────
+
+  describe "sort stability differential fuzzing" do
+    property "sort stability with equal keys" do
+      check all(
+              items <-
+                list_of(
+                  tuple({string(:alphanumeric, min_length: 1, max_length: 4), integer(0..3)}),
+                  min_length: 1,
+                  max_length: 10
+                ),
+              max_runs: 100
+            ) do
+        items_str =
+          Enum.map_join(items, ", ", fn {s, n} -> "(\"#{s}\", #{n})" end)
+
+        code = """
+        data = [#{items_str}]
+        sorted_data = sorted(data, key=lambda x: x[1])
+        print(repr(sorted_data))
+        """
+
+        assert_differential(code)
+      end
+    end
+
+    property "list.sort with key reverse=True" do
+      check all(
+              items <- list_of(integer(-20..20), min_length: 0, max_length: 10),
+              max_runs: 100
+            ) do
+        items_str = Enum.join(items, ", ")
+
+        code = """
+        data = [#{items_str}]
+        data.sort(key=lambda x: x, reverse=True)
+        print(repr(data))
+        """
+
+        assert_differential(code)
+      end
+    end
+  end
 end

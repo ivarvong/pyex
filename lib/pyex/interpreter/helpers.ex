@@ -48,6 +48,13 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:pandas_rolling, _, _}), do: "Rolling"
   def py_type({:pandas_dataframe, _}), do: "DataFrame"
   def py_type({:pyex_decimal, _}), do: "Decimal"
+  def py_type({:deque, _, _}), do: "deque"
+  def py_type({:stringio, _}), do: "StringIO"
+  def py_type({:property, _, _, _}), do: "property"
+  def py_type({:staticmethod, _}), do: "staticmethod"
+  def py_type({:classmethod, _}), do: "classmethod"
+  def py_type({:partial, _, _, _}), do: "partial"
+  def py_type({:lru_cached_function, _, _}), do: "function"
   def py_type({:ref, _}), do: "ref"
   def py_type(_), do: "object"
 
@@ -94,6 +101,14 @@ defmodule Pyex.Interpreter.Helpers do
     "{" <> inner <> "}"
   end
 
+  def py_str({:stringio, buf}), do: "<StringIO object at 0x0, buf=#{inspect(buf)}>"
+
+  def py_str({:deque, items, nil}),
+    do: "deque([" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> "])"
+
+  def py_str({:deque, items, maxlen}),
+    do: "deque([" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> "], maxlen=#{maxlen})"
+
   def py_str({:tuple, items}), do: "(" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> ")"
   def py_str({:set, s}), do: "{" <> Enum.map_join(MapSet.to_list(s), ", ", &py_repr_fmt/1) <> "}"
 
@@ -133,18 +148,47 @@ defmodule Pyex.Interpreter.Helpers do
   everything else delegates to `py_str/1`.
   """
   @spec py_repr_fmt(Pyex.Interpreter.pyvalue()) :: String.t()
-  def py_repr_fmt(val) when is_binary(val), do: "'" <> escape_repr(val) <> "'"
+  def py_repr_fmt(val) when is_binary(val), do: repr_string(val)
   def py_repr_fmt({:pyex_decimal, d}), do: "Decimal('#{Decimal.to_string(d)}')"
   def py_repr_fmt(val), do: py_str(val)
 
   @doc """
-  Escapes special characters in a string for repr output.
+  Produces a Python repr for a string value.
+
+  Uses double quotes if the string contains single quotes but no double
+  quotes (matching CPython's repr behaviour).
+  """
+  @spec repr_string(String.t()) :: String.t()
+  def repr_string(s) do
+    has_single = String.contains?(s, "'")
+    has_double = String.contains?(s, "\"")
+
+    if has_single and not has_double do
+      "\"" <> escape_repr_double(s) <> "\""
+    else
+      "'" <> escape_repr(s) <> "'"
+    end
+  end
+
+  @doc """
+  Escapes special characters in a string for repr output (single-quoted).
   """
   @spec escape_repr(String.t()) :: String.t()
   def escape_repr(s) do
     s
     |> String.replace("\\", "\\\\")
     |> String.replace("'", "\\'")
+    |> String.replace("\n", "\\n")
+    |> String.replace("\r", "\\r")
+    |> String.replace("\t", "\\t")
+    |> String.replace("\0", "\\x00")
+  end
+
+  @spec escape_repr_double(String.t()) :: String.t()
+  defp escape_repr_double(s) do
+    s
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\"", "\\\"")
     |> String.replace("\n", "\\n")
     |> String.replace("\r", "\\r")
     |> String.replace("\t", "\\t")

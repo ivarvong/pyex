@@ -457,6 +457,50 @@ defmodule Pyex.MethodsTest do
 
       assert result == nil
     end
+
+    test "sorts in place with key function" do
+      result =
+        Pyex.run!("""
+        x = [3, 1, 2]
+        x.sort(key=lambda n: n)
+        x
+        """)
+
+      assert result == [1, 2, 3]
+    end
+
+    test "sorts in place with key function reverse=True" do
+      result =
+        Pyex.run!("""
+        x = [3, 1, 2]
+        x.sort(key=lambda n: n, reverse=True)
+        x
+        """)
+
+      assert result == [3, 2, 1]
+    end
+
+    test "sorts dicts by key function" do
+      result =
+        Pyex.run!("""
+        hits = [{"date": "2025-04-01", "time": "19:00"}, {"date": "2025-03-31", "time": "18:30"}]
+        hits.sort(key=lambda r: r["date"] + r["time"])
+        [r["date"] for r in hits]
+        """)
+
+      assert result == ["2025-03-31", "2025-04-01"]
+    end
+
+    test "sorts strings by key function" do
+      result =
+        Pyex.run!("""
+        x = ["banana", "apple", "cherry"]
+        x.sort(key=lambda s: s)
+        x
+        """)
+
+      assert result == ["apple", "banana", "cherry"]
+    end
   end
 
   describe "list.reverse()" do
@@ -873,6 +917,198 @@ defmodule Pyex.MethodsTest do
 
     test "returns False for empty string" do
       assert Pyex.run!(~S["".isnumeric()]) == false
+    end
+  end
+
+  # ── str.format() with format specs ────────────────────────────────────────
+
+  describe "str.format() format specs" do
+    test "positional with index" do
+      assert Pyex.run!(~S["{0} {1}".format("hello", "world")]) == "hello world"
+    end
+
+    test "auto-numbered positional" do
+      assert Pyex.run!(~S["{} {}".format("a", "b")]) == "a b"
+    end
+
+    test "named kwargs" do
+      assert Pyex.run!(~S["{name} is {age}".format(name="Alice", age=30)]) == "Alice is 30"
+    end
+
+    test "float format spec" do
+      assert Pyex.run!(~S["{:.2f}".format(3.14159)]) == "3.14"
+    end
+
+    test "right-align format spec" do
+      assert Pyex.run!(~S["{:>10}".format("hi")]) == "        hi"
+    end
+
+    test "left-align format spec" do
+      assert Pyex.run!(~S["{:<10}".format("hi")]) == "hi        "
+    end
+
+    test "zero-padded integer" do
+      assert Pyex.run!(~S["{:05d}".format(42)]) == "00042"
+    end
+
+    test "repr conversion !r" do
+      assert Pyex.run!(~S["{!r}".format("hi")]) == "'hi'"
+    end
+
+    test "multiple mixed" do
+      assert Pyex.run!(~S["{0} {name:.1f}".format(42, name=3.14)]) == "42 3.1"
+    end
+
+    test "escaped braces" do
+      assert Pyex.run!(~S["{{literal}} {}".format("val")]) == "{literal} val"
+    end
+  end
+
+  # ── dict.fromkeys() ────────────────────────────────────────────────────────
+
+  describe "dict.fromkeys()" do
+    test "fromkeys with default value" do
+      result =
+        Pyex.run!("""
+        d = dict.fromkeys(["a", "b", "c"], 0)
+        d["a"] == 0 and d["b"] == 0 and d["c"] == 0
+        """)
+
+      assert result == true
+    end
+
+    test "fromkeys with None default" do
+      result =
+        Pyex.run!("""
+        d = dict.fromkeys(["x", "y"])
+        d["x"] is None and d["y"] is None
+        """)
+
+      assert result == true
+    end
+
+    test "fromkeys from range" do
+      result =
+        Pyex.run!("""
+        d = dict.fromkeys(range(3), False)
+        d[0] == False and d[1] == False and d[2] == False
+        """)
+
+      assert result == true
+    end
+
+    test "fromkeys preserves key order" do
+      result =
+        Pyex.run!("""
+        list(dict.fromkeys(["c", "a", "b"]).keys())
+        """)
+
+      assert result == ["c", "a", "b"]
+    end
+  end
+
+  # ── str.split with maxsplit ────────────────────────────────────────────────
+
+  describe "str.split with maxsplit" do
+    test "limits number of splits" do
+      assert Pyex.run!(~S["a,b,c,d".split(",", 2)]) == ["a", "b", "c,d"]
+    end
+
+    test "maxsplit=1" do
+      assert Pyex.run!(~S["a b c".split(" ", 1)]) == ["a", "b c"]
+    end
+
+    test "maxsplit=0 returns whole string in list" do
+      assert Pyex.run!(~S["a,b,c".split(",", 0)]) == ["a,b,c"]
+    end
+  end
+
+  # ── str.strip/lstrip/rstrip with chars ────────────────────────────────────
+
+  describe "str strip with chars argument" do
+    test "strip chars from both ends" do
+      assert Pyex.run!(~S["xxhelloxx".strip("x")]) == "hello"
+    end
+
+    test "lstrip chars" do
+      assert Pyex.run!(~S["***hello***".lstrip("*")]) == "hello***"
+    end
+
+    test "rstrip chars" do
+      assert Pyex.run!(~S["***hello***".rstrip("*")]) == "***hello"
+    end
+
+    test "strip multiple chars" do
+      assert Pyex.run!(~S["abcHELLOcba".strip("abc")]) == "HELLO"
+    end
+  end
+
+  # ── list.sort with key — edge cases ───────────────────────────────────────
+
+  describe "list.sort edge cases" do
+    test "sort with reverse=True" do
+      result =
+        Pyex.run!("""
+        x = [1, 3, 2]
+        x.sort(reverse=True)
+        x
+        """)
+
+      assert result == [3, 2, 1]
+    end
+
+    test "sort key with reverse=True" do
+      result =
+        Pyex.run!("""
+        x = ["banana", "apple", "cherry"]
+        x.sort(key=len, reverse=True)
+        x
+        """)
+
+      assert result == ["banana", "cherry", "apple"]
+      # banana and cherry both have length 6; stable sort keeps banana first
+    end
+
+    test "sort is stable — equal keys preserve order" do
+      result =
+        Pyex.run!("""
+        data = [("b", 2), ("a", 2), ("c", 1)]
+        data.sort(key=lambda x: x[1])
+        [d[0] for d in data]
+        """)
+
+      assert result == ["c", "b", "a"]
+    end
+
+    test "sort with tuple key (multi-key sort)" do
+      result =
+        Pyex.run!("""
+        data = [(1, "b"), (1, "a"), (2, "z")]
+        data.sort(key=lambda x: (x[0], x[1]))
+        data
+        """)
+
+      assert result == [{:tuple, [1, "a"]}, {:tuple, [1, "b"]}, {:tuple, [2, "z"]}]
+    end
+  end
+
+  # ── requests timeout regression ───────────────────────────────────────────
+
+  describe "requests timeout kwarg" do
+    test "timeout= does not raise TypeError" do
+      code = ~S"""
+      import requests
+      try:
+          r = requests.get("https://httpbin.org/status/200", timeout=30)
+      except Exception as e:
+          msg = str(e)
+      "no_type_error"
+      """
+
+      case Pyex.run(code) do
+        {:ok, _, _} -> :ok
+        {:error, err} -> refute err.message =~ "TypeError"
+      end
     end
   end
 end

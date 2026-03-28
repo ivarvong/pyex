@@ -194,10 +194,13 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:sort_call, items, key_fn, reverse} ->
         Interpreter.eval_sort(items, key_fn, reverse, env, ctx)
 
-      {:list_sort_call, items, key_fn, reverse} ->
+      {:list_sort_call, items, key_fn, reverse, len} ->
         case Interpreter.eval_sort(items, key_fn, reverse, env, ctx) do
-          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-          {sorted, env, ctx} -> {{:mutate, sorted, nil}, env, ctx}
+          {{:exception, _} = signal, env, ctx} ->
+            {signal, env, ctx}
+
+          {sorted, _env, ctx} ->
+            {:mutate, {:py_list, Enum.reverse(sorted), len}, nil, ctx}
         end
 
       {:iter_sorted, val, key_fn, reverse} ->
@@ -229,6 +232,26 @@ defmodule Pyex.Interpreter.BuiltinResults do
 
       {:filterfalse_call, predicate, items} ->
         Iteration.eval_filterfalse(predicate, items, env, ctx)
+
+      {:reduce_call, func, iterable, initial} ->
+        case Interpreter.to_iterable(iterable, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {signal, env, ctx}
+
+          {:ok, items, env, ctx} ->
+            case initial do
+              :no_initial when items == [] ->
+                {{:exception, "TypeError: reduce() of empty iterable with no initial value"}, env,
+                 ctx}
+
+              :no_initial ->
+                [init | rest] = items
+                Iteration.eval_reduce(rest, func, init, env, ctx)
+
+              init ->
+                Iteration.eval_reduce(items, func, init, env, ctx)
+            end
+        end
 
       value ->
         {value, env, ctx}

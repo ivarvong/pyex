@@ -1046,4 +1046,249 @@ defmodule Pyex.ClassesTest do
       assert msg =~ "TypeError: 'BadIter' object is not an iterator"
     end
   end
+
+  # ── %s formatting with __str__ ─────────────────────────────────────────────
+
+  describe "%s format with __str__" do
+    test "%s calls __str__ on instance" do
+      result =
+        Pyex.run!("""
+        class Tag:
+            def __str__(self): return "my_tag"
+        "%s" % Tag()
+        """)
+
+      assert result == "my_tag"
+    end
+
+    test "%s on exception instance returns message" do
+      result =
+        Pyex.run!("""
+        try:
+            raise ValueError("bad input")
+        except ValueError as e:
+            "%s" % e
+        """)
+
+      assert result == "bad input"
+    end
+
+    test "%s with width padding calls __str__" do
+      result =
+        Pyex.run!("""
+        class Tag:
+            def __str__(self): return "hi"
+        "%-10s|" % Tag()
+        """)
+
+      assert result == "hi        |"
+    end
+
+    test "print uses __str__ on instance" do
+      result =
+        Pyex.run!("""
+        class Greet:
+            def __str__(self): return "hello"
+        g = Greet()
+        str(g)
+        """)
+
+      assert result == "hello"
+    end
+
+    test "__repr__ fallback when no __str__" do
+      result =
+        Pyex.run!("""
+        class Thing:
+            def __repr__(self): return "Thing()"
+        str(Thing())
+        """)
+
+      assert result == "Thing()"
+    end
+  end
+
+  # ── augmented assignment on instance attributes ───────────────────────────
+
+  describe "augmented assignment on instance attributes" do
+    test "self.n += x inside method" do
+      result =
+        Pyex.run!("""
+        class Acc:
+            def __init__(self): self.n = 0
+            def add(self, x): self.n += x
+        a = Acc()
+        a.add(5)
+        a.add(3)
+        a.n
+        """)
+
+      assert result == 8
+    end
+
+    test "obj.attr += value from outside" do
+      result =
+        Pyex.run!("""
+        class Box:
+            def __init__(self, v): self.v = v
+        b = Box(10)
+        b.v += 5
+        b.v
+        """)
+
+      assert result == 15
+    end
+
+    test "self.total += x across calls" do
+      result =
+        Pyex.run!("""
+        class Acc:
+            def __init__(self): self.total = 0
+            def add(self, x): self.total += x
+        a = Acc()
+        a.add(10)
+        a.add(20)
+        a.add(5)
+        a.total
+        """)
+
+      assert result == 35
+    end
+  end
+
+  # ── exception hierarchy ────────────────────────────────────────────────────
+
+  describe "exception hierarchy" do
+    test "except Exception catches ValueError" do
+      result =
+        Pyex.run!("""
+        try:
+            raise ValueError("v")
+        except Exception as e:
+            str(e)
+        """)
+
+      assert result == "v"
+    end
+
+    test "except Exception catches TypeError" do
+      result =
+        Pyex.run!("""
+        try:
+            raise TypeError("t")
+        except Exception as e:
+            str(e)
+        """)
+
+      assert result == "t"
+    end
+
+    test "except Exception catches IndexError" do
+      result =
+        Pyex.run!("""
+        try:
+            [][0]
+        except Exception as e:
+            type(e).__name__
+        """)
+
+      assert result == "IndexError"
+    end
+
+    test "except Exception catches ZeroDivisionError" do
+      result =
+        Pyex.run!("""
+        try:
+            1 / 0
+        except Exception:
+            "caught"
+        """)
+
+      assert result == "caught"
+    end
+
+    test "custom exception caught by parent class" do
+      result =
+        Pyex.run!("""
+        class AppError(Exception): pass
+        class DBError(AppError): pass
+        try:
+            raise DBError("db down")
+        except AppError as e:
+            type(e).__name__ + ":" + str(e)
+        """)
+
+      assert result == "DBError:db down"
+    end
+
+    test "except tuple catches matching type" do
+      result =
+        Pyex.run!("""
+        try:
+            raise ValueError("v")
+        except (TypeError, ValueError) as e:
+            "caught:" + str(e)
+        """)
+
+      assert result == "caught:v"
+    end
+
+    test "inner except does not catch outer" do
+      result =
+        Pyex.run!("""
+        try:
+            try:
+                raise ValueError("inner")
+            except TypeError:
+                "wrong"
+        except ValueError as e:
+            "right:" + str(e)
+        """)
+
+      assert result == "right:inner"
+    end
+  end
+
+  # ── frozenset ─────────────────────────────────────────────────────────────
+
+  describe "frozenset" do
+    test "construction and equality" do
+      assert Pyex.run!("frozenset([1, 2, 3]) == frozenset([3, 2, 1])")
+    end
+
+    test "usable as dict key" do
+      result =
+        Pyex.run!("""
+        d = {frozenset([1, 2]): "val"}
+        d[frozenset([2, 1])]
+        """)
+
+      assert result == "val"
+    end
+
+    test "intersection with set" do
+      result = Pyex.run!("frozenset([1, 2, 3]) & {2, 3, 4}")
+      assert result == {:frozenset, MapSet.new([2, 3])}
+    end
+
+    test "union with set" do
+      result = Pyex.run!("frozenset([1, 2]) | {3, 4}")
+      assert MapSet.equal?(elem(result, 1), MapSet.new([1, 2, 3, 4]))
+    end
+
+    test "is hashable (usable in set)" do
+      result =
+        Pyex.run!("""
+        s = {frozenset([1, 2]), frozenset([1, 2]), frozenset([3])}
+        len(s)
+        """)
+
+      assert result == 2
+    end
+
+    test ".add() raises AttributeError" do
+      {:error, err} = Pyex.run("frozenset([1]).add(2)")
+      assert err.message =~ "AttributeError"
+    end
+  end
 end

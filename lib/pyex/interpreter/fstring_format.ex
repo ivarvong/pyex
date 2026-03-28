@@ -124,8 +124,9 @@ defmodule Pyex.Interpreter.FstringFormat do
   defp format_float(val, spec) when is_number(val) do
     precision = spec.precision || 6
     float_val = val / 1
-    formatted = :erlang.float_to_binary(float_val, decimals: precision)
+    formatted = format_float_rounded(float_val, precision)
     formatted = maybe_group(formatted, spec.grouping)
+    formatted = apply_sign(formatted, spec.sign, val)
     apply_alignment(formatted, spec, val)
   end
 
@@ -144,6 +145,7 @@ defmodule Pyex.Interpreter.FstringFormat do
   defp format_int(val, spec) when is_integer(val) do
     formatted = Integer.to_string(val)
     formatted = maybe_group(formatted, spec.grouping)
+    formatted = apply_sign(formatted, spec.sign, val)
     apply_alignment(formatted, spec, val)
   end
 
@@ -172,19 +174,74 @@ defmodule Pyex.Interpreter.FstringFormat do
 
   defp format_scientific(val, spec, e_char) when is_number(val) do
     precision = spec.precision || 6
-    float_val = val / 1
-    formatted = :io_lib.format(~c"~.#{precision}e", [float_val]) |> IO.iodata_to_binary()
-    formatted = normalize_exponent(formatted)
+    formatted = format_scientific_bankers(val / 1, precision)
 
     formatted =
       if e_char == "E", do: String.upcase(formatted), else: formatted
 
+    formatted = apply_sign(formatted, spec.sign, val)
     apply_alignment(formatted, spec, val)
   end
 
   defp format_scientific(val, _spec, _e_char) do
     {:exception,
      "ValueError: Unknown format code 'e' for object of type '#{Helpers.py_type(val)}'"}
+  end
+
+  @spec format_scientific_bankers(float(), non_neg_integer()) :: String.t()
+  defp format_scientific_bankers(float_val, precision) do
+    # Compute exponent
+    exp =
+      if float_val == 0.0 do
+        0
+      else
+        float_val |> abs() |> :math.log10() |> Float.floor() |> trunc()
+      end
+
+    # Normalise mantissa and round using banker's rounding
+    mantissa = float_val / :math.pow(10, exp)
+
+    rounded_mantissa =
+      case Decimal.parse(:erlang.float_to_binary(mantissa, [])) do
+        {d, ""} ->
+          d
+          |> Decimal.round(precision, :half_even)
+          |> Decimal.to_string(:normal)
+          |> ensure_decimal_places(precision)
+
+        _ ->
+          :erlang.float_to_binary(mantissa, decimals: precision)
+      end
+
+    # Check if rounding pushed mantissa to 10.0
+    {rounded_mantissa, exp} =
+      if String.starts_with?(rounded_mantissa, "10") or
+           String.starts_with?(rounded_mantissa, "-10") do
+        m2 = Decimal.parse(rounded_mantissa) |> elem(0)
+        m2 = Decimal.div(m2, Decimal.new(10)) |> Decimal.round(precision, :half_even)
+        s = m2 |> Decimal.to_string(:normal) |> ensure_decimal_places(precision)
+        {s, exp + 1}
+      else
+        {rounded_mantissa, exp}
+      end
+
+    exp_sign = if exp >= 0, do: "+", else: "-"
+    exp_str = abs(exp) |> Integer.to_string() |> String.pad_leading(2, "0")
+    rounded_mantissa <> "e" <> exp_sign <> exp_str
+  end
+
+  @spec ensure_decimal_places(String.t(), non_neg_integer()) :: String.t()
+  defp ensure_decimal_places(s, 0), do: s
+
+  defp ensure_decimal_places(s, precision) do
+    case String.split(s, ".") do
+      [int_part, dec_part] ->
+        pad = max(precision - byte_size(dec_part), 0)
+        int_part <> "." <> dec_part <> String.duplicate("0", pad)
+
+      [int_part] ->
+        int_part <> "." <> String.duplicate("0", precision)
+    end
   end
 
   defp format_base(val, spec, base, upcase) when is_integer(val) do
@@ -223,7 +280,7 @@ defmodule Pyex.Interpreter.FstringFormat do
   defp format_percentage(val, spec) when is_number(val) do
     precision = spec.precision || 6
     float_val = val * 100.0
-    formatted = :erlang.float_to_binary(float_val, decimals: precision) <> "%"
+    formatted = format_float_rounded(float_val, precision) <> "%"
     apply_alignment(formatted, spec, val)
   end
 
@@ -335,12 +392,38 @@ defmodule Pyex.Interpreter.FstringFormat do
     |> Decimal.to_string()
   end
 
+  @spec format_float_rounded(float(), non_neg_integer()) :: String.t()
+  defp format_float_rounded(float_val, precision) do
+    # Use Decimal for banker's rounding (round-half-to-even), which matches
+    # Python's behaviour.  Fall back to Erlang for values Decimal can't handle.
+    case Decimal.parse(:erlang.float_to_binary(float_val, [])) do
+      {d, ""} ->
+        d
+        |> Decimal.round(precision, :half_even)
+        |> Decimal.to_string(:normal)
+        |> ensure_decimal_places(precision)
+
+      _ ->
+        :erlang.float_to_binary(float_val, decimals: precision)
+    end
+  end
+
+  @spec apply_sign(String.t(), String.t() | nil, number()) :: String.t()
+  defp apply_sign(formatted, nil, _val), do: formatted
+  defp apply_sign(formatted, "-", _val), do: formatted
+
+  defp apply_sign(formatted, "+", val) when val >= 0 do
+    if String.starts_with?(formatted, "-"), do: formatted, else: "+" <> formatted
+  end
+
+  defp apply_sign(formatted, " ", val) when val >= 0 do
+    if String.starts_with?(formatted, "-"), do: formatted, else: " " <> formatted
+  end
+
+  defp apply_sign(formatted, _sign, _val), do: formatted
+
   # Python defaults: numbers right-align, strings left-align.
   defp default_align(val) when is_integer(val) or is_float(val), do: ">"
   defp default_align({:pyex_decimal, _}), do: ">"
   defp default_align(_), do: "<"
-
-  defp normalize_exponent(str) do
-    Regex.replace(~r/e([+-])(\d)$/, str, "e\\g{1}0\\2")
-  end
 end

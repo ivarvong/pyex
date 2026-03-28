@@ -102,6 +102,21 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   @doc false
   @spec ordering_compare(atom(), term(), term()) :: boolean() | {:exception, String.t()}
+
+  # NaN comparisons always return False (except !=)
+  def ordering_compare(_op, :nan, _), do: false
+  def ordering_compare(_op, _, :nan), do: false
+
+  # Infinity ordering: +inf > everything, -inf < everything
+  def ordering_compare(op, :infinity, :infinity), do: op in [:lte, :gte]
+  def ordering_compare(op, :neg_infinity, :neg_infinity), do: op in [:lte, :gte]
+  def ordering_compare(op, :infinity, :neg_infinity), do: op in [:gt, :gte]
+  def ordering_compare(op, :neg_infinity, :infinity), do: op in [:lt, :lte]
+  def ordering_compare(op, :infinity, r) when is_number(r), do: op in [:gt, :gte]
+  def ordering_compare(op, :neg_infinity, r) when is_number(r), do: op in [:lt, :lte]
+  def ordering_compare(op, l, :infinity) when is_number(l), do: op in [:lt, :lte]
+  def ordering_compare(op, l, :neg_infinity) when is_number(l), do: op in [:gt, :gte]
+
   def ordering_compare(op, l, r) when is_number(l) and is_number(r), do: ord_cmp(op, l, r)
   def ordering_compare(op, l, r) when is_binary(l) and is_binary(r), do: ord_cmp(op, l, r)
   def ordering_compare(op, l, r) when is_list(l) and is_list(r), do: ord_cmp(op, l, r)
@@ -216,6 +231,16 @@ defmodule Pyex.Interpreter.BinaryOps do
     Collections.counter_add(l, r)
   end
 
+  defp dispatch(:plus, :infinity, r) when is_number(r) or r == :neg_infinity,
+    do: if(r == :neg_infinity, do: :nan, else: :infinity)
+
+  defp dispatch(:plus, :neg_infinity, r) when is_number(r) or r == :infinity,
+    do: if(r == :infinity, do: :nan, else: :neg_infinity)
+
+  defp dispatch(:plus, l, :infinity) when is_number(l), do: :infinity
+  defp dispatch(:plus, l, :neg_infinity) when is_number(l), do: :neg_infinity
+  defp dispatch(:plus, :infinity, :infinity), do: :infinity
+  defp dispatch(:plus, :neg_infinity, :neg_infinity), do: :neg_infinity
   defp dispatch(:plus, l, r) when is_number(l) and is_number(r), do: l + r
 
   defp dispatch(:plus, l, r),
@@ -319,8 +344,12 @@ defmodule Pyex.Interpreter.BinaryOps do
     do: type_error("//", l, r)
 
   # -- percent --------------------------------------------------------
+  # String % formatting is intercepted in do_eval_binop (interpreter.ex) so
+  # that eval_py_str dunder dispatch is available for %s arguments.  This
+  # clause is kept as a pure fallback (no dunder dispatch) for callers that
+  # do not have env/ctx available.
 
-  defp dispatch(:percent, l, r) when is_binary(l), do: Format.string_format(l, r)
+  defp dispatch(:percent, l, r) when is_binary(l), do: Format.string_format_pure(l, r)
 
   defp dispatch(:percent, _l, r) when r == 0 or r == 0.0,
     do: {:exception, "ZeroDivisionError: integer division or modulo by zero"}
@@ -392,6 +421,12 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:eq, {:class, class_name, _, _}, {:instance, {:class, "type", _, _}, attrs}),
     do: class_name == builtin_type_instance_name(attrs)
 
+  defp dispatch(:eq, :nan, _), do: false
+  defp dispatch(:eq, _, :nan), do: false
+  defp dispatch(:eq, :infinity, r) when is_number(r), do: false
+  defp dispatch(:eq, :neg_infinity, r) when is_number(r), do: false
+  defp dispatch(:eq, r, :infinity) when is_number(r), do: false
+  defp dispatch(:eq, r, :neg_infinity) when is_number(r), do: false
   defp dispatch(:eq, l, r), do: l == r
 
   defp dispatch(:neq, {:py_dict, lm, _}, {:py_dict, rm, _}), do: lm != rm
@@ -419,6 +454,8 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:neq, {:class, class_name, _, _}, {:instance, {:class, "type", _, _}, attrs}),
     do: class_name != builtin_type_instance_name(attrs)
 
+  defp dispatch(:neq, :nan, _), do: true
+  defp dispatch(:neq, _, :nan), do: true
   defp dispatch(:neq, l, r), do: l != r
 
   # -- ordering -------------------------------------------------------

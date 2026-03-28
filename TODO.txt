@@ -1,15 +1,93 @@
 Pyex TODO — bugs and missing features to fix
 =============================================
 
-All tests pass (3055 tests, 0 failures, 0 skipped).
+All tests pass (3213+ tests, 0 failures, 0 skipped).
 All 5 fixtures pass (csv_stats, elixir_highlight, lru_cache, web_crawler, sanity).
 
 Heap-based reference system is complete for lists, dicts, sets, and
 class instances.  Aliasing works: `b = a; b.val = 99` → `a.val == 99`.
 Intrusive linked lists work: `node.prev.next = node.next`.
 
+## Recently fixed (third batch — staff-level Python)
+
+- `@property` / `@property.setter` — getter/setter descriptor protocol
+- `@staticmethod` / `@classmethod` — both work including factory methods
+- `defaultdict[missing_key]` — was infinite recursion, now returns default
+- `filter(None, iterable)` — was infinite loop, now filters by truthiness
+- `round(2.5)` / `round(2.675, 2)` — banker's rounding using full IEEE 754 precision
+- `json.dumps` now adds spaces after `:` and `,` (matching CPython default)
+- `*args` is now a `tuple` not a list (`isinstance(args, tuple)` works)
+- Tuple equality with heap-allocated contents (`((1,2), {"x":3}) == ((1,2), {"x":3})`)
+- `float("inf") > 1e308` and `float("-inf") < -1e308` (infinity comparisons)
+- `float("inf") + 1 == float("inf")` (infinity arithmetic)
+- `float("nan") != float("nan")` (NaN != NaN semantics)
+- NaN in < / > / == comparisons returns False
+- `issubclass(bool, int)` (builtin type hierarchy)
+- `__getattr__` dunder dispatch for dynamic attribute access
+- Slice assignment `a[1:3] = [10, 20]`
+- `%-*s` / `%*d` / `%.*f` dynamic width/precision in % formatting
+- Generator output_buffer now synced back (print in generator body works)
+- `functools` module: `reduce`, `partial`, `lru_cache`, `wraps`, `cached_property`
+- `collections.namedtuple` — lightweight immutable value objects
+- `collections.deque` — double-ended queue with full method support
+- `contextlib.contextmanager` — generator-based context managers work correctly
+- `io.StringIO` — in-memory text buffer for CSV, test capture, etc.
+- `abc` module — `ABC`, `abstractmethod`
+- `@contextmanager` exit code now runs in correct order (before/yield/inside/after)
+- `sync_generator_ctx` now syncs `output_buffer` back to outer context
+- `hasattr` returns `True` when `__getattr__` is defined
+- Slice assignment deref fix (inserting lists not refs)
+- Decorator evaluation order: decorator expr evaluated BEFORE def, enabling `@prop.setter`
+
+## Previously fixed
+
+- `filter(None, iterable)` — infinite recursion bug; now correctly filters truthy items
+- `round(2.5)` returns `2` (banker's rounding, was `3`)
+- `round(2.675, 2)` returns `2.67` (full IEEE 754 precision, was `2.68`)
+- `json.dumps({"a":1})` now produces `{"a": 1}` (space after `:` and `,`, matching CPython)
+- `*args` is now a tuple, not a list (`isinstance(args, tuple)` now works)
+- Tuple equality with heap-allocated contents (`((1,2), {"x":3}) == ((1,2), {"x":3})`)
+- Float rounding uses full IEEE 754 precision via `:erlang.float_to_binary` (not truncated `Float.to_string`)
+
+## Previously fixed
+
+- `list.sort(key=...)` storage reversal bug (produced reversed results)
+- `"%s" % exception` called `py_str` instead of `__str__` dunder
+- `requests.post(timeout=N)` ignored timeout kwarg (now passes to Req)
+- `%e` format: wrong precision (was sig figs, now decimal places)
+- `%g` format: trailing zeros not stripped, wrong notation threshold
+- `{:.2e}` / `{:+d}` format specs in str.format
+- `%(name)s` named keys in % formatting
+- `{:.0f}` banker's rounding in str.format and %f
+- Exception hierarchy: `except AppError` now catches `DBError(AppError)` subclasses
+- `list.sort(key=..., reverse=True)` was not stable (fixed with comparator)
+- `__exit__` receives real exception class (not string), enabling `t.__name__`
+- `with A(), B():` multi-target with statement (parser desugars to nested withs)
+- `raise X from Y` parses and raises X
+- Keyword-only parameters `def f(a, *, x, y=10):`
+- `del obj.attr` attribute deletion
+- `str.format()` format specs `{:.2f}`, `{:>10}`, `{!r}`, `{:,}` etc.
+- `dict.fromkeys(keys, default)`
+- Tuple slicing `(1,2,3)[1:3]`
+- `lambda x, i=i: ...` default arg parsing in lambdas
+- `%g` precision: rounds before threshold test (matches CPython exactly)
+- `repr()` / `print()` on lists/tuples dispatch `__repr__` on nested instances
+- `nonlocal` in list comprehensions: mutations now propagate correctly
+- `str(KeyError("x"))` wraps in repr-quotes like CPython
+- f-string `!r` / `!s` conversion flags now supported
+- String `repr()` uses double quotes when string contains single quotes
+- Function/lambda default args are evaluated at definition time, not call time
+
 ## Remaining features
 
 See the commented-out `# TODO:` lines in
 test/fixtures/programs/sanity/main.py for the full list of unsupported
 Python features.
+
+Known limitations:
+- Late-binding closures: `lambda x: x + i` in a loop captures final `i`
+  (Python late-binding semantics). Use `lambda x, i=i: x + i` as workaround.
+- `@property`, `@staticmethod`, `@classmethod` decorators not yet implemented
+- `async`/`await` and `asyncio` not yet implemented
+- `bytes`/`bytearray` types not yet implemented
+- `datetime.now()` always returns UTC (not local time)

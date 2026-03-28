@@ -346,7 +346,8 @@ defmodule Pyex.Interpreter.Invocation do
             event_count: gen_ctx.event_count,
             file_ops: gen_ctx.file_ops,
             heap: gen_ctx.heap,
-            next_heap_id: gen_ctx.next_heap_id
+            next_heap_id: gen_ctx.next_heap_id,
+            output_buffer: gen_ctx.output_buffer
         }
 
         case result do
@@ -404,7 +405,8 @@ defmodule Pyex.Interpreter.Invocation do
         event_count: gen_ctx.event_count,
         file_ops: gen_ctx.file_ops,
         heap: gen_ctx.heap,
-        next_heap_id: gen_ctx.next_heap_id
+        next_heap_id: gen_ctx.next_heap_id,
+        output_buffer: gen_ctx.output_buffer
     }
   end
 

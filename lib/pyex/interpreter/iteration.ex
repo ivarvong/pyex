@@ -226,4 +226,29 @@ defmodule Pyex.Interpreter.Iteration do
         end
     end
   end
+
+  @doc """
+  Implements `functools.reduce(func, iterable, initial)`.
+  """
+  @spec eval_reduce(
+          [Interpreter.pyvalue()],
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue(),
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  def eval_reduce([], _func, acc, env, ctx), do: {acc, env, ctx}
+
+  def eval_reduce([item | rest], func, acc, env, ctx) do
+    case Interpreter.call_function(func, [acc, item], %{}, env, ctx) do
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {new_acc, env, ctx, _updated_func} ->
+        eval_reduce(rest, func, new_acc, env, ctx)
+
+      {new_acc, env, ctx} ->
+        eval_reduce(rest, func, new_acc, env, ctx)
+    end
+  end
 end

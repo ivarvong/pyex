@@ -41,7 +41,11 @@ defmodule Pyex.Stdlib do
     "urllib" => Pyex.Stdlib.Urllib,
     "shutil" => Pyex.Stdlib.Shutil,
     "dataclasses" => Pyex.Stdlib.Dataclasses,
-    "heapq" => Pyex.Stdlib.Heapq
+    "heapq" => Pyex.Stdlib.Heapq,
+    "functools" => Pyex.Stdlib.Functools,
+    "contextlib" => Pyex.Stdlib.Contextlib,
+    "io" => Pyex.Stdlib.Io,
+    "abc" => Pyex.Stdlib.Abc
   }
 
   @doc """

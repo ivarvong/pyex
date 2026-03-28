@@ -7,6 +7,7 @@ defmodule Pyex.Methods do
   """
 
   alias Pyex.{Builtins, Interpreter, PyDict}
+  alias Pyex.Interpreter.{FstringFormat, Helpers}
 
   @string_methods ~w(
     capitalize center count encode endswith expandtabs find format
@@ -102,6 +103,20 @@ defmodule Pyex.Methods do
   def resolve({:tuple, _} = object, attr) do
     case tuple_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
+  def resolve({:deque, _, _} = object, attr) do
+    case deque_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin_kw, bound_kw(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
+  def resolve({:stringio, _} = object, attr) do
+    case stringio_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin_kw, bound_kw(method_fn, object)}}
       :error -> :error
     end
   end
@@ -398,23 +413,126 @@ defmodule Pyex.Methods do
     length(String.split(s, sub)) - 1
   end
 
-  @spec str_format(String.t(), [Interpreter.pyvalue()], map()) :: String.t()
-  defp str_format(s, args, kwargs) do
-    # First pass: replace positional {0}, {1}, ... and auto-numbered {}
-    s =
-      args
-      |> Enum.with_index()
-      |> Enum.reduce(s, fn {arg, idx}, acc ->
-        formatted = Builtins.py_repr(arg)
+  @spec str_format(String.t(), [Interpreter.pyvalue()], map()) ::
+          String.t() | {:exception, String.t()}
+  defp str_format(template, args, kwargs) do
+    args_indexed = Enum.with_index(args) |> Map.new(fn {v, i} -> {i, v} end)
+    do_str_format(template, args_indexed, kwargs, 0, <<>>)
+  end
 
-        String.replace(acc, "{#{idx}}", formatted, global: true)
-        |> String.replace("{}", formatted, global: false)
-      end)
+  @spec do_str_format(
+          String.t(),
+          %{non_neg_integer() => Interpreter.pyvalue()},
+          map(),
+          non_neg_integer(),
+          binary()
+        ) :: String.t() | {:exception, String.t()}
+  defp do_str_format(<<>>, _ai, _kw, _auto, acc), do: acc
 
-    # Second pass: replace named {key} placeholders from kwargs
-    Enum.reduce(kwargs, s, fn {key, val}, acc ->
-      String.replace(acc, "{#{key}}", Builtins.py_repr(val), global: true)
-    end)
+  defp do_str_format(<<?{, ?{, rest::binary>>, ai, kw, auto, acc) do
+    do_str_format(rest, ai, kw, auto, <<acc::binary, ?{>>)
+  end
+
+  defp do_str_format(<<?}, ?}, rest::binary>>, ai, kw, auto, acc) do
+    do_str_format(rest, ai, kw, auto, <<acc::binary, ?}>>)
+  end
+
+  defp do_str_format(<<?{, rest::binary>>, ai, kw, auto, acc) do
+    {field, rest} = collect_to_closing_brace(rest, <<>>)
+
+    {field_name, conversion, spec} = parse_field(field)
+
+    val_result =
+      case field_name do
+        "" ->
+          case Map.fetch(ai, auto) do
+            {:ok, v} ->
+              {:ok, v, auto + 1}
+
+            :error ->
+              {:error, "IndexError: Replacement index #{auto} out of range for positional args"}
+          end
+
+        name ->
+          case Integer.parse(name) do
+            {idx, ""} ->
+              case Map.fetch(ai, idx) do
+                {:ok, v} ->
+                  {:ok, v, auto}
+
+                :error ->
+                  {:error,
+                   "IndexError: Replacement index #{idx} out of range for positional args"}
+              end
+
+            _ ->
+              # Attribute/item access chain (simplified: only top-level names)
+              root = name |> String.split(".") |> hd() |> String.split("[") |> hd()
+
+              case Map.fetch(kw, root) do
+                {:ok, v} -> {:ok, v, auto}
+                :error -> {:error, "KeyError: '#{root}'"}
+              end
+          end
+      end
+
+    case val_result do
+      {:error, msg} ->
+        {:exception, msg}
+
+      {:ok, val, new_auto} ->
+        converted =
+          case conversion do
+            "r" -> Helpers.py_repr_fmt(val)
+            "s" -> Helpers.py_str(val)
+            "a" -> Helpers.py_repr_fmt(val)
+            _ -> Helpers.py_str(val)
+          end
+
+        formatted =
+          if spec == "" do
+            converted
+          else
+            FstringFormat.apply_format_spec(val, spec)
+          end
+
+        case formatted do
+          {:exception, _} = exc ->
+            exc
+
+          s when is_binary(s) ->
+            do_str_format(rest, ai, kw, new_auto, <<acc::binary, s::binary>>)
+        end
+    end
+  end
+
+  defp do_str_format(<<c::utf8, rest::binary>>, ai, kw, auto, acc) do
+    do_str_format(rest, ai, kw, auto, <<acc::binary, c::utf8>>)
+  end
+
+  @spec collect_to_closing_brace(String.t(), binary()) :: {binary(), String.t()}
+  defp collect_to_closing_brace(<<?}, rest::binary>>, acc), do: {acc, rest}
+
+  defp collect_to_closing_brace(<<c::utf8, rest::binary>>, acc),
+    do: collect_to_closing_brace(rest, <<acc::binary, c::utf8>>)
+
+  defp collect_to_closing_brace(<<>>, acc), do: {acc, <<>>}
+
+  @spec parse_field(binary()) :: {binary(), binary(), binary()}
+  defp parse_field(field) do
+    {name_conv, spec} =
+      case :binary.split(field, ":") do
+        [nc, s] -> {nc, s}
+        [nc] -> {nc, ""}
+      end
+
+    {name, conversion} =
+      case :binary.split(name_conv, "!") do
+        [n, c] -> {n, c}
+        [n] -> {n, ""}
+      end
+
+    {name, conversion, spec}
   end
 
   @spec str_isdigit(String.t(), [Interpreter.pyvalue()]) :: boolean()
@@ -982,7 +1100,7 @@ defmodule Pyex.Methods do
 
   @spec list_sort({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()], map()) ::
           {:mutate, {:py_list, [term()], non_neg_integer()}, nil}
-          | {:list_sort_call, [term()], Interpreter.pyvalue() | nil, boolean()}
+          | {:list_sort_call, [term()], Interpreter.pyvalue() | nil, boolean(), non_neg_integer()}
   defp list_sort({:py_list, reversed, len}, [], kwargs) do
     key_fn = Map.get(kwargs, "key")
     reverse = Map.get(kwargs, "reverse", false)
@@ -993,7 +1111,9 @@ defmodule Pyex.Methods do
       sorted_storage = Enum.sort(reversed, order)
       {:mutate, {:py_list, sorted_storage, len}, nil}
     else
-      {:list_sort_call, reversed, key_fn, reverse == true}
+      # Pass items in Python order so eval_sort can compare and sort them
+      # correctly.  builtin_results re-wraps the result back into py_list.
+      {:list_sort_call, Enum.reverse(reversed), key_fn, reverse == true, len}
     end
   end
 
@@ -1004,7 +1124,7 @@ defmodule Pyex.Methods do
     if key_fn == nil and reverse == false do
       {:mutate, Enum.sort(list), nil}
     else
-      {:list_sort_call, list, key_fn, reverse == true}
+      {:list_sort_call, list, key_fn, reverse == true, length(list)}
     end
   end
 
@@ -1382,4 +1502,154 @@ defmodule Pyex.Methods do
   @spec normalize_index(integer(), non_neg_integer()) :: non_neg_integer()
   defp normalize_index(i, len) when i < 0, do: max(len + i, 0)
   defp normalize_index(i, len), do: min(i, len)
+
+  # ── StringIO methods ────────────────────────────────────────────────────────
+
+  @spec stringio_method(String.t()) :: {:ok, fun()} | :error
+  defp stringio_method("write"), do: {:ok, &stringio_write/3}
+  defp stringio_method("getvalue"), do: {:ok, &stringio_getvalue/3}
+  defp stringio_method("read"), do: {:ok, &stringio_read/3}
+  defp stringio_method("readline"), do: {:ok, &stringio_readline/3}
+  defp stringio_method("readlines"), do: {:ok, &stringio_readlines/3}
+  defp stringio_method("seek"), do: {:ok, &stringio_seek/3}
+  defp stringio_method("tell"), do: {:ok, &stringio_tell/3}
+  defp stringio_method("truncate"), do: {:ok, &stringio_truncate/3}
+  defp stringio_method("close"), do: {:ok, &stringio_close/3}
+  defp stringio_method("__enter__"), do: {:ok, &stringio_enter/3}
+  defp stringio_method("__exit__"), do: {:ok, &stringio_exit/3}
+  defp stringio_method(_), do: :error
+
+  defp stringio_write({:stringio, buf}, [s], _kw) when is_binary(s) do
+    {:mutate, {:stringio, buf <> s}, byte_size(s)}
+  end
+
+  defp stringio_write(_, _, _), do: {:exception, "TypeError: write() argument must be str"}
+
+  defp stringio_getvalue({:stringio, buf}, _args, _kw), do: buf
+
+  defp stringio_read({:stringio, buf}, [], _kw), do: buf
+  defp stringio_read({:stringio, buf}, [n], _kw) when is_integer(n), do: String.slice(buf, 0, n)
+  defp stringio_read(_, _, _), do: ""
+
+  defp stringio_readline({:stringio, buf}, _args, _kw) do
+    case String.split(buf, "\n", parts: 2) do
+      [line, _] -> line <> "\n"
+      [line] -> line
+    end
+  end
+
+  defp stringio_readlines({:stringio, buf}, _args, _kw) do
+    String.split(buf, "\n") |> Enum.map(&(&1 <> "\n"))
+  end
+
+  defp stringio_seek({:stringio, buf}, [_pos], _kw), do: {:mutate, {:stringio, buf}, 0}
+  defp stringio_seek(sio, _, _), do: {:mutate, sio, 0}
+
+  defp stringio_tell({:stringio, buf}, _args, _kw), do: byte_size(buf)
+
+  defp stringio_truncate({:stringio, _buf}, [size], _kw) when is_integer(size) do
+    {:mutate, {:stringio, ""}, size}
+  end
+
+  defp stringio_truncate({:stringio, _buf}, [], _kw) do
+    {:mutate, {:stringio, ""}, 0}
+  end
+
+  defp stringio_close({:stringio, buf}, _args, _kw) do
+    {:mutate, {:stringio, buf}, nil}
+  end
+
+  defp stringio_enter({:stringio, _} = sio, _args, _kw), do: sio
+  defp stringio_exit({:stringio, _}, _args, _kw), do: false
+
+  # ── deque methods ────────────────────────────────────────────────────────────
+
+  @spec deque_method(String.t()) ::
+          {:ok, (Interpreter.pyvalue(), [Interpreter.pyvalue()], map() -> Interpreter.pyvalue())}
+          | :error
+  defp deque_method("append"), do: {:ok, &deque_append/3}
+  defp deque_method("appendleft"), do: {:ok, &deque_appendleft/3}
+  defp deque_method("pop"), do: {:ok, &deque_pop/3}
+  defp deque_method("popleft"), do: {:ok, &deque_popleft/3}
+  defp deque_method("extend"), do: {:ok, &deque_extend/3}
+  defp deque_method("extendleft"), do: {:ok, &deque_extendleft/3}
+  defp deque_method("clear"), do: {:ok, &deque_clear/3}
+  defp deque_method("rotate"), do: {:ok, &deque_rotate/3}
+  defp deque_method("copy"), do: {:ok, &deque_copy/3}
+  defp deque_method(_), do: :error
+
+  defp deque_trim({:deque, items, maxlen} = d) do
+    if is_integer(maxlen) and length(items) > maxlen do
+      {:deque, Enum.take(items, -maxlen), maxlen}
+    else
+      d
+    end
+  end
+
+  defp deque_append({:deque, items, maxlen}, [x], _kw) do
+    new = deque_trim({:deque, items ++ [x], maxlen})
+    {:mutate, new, nil}
+  end
+
+  defp deque_appendleft({:deque, items, maxlen}, [x], _kw) do
+    new = deque_trim({:deque, [x | items], maxlen})
+    {:mutate, new, nil}
+  end
+
+  defp deque_pop({:deque, [], _}, _args, _kw) do
+    {:exception, "IndexError: pop from an empty deque"}
+  end
+
+  defp deque_pop({:deque, items, maxlen}, _args, _kw) do
+    last = List.last(items)
+    new = {:deque, Enum.drop(items, -1), maxlen}
+    {:mutate, new, last}
+  end
+
+  defp deque_popleft({:deque, [], _}, _args, _kw) do
+    {:exception, "IndexError: pop from an empty deque"}
+  end
+
+  defp deque_popleft({:deque, [head | rest], maxlen}, _args, _kw) do
+    {:mutate, {:deque, rest, maxlen}, head}
+  end
+
+  defp deque_extend({:deque, items, maxlen}, [iterable], _kw) do
+    new_items = Builtins.to_list_safe(iterable)
+    new = deque_trim({:deque, items ++ new_items, maxlen})
+    {:mutate, new, nil}
+  end
+
+  defp deque_extendleft({:deque, items, maxlen}, [iterable], _kw) do
+    new_items = Builtins.to_list_safe(iterable)
+    new = deque_trim({:deque, Enum.reverse(new_items) ++ items, maxlen})
+    {:mutate, new, nil}
+  end
+
+  defp deque_clear({:deque, _, maxlen}, _args, _kw) do
+    {:mutate, {:deque, [], maxlen}, nil}
+  end
+
+  defp deque_rotate({:deque, items, maxlen}, args, _kw) do
+    n =
+      case args do
+        [n] when is_integer(n) -> n
+        _ -> 1
+      end
+
+    len = length(items)
+
+    if len == 0 do
+      {:mutate, {:deque, items, maxlen}, nil}
+    else
+      n = rem(n, len)
+      n = if n < 0, do: n + len, else: n
+      {right, left} = Enum.split(items, len - n)
+      {:mutate, {:deque, left ++ right, maxlen}, nil}
+    end
+  end
+
+  defp deque_copy({:deque, items, maxlen}, _args, _kw) do
+    {:deque, items, maxlen}
+  end
 end

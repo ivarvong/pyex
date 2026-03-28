@@ -225,7 +225,12 @@ defmodule Pyex.Interpreter.Collections do
         {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
 
       :ok ->
-        case ControlFlow.bind_loop_var(var_name, item, env) do
+        # Push a child scope for the loop variable so that nonlocal/global
+        # mutations made inside the body can be propagated back by popping
+        # just the loop-variable scope afterwards.
+        child_env = Env.push_scope(env)
+
+        case ControlFlow.bind_loop_var(var_name, item, child_env) do
           {:exception, msg} ->
             {{:exception, msg}, env, ctx}
 
@@ -234,7 +239,10 @@ defmodule Pyex.Interpreter.Collections do
               {{:exception, _}, _, _} = error ->
                 error
 
-              {new_acc, _inner_env, ctx} ->
+              {new_acc, inner_env, ctx} ->
+                # Drop the child scope (loop variable) but keep outer scope mutations
+                next_env = Env.drop_top_scope(inner_env)
+
                 eval_comp_for_loop(
                   kind,
                   expr,
@@ -242,7 +250,7 @@ defmodule Pyex.Interpreter.Collections do
                   rest_items,
                   rest_clauses,
                   new_acc,
-                  env,
+                  next_env,
                   ctx
                 )
             end

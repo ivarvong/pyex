@@ -66,10 +66,42 @@ defmodule Pyex.Stdlib.Json do
 
       true ->
         case Jason.encode(json_value) do
-          {:ok, json} -> json
+          {:ok, json} -> add_python_spaces(json)
           {:error, reason} -> encode_error(reason)
         end
     end
+  end
+
+  @spec add_python_spaces(String.t()) :: String.t()
+  defp add_python_spaces(json) do
+    # Python json.dumps uses ", " and ": " as separators by default.
+    # Jason produces compact JSON without spaces.  We post-process the
+    # output to match Python by inserting spaces after : and , that are
+    # outside of string values.
+    add_python_spaces(json, false, <<>>)
+  end
+
+  @spec add_python_spaces(String.t(), boolean(), binary()) :: String.t()
+  defp add_python_spaces(<<>>, _in_str, acc), do: acc
+
+  defp add_python_spaces(<<?\\, c, rest::binary>>, true, acc) do
+    add_python_spaces(rest, true, <<acc::binary, ?\\, c>>)
+  end
+
+  defp add_python_spaces(<<?", rest::binary>>, in_str, acc) do
+    add_python_spaces(rest, not in_str, <<acc::binary, ?">>)
+  end
+
+  defp add_python_spaces(<<?:, rest::binary>>, false, acc) do
+    add_python_spaces(rest, false, <<acc::binary, ?:, ?\s>>)
+  end
+
+  defp add_python_spaces(<<?,, rest::binary>>, false, acc) do
+    add_python_spaces(rest, false, <<acc::binary, ?,, ?\s>>)
+  end
+
+  defp add_python_spaces(<<c, rest::binary>>, in_str, acc) do
+    add_python_spaces(rest, in_str, <<acc::binary, c>>)
   end
 
   @spec encode_error(term()) :: {:exception, String.t()}

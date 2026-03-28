@@ -28,6 +28,7 @@ defmodule Pyex.Interpreter do
     ControlFlow,
     Dunder,
     Exceptions,
+    Format,
     Helpers,
     Import,
     Invocation,
@@ -73,6 +74,14 @@ defmodule Pyex.Interpreter do
           | {:py_dict, %{optional(pyvalue()) => pyvalue()}, [pyvalue()]}
           | {:pyex_decimal, Decimal.t()}
           | {:object, integer()}
+          | {:property, pyvalue() | nil, pyvalue() | nil, pyvalue() | nil}
+          | {:staticmethod, pyvalue()}
+          | {:classmethod, pyvalue()}
+          | {:deque, [pyvalue()], integer() | nil}
+          | {:stringio, String.t()}
+          | {:partial, pyvalue(), [pyvalue()], %{optional(String.t()) => pyvalue()}}
+          | {:lru_cached_function, pyvalue(), non_neg_integer()}
+          | {:cached_property, pyvalue()}
           | {:ref, non_neg_integer()}
 
   @typep signal ::
@@ -91,6 +100,7 @@ defmodule Pyex.Interpreter do
           | {:dunder_call, pyvalue(), String.t(), [pyvalue()]}
           | {:map_call, pyvalue(), [pyvalue()]}
           | {:filter_call, pyvalue(), [pyvalue()]}
+          | {:reduce_call, pyvalue(), pyvalue(), pyvalue() | :no_initial}
           | {:min_call, [pyvalue()], pyvalue()}
           | {:max_call, [pyvalue()], pyvalue()}
           | {:sort_call, [pyvalue()], pyvalue() | nil, boolean()}
@@ -182,6 +192,8 @@ defmodule Pyex.Interpreter do
   propagates up through statement evaluation.
   """
   @spec eval(Parser.ast_node(), Env.t(), Ctx.t()) :: eval_result()
+  def eval({:__evaluated__, val}, env, ctx), do: {val, env, ctx}
+
   def eval({:module, _, statements}, env, ctx) do
     eval_statements(statements, env, ctx)
   end
@@ -191,46 +203,31 @@ defmodule Pyex.Interpreter do
   end
 
   def eval({:def, _, [name, params, body]}, env, ctx) do
-    func = {:function, name, params, body, env}
+    {evaluated_params, ctx} = eval_param_defaults(params, env, ctx)
+    func = {:function, name, evaluated_params, body, env}
     {nil, Env.smart_put(env, name, func), ctx}
   end
 
   def eval({:decorated_def, _, [decorator_expr, def_node]}, env, ctx) do
-    {nil, env, ctx} = eval(def_node, env, ctx)
-
-    name =
-      case Helpers.unwrap_def(def_node) do
-        {:def, _, [n, _, _]} -> n
-        {:class, _, [n, _, _]} -> n
-      end
-
-    {:ok, func} = Env.get(env, name)
-
+    # Evaluate the decorator expression BEFORE the def so that references to
+    # the name (e.g. @x.setter referencing the existing @property x) capture
+    # the current binding, not the one created by the def below.
     case eval(decorator_expr, env, ctx) do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
       {decorator, env, ctx} ->
-        case call_function(decorator, [func], %{}, env, ctx) do
-          {:mutate, _new_object, return_value, new_env, ctx} ->
-            {nil, Env.smart_put(new_env, name, return_value), ctx}
+        {nil, env, ctx} = eval(def_node, env, ctx)
 
-          {:mutate, _new_object, return_value, ctx} ->
-            {nil, Env.smart_put(env, name, return_value), ctx}
+        name =
+          case Helpers.unwrap_def(def_node) do
+            {:def, _, [n, _, _]} -> n
+            {:class, _, [n, _, _]} -> n
+          end
 
-          {{:register_route, method, path, handler}, env, ctx} ->
-            env = register_route(decorator_expr, method, path, handler, env)
-            {nil, Env.smart_put(env, name, handler), ctx}
+        {:ok, func} = Env.get(env, name)
 
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {result, env, ctx, _updated_func} ->
-            {nil, Env.smart_put(env, name, result), ctx}
-
-          {result, env, ctx} ->
-            {nil, Env.smart_put(env, name, result), ctx}
-        end
+        eval_apply_decorator(decorator, func, name, decorator_expr, env, ctx)
     end
   end
 
@@ -263,9 +260,33 @@ defmodule Pyex.Interpreter do
 
         case result do
           {:exception, msg} ->
-            exc_type = extract_exception_type_name(msg)
+            exc_type_name = extract_exception_type_name(msg)
 
-            case Dunder.call_dunder_mut(context_val, "__exit__", [exc_type, msg, nil], env, ctx) do
+            exc_type =
+              case ctx.exception_instance do
+                {:instance, {:class, name, bases, attrs}, _} ->
+                  {:class, name, bases, Map.put_new(attrs, "__name__", name)}
+
+                _ when is_binary(exc_type_name) ->
+                  {:class, exc_type_name, [], %{"__name__" => exc_type_name}}
+
+                _ ->
+                  nil
+              end
+
+            exc_val =
+              case ctx.exception_instance do
+                nil -> msg
+                inst -> inst
+              end
+
+            case Dunder.call_dunder_mut(
+                   context_val,
+                   "__exit__",
+                   [exc_type, exc_val, nil],
+                   env,
+                   ctx
+                 ) do
               {:ok, new_obj, suppress, env, ctx} ->
                 env = with_update_cm(env, cm_var, new_obj)
 
@@ -553,6 +574,43 @@ defmodule Pyex.Interpreter do
     Statements.eval_del_subscript(target_expr, key_expr, env, ctx)
   end
 
+  def eval({:del, _, [:attr, obj_expr, attr]}, env, ctx) do
+    case eval(obj_expr, env, ctx) do
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {obj, env, ctx} ->
+        obj = Ctx.deref(ctx, obj)
+
+        case obj do
+          {:instance, _, attrs} = inst ->
+            if Map.has_key?(attrs, attr) do
+              new_inst = put_elem(inst, 2, Map.delete(attrs, attr))
+
+              case obj_expr do
+                {:var, _, [var_name]} ->
+                  case Env.get(env, var_name) do
+                    {:ok, {:ref, id}} -> {nil, env, Ctx.heap_put(ctx, id, new_inst)}
+                    _ -> {nil, Env.put_at_source(env, var_name, new_inst), ctx}
+                  end
+
+                _ ->
+                  {nil, env, ctx}
+              end
+            else
+              {{:exception,
+                "AttributeError: #{Helpers.py_type(obj)} object has no attribute '#{attr}'"}, env,
+               ctx}
+            end
+
+          _ ->
+            {{:exception,
+              "AttributeError: '#{Helpers.py_type(obj)}' object has no attribute '#{attr}'"}, env,
+             ctx}
+        end
+    end
+  end
+
   def eval({:aug_subscript_assign, _, [var_name, key_expr, op, val_expr]}, env, ctx) do
     Assignments.eval_name_aug_subscript_assign(var_name, key_expr, op, val_expr, env, ctx)
   end
@@ -599,6 +657,18 @@ defmodule Pyex.Interpreter do
                       {:ok, {:builtin_kw, _} = bkw, _owner} ->
                         {{:bound_method, raw, bkw}, env, ctx}
 
+                      {:ok, {:property, fget, _, _}, _owner} when fget != nil ->
+                        case call_function(fget, [instance], %{}, env, ctx) do
+                          {val, env, ctx, _} -> {val, env, ctx}
+                          other -> other
+                        end
+
+                      {:ok, {:staticmethod, func}, _owner} ->
+                        {func, env, ctx}
+
+                      {:ok, {:classmethod, func}, _owner} ->
+                        {{:bound_method, class, func}, env, ctx}
+
                       {:ok, value, _owner} ->
                         {value, env, ctx}
 
@@ -608,9 +678,15 @@ defmodule Pyex.Interpreter do
                             {method, env, ctx}
 
                           :error ->
-                            {{:exception,
-                              "AttributeError: '#{Helpers.py_type(instance)}' object has no attribute '#{attr}'"},
-                             env, ctx}
+                            case Dunder.call_dunder(instance, "__getattr__", [attr], env, ctx) do
+                              {:ok, val, env, ctx} ->
+                                {val, env, ctx}
+
+                              :not_found ->
+                                {{:exception,
+                                  "AttributeError: '#{Helpers.py_type(instance)}' object has no attribute '#{attr}'"},
+                                 env, ctx}
+                            end
                         end
                     end
                 end
@@ -661,9 +737,15 @@ defmodule Pyex.Interpreter do
                             {method, env, ctx}
 
                           :error ->
-                            {{:exception,
-                              "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
-                             env, ctx}
+                            case Dunder.call_dunder(object, "__getattr__", [attr], env, ctx) do
+                              {:ok, val, env, ctx} ->
+                                {val, env, ctx}
+
+                              :not_found ->
+                                {{:exception,
+                                  "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
+                                 env, ctx}
+                            end
                         end
                     end
                 end
@@ -700,6 +782,54 @@ defmodule Pyex.Interpreter do
                     {value, env, ctx}
                 end
             end
+
+          {:property, fget, fset, fdel} ->
+            case attr do
+              "setter" ->
+                prop = {:property, fget, fset, fdel}
+
+                fun = fn
+                  [fsetter] -> {:property, fget, fsetter, fdel}
+                  _ -> prop
+                end
+
+                {{:builtin, fun}, env, ctx}
+
+              "deleter" ->
+                prop = {:property, fget, fset, fdel}
+
+                fun = fn
+                  [fdeleter] -> {:property, fget, fset, fdeleter}
+                  _ -> prop
+                end
+
+                {{:builtin, fun}, env, ctx}
+
+              "getter" ->
+                prop = {:property, fget, fset, fdel}
+
+                fun = fn
+                  [fg] -> {:property, fg, fset, fdel}
+                  _ -> prop
+                end
+
+                {{:builtin, fun}, env, ctx}
+
+              "__doc__" ->
+                {nil, env, ctx}
+
+              _ ->
+                {{:exception, "AttributeError: 'property' object has no attribute '#{attr}'"},
+                 env, ctx}
+            end
+
+          {:staticmethod, _} ->
+            {{:exception, "AttributeError: 'staticmethod' object has no attribute '#{attr}'"},
+             env, ctx}
+
+          {:classmethod, _} ->
+            {{:exception, "AttributeError: 'classmethod' object has no attribute '#{attr}'"}, env,
+             ctx}
 
           {:super_proxy, instance, bases} ->
             result =
@@ -822,7 +952,13 @@ defmodule Pyex.Interpreter do
             {signal, env, ctx}
 
           {key, env, ctx} ->
-            eval_subscript(object, key, env, ctx)
+            case eval_subscript(object, key, env, ctx) do
+              {:defaultdict_auto_insert, default_val, _new_obj, env, ctx} ->
+                {default_val, env, ctx}
+
+              other ->
+                other
+            end
         end
     end
   end
@@ -840,7 +976,8 @@ defmodule Pyex.Interpreter do
 
   def eval({:lambda, _, [params, body_expr]}, env, ctx) do
     body = [{:return, [line: 1], [body_expr]}]
-    func = {:function, "<lambda>", params, body, env}
+    {evaluated_params, ctx} = eval_param_defaults(params, env, ctx)
+    func = {:function, "<lambda>", evaluated_params, body, env}
     {func, env, ctx}
   end
 
@@ -1087,6 +1224,18 @@ defmodule Pyex.Interpreter do
                   {:ok, {:builtin_kw, _} = bkw, _owner} ->
                     {{:bound_method, object, bkw}, env, ctx}
 
+                  {:ok, {:property, fget, _, _}, _owner} when fget != nil ->
+                    case call_function(fget, [object], %{}, env, ctx) do
+                      {val, env, ctx, _} -> {val, env, ctx}
+                      other -> other
+                    end
+
+                  {:ok, {:staticmethod, func}, _owner} ->
+                    {func, env, ctx}
+
+                  {:ok, {:classmethod, func}, _owner} ->
+                    {{:bound_method, class, func}, env, ctx}
+
                   {:ok, value, _owner} ->
                     {value, env, ctx}
 
@@ -1096,9 +1245,15 @@ defmodule Pyex.Interpreter do
                         {method, env, ctx}
 
                       :error ->
-                        {{:exception,
-                          "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
-                         env, ctx}
+                        case Dunder.call_dunder(object, "__getattr__", [attr], env, ctx) do
+                          {:ok, val, env, ctx} ->
+                            {val, env, ctx}
+
+                          :not_found ->
+                            {{:exception,
+                              "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
+                             env, ctx}
+                        end
                     end
                 end
             end
@@ -1119,6 +1274,12 @@ defmodule Pyex.Interpreter do
                   {:ok, {:builtin_kw, _} = bkw, _owner} ->
                     {{:bound_method, class_val, bkw}, env, ctx}
 
+                  {:ok, {:staticmethod, func}, _owner} ->
+                    {func, env, ctx}
+
+                  {:ok, {:classmethod, func}, _owner} ->
+                    {{:bound_method, class_val, func}, env, ctx}
+
                   {:ok, value, _owner} ->
                     {value, env, ctx}
 
@@ -1128,6 +1289,12 @@ defmodule Pyex.Interpreter do
                      env, ctx}
                 end
 
+              {:staticmethod, func} ->
+                {func, env, ctx}
+
+              {:classmethod, func} ->
+                {{:bound_method, class_val, func}, env, ctx}
+
               {:builtin_kw, _} = bkw ->
                 {{:bound_method, class_val, bkw}, env, ctx}
 
@@ -1135,6 +1302,31 @@ defmodule Pyex.Interpreter do
                 {value, env, ctx}
             end
         end
+
+      {:builtin_type, "dict", _} ->
+        case attr do
+          "fromkeys" ->
+            fun = fn
+              [keys], _kw ->
+                Builtins.dict_fromkeys(keys, nil)
+
+              [keys, default], _kw ->
+                Builtins.dict_fromkeys(keys, default)
+
+              _, _kw ->
+                {:exception, "TypeError: dict.fromkeys() takes 1 or 2 arguments"}
+            end
+
+            {{:builtin_kw, fun}, env, ctx}
+
+          _ ->
+            {{:exception, "AttributeError: type object 'dict' has no attribute '#{attr}'"}, env,
+             ctx}
+        end
+
+      {:builtin_type, name, _} ->
+        {{:exception, "AttributeError: type object '#{name}' has no attribute '#{attr}'"}, env,
+         ctx}
 
       {:py_dict, %{^attr => _}, _} = dict ->
         {:ok, value} = PyDict.fetch(dict, attr)
@@ -1157,6 +1349,48 @@ defmodule Pyex.Interpreter do
           _ ->
             {{:exception, "AttributeError: 'range' object has no attribute '#{attr}'"}, env, ctx}
         end
+
+      {:property, fget, fset, fdel} ->
+        case attr do
+          "setter" ->
+            fun = fn
+              [fsetter] -> {:property, fget, fsetter, fdel}
+              _ -> {:property, fget, fset, fdel}
+            end
+
+            {{:builtin, fun}, env, ctx}
+
+          "deleter" ->
+            fun = fn
+              [fdeleter] -> {:property, fget, fset, fdeleter}
+              _ -> {:property, fget, fset, fdel}
+            end
+
+            {{:builtin, fun}, env, ctx}
+
+          "getter" ->
+            fun = fn
+              [fg] -> {:property, fg, fset, fdel}
+              _ -> {:property, fget, fset, fdel}
+            end
+
+            {{:builtin, fun}, env, ctx}
+
+          "__doc__" ->
+            {nil, env, ctx}
+
+          _ ->
+            {{:exception, "AttributeError: 'property' object has no attribute '#{attr}'"}, env,
+             ctx}
+        end
+
+      {:staticmethod, _} ->
+        {{:exception, "AttributeError: 'staticmethod' object has no attribute '#{attr}'"}, env,
+         ctx}
+
+      {:classmethod, _} ->
+        {{:exception, "AttributeError: 'classmethod' object has no attribute '#{attr}'"}, env,
+         ctx}
 
       {:super_proxy, instance, bases} ->
         result =
@@ -1301,6 +1535,36 @@ defmodule Pyex.Interpreter do
     call_function(func, args, kwargs, env, ctx)
   end
 
+  def call_function({:partial, func, partial_args, partial_kwargs}, args, kwargs, env, ctx) do
+    full_args = partial_args ++ args
+    full_kwargs = Map.merge(partial_kwargs, kwargs)
+    call_function(func, full_args, full_kwargs, env, ctx)
+  end
+
+  def call_function({:lru_cached_function, func, cache_id}, args, kwargs, env, ctx) do
+    cache = Map.get(ctx.heap, cache_id, %{})
+    cache_args = {args, kwargs}
+
+    case Map.fetch(cache, cache_args) do
+      {:ok, cached_result} ->
+        {cached_result, env, ctx}
+
+      :error ->
+        case call_function(func, args, kwargs, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {signal, env, ctx}
+
+          {result, env, ctx, _} ->
+            ctx = Ctx.heap_put(ctx, cache_id, Map.put(cache, cache_args, result))
+            {result, env, ctx}
+
+          {result, env, ctx} ->
+            ctx = Ctx.heap_put(ctx, cache_id, Map.put(cache, cache_args, result))
+            {result, env, ctx}
+        end
+    end
+  end
+
   def call_function({:builtin, fun}, args, _kwargs, env, ctx) do
     Invocation.call_builtin(fun, args, env, ctx)
   end
@@ -1363,6 +1627,26 @@ defmodule Pyex.Interpreter do
         ctx
       ) do
     Invocation.call_bound_builtin(instance, fun, args, env, ctx)
+  end
+
+  def call_function(
+        {:class, _name, _bases, %{"__constructor__" => {:builtin, ctor}} = _class_attrs},
+        args,
+        _kwargs,
+        env,
+        ctx
+      ) do
+    Invocation.call_builtin(ctor, args, env, ctx)
+    |> case do
+      {{:exception, _} = exc, env, ctx} ->
+        {exc, env, ctx}
+
+      {inst, env, ctx} when elem(inst, 0) == :instance ->
+        {inst, env, ctx}
+
+      {val, env, ctx} ->
+        {val, env, ctx}
+    end
   end
 
   def call_function({:class, name, _bases, _class_attrs} = class, args, kwargs, env, ctx) do
@@ -1651,6 +1935,12 @@ defmodule Pyex.Interpreter do
           result -> {Enum.join(result), env, ctx}
         end
 
+      {:tuple, items} ->
+        case py_slice(items, start, stop, step) do
+          {:exception, msg} -> {{:exception, msg}, env, ctx}
+          result -> {{:tuple, result}, env, ctx}
+        end
+
       {:range, _, _, _} = r ->
         case Builtins.range_to_list(r) do
           {:exception, msg} ->
@@ -1915,6 +2205,11 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  defp do_eval_binop(:percent, l, r, env, ctx) when is_binary(l) do
+    {result, env, ctx} = Format.string_format(l, r, env, ctx)
+    BinaryOps.binop_result(result, env, ctx)
+  end
+
   defp do_eval_binop(op, l, {:instance, _, _} = r, env, ctx) do
     case BinaryOps.rdunder_for_op(op) do
       nil ->
@@ -1929,6 +2224,33 @@ defmodule Pyex.Interpreter do
             BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
         end
     end
+  end
+
+  defp do_eval_binop(op, {:tuple, la}, {:tuple, ra}, env, ctx)
+       when op in [:eq, :neq] and length(la) == length(ra) do
+    result =
+      Enum.zip(la, ra)
+      |> Enum.reduce_while({true, env, ctx}, fn {a, b}, {_, env, ctx} ->
+        case eval_binop(:eq, a, b, env, ctx) do
+          {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
+          {false, env, ctx} -> {:halt, {false, env, ctx}}
+          {_, env, ctx} -> {:cont, {true, env, ctx}}
+        end
+      end)
+
+    case result do
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {eq_result, env, ctx} when is_boolean(eq_result) ->
+        final = if op == :neq, do: not eq_result, else: eq_result
+        {final, env, ctx}
+    end
+  end
+
+  defp do_eval_binop(op, {:tuple, la}, {:tuple, ra}, env, ctx)
+       when op in [:eq, :neq] and length(la) != length(ra) do
+    {op == :neq, env, ctx}
   end
 
   defp do_eval_binop(op, {:pandas_series, _} = l, r, env, ctx) do
@@ -2051,19 +2373,22 @@ defmodule Pyex.Interpreter do
     sorted =
       case key_fn do
         nil when has_instances? ->
-          sort_with_lt(items, env, ctx)
+          case sort_with_lt(items, env, ctx) do
+            {:ok, sorted, env, ctx} when reverse -> {:ok, Enum.reverse(sorted), env, ctx}
+            other -> other
+          end
 
         nil ->
-          {:ok, Enum.sort(items), env, ctx}
+          order = if reverse, do: :desc, else: :asc
+          {:ok, Enum.sort(items, order), env, ctx}
 
         _ ->
-          sort_with_key(items, key_fn, env, ctx)
+          sort_with_key(items, key_fn, reverse, env, ctx)
       end
 
     case sorted do
       {:ok, sorted_items, env, ctx} ->
-        result = if reverse, do: Enum.reverse(sorted_items), else: sorted_items
-        {result, env, ctx}
+        {sorted_items, env, ctx}
 
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
@@ -2127,9 +2452,9 @@ defmodule Pyex.Interpreter do
     {:ok, Enum.map(sorted_indexed, &elem(&1, 0)), env, ctx}
   end
 
-  @spec sort_with_key([pyvalue()], pyvalue(), Env.t(), Ctx.t()) ::
+  @spec sort_with_key([pyvalue()], pyvalue(), boolean(), Env.t(), Ctx.t()) ::
           {:ok, [pyvalue()], Env.t(), Ctx.t()} | eval_result()
-  defp sort_with_key(items, key_fn, env, ctx) do
+  defp sort_with_key(items, key_fn, reverse, env, ctx) do
     keys_result =
       Enum.reduce_while(items, {:ok, [], env, ctx}, fn item, {:ok, acc, env, ctx} ->
         case call_function(key_fn, [item], %{}, env, ctx) do
@@ -2146,10 +2471,12 @@ defmodule Pyex.Interpreter do
 
     case keys_result do
       {:ok, pairs, env, ctx} ->
+        comparator = if reverse, do: &pyvalue_gte/2, else: &pyvalue_lte/2
+
         sorted =
           pairs
           |> Enum.reverse()
-          |> Enum.sort_by(fn {_item, key} -> key end, &pyvalue_lte/2)
+          |> Enum.sort_by(fn {_item, key} -> key end, comparator)
           |> Enum.map(&elem(&1, 0))
 
         {:ok, sorted, env, ctx}
@@ -2173,6 +2500,21 @@ defmodule Pyex.Interpreter do
        do: Date.compare(a, b) != :gt
 
   defp pyvalue_lte(a, b), do: a <= b
+
+  @spec pyvalue_gte(pyvalue(), pyvalue()) :: boolean()
+  defp pyvalue_gte(
+         {:instance, _, %{"__dt__" => %DateTime{} = a}},
+         {:instance, _, %{"__dt__" => %DateTime{} = b}}
+       ),
+       do: DateTime.compare(a, b) != :lt
+
+  defp pyvalue_gte(
+         {:instance, _, %{"__date__" => %Date{} = a}},
+         {:instance, _, %{"__date__" => %Date{} = b}}
+       ),
+       do: Date.compare(a, b) != :lt
+
+  defp pyvalue_gte(a, b), do: a >= b
 
   @doc false
   @spec eval_instance_next(
@@ -2361,6 +2703,38 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  @spec eval_apply_decorator(
+          pyvalue(),
+          pyvalue(),
+          String.t(),
+          Parser.ast_node(),
+          Env.t(),
+          Ctx.t()
+        ) ::
+          eval_result()
+  defp eval_apply_decorator(decorator, func, name, decorator_expr, env, ctx) do
+    case call_function(decorator, [func], %{}, env, ctx) do
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {:mutate, _new_object, return_value, new_env, ctx} ->
+        {nil, Env.smart_put(new_env, name, return_value), ctx}
+
+      {:mutate, _new_object, return_value, ctx} ->
+        {nil, Env.smart_put(env, name, return_value), ctx}
+
+      {{:register_route, method, path, handler}, env, ctx} ->
+        env = register_route(decorator_expr, method, path, handler, env)
+        {nil, Env.smart_put(env, name, handler), ctx}
+
+      {result, env, ctx, _updated_func} ->
+        {nil, Env.smart_put(env, name, result), ctx}
+
+      {result, env, ctx} ->
+        {nil, Env.smart_put(env, name, result), ctx}
+    end
+  end
+
   @spec with_context_var(node()) :: String.t() | nil
   defp with_context_var({:var, _, [name]}), do: name
   defp with_context_var(_), do: nil
@@ -2368,4 +2742,38 @@ defmodule Pyex.Interpreter do
   @spec with_update_cm(Env.t(), String.t() | nil, pyvalue()) :: Env.t()
   defp with_update_cm(env, nil, _new_obj), do: env
   defp with_update_cm(env, var_name, new_obj), do: Env.put_at_source(env, var_name, new_obj)
+
+  @spec eval_param_defaults([Parser.param()], Env.t(), Ctx.t()) :: {[Parser.param()], Ctx.t()}
+  defp eval_param_defaults(params, env, ctx) do
+    Enum.map_reduce(params, ctx, fn param, ctx ->
+      case param do
+        {name, nil} ->
+          {{name, nil}, ctx}
+
+        {name, :kwonly_sep} ->
+          {{name, :kwonly_sep}, ctx}
+
+        {name, nil, type} ->
+          {{name, nil, type}, ctx}
+
+        {name, {:__evaluated__, _} = already} ->
+          {{name, already}, ctx}
+
+        {name, default_expr} ->
+          case eval(default_expr, env, ctx) do
+            {{:exception, _}, _env, ctx} -> {{name, nil}, ctx}
+            {val, _env, ctx} -> {{name, {:__evaluated__, val}}, ctx}
+          end
+
+        {name, {:__evaluated__, _} = already, type} ->
+          {{name, already, type}, ctx}
+
+        {name, default_expr, type} ->
+          case eval(default_expr, env, ctx) do
+            {{:exception, _}, _env, ctx} -> {{name, nil, type}, ctx}
+            {val, _env, ctx} -> {{name, {:__evaluated__, val}, type}, ctx}
+          end
+      end
+    end)
+  end
 end
