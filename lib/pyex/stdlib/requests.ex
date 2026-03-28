@@ -86,56 +86,81 @@ defmodule Pyex.Stdlib.Requests do
 
   @spec build_session() :: Pyex.Interpreter.pyvalue()
   defp build_session do
-    # Use an Agent to hold mutable session headers so closures always
-    # read the latest state, matching Python's mutable Session semantics.
-    {:ok, agent} = Agent.start_link(fn -> PyDict.new() end)
+    # Allocate a heap slot for the session headers dict. The heap_id is
+    # captured by closures so they always read/write the current value
+    # through ctx, matching Python's mutable Session semantics without
+    # using a process or agent.
+    {:ctx_call,
+     fn env, ctx ->
+       {ref, ctx} = Pyex.Ctx.heap_alloc(ctx, PyDict.new())
+       {:ref, headers_id} = ref
 
-    session_method = fn method ->
-      {:builtin_kw,
-       fn [url], kwargs when is_binary(url) ->
-         current_headers = Agent.get(agent, & &1)
-         merged_kwargs = merge_session_headers(kwargs, current_headers)
-         do_request(method, url, merged_kwargs)
-       end}
-    end
+       session_method = fn method ->
+         {:builtin_kw,
+          fn [url], kwargs when is_binary(url) ->
+            {:ctx_call,
+             fn env2, ctx2 ->
+               current_headers = Map.get(ctx2.heap, headers_id, PyDict.new())
+               merged_kwargs = merge_session_headers(kwargs, current_headers)
 
-    # The "headers" value is a PyDict that supports .update() and []= via
-    # the interpreter's normal dict mutation paths. We intercept reads of
-    # session.headers to return the agent's current value, and intercept
-    # mutations by wrapping update in a custom builtin.
-    headers_obj =
-      PyDict.from_pairs([
-        {"update",
-         {:builtin,
-          fn [new_headers] ->
-            Agent.update(agent, fn current ->
-              case new_headers do
-                {:py_dict, _, _} = h -> PyDict.merge(current, h)
-                %{} = m -> PyDict.merge_map(current, m)
-                _ -> current
-              end
-            end)
+               case do_request(method, url, merged_kwargs) do
+                 {:io_call, inner_fn} ->
+                   ctx2 = Pyex.Ctx.pause_compute(ctx2)
+                   {result, env2, ctx2} = inner_fn.(env2, ctx2)
+                   {result, env2, Pyex.Ctx.resume_compute(ctx2)}
 
-            nil
-          end}},
-        {"__setitem__",
-         {:builtin,
-          fn [key, value] ->
-            Agent.update(agent, fn current -> PyDict.put(current, key, value) end)
-            nil
-          end}}
-      ])
+                 result ->
+                   {result, env2, ctx2}
+               end
+             end}
+          end}
+       end
 
-    PyDict.from_pairs([
-      {"headers", headers_obj},
-      {"get", session_method.(:get)},
-      {"post", session_method.(:post)},
-      {"put", session_method.(:put)},
-      {"patch", session_method.(:patch)},
-      {"delete", session_method.(:delete)},
-      {"head", session_method.(:head)},
-      {"options", session_method.(:options)}
-    ])
+       headers_obj =
+         PyDict.from_pairs([
+           {"update",
+            {:builtin,
+             fn [new_headers] ->
+               {:ctx_call,
+                fn env2, ctx2 ->
+                  current = Map.get(ctx2.heap, headers_id, PyDict.new())
+
+                  updated =
+                    case new_headers do
+                      {:py_dict, _, _} = h -> PyDict.merge(current, h)
+                      %{} = m -> PyDict.merge_map(current, m)
+                      _ -> current
+                    end
+
+                  {nil, env2, Pyex.Ctx.heap_put(ctx2, headers_id, updated)}
+                end}
+             end}},
+           {"__setitem__",
+            {:builtin,
+             fn [key, value] ->
+               {:ctx_call,
+                fn env2, ctx2 ->
+                  current = Map.get(ctx2.heap, headers_id, PyDict.new())
+                  updated = PyDict.put(current, key, value)
+                  {nil, env2, Pyex.Ctx.heap_put(ctx2, headers_id, updated)}
+                end}
+             end}}
+         ])
+
+       session_dict =
+         PyDict.from_pairs([
+           {"headers", headers_obj},
+           {"get", session_method.(:get)},
+           {"post", session_method.(:post)},
+           {"put", session_method.(:put)},
+           {"patch", session_method.(:patch)},
+           {"delete", session_method.(:delete)},
+           {"head", session_method.(:head)},
+           {"options", session_method.(:options)}
+         ])
+
+       {session_dict, env, ctx}
+     end}
   end
 
   @spec merge_session_headers(
@@ -182,7 +207,8 @@ defmodule Pyex.Stdlib.Requests do
 
            req_opts =
              [headers: headers, method: method, url: url, redirect: false, retry: false] ++
-               body_opts(kwargs)
+               body_opts(kwargs) ++
+               timeout_opts(kwargs)
 
            start_mono = System.monotonic_time()
            telemetry_meta = %{method: method_str, url: url}
@@ -270,6 +296,17 @@ defmodule Pyex.Stdlib.Requests do
       data != nil && is_binary(data) -> [body: data]
       data != nil -> [body: form_encode(data)]
       true -> []
+    end
+  end
+
+  @spec timeout_opts(%{optional(String.t()) => Pyex.Interpreter.pyvalue()}) :: keyword()
+  defp timeout_opts(kwargs) do
+    case Map.get(kwargs, "timeout") do
+      seconds when is_number(seconds) and seconds > 0 ->
+        [receive_timeout: round(seconds * 1000)]
+
+      _ ->
+        []
     end
   end
 

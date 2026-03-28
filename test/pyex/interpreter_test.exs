@@ -1773,7 +1773,7 @@ defmodule Pyex.InterpreterTest do
         f(1, 2, 3, 4)
         """)
 
-      assert result == [2, 3, 4]
+      assert result == {:tuple, [2, 3, 4]}
     end
 
     test "*args is empty when no extra args" do
@@ -1784,7 +1784,7 @@ defmodule Pyex.InterpreterTest do
         f(1)
         """)
 
-      assert result == []
+      assert result == {:tuple, []}
     end
 
     test "**kwargs collects extra keyword arguments" do
@@ -1817,7 +1817,7 @@ defmodule Pyex.InterpreterTest do
         f(1, 2, x=3)
         """)
 
-      assert result == [[1, 2], %{"x" => 3}]
+      assert result == [{:tuple, [1, 2]}, %{"x" => 3}]
     end
 
     test "regular + *args + **kwargs" do
@@ -1828,7 +1828,7 @@ defmodule Pyex.InterpreterTest do
         f(1, 2, 3, 4, key="val")
         """)
 
-      assert result == [1, 2, [3, 4], %{"key" => "val"}]
+      assert result == [1, 2, {:tuple, [3, 4]}, %{"key" => "val"}]
     end
 
     test "len(*args)" do
@@ -2636,12 +2636,12 @@ defmodule Pyex.InterpreterTest do
 
     test "scientific notation lowercase :e" do
       result = Pyex.run!(~s|f"{1234.5:.3e}"|)
-      assert result == "1.23e+03"
+      assert result == "1.234e+03"
     end
 
     test "scientific notation uppercase :E" do
       result = Pyex.run!(~s|f"{1234.5:.3E}"|)
-      assert result == "1.23E+03"
+      assert result == "1.234E+03"
     end
 
     test "scientific notation default precision :e" do
@@ -2808,6 +2808,294 @@ defmodule Pyex.InterpreterTest do
 
     test "int | int still works (bitwise OR unchanged)" do
       assert Pyex.run!("5 | 3") == 7
+    end
+  end
+
+  # ── Tuple slicing ──────────────────────────────────────────────────────────
+
+  describe "tuple slicing" do
+    test "basic slice" do
+      assert Pyex.run!("(1, 2, 3, 4)[1:3]") == {:tuple, [2, 3]}
+    end
+
+    test "step slice" do
+      assert Pyex.run!("(1, 2, 3, 4, 5)[::2]") == {:tuple, [1, 3, 5]}
+    end
+
+    test "reverse slice" do
+      assert Pyex.run!("(1, 2, 3, 4)[::-1]") == {:tuple, [4, 3, 2, 1]}
+    end
+
+    test "open start" do
+      assert Pyex.run!("(1, 2, 3, 4)[:2]") == {:tuple, [1, 2]}
+    end
+
+    test "open end" do
+      assert Pyex.run!("(1, 2, 3, 4)[2:]") == {:tuple, [3, 4]}
+    end
+
+    test "negative index slice" do
+      assert Pyex.run!("(1, 2, 3, 4)[-2:]") == {:tuple, [3, 4]}
+    end
+
+    test "empty slice" do
+      assert Pyex.run!("(1, 2, 3)[5:]") == {:tuple, []}
+    end
+  end
+
+  # ── with statement multi-target ────────────────────────────────────────────
+
+  describe "with statement multi-target" do
+    test "multi-target with as" do
+      result =
+        Pyex.run!("""
+        class CM:
+            def __init__(self, v): self.v = v
+            def __enter__(self): return self.v
+            def __exit__(self, *a): pass
+        with CM(10) as a, CM(20) as b:
+            r = a + b
+        r
+        """)
+
+      assert result == 30
+    end
+
+    test "multi-target without as" do
+      result =
+        Pyex.run!("""
+        log = []
+        class CM:
+            def __init__(self, n): self.n = n
+            def __enter__(self):
+                log.append("enter" + str(self.n))
+            def __exit__(self, *a):
+                log.append("exit" + str(self.n))
+        with CM(1), CM(2):
+            log.append("body")
+        log
+        """)
+
+      assert result == ["enter1", "enter2", "body", "exit2", "exit1"]
+    end
+
+    test "three-target with" do
+      result =
+        Pyex.run!("""
+        class CM:
+            def __init__(self, v): self.v = v
+            def __enter__(self): return self.v
+            def __exit__(self, *a): pass
+        with CM(1) as a, CM(2) as b, CM(3) as c:
+            r = a + b + c
+        r
+        """)
+
+      assert result == 6
+    end
+
+    test "__exit__ receives exception type name" do
+      result =
+        Pyex.run!("""
+        class Log:
+            def __init__(self): self.got = None
+            def __enter__(self): return self
+            def __exit__(self, t, v, tb):
+                self.got = t.__name__ if t else None
+                return False
+        cm = Log()
+        try:
+            with cm:
+                raise TypeError("boom")
+        except TypeError:
+            pass
+        cm.got
+        """)
+
+      assert result == "TypeError"
+    end
+
+    test "__exit__ returning True suppresses exception" do
+      result =
+        Pyex.run!("""
+        class Suppress:
+            def __enter__(self): return self
+            def __exit__(self, t, v, tb): return True
+        with Suppress():
+            raise ValueError("gone")
+        "survived"
+        """)
+
+      assert result == "survived"
+    end
+
+    test "__exit__ returning False propagates exception" do
+      code = """
+      class NoSuppress:
+          def __enter__(self): return self
+          def __exit__(self, t, v, tb): return False
+      with NoSuppress():
+          raise ValueError("propagated")
+      """
+
+      {:error, err} = Pyex.run(code)
+      assert err.message =~ "ValueError"
+    end
+  end
+
+  # ── raise ... from ... ─────────────────────────────────────────────────────
+
+  describe "raise from" do
+    test "raise X from Y parses and raises X" do
+      result =
+        Pyex.run!("""
+        try:
+            try:
+                raise ValueError("original")
+            except ValueError as e:
+                raise TypeError("wrapped") from e
+        except TypeError as e:
+            str(e)
+        """)
+
+      assert result == "wrapped"
+    end
+
+    test "raise X from None parses correctly" do
+      result =
+        Pyex.run!("""
+        try:
+            raise RuntimeError("clean") from None
+        except RuntimeError as e:
+            str(e)
+        """)
+
+      assert result == "clean"
+    end
+  end
+
+  # ── keyword-only parameters ────────────────────────────────────────────────
+
+  describe "keyword-only parameters" do
+    test "required keyword-only" do
+      assert Pyex.run!("""
+             def f(a, *, x):
+                 return a + x
+             f(1, x=5)
+             """) == 6
+    end
+
+    test "keyword-only with default" do
+      assert Pyex.run!("""
+             def f(a, *, x=10):
+                 return a + x
+             f(1)
+             """) == 11
+    end
+
+    test "keyword-only overrides default" do
+      assert Pyex.run!("""
+             def f(a, *, x=10):
+                 return a + x
+             f(1, x=3)
+             """) == 4
+    end
+
+    test "positional arg for keyword-only raises TypeError" do
+      {:error, err} =
+        Pyex.run("""
+        def f(a, *, x):
+            return a + x
+        f(1, 5)
+        """)
+
+      assert err.message =~ "TypeError"
+    end
+
+    test "missing required keyword-only raises TypeError" do
+      {:error, err} =
+        Pyex.run("""
+        def f(a, *, x):
+            return a + x
+        f(1)
+        """)
+
+      assert err.message =~ "TypeError"
+    end
+
+    test "keyword-only combined with *args" do
+      assert Pyex.run!("""
+             def f(*args, sep=" "):
+                 return sep.join(str(a) for a in args)
+             f(1, 2, 3, sep="-")
+             """) == "1-2-3"
+    end
+
+    test "multiple keyword-only params" do
+      assert Pyex.run!("""
+             def f(*, x, y, z=0):
+                 return x + y + z
+             f(x=1, y=2)
+             """) == 3
+    end
+  end
+
+  # ── del obj.attr ───────────────────────────────────────────────────────────
+
+  describe "del object attribute" do
+    test "deletes instance attribute" do
+      result =
+        Pyex.run!("""
+        class X:
+            def __init__(self):
+                self.v = 42
+        x = X()
+        del x.v
+        hasattr(x, "v")
+        """)
+
+      assert result == false
+    end
+
+    test "AttributeError when accessing deleted attribute" do
+      code = """
+      class X:
+          def __init__(self):
+              self.v = 42
+      x = X()
+      del x.v
+      x.v
+      """
+
+      {:error, err} = Pyex.run(code)
+      assert err.message =~ "AttributeError"
+    end
+
+    test "AttributeError when deleting nonexistent attribute" do
+      code = """
+      class X:
+          pass
+      x = X()
+      del x.missing
+      """
+
+      {:error, err} = Pyex.run(code)
+      assert err.message =~ "AttributeError"
+    end
+
+    test "del does not affect other instances" do
+      result =
+        Pyex.run!("""
+        class X:
+            def __init__(self, v):
+                self.v = v
+        a = X(1)
+        b = X(2)
+        del a.v
+        b.v
+        """)
+
+      assert result == 2
     end
   end
 end

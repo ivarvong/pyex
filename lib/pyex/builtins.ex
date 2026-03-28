@@ -124,7 +124,10 @@ defmodule Pyex.Builtins do
       {"vars", &builtin_vars/1},
       {"id", &builtin_id/1},
       {"hash", &builtin_hash/1},
-      {"object", &builtin_object/1}
+      {"object", &builtin_object/1},
+      {"property", &builtin_property/1},
+      {"staticmethod", &builtin_staticmethod/1},
+      {"classmethod", &builtin_classmethod/1}
     ]
   end
 
@@ -156,6 +159,7 @@ defmodule Pyex.Builtins do
   defp builtin_len([{:tuple, items}]), do: length(items)
   defp builtin_len([{:set, s}]), do: MapSet.size(s)
   defp builtin_len([{:frozenset, s}]), do: MapSet.size(s)
+  defp builtin_len([{:deque, items, _}]), do: length(items)
   defp builtin_len([{:generator, items}]), do: length(items)
   defp builtin_len([{:range, _, _, _} = r]), do: range_length(r)
   defp builtin_len([{:pandas_series, s}]), do: Explorer.Series.count(s)
@@ -478,6 +482,7 @@ defmodule Pyex.Builtins do
   @spec builtin_sum([Interpreter.pyvalue()]) :: number() | {:iter_sum, Interpreter.pyvalue()}
   defp builtin_sum([{:py_list, reversed, _}]), do: Enum.sum(Enum.reverse(reversed))
   defp builtin_sum([list]) when is_list(list), do: Enum.sum(list)
+  defp builtin_sum([{:tuple, items}]), do: Enum.sum(items)
   defp builtin_sum([{:generator, items}]), do: Enum.sum(items)
 
   defp builtin_sum([{:range, _, _, _} = r]) do
@@ -654,6 +659,16 @@ defmodule Pyex.Builtins do
   end
 
   @spec to_list(Interpreter.pyvalue()) :: {:ok, [Interpreter.pyvalue()]} | :error
+  @doc false
+  @spec to_list_safe(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]
+  def to_list_safe(val) do
+    case to_list(val) do
+      {:ok, items} -> items
+      :error -> []
+    end
+  end
+
+  defp to_list({:deque, items, _}), do: {:ok, items}
   defp to_list({:py_list, reversed, _}), do: {:ok, Enum.reverse(reversed)}
   defp to_list(list) when is_list(list), do: {:ok, list}
 
@@ -691,6 +706,7 @@ defmodule Pyex.Builtins do
   defp builtin_list([{:tuple, items}]), do: items
   defp builtin_list([{:set, s}]), do: MapSet.to_list(s)
   defp builtin_list([{:frozenset, s}]), do: MapSet.to_list(s)
+  defp builtin_list([{:deque, items, _}]), do: items
   defp builtin_list([{:generator, items}]), do: items
 
   defp builtin_list([{:range, _, _, _} = r]) do
@@ -760,6 +776,31 @@ defmodule Pyex.Builtins do
     {:exception, "TypeError: dict expected at most 1 argument, got #{length(args)}"}
   end
 
+  @doc false
+  @spec dict_fromkeys(Interpreter.pyvalue(), Interpreter.pyvalue()) ::
+          PyDict.t() | {:exception, String.t()}
+  def dict_fromkeys(keys, default) do
+    keys_list =
+      case keys do
+        {:py_list, reversed, _} -> Enum.reverse(reversed)
+        list when is_list(list) -> list
+        {:tuple, items} -> items
+        {:set, s} -> MapSet.to_list(s)
+        {:frozenset, s} -> MapSet.to_list(s)
+        {:range, _, _, _} = r -> range_to_list(r)
+        str when is_binary(str) -> String.codepoints(str)
+        _ -> {:error, "TypeError: dict.fromkeys() argument is not iterable"}
+      end
+
+    case keys_list do
+      {:error, msg} ->
+        {:exception, msg}
+
+      list ->
+        Enum.reduce(list, PyDict.new(), fn k, acc -> PyDict.put(acc, k, default) end)
+    end
+  end
+
   @spec builtin_isinstance([Interpreter.pyvalue()]) :: boolean()
   defp builtin_isinstance([val, type_name]) when is_binary(type_name) do
     pytype(val) == type_name
@@ -801,8 +842,40 @@ defmodule Pyex.Builtins do
 
   defp builtin_issubclass([{:class, _, _, _}, _]), do: false
 
+  # Built-in type hierarchy: bool is a subtype of int
+  defp builtin_issubclass([{:builtin_type, sub, _}, {:builtin_type, sup, _}]) do
+    sub == sup or builtin_subtype?(sub, sup)
+  end
+
+  defp builtin_issubclass([{:builtin_type, sub, _}, {:class, sup_name, _, _}]) do
+    sub == sup_name
+  end
+
+  defp builtin_issubclass([{:builtin_type, _, _}, _]), do: false
+
   defp builtin_issubclass([arg1, _arg2]) do
     {:exception, "TypeError: issubclass() arg 1 must be a class, not #{pytype(arg1)}"}
+  end
+
+  @builtin_hierarchy %{
+    "bool" => ["int"],
+    "int" => ["object"],
+    "float" => ["object"],
+    "str" => ["object"],
+    "list" => ["object"],
+    "dict" => ["object"],
+    "tuple" => ["object"],
+    "set" => ["object"],
+    "object" => []
+  }
+
+  @spec builtin_subtype?(String.t(), String.t()) :: boolean()
+  defp builtin_subtype?(sub, sup) do
+    parents = Map.get(@builtin_hierarchy, sub, [])
+
+    Enum.any?(parents, fn parent ->
+      parent == sup or builtin_subtype?(parent, sup)
+    end)
   end
 
   @spec check_bases([Interpreter.pyvalue()], String.t()) :: boolean()
@@ -891,15 +964,26 @@ defmodule Pyex.Builtins do
   @spec builtin_round([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
   defp builtin_round([val]) when is_boolean(val), do: bool_to_int(val)
-  defp builtin_round([val]) when is_number(val), do: round(val)
+  defp builtin_round([val]) when is_integer(val), do: val
+  defp builtin_round([val]) when is_float(val), do: bankers_round(val)
 
   defp builtin_round([val, ndigits]) when is_boolean(val) and is_integer(ndigits),
     do: bool_to_int(val)
 
   defp builtin_round([val, ndigits]) when is_number(val) and is_integer(ndigits) do
-    factor = :math.pow(10, ndigits)
-    scaled = val * factor
-    bankers_round(scaled) / factor
+    float_str = :erlang.float_to_binary(val / 1, [])
+
+    case Decimal.parse(float_str) do
+      {d, ""} ->
+        rounded = Decimal.round(d, ndigits, :half_even)
+        result = Decimal.to_float(rounded)
+        if ndigits <= 0 and is_integer(val), do: round(result), else: result
+
+      _ ->
+        factor = :math.pow(10, ndigits)
+        scaled = val * factor
+        bankers_round(scaled) / factor
+    end
   end
 
   defp builtin_round([_]),
@@ -1115,6 +1199,21 @@ defmodule Pyex.Builtins do
 
   @spec builtin_filter([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
+  defp builtin_filter([nil, list]) when is_list(list) do
+    Enum.filter(list, &truthy?/1)
+  end
+
+  defp builtin_filter([nil, {:py_list, reversed, _}]) do
+    Enum.filter(Enum.reverse(reversed), &truthy?/1)
+  end
+
+  defp builtin_filter([nil, iterable]) do
+    case to_list(iterable) do
+      {:ok, items} -> Enum.filter(items, &truthy?/1)
+      :error -> {:exception, "TypeError: filter() argument is not iterable"}
+    end
+  end
+
   defp builtin_filter([{:builtin, func}, list]) when is_list(list) do
     filter_with_func(func, list)
   end
@@ -1272,12 +1371,30 @@ defmodule Pyex.Builtins do
   @spec builtin_repr([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
   defp builtin_repr([{:instance, _, _} = inst]), do: {:dunder_call, inst, "__repr__", []}
+
+  defp builtin_repr([val]) when is_list(val) do
+    {:ctx_call, fn env, ctx -> Pyex.Interpreter.Protocols.eval_py_repr(val, env, ctx) end}
+  end
+
+  defp builtin_repr([{:py_list, _, _} = val]) do
+    {:ctx_call, fn env, ctx -> Pyex.Interpreter.Protocols.eval_py_repr(val, env, ctx) end}
+  end
+
+  defp builtin_repr([{:tuple, _} = val]) do
+    {:ctx_call, fn env, ctx -> Pyex.Interpreter.Protocols.eval_py_repr(val, env, ctx) end}
+  end
+
+  defp builtin_repr([{:py_dict, _, _} = val]) do
+    {:ctx_call, fn env, ctx -> Pyex.Interpreter.Protocols.eval_py_repr(val, env, ctx) end}
+  end
+
   defp builtin_repr([val]), do: py_repr_quoted(val)
 
   @spec builtin_hasattr([Interpreter.pyvalue()]) :: boolean()
   defp builtin_hasattr([{:instance, {:class, _, _, _} = class, attrs}, attr])
        when is_binary(attr) do
-    Map.has_key?(attrs, attr) or has_class_attr?(class, attr)
+    Map.has_key?(attrs, attr) or has_class_attr?(class, attr) or
+      has_class_attr?(class, "__getattr__")
   end
 
   defp builtin_hasattr([{:py_dict, _, _} = dict, attr]) when is_binary(attr) do
@@ -1463,6 +1580,30 @@ defmodule Pyex.Builtins do
     {:exception, "TypeError: object() takes no arguments"}
   end
 
+  @doc false
+  @spec builtin_property([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  def builtin_property([fget]), do: {:property, fget, nil, nil}
+  def builtin_property([fget, fset]), do: {:property, fget, fset, nil}
+  def builtin_property([fget, fset, fdel]), do: {:property, fget, fset, fdel}
+  def builtin_property([]), do: {:property, nil, nil, nil}
+
+  def builtin_property(_),
+    do: {:exception, "TypeError: property() takes at most 3 arguments"}
+
+  @doc false
+  @spec builtin_staticmethod([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  def builtin_staticmethod([func]), do: {:staticmethod, func}
+
+  def builtin_staticmethod(_),
+    do: {:exception, "TypeError: staticmethod() takes exactly 1 argument"}
+
+  @doc false
+  @spec builtin_classmethod([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  def builtin_classmethod([func]), do: {:classmethod, func}
+
+  def builtin_classmethod(_),
+    do: {:exception, "TypeError: classmethod() takes exactly 1 argument"}
+
   @spec builtin_id([Interpreter.pyvalue()]) :: integer()
   defp builtin_id([val]) do
     :erlang.phash2(val)
@@ -1596,6 +1737,7 @@ defmodule Pyex.Builtins do
   defp pytype({:builtin_kw, _}), do: "builtin_function_or_method"
   defp pytype({:class, name, _, _}), do: name
   defp pytype({:instance, {:class, name, _, _}, _}), do: name
+  defp pytype({:deque, _, _}), do: "deque"
   defp pytype({:range, _, _, _}), do: "range"
   defp pytype({:bound_method, _, _}), do: "method"
   defp pytype({:bound_method, _, _, _}), do: "method"

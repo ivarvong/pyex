@@ -59,32 +59,65 @@ defmodule Pyex.Parser.Definitions do
   """
   @spec parse_with([Lexer.token()], pos_integer()) :: parse_result()
   def parse_with(rest, line) do
-    case Parser.parse_expression(rest) do
-      {:ok, expr,
-       [{:keyword, _, "as"}, {:name, _, name}, {:op, _, :colon}, :newline, :indent | rest]} ->
-        case Parser.parse_block(rest) do
-          {:ok, body, rest} ->
-            {:ok, {:with, [line: line], [expr, name, body]}, drop_newline(rest)}
+    with {:ok, targets, rest} <- parse_with_targets(rest, line) do
+      case rest do
+        [{:op, _, :colon}, :newline, :indent | rest] ->
+          case Parser.parse_block(rest) do
+            {:ok, body, rest} ->
+              {:ok, nest_with(targets, body, line), drop_newline(rest)}
 
-          {:error, _} = error ->
-            error
-        end
+            {:error, _} = error ->
+              error
+          end
 
-      {:ok, expr, [{:op, _, :colon}, :newline, :indent | rest]} ->
-        case Parser.parse_block(rest) do
-          {:ok, body, rest} ->
-            {:ok, {:with, [line: line], [expr, nil, body]}, drop_newline(rest)}
+        _ ->
+          {:error, "expected ':' after with statement on line #{line}"}
+      end
+    end
+  end
 
-          {:error, _} = error ->
-            error
-        end
+  @spec parse_with_targets([Lexer.token()], pos_integer()) ::
+          {:ok, [{term(), String.t() | nil}], [Lexer.token()]} | {:error, String.t()}
+  defp parse_with_targets(tokens, line) do
+    case Parser.parse_expression(tokens) do
+      {:ok, expr, [{:keyword, _, "as"}, {:name, _, name} | rest]} ->
+        collect_with_targets(rest, [{expr, name}], line)
 
-      {:ok, _expr, _rest} ->
-        {:error, "expected ':' after with statement on line #{line}"}
+      {:ok, expr, rest} ->
+        collect_with_targets(rest, [{expr, nil}], line)
 
       {:error, _} = error ->
         error
     end
+  end
+
+  @spec collect_with_targets([Lexer.token()], [{term(), String.t() | nil}], pos_integer()) ::
+          {:ok, [{term(), String.t() | nil}], [Lexer.token()]} | {:error, String.t()}
+  defp collect_with_targets([{:op, _, :comma} | rest], acc, line) do
+    case Parser.parse_expression(rest) do
+      {:ok, expr, [{:keyword, _, "as"}, {:name, _, name} | rest]} ->
+        collect_with_targets(rest, [{expr, name} | acc], line)
+
+      {:ok, expr, rest} ->
+        collect_with_targets(rest, [{expr, nil} | acc], line)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp collect_with_targets(rest, acc, _line) do
+    {:ok, Enum.reverse(acc), rest}
+  end
+
+  @spec nest_with([{term(), String.t() | nil}], [term()], pos_integer()) :: term()
+  defp nest_with([{expr, name}], body, line) do
+    {:with, [line: line], [expr, name, body]}
+  end
+
+  defp nest_with([{expr, name} | rest], body, line) do
+    inner = nest_with(rest, body, line)
+    {:with, [line: line], [expr, name, [inner]]}
   end
 
   @doc """
@@ -209,6 +242,14 @@ defmodule Pyex.Parser.Definitions do
 
   defp parse_params([{:op, _, :star}, {:name, _, name} | rest], acc) do
     parse_params(rest, [{"*" <> name, nil} | acc])
+  end
+
+  defp parse_params([{:op, _, :star}, {:op, _, :comma} | rest], acc) do
+    parse_params(rest, [{"*", :kwonly_sep} | acc])
+  end
+
+  defp parse_params([{:op, _, :star}, {:op, _, :rparen} | rest], acc) do
+    parse_params([{:op, 0, :rparen} | rest], [{"*", :kwonly_sep} | acc])
   end
 
   defp parse_params([{:name, _, name} | rest], acc) do

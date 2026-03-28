@@ -40,6 +40,7 @@ defmodule Pyex.Interpreter.Iterables do
     end
   end
 
+  def to_iterable({:deque, items, _}, env, ctx), do: {:ok, items, env, ctx}
   def to_iterable({:generator, items}, env, ctx), do: {:ok, items, env, ctx}
   def to_iterable({:generator_error, items, _msg}, env, ctx), do: {:ok, items, env, ctx}
   def to_iterable({:iterator, id}, env, ctx), do: {:ok, Ctx.iter_items(ctx, id), env, ctx}

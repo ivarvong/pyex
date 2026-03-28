@@ -31,7 +31,7 @@ defmodule Pyex.Interpreter.CallSupport do
     length(params) == length(args) and
       not Enum.any?(params, fn param ->
         name = elem(param, 0)
-        String.starts_with?(name, "*")
+        String.starts_with?(name, "*") or name == "*"
       end)
   end
 
@@ -52,7 +52,7 @@ defmodule Pyex.Interpreter.CallSupport do
           Ctx.t()
         ) :: {Env.t(), Ctx.t()} | {:exception, String.t(), Ctx.t()}
   defp bind_params_full(params, args, kwargs, env, ctx) do
-    {regular, star_param, dstar_param} = split_variadic_params(params)
+    {regular, star_param, kwonly_params, dstar_param} = split_variadic_params(params)
     regular_names = Enum.map(regular, &elem(&1, 0))
     defaults = Enum.map(regular, &elem(&1, 1))
     n_regular = length(regular)
@@ -85,6 +85,9 @@ defmodule Pyex.Interpreter.CallSupport do
             Map.has_key?(kwargs, name) ->
               {:cont, {Env.put(env, name, Map.fetch!(kwargs, name)), ctx}}
 
+            match?({:__evaluated__, _}, default) ->
+              {:cont, {Env.put(env, name, elem(default, 1)), ctx}}
+
             default != nil ->
               {val, _env, ctx} = Interpreter.eval(default, env, ctx)
               {:cont, {Env.put(env, name, val), ctx}}
@@ -99,7 +102,13 @@ defmodule Pyex.Interpreter.CallSupport do
           err
 
         {env, ctx} ->
-          env = if has_star, do: Env.put(env, star_name(star_param), extra_args), else: env
+          env =
+            if has_star,
+              do: Env.put(env, star_name(star_param), {:tuple, extra_args}),
+              else: env
+
+          consumed_kwonly = MapSet.new(Enum.map(kwonly_params, &elem(&1, 0)))
+          consumed_kwargs = MapSet.union(consumed_kwargs, consumed_kwonly)
           extra_kwargs = Map.drop(kwargs, MapSet.to_list(consumed_kwargs))
 
           extra_kwargs_val =
@@ -108,9 +117,34 @@ defmodule Pyex.Interpreter.CallSupport do
           env =
             if has_dstar, do: Env.put(env, dstar_name(dstar_param), extra_kwargs_val), else: env
 
-          {env, ctx}
+          bind_kwonly(kwonly_params, kwargs, env, ctx)
       end
     end
+  end
+
+  @spec bind_kwonly([Parser.param()], map(), Env.t(), Ctx.t()) ::
+          {Env.t(), Ctx.t()} | {:exception, String.t(), Ctx.t()}
+  defp bind_kwonly([], _kwargs, env, ctx), do: {env, ctx}
+
+  defp bind_kwonly([{name, default} | rest], kwargs, env, ctx) do
+    cond do
+      Map.has_key?(kwargs, name) ->
+        bind_kwonly(rest, kwargs, Env.put(env, name, Map.fetch!(kwargs, name)), ctx)
+
+      match?({:__evaluated__, _}, default) ->
+        bind_kwonly(rest, kwargs, Env.put(env, name, elem(default, 1)), ctx)
+
+      default != nil ->
+        {val, _env, ctx} = Interpreter.eval(default, env, ctx)
+        bind_kwonly(rest, kwargs, Env.put(env, name, val), ctx)
+
+      true ->
+        {:exception, "TypeError: missing keyword-only argument: '#{name}'", ctx}
+    end
+  end
+
+  defp bind_kwonly([{name, default, _type} | rest], kwargs, env, ctx) do
+    bind_kwonly([{name, default} | rest], kwargs, env, ctx)
   end
 
   @doc false
@@ -135,20 +169,32 @@ defmodule Pyex.Interpreter.CallSupport do
     do: {val, env, %{ctx | call_depth: ctx.call_depth - 1}}
 
   @spec split_variadic_params([Parser.param()]) ::
-          {[Parser.param()], Parser.param() | nil, Parser.param() | nil}
+          {[Parser.param()], Parser.param() | nil, [Parser.param()], Parser.param() | nil}
   defp split_variadic_params(params) do
-    {regular_rev, star, dstar} =
-      Enum.reduce(params, {[], nil, nil}, fn param, {regular, star, dstar} ->
+    {regular_rev, star, kwonly_rev, dstar} =
+      Enum.reduce(params, {[], nil, [], nil}, fn param, {regular, star, kwonly, dstar} ->
         name = elem(param, 0)
 
         cond do
-          String.starts_with?(name, "**") -> {regular, star, param}
-          String.starts_with?(name, "*") -> {regular, param, dstar}
-          true -> {[param | regular], star, dstar}
+          String.starts_with?(name, "**") ->
+            {regular, star, kwonly, param}
+
+          name == "*" ->
+            {regular, :kwonly_sep, kwonly, dstar}
+
+          String.starts_with?(name, "*") ->
+            {regular, param, kwonly, dstar}
+
+          star != nil ->
+            {regular, star, [param | kwonly], dstar}
+
+          true ->
+            {[param | regular], star, kwonly, dstar}
         end
       end)
 
-    {Enum.reverse(regular_rev), star, dstar}
+    real_star = if star == :kwonly_sep, do: nil, else: star
+    {Enum.reverse(regular_rev), real_star, Enum.reverse(kwonly_rev), dstar}
   end
 
   @spec star_name(Parser.param()) :: String.t()

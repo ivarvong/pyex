@@ -40,5 +40,17 @@
   # defaultdict auto-insert returns {:defaultdict_auto_insert, ...} 5-tuple and
   # {:defaultdict_call_needed, ...} from get_subscript_value. Dialyzer cannot
   # trace these tagged tuples through the control flow.
-  {"lib/pyex/interpreter/assignments.ex", :pattern_match}
+  {"lib/pyex/interpreter/assignments.ex", :pattern_match},
+  # lookup_named_key returns {:exception, msg} as an error signal alongside
+  # pyvalues. The pattern match in string_format_loop is reachable at runtime.
+  {"lib/pyex/interpreter/format.ex", :pattern_match},
+  # eval_param_defaults wraps evaluated defaults in {:__evaluated__, val}.
+  # Parser.param() type does not include this wrapper, but it is valid at runtime.
+  {"lib/pyex/interpreter/call_support.ex", :pattern_match},
+  # resume_generator can return {:yielded, val, cont, gen_env, ctx} at runtime
+  # (in defer mode). Dialyzer's type inference doesn't fully track this path.
+  {"lib/pyex/interpreter/dunder.ex", :pattern_match},
+  # do_request currently always returns {:io_call, fn}; the catch-all branch
+  # is a defensive guard for future return variants.
+  {"lib/pyex/stdlib/requests.ex", :pattern_match_cov}
 ]

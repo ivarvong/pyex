@@ -407,8 +407,11 @@ defmodule Pyex.Interpreter.ControlFlow do
   defp match_handler([{exc_names, var_name, handler_body} | rest], message, env, ctx) do
     matches =
       case exc_names do
-        names when is_list(names) -> Enum.any?(names, &exception_matches?(&1, message))
-        name -> exception_matches?(name, message)
+        names when is_list(names) ->
+          Enum.any?(names, &exception_matches?(&1, message, env, ctx))
+
+        name ->
+          exception_matches?(name, message, env, ctx)
       end
 
     if matches do
@@ -434,9 +437,58 @@ defmodule Pyex.Interpreter.ControlFlow do
     end
   end
 
-  @spec exception_matches?(String.t(), String.t()) :: boolean()
-  defp exception_matches?("Exception", _message), do: true
+  @spec exception_matches?(String.t(), String.t(), Env.t(), Ctx.t()) :: boolean()
+  defp exception_matches?("Exception", _message, _env, _ctx), do: true
+  defp exception_matches?("BaseException", _message, _env, _ctx), do: true
 
-  defp exception_matches?(exc_name, message),
-    do: message == exc_name or String.starts_with?(message, exc_name <> ":")
+  defp exception_matches?(exc_name, message, env, ctx) do
+    if message == exc_name or String.starts_with?(message, exc_name <> ":") do
+      true
+    else
+      raised_name = extract_raised_name(message)
+      raised_name != nil and class_is_subclass?(raised_name, exc_name, env, ctx)
+    end
+  end
+
+  @spec extract_raised_name(String.t()) :: String.t() | nil
+  defp extract_raised_name(message) do
+    case Regex.run(~r/^([A-Za-z_]\w*)(?::|$)/, message) do
+      [_, name] -> name
+      _ -> nil
+    end
+  end
+
+  @spec class_is_subclass?(String.t(), String.t(), Env.t(), Ctx.t()) :: boolean()
+  defp class_is_subclass?(class_name, target_name, _env, _ctx) when class_name == target_name,
+    do: true
+
+  defp class_is_subclass?(class_name, target_name, env, ctx) do
+    case Env.get(env, class_name) do
+      {:ok, {:class, ^class_name, bases, _}} ->
+        Enum.any?(bases, fn base ->
+          case base do
+            {:var, _, [base_name]} ->
+              class_is_subclass?(base_name, target_name, env, ctx)
+
+            {:class, base_name, _, _} ->
+              class_is_subclass?(base_name, target_name, env, ctx)
+
+            _ ->
+              false
+          end
+        end)
+
+      {:ok, {:instance, {:class, name, bases, _}, _}} ->
+        class_is_subclass?(name, target_name, env, ctx) or
+          Enum.any?(bases, fn base ->
+            case base do
+              {:var, _, [base_name]} -> class_is_subclass?(base_name, target_name, env, ctx)
+              _ -> false
+            end
+          end)
+
+      _ ->
+        false
+    end
+  end
 end

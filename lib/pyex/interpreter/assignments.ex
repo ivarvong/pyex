@@ -7,7 +7,7 @@ defmodule Pyex.Interpreter.Assignments do
   """
 
   alias Pyex.{Ctx, Env, Interpreter, Parser, PyDict}
-  alias Pyex.Interpreter.{Dunder, Helpers}
+  alias Pyex.Interpreter.{ClassLookup, Dunder, Helpers}
 
   @typep eval_result :: {Interpreter.pyvalue() | tuple(), Env.t(), Ctx.t()}
 
@@ -183,6 +183,84 @@ defmodule Pyex.Interpreter.Assignments do
         ) ::
           eval_result()
   def eval_name_subscript_assign(name, key_expr, val_expr, env, ctx) do
+    case key_expr do
+      {:slice, _, [_obj_expr, start_expr, stop_expr, step_expr]} ->
+        eval_slice_assign(name, start_expr, stop_expr, step_expr, val_expr, env, ctx)
+
+      _ ->
+        eval_index_assign(name, key_expr, val_expr, env, ctx)
+    end
+  end
+
+  @spec eval_slice_assign(String.t(), term(), term(), term(), term(), Env.t(), Ctx.t()) ::
+          eval_result()
+  defp eval_slice_assign(name, start_expr, stop_expr, step_expr, val_expr, env, ctx) do
+    with {raw_container, env, ctx} when not is_py_exception(raw_container) <-
+           Interpreter.eval({:var, [line: 1], [name]}, env, ctx),
+         {start, env, ctx} when not is_py_exception(start) <-
+           if(is_nil(start_expr),
+             do: {nil, env, ctx},
+             else: Interpreter.eval(start_expr, env, ctx)
+           ),
+         {stop, env, ctx} when not is_py_exception(stop) <-
+           if(is_nil(stop_expr),
+             do: {nil, env, ctx},
+             else: Interpreter.eval(stop_expr, env, ctx)
+           ),
+         {step, env, ctx} when not is_py_exception(step) <-
+           if(is_nil(step_expr),
+             do: {nil, env, ctx},
+             else: Interpreter.eval(step_expr, env, ctx)
+           ),
+         {val, env, ctx} when not is_py_exception(val) <- Interpreter.eval(val_expr, env, ctx) do
+      container = Ctx.deref(ctx, raw_container)
+      replacement = container_to_list(Ctx.deref(ctx, val))
+
+      case container do
+        {:py_list, reversed, _} ->
+          python_list = Enum.reverse(reversed)
+          n = length(python_list)
+          actual_start = normalize_slice_bound(start, n, 0)
+          actual_stop = normalize_slice_bound(stop, n, n)
+          actual_step = if is_nil(step), do: 1, else: step
+
+          if actual_step == 1 do
+            {before, rest} = Enum.split(python_list, actual_start)
+            {_removed, after_slice} = Enum.split(rest, max(actual_stop - actual_start, 0))
+            updated_python = before ++ replacement ++ after_slice
+            updated = {:py_list, Enum.reverse(updated_python), length(updated_python)}
+            {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
+            {nil, env, ctx}
+          else
+            {{:exception, "NotImplementedError: slice assignment with step != 1 not supported"},
+             env, ctx}
+          end
+
+        _ ->
+          {{:exception, "TypeError: object does not support slice assignment"}, env, ctx}
+      end
+    else
+      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+    end
+  end
+
+  @spec normalize_slice_bound(integer() | nil, non_neg_integer(), non_neg_integer()) ::
+          non_neg_integer()
+  defp normalize_slice_bound(nil, _n, default), do: default
+
+  defp normalize_slice_bound(idx, n, _default) when idx < 0,
+    do: max(n + idx, 0)
+
+  defp normalize_slice_bound(idx, n, _default), do: min(idx, n)
+
+  @spec container_to_list(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]
+  defp container_to_list({:py_list, reversed, _}), do: Enum.reverse(reversed)
+  defp container_to_list(list) when is_list(list), do: list
+  defp container_to_list({:tuple, items}), do: items
+  defp container_to_list(val), do: [val]
+
+  @spec eval_index_assign(String.t(), term(), term(), Env.t(), Ctx.t()) :: eval_result()
+  defp eval_index_assign(name, key_expr, val_expr, env, ctx) do
     with {raw_container, env, ctx} when not is_py_exception(raw_container) <-
            Interpreter.eval({:var, [line: 1], [name]}, env, ctx),
          {key, env, ctx} when not is_py_exception(key) <- Interpreter.eval(key_expr, env, ctx),
@@ -200,9 +278,21 @@ defmodule Pyex.Interpreter.Assignments do
           {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
           {val, env, ctx}
 
-        {:py_list, reversed, len} when is_integer(key) ->
-          real_idx = if key < 0, do: len + key, else: key
-          updated = {:py_list, List.replace_at(reversed, len - 1 - real_idx, val), len}
+        {:py_list, reversed, _len} when is_integer(key) ->
+          python_list = Enum.reverse(reversed)
+          real_idx = if key < 0, do: length(python_list) + key, else: key
+          updated_python = List.replace_at(python_list, real_idx, val)
+          updated = {:py_list, Enum.reverse(updated_python), length(updated_python)}
+          {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
+          {val, env, ctx}
+
+        {:py_list, _, _} ->
+          {{:exception,
+            "TypeError: list indices must be integers or slices, not #{Helpers.py_type(key)}"},
+           env, ctx}
+
+        list when is_list(list) and is_integer(key) ->
+          updated = List.replace_at(list, key, val)
           {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
           {val, env, ctx}
 
@@ -495,12 +585,31 @@ defmodule Pyex.Interpreter.Assignments do
     case Env.get(env, var_name) do
       {:ok, raw} ->
         case Ctx.deref(ctx, raw) do
-          {:instance, class, attrs} ->
-            updated = {:instance, class, Map.put(attrs, attr, value)}
+          {:instance, class, _attrs} = inst ->
+            # Check if the class has a property descriptor with a setter for this attr
+            case ClassLookup.resolve_class_attr_with_owner(class, attr) do
+              {:ok, {:property, _fget, fset, _fdel}, _owner} when fset != nil ->
+                # Pass the ref (not the derefed instance) so __setattr__ writes back correctly
+                self_arg = if match?({:ref, _}, raw), do: raw, else: inst
 
-            case raw do
-              {:ref, id} -> {nil, env, Ctx.heap_put(ctx, id, updated)}
-              _ -> {nil, Env.put_at_source(env, var_name, updated), ctx}
+                case Interpreter.call_function(fset, [self_arg, value], %{}, env, ctx) do
+                  {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+                  {_, env, ctx, _} -> {nil, env, ctx}
+                  {_, env, ctx} -> {nil, env, ctx}
+                end
+
+              {:ok, {:property, _fget, nil, _fdel}, _owner} ->
+                {{:exception,
+                  "AttributeError: can't set attribute '#{attr}' — no setter defined"}, env, ctx}
+
+              _ ->
+                # Regular instance attribute assignment
+                updated = put_elem(inst, 2, Map.put(elem(inst, 2), attr, value))
+
+                case raw do
+                  {:ref, id} -> {nil, env, Ctx.heap_put(ctx, id, updated)}
+                  _ -> {nil, Env.put_at_source(env, var_name, updated), ctx}
+                end
             end
 
           {:class, name, bases, class_attrs} ->

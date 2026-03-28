@@ -49,11 +49,9 @@ check("int_big_pow", len(str(2**1000)) == 302)
 # ── 2. Float Arithmetic ──────────────────────────────────────────────────────
 check("float_add", 0.1 + 0.2 != 0.3)  # IEEE 754 gotcha
 check("float_round", round(0.1 + 0.2, 10) == round(0.3, 10))
-# TODO: needs comparison operators for infinity values
-# check("float_inf", float('inf') > 1e308)
-# check("float_neg_inf", float('-inf') < -1e308)
-# TODO: needs IEEE 754 NaN != NaN semantics
-# check("float_nan_ne", float('nan') != float('nan'))
+check("float_inf", float("inf") > 1e308)
+check("float_neg_inf", float("-inf") < -1e308)
+check("float_nan_ne", float("nan") != float("nan"))
 check("float_is_nan", math.isnan(float("nan")))
 check("float_is_inf", math.isinf(float("inf")))
 # TODO: needs float.fromhex() class method
@@ -76,8 +74,7 @@ check("bool_and", True and True is True)
 check("bool_or", False or True is True)
 check("bool_not", not False is True)
 check("bool_int", int(True) == 1 and int(False) == 0)
-# TODO: needs issubclass(bool, int) with builtin types
-# check("bool_is_int_subclass", issubclass(bool, int))
+check("bool_is_int_subclass", issubclass(bool, int))
 check("bool_arithmetic", True + True == 2)
 
 # ── 5. Bitwise Operations ────────────────────────────────────────────────────
@@ -107,11 +104,9 @@ check("str_endswith", "hello".endswith("llo"))
 check("str_isdigit", "12345".isdigit())
 check("str_isalpha", "abcXYZ".isalpha())
 check("str_count", "banana".count("an") == 2)
-# TODO: needs str.format() to not use repr() for string args
-# check("str_format", "{} {}".format("a", "b") == "a b")
+check("str_format", "{} {}".format("a", "b") == "a b")
 check("str_fstring", f"{1 + 1}" == "2")
-# TODO: needs %-formatting support for %s %d
-# check("str_percent", "%s %d" % ("hi", 42) == "hi 42")
+check("str_percent", "%s %d" % ("hi", 42) == "hi 42")
 # TODO: needs str.encode/decode and bytes type
 # check("str_encode_decode", "héllo".encode('utf-8').decode('utf-8') == "héllo")
 # TODO: needs str.maketrans/translate
@@ -170,8 +165,7 @@ check("list_star_unpack", _a == 1 and _b == [2, 3, 4] and _c == 5)
 
 # ── 10. Tuples ────────────────────────────────────────────────────────────────
 check("tuple_index", (1, 2, 3)[1] == 2)
-# TODO: needs tuple slicing support
-# check("tuple_slice", (1, 2, 3, 4)[1:3] == (2, 3))
+check("tuple_slice", (1, 2, 3, 4)[1:3] == (2, 3))
 check("tuple_concat", (1,) + (2,) == (1, 2))
 check("tuple_repeat", (1, 2) * 2 == (1, 2, 1, 2))
 _ta, _tb = (10, 20)
@@ -179,7 +173,7 @@ check("tuple_unpack_simple", _ta == 10 and _tb == 20)
 check("tuple_hash", hash((1, 2, 3)) == hash((1, 2, 3)))
 check("tuple_compare", (1, 2) < (1, 3))
 check("tuple_single_comma", type((1,)) is tuple)
-# TODO: needs collections.namedtuple
+# TODO: needs collections.namedtuple (not yet implemented)
 # check("namedtuple", collections.namedtuple('P', 'x y')(1, 2).y == 2)
 
 # ── 11. Dicts ─────────────────────────────────────────────────────────────────
@@ -198,13 +192,11 @@ check("dict_pop", _dp == {"b": 2})
 _ds = {}
 _ds.setdefault("a", 42)
 check("dict_setdefault", _ds == {"a": 42})
-# TODO: needs dict.fromkeys class method
-# check("dict_fromkeys", dict.fromkeys(['a','b'], 0) == {'a':0,'b':0})
+check("dict_fromkeys", dict.fromkeys(["a", "b"], 0) == {"a": 0, "b": 0})
 # TODO: needs dict | merge operator
 # check("dict_merge_310", ({'a':1} | {'b':2}) == {'a':1,'b':2})
 check("dict_ordering", list({"a": 1, "b": 2, "c": 3}.keys()) == ["a", "b", "c"])
-# TODO: needs defaultdict subscript access (crashes with CaseClauseError)
-# check("defaultdict", collections.defaultdict(int)['missing'] == 0)
+check("defaultdict", collections.defaultdict(int)["missing"] == 0)
 check(
     "ordereddict_eq",
     collections.OrderedDict(a=1, b=2) == collections.OrderedDict(a=1, b=2),
@@ -275,19 +267,25 @@ check("func_positional", _add(1, 2) == 3)
 check("func_keyword", _add(b=5, a=3) == 8)
 
 
-# TODO: needs *args to be a tuple and tuple==dict nested equality
-# def _varargs(*args, **kwargs):
-#     return (args, kwargs)
-# check("func_varargs", _varargs(1, 2, x=3) == ((1, 2), {"x": 3}))
+def _varargs(*args, **kwargs):
+    return (args, kwargs)
+
+
+check("func_varargs", _varargs(1, 2, x=3) == ((1, 2), {"x": 3}))
+
+
 def _varargs(*args, **kwargs):
     return len(args) + len(kwargs)
 
 
 check("func_varargs", _varargs(1, 2, x=3) == 3)
 
-# TODO: needs keyword-only parameter syntax (*, x, y=10)
-# def _kwonly(*, x, y=10): return x + y
-# check("func_kwonly", _kwonly(x=5) == 15)
+
+def _kwonly(*, x, y=10):
+    return x + y
+
+
+check("func_kwonly", _kwonly(x=5) == 15)
 
 # TODO: needs positional-only parameter syntax (x, y, /)
 # def _posonly(x, y, /): return x + y
@@ -488,15 +486,23 @@ check("dunder_iter", list(_Ops(7)) == [7])
 check("dunder_call", _Ops(3)(4) == 12)
 check("dunder_hash_set", len({_Ops(1), _Ops(1), _Ops(2)}) == 2)
 
-# TODO: needs @property decorator support
-# class _PropClass:
-#     def __init__(self): self._x = 0
-#     @property
-#     def x(self): return self._x
-#     @x.setter
-#     def x(self, v): self._x = max(0, v)
-# _pc = _PropClass(); _pc.x = -5
-# check("property_getter_setter", _pc.x == 0)
+
+class _PropClass:
+    def __init__(self):
+        self._x = 0
+
+    @property
+    def x(self):
+        return self._x
+
+    @x.setter
+    def x(self, v):
+        self._x = max(0, v)
+
+
+_pc = _PropClass()
+_pc.x = -5
+check("property_getter_setter", _pc.x == 0)
 
 # TODO: needs __slots__ support
 # class _SlotClass:
@@ -506,14 +512,19 @@ check("dunder_hash_set", len({_Ops(1), _Ops(1), _Ops(2)}) == 2)
 # try: _sc.z = 3; check("slots_restrict", False, "allowed new attr")
 # except AttributeError: check("slots_restrict", True)
 
-# TODO: needs @staticmethod and @classmethod decorator support
-# class _StaticClassmethod:
-#     @staticmethod
-#     def s(): return "static"
-#     @classmethod
-#     def c(cls): return cls.__name__
-# check("staticmethod", _StaticClassmethod.s() == "static")
-# check("classmethod", _StaticClassmethod.c() == "_StaticClassmethod")
+
+class _StaticClassmethod:
+    @staticmethod
+    def s():
+        return "static"
+
+    @classmethod
+    def c(cls):
+        return cls.__name__
+
+
+check("staticmethod", _StaticClassmethod.s() == "static")
+check("classmethod", _StaticClassmethod.c() == "_StaticClassmethod")
 
 
 # MRO / diamond
@@ -731,8 +742,9 @@ check("math_trunc", math.trunc(-3.7) == -3)
 # ── 34. JSON ──────────────────────────────────────────────────────────────────
 _jdata = {"a": [1, 2.5, True, None, "hello"]}
 check("json_roundtrip", json.loads(json.dumps(_jdata)) == _jdata)
-# TODO: needs json.dumps to include spaces after separators by default
-# check("json_sort_keys", json.dumps({'b':1,'a':2}, sort_keys=True) == '{"a": 2, "b": 1}')
+check(
+    "json_sort_keys", json.dumps({"b": 1, "a": 2}, sort_keys=True) == '{"a": 2, "b": 1}'
+)
 check("json_indent", "\n" in json.dumps({"a": 1}, indent=2))
 
 # ── 35. Pickle ────────────────────────────────────────────────────────────────
@@ -769,8 +781,7 @@ check("zip_basic", list(zip([1, 2], [3, 4])) == [(1, 3), (2, 4)])
 check("zip_unequal", list(zip([1, 2], [3])) == [(1, 3)])
 check("enumerate_basic", list(enumerate("ab", 1)) == [(1, "a"), (2, "b")])
 check("map_basic", list(map(str, [1, 2, 3])) == ["1", "2", "3"])
-# TODO: needs filter(None, ...) with None predicate for truthiness filtering
-# check("filter_basic", list(filter(None, [0, 1, '', 2])) == [1, 2])
+check("filter_basic", list(filter(None, [0, 1, "", 2])) == [1, 2])
 check("any_all", any([0, 1, 0]) and not all([0, 1, 0]))
 check("min_max", min(3, 1, 2) == 1 and max(3, 1, 2) == 3)
 check("sum_builtin", sum(range(101)) == 5050)
@@ -782,8 +793,7 @@ check("callable_check", callable(len) and not callable(42))
 check("repr_str", repr("hi") == "'hi'" and str(42) == "42")
 check("chr_ord", chr(65) == "A" and ord("A") == 65)
 check("hex_oct_bin", hex(255) == "0xff" and oct(8) == "0o10" and bin(5) == "0b101")
-# TODO: needs banker's rounding (round(2.675, 2) should be 2.67)
-# check("round_builtin", round(2.675, 2) == 2.67)
+check("round_banker", round(2.675, 2) == 2.67)
 check("round_builtin", round(1.5) == 2)
 check("pow_three_arg", pow(2, 10, 1000) == 24)  # modular exponentiation
 
@@ -938,7 +948,7 @@ def _make_closures():
 check("closure_default_capture", _make_closures() == [10, 11, 12])
 
 
-# TODO: needs late binding in closures (Pyex eagerly captures loop vars)
+# TODO: Pyex closures snapshot env at creation time instead of capturing by reference
 # def _late_binding():
 #     funcs = []
 #     for i in range(3):
@@ -1172,22 +1182,19 @@ class _MCM:
         _mcm.append(f"x{self.n}")
 
 
-# TODO: needs multiple context managers in a single with statement (with A(), B(), C():)
-# with _MCM(1), _MCM(2), _MCM(3):
-#     _mcm.append("body")
-# check("multi_context_manager", _mcm == ["e1", "e2", "e3", "body", "x3", "x2", "x1"])
-with _MCM(1):
-    with _MCM(2):
-        with _MCM(3):
-            _mcm.append("body")
-check("nested_context_manager", _mcm == ["e1", "e2", "e3", "body", "x3", "x2", "x1"])
+with _MCM(1), _MCM(2), _MCM(3):
+    _mcm.append("body")
+check("multi_context_manager", _mcm == ["e1", "e2", "e3", "body", "x3", "x2", "x1"])
+
 
 # ── 94. Dynamic Attribute Access ──────────────────────────────────────────────
-# TODO: needs __getattr__ dunder method support
-# class _DynAttr:
-#     def __getattr__(self, name): return f"dynamic_{name}"
-# check("getattr_dynamic", _DynAttr().anything == "dynamic_anything")
-# check("hasattr_dynamic", hasattr(_DynAttr(), 'xyz'))
+class _DynAttr:
+    def __getattr__(self, name):
+        return f"dynamic_{name}"
+
+
+check("getattr_dynamic", _DynAttr().anything == "dynamic_anything")
+check("hasattr_dynamic", hasattr(_DynAttr(), "xyz"))
 
 
 # ── 95. __repr__ vs __str__ ──────────────────────────────────────────────────
@@ -1217,16 +1224,16 @@ except ZeroDivisionError:
     check("zero_division", True)
 # TODO: needs str(-0.0) == '-0.0'
 # check("negative_zero", -0.0 == 0.0 and str(-0.0) == '-0.0')
-# TODO: needs infinity arithmetic
-# check("inf_arithmetic", float('inf') + 1 == float('inf'))
-# TODO: needs NaN comparison semantics
-# check("nan_comparison", not (float('nan') < 0) and not (float('nan') > 0) and not (float('nan') == 0))
+check("inf_arithmetic", float("inf") + 1 == float("inf"))
+check(
+    "nan_comparison",
+    not (float("nan") < 0) and not (float("nan") > 0) and not (float("nan") == 0),
+)
 
 # ── 97. Complex Slice Assignment ──────────────────────────────────────────────
-# TODO: needs slice assignment (sl[1:4] = [...])
-# _sl = [0,1,2,3,4,5]
-# _sl[1:4] = [10, 20]
-# check("slice_assign", _sl == [0, 10, 20, 4, 5])
+_sl = [0, 1, 2, 3, 4, 5]
+_sl[1:4] = [10, 20]
+check("slice_assign", _sl == [0, 10, 20, 4, 5])
 # TODO: needs del on slices
 # _sl2 = [0,1,2,3,4,5]
 # del _sl2[::2]

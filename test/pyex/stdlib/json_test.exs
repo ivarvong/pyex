@@ -107,7 +107,7 @@ defmodule Pyex.Stdlib.JsonTest do
         json.dumps([1, 2, 3])
         """)
 
-      assert result == "[1,2,3]"
+      assert result == "[1, 2, 3]"
     end
 
     test "serializes a dict" do
@@ -137,7 +137,7 @@ defmodule Pyex.Stdlib.JsonTest do
         json.dumps([True, False])
         """)
 
-      assert result == "[true,false]"
+      assert result == "[true, false]"
     end
 
     test "serializes nested structures" do

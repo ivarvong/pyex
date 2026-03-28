@@ -210,6 +210,15 @@ defmodule Pyex.Parser do
 
       _ ->
         case parse_expression(rest) do
+          {:ok, expr, [{:keyword, _, "from"} | rest]} ->
+            case parse_expression(rest) do
+              {:ok, _cause, rest} ->
+                {:ok, {:raise, [line: line], [expr]}, drop_newline(rest)}
+
+              {:error, _} = error ->
+                error
+            end
+
           {:ok, expr, rest} ->
             {:ok, {:raise, [line: line], [expr]}, drop_newline(rest)}
 
@@ -245,6 +254,9 @@ defmodule Pyex.Parser do
 
       {:ok, {:subscript, _, [target_expr, key_expr]}, rest} ->
         {:ok, {:del, [line: line], [:subscript, target_expr, key_expr]}, drop_newline(rest)}
+
+      {:ok, {:getattr, _, [obj_expr, attr]}, rest} ->
+        {:ok, {:del, [line: line], [:attr, obj_expr, attr]}, drop_newline(rest)}
 
       {:ok, _expr, _rest} ->
         {:error, "expected variable or subscript after 'del' at line #{line}"}
@@ -562,11 +574,75 @@ defmodule Pyex.Parser do
                 error
             end
 
+          # slice: a[start:stop] = val  or  a[start:stop:step] = val
+          [{:op, _, :colon} | slice_rest] ->
+            parse_slice_assign(slice_rest, line, name, key)
+
+          # bare slice: a[:stop] = val  or  a[:] = val
           _ ->
             :not_assign
         end
 
+      # bare colon start: a[:stop] = val  or  a[:] = val
       {:error, _} ->
+        case tokens do
+          [{:op, _, :colon} | slice_rest] ->
+            parse_slice_assign(slice_rest, line, name, nil)
+
+          _ ->
+            :not_assign
+        end
+    end
+  end
+
+  @spec parse_slice_assign(
+          [Lexer.token()],
+          pos_integer(),
+          String.t(),
+          term()
+        ) :: parse_result() | :not_assign
+  defp parse_slice_assign(tokens, line, name, start_key) do
+    {stop_key, tokens} =
+      case tokens do
+        [{:op, _, :rbracket} | _] = rest ->
+          {nil, rest}
+
+        [{:op, _, :colon} | _] = rest ->
+          {nil, rest}
+
+        _ ->
+          case parse_expression(tokens) do
+            {:ok, stop, rest} -> {stop, rest}
+            {:error, _} -> {nil, tokens}
+          end
+      end
+
+    {step_key, tokens} =
+      case tokens do
+        [{:op, _, :colon} | rest] ->
+          case rest do
+            [{:op, _, :rbracket} | _] ->
+              {nil, rest}
+
+            _ ->
+              case parse_expression(rest) do
+                {:ok, step, rest} -> {step, rest}
+                {:error, _} -> {nil, rest}
+              end
+          end
+
+        _ ->
+          {nil, tokens}
+      end
+
+    case tokens do
+      [{:op, _, :rbracket}, {:op, _, :assign} | rest] ->
+        slice_key =
+          {:slice, [line: line], [{:var, [line: line], [name]}, start_key, stop_key, step_key]}
+
+        parse_subscript_assign_value(rest, line, [{name, slice_key}])
+
+      _ ->
         :not_assign
     end
   end
@@ -1361,7 +1437,10 @@ defmodule Pyex.Parser do
 
   defp parse_lambda_params([{:name, _, name}, {:op, _, :assign} | rest], acc) do
     with {:ok, default, rest} <- parse_expression(rest) do
-      parse_lambda_params(rest, [{name, default} | acc])
+      case rest do
+        [{:op, _, :comma} | rest] -> parse_lambda_params(rest, [{name, default} | acc])
+        _ -> {:ok, Enum.reverse([{name, default} | acc]), rest}
+      end
     end
   end
 
@@ -1371,6 +1450,21 @@ defmodule Pyex.Parser do
 
   defp parse_lambda_params([{:name, _, name} | rest], acc) do
     {:ok, Enum.reverse([{name, nil} | acc]), rest}
+  end
+
+  defp parse_lambda_params([{:op, _, :star}, {:name, _, name} | rest], acc) do
+    case rest do
+      [{:op, _, :comma} | rest] -> parse_lambda_params(rest, [{"*" <> name, nil} | acc])
+      _ -> {:ok, Enum.reverse([{"*" <> name, nil} | acc]), rest}
+    end
+  end
+
+  defp parse_lambda_params([{:op, _, :double_star}, {:name, _, name} | rest], acc) do
+    {:ok, Enum.reverse([{"**" <> name, nil} | acc]), rest}
+  end
+
+  defp parse_lambda_params([{:op, _, :colon} | _] = tokens, acc) do
+    {:ok, Enum.reverse(acc), tokens}
   end
 
   defp parse_lambda_params(tokens, _acc) do
@@ -1396,16 +1490,25 @@ defmodule Pyex.Parser do
 
     case extract_brace_content(rest, 0, <<>>) do
       {:ok, full_content, rest} ->
-        {expr_str, format_spec} = split_format_spec(full_content)
+        {expr_str, conversion, format_spec} = split_fstring_expr(full_content)
 
         case Lexer.tokenize(expr_str) do
           {:ok, tokens} ->
             case parse_expression(tokens) do
               {:ok, expr, _} ->
+                expr_with_conv =
+                  case conversion do
+                    nil -> expr
+                    "r" -> {:call, [line: line], [{:var, [line: line], ["repr"]}, [expr]]}
+                    "s" -> {:call, [line: line], [{:var, [line: line], ["str"]}, [expr]]}
+                    "a" -> {:call, [line: line], [{:var, [line: line], ["repr"]}, [expr]]}
+                    _ -> expr
+                  end
+
                 part =
                   case format_spec do
-                    nil -> {:expr, expr}
-                    spec -> {:expr, expr, spec}
+                    nil -> {:expr, expr_with_conv}
+                    spec -> {:expr, expr_with_conv, spec}
                   end
 
                 parse_fstring_parts(rest, line, <<>>, [part | acc])
@@ -1431,6 +1534,24 @@ defmodule Pyex.Parser do
           {:ok, String.t(), String.t()} | {:error, String.t()}
   # Splits "expr:spec" at the colon that is NOT inside brackets, parens, or strings.
   # Returns {expr_str, format_spec | nil}.
+  @spec split_fstring_expr(String.t()) :: {String.t(), String.t() | nil, String.t() | nil}
+  defp split_fstring_expr(content) do
+    # Extract optional !r / !s / !a conversion before the format spec colon.
+    # E.g. "x!r" -> {"x", "r", nil}; "x!r:.2f" -> {"x", "r", ".2f"}
+    case Regex.run(~r/^(.*?)!([rsa])(:.*)?\s*$/, content) do
+      [_, expr, conv, spec] ->
+        spec_str = if spec == "", do: nil, else: String.trim_leading(spec, ":")
+        {String.trim(expr), conv, spec_str}
+
+      [_, expr, conv] ->
+        {String.trim(expr), conv, nil}
+
+      _ ->
+        {expr, spec} = split_format_spec(content)
+        {expr, nil, spec}
+    end
+  end
+
   @spec split_format_spec(String.t()) :: {String.t(), String.t() | nil}
   defp split_format_spec(content) do
     split_format_spec(content, 0, 0, 0, false, nil, <<>>)
