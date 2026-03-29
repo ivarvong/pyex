@@ -516,6 +516,12 @@ defmodule Pyex.Interpreter.Format do
 
   defp pad_string(str, %{width: width, flags: _flags}) when byte_size(str) >= width, do: str
 
+  @max_format_width 10_000_000
+
+  defp pad_string(str, %{width: width} = spec) when width > @max_format_width do
+    pad_string(str, %{spec | width: @max_format_width})
+  end
+
   defp pad_string(str, %{width: width, flags: flags}) do
     padding = width - byte_size(str)
     pad_char = if String.contains?(flags, "0"), do: "0", else: " "

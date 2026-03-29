@@ -23,6 +23,16 @@ defmodule Pyex.Interpreter.Invocation do
           Ctx.t()
         ) :: Interpreter.call_result()
   def call_user_function(func, name, params, body, closure_env, args, kwargs, env, ctx) do
+    case Ctx.check_step(ctx) do
+      {:exceeded, msg} ->
+        {{:exception, msg}, env, ctx}
+
+      {:ok, ctx} ->
+        do_call_user_function(func, name, params, body, closure_env, args, kwargs, env, ctx)
+    end
+  end
+
+  defp do_call_user_function(func, name, params, body, closure_env, args, kwargs, env, ctx) do
     if ctx.call_depth >= ctx.max_call_depth do
       {{:exception, "RecursionError: maximum recursion depth exceeded"}, env, ctx}
     else

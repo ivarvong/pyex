@@ -350,6 +350,12 @@ defmodule Pyex.Interpreter.FstringFormat do
   # Apply alignment and width
   defp apply_alignment(str, %{width: nil}, _val), do: str
 
+  @max_format_width 10_000_000
+
+  defp apply_alignment(str, %{width: width} = spec, val) when width > @max_format_width do
+    apply_alignment(str, %{spec | width: @max_format_width}, val)
+  end
+
   defp apply_alignment(str, spec, val) do
     width = spec.width
     len = String.length(str)

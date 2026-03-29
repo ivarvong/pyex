@@ -2541,7 +2541,15 @@ defmodule Pyex.Interpreter do
     output = strs |> Enum.reverse() |> Enum.join(sep)
     output = output <> end_str
     ctx = Ctx.record(ctx, :output, output)
-    {nil, env, ctx}
+
+    limits = ctx.limits
+
+    if limits.max_output_bytes != :infinity and ctx.output_bytes >= limits.max_output_bytes do
+      {{:exception, "LimitError: output limit exceeded (#{limits.max_output_bytes} bytes)"}, env,
+       ctx}
+    else
+      {nil, env, ctx}
+    end
   end
 
   @doc false
