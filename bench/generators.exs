@@ -1,7 +1,7 @@
 alias Pyex.Ctx
 
 ctx = %{
-  Ctx.new(timeout_ms: 200)
+  Ctx.new(timeout: 200)
   | compute: 0.0,
     compute_started_at: System.monotonic_time()
 }

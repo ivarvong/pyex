@@ -35,11 +35,11 @@ defmodule Pyex.Interpreter.ControlFlow do
         ) ::
           eval_result()
   def eval_while(condition, body, else_body, env, ctx) do
-    case Ctx.check_deadline(ctx) do
-      {:exceeded, _} ->
-        {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
+    case Ctx.check_step(ctx) do
+      {:exceeded, msg} ->
+        {{:exception, msg}, env, ctx}
 
-      :ok ->
+      {:ok, ctx} ->
         eval_while_body(condition, body, else_body, env, ctx)
     end
   end
@@ -233,11 +233,11 @@ defmodule Pyex.Interpreter.ControlFlow do
 
   defp do_eval_for_items(var_names, [item | rest], body, else_body, env, ctx, source_var, idx)
        when is_list(var_names) do
-    case Ctx.check_deadline(ctx) do
-      {:exceeded, _} ->
-        {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
+    case Ctx.check_step(ctx) do
+      {:exceeded, msg} ->
+        {{:exception, msg}, env, ctx}
 
-      :ok ->
+      {:ok, ctx} ->
         ctx = Ctx.record(ctx, :loop, nil)
 
         case unpack_for_item(var_names, Ctx.deref(ctx, item)) do
@@ -273,11 +273,11 @@ defmodule Pyex.Interpreter.ControlFlow do
   end
 
   defp do_eval_for_items(var_name, [item | rest], body, else_body, env, ctx, source_var, idx) do
-    case Ctx.check_deadline(ctx) do
-      {:exceeded, _} ->
-        {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
+    case Ctx.check_step(ctx) do
+      {:exceeded, msg} ->
+        {{:exception, msg}, env, ctx}
 
-      :ok ->
+      {:ok, ctx} ->
         ctx = Ctx.record(ctx, :loop, nil)
         env = Env.smart_put(env, var_name, item)
 

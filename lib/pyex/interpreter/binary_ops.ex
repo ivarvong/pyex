@@ -162,6 +162,10 @@ defmodule Pyex.Interpreter.BinaryOps do
     {ref, env, ctx}
   end
 
+  def binop_result(value, env, ctx) when is_binary(value) do
+    {value, env, Ctx.track_memory(ctx, byte_size(value))}
+  end
+
   def binop_result(value, env, ctx), do: {value, env, ctx}
 
   @doc false

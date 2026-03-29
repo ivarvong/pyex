@@ -11,7 +11,7 @@ defmodule Pyex.PropertyTest do
 
   alias Pyex.{Lexer, Parser, Builtins, Interpreter, Ctx}
 
-  @timeout_ctx Ctx.new(timeout_ms: 200)
+  @timeout_ctx Ctx.new(timeout: 200)
 
   defp fresh_ctx do
     %{@timeout_ctx | compute: 0.0, compute_started_at: System.monotonic_time()}

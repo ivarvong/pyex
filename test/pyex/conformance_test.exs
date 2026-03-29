@@ -2290,6 +2290,32 @@ defmodule Pyex.ConformanceTest do
         ~S[print(repr("%s is %d years old and %.1f meters tall" % ("Alice", 30, 1.7)))]
       )
     end
+
+    test "%e scientific notation" do
+      assert_conforms(~S[print(repr("%.4e" % 25075000.0))])
+      assert_conforms(~S[print(repr("%.2e" % 0.00345))])
+      assert_conforms(~S[print(repr("%.6e" % -53466365.4))])
+    end
+
+    test "%g general float — small values use fixed" do
+      assert_conforms(~S[print(repr("%.4g" % 3.14159))])
+      assert_conforms(~S[print(repr("%.2g" % 0.0045))])
+      assert_conforms(~S[print(repr("%.6g" % -123.456))])
+    end
+
+    test "%g general float — large values use scientific" do
+      assert_conforms(~S[print(repr("%.4g" % 25075000.0))])
+      assert_conforms(~S[print(repr("%.2g" % 334.54078808426857))])
+      assert_conforms(~S[print(repr("%.7g" % 53466365.41634798))])
+      assert_conforms(~S[print(repr("%.2g" % -864.8374066949698))])
+    end
+
+    test "%g general float — rounding at sig fig boundary" do
+      assert_conforms(~S[print(repr("%.4g" % 9999.5))])
+      assert_conforms(~S[print(repr("%.1g" % 0.05))])
+      assert_conforms(~S[print(repr("%.3g" % 1005.0))])
+      assert_conforms(~S[print(repr("%.6g" % 76749614.90631104))])
+    end
   end
 
   describe "string format method" do

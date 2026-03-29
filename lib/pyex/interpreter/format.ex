@@ -466,7 +466,7 @@ defmodule Pyex.Interpreter.Format do
     else
       # Round to 'precision' sig figs to determine the actual exponent after rounding
       exp_before = float_val |> abs() |> :math.log10() |> Float.floor() |> trunc()
-      dec_places_for_round = max(precision - 1 - exp_before, 0)
+      dec_places_for_round = precision - 1 - exp_before
 
       rounded =
         case Decimal.parse(:erlang.float_to_binary(float_val, [])) do

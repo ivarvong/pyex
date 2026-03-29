@@ -220,11 +220,11 @@ defmodule Pyex.Interpreter.Collections do
   end
 
   defp eval_comp_for_loop(kind, expr, var_name, [item | rest_items], rest_clauses, acc, env, ctx) do
-    case Ctx.check_deadline(ctx) do
-      {:exceeded, _} ->
-        {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
+    case Ctx.check_step(ctx) do
+      {:exceeded, msg} ->
+        {{:exception, msg}, env, ctx}
 
-      :ok ->
+      {:ok, ctx} ->
         # Push a child scope for the loop variable so that nonlocal/global
         # mutations made inside the body can be propagated back by popping
         # just the loop-variable scope afterwards.
