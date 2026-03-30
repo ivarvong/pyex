@@ -11,6 +11,7 @@ defmodule Pyex.Error do
   - `:syntax` -- lexer or parser error (bad Python source)
   - `:python` -- runtime exception raised by user code
   - `:timeout` -- compute budget exceeded
+  - `:limit` -- resource limit exceeded (steps, memory, or output)
   - `:import` -- failed module import
   - `:io` -- filesystem or I/O error
   - `:route_not_found` -- no matching route in Lambda dispatch
@@ -21,15 +22,19 @@ defmodule Pyex.Error do
       case Pyex.run(source) do
         {:ok, result, ctx} -> handle_result(result)
         {:error, %Pyex.Error{kind: :timeout}} -> send_resp(504, "Timeout")
+        {:error, %Pyex.Error{kind: :limit}} -> send_resp(429, "Limit exceeded")
         {:error, %Pyex.Error{kind: :python}} -> send_resp(500, "Runtime error")
         {:error, %Pyex.Error{kind: :syntax}} -> send_resp(400, "Bad request")
       end
   """
 
+  @type limit_type :: :steps | :memory | :output | nil
+
   @type kind ::
           :syntax
           | :python
           | :timeout
+          | :limit
           | :import
           | :io
           | :route_not_found
@@ -37,12 +42,14 @@ defmodule Pyex.Error do
 
   @type t :: %__MODULE__{
           kind: kind(),
+          limit: limit_type(),
           message: String.t(),
           line: pos_integer() | nil,
           exception_type: String.t() | nil
         }
 
   defstruct kind: :internal,
+            limit: nil,
             message: "",
             line: nil,
             exception_type: nil
@@ -58,7 +65,15 @@ defmodule Pyex.Error do
   def from_message(msg) when is_binary(msg) do
     {kind, exception_type} = classify(msg)
     line = extract_line(msg)
-    %__MODULE__{kind: kind, message: msg, line: line, exception_type: exception_type}
+    limit_type = if kind == :limit, do: extract_limit_type(msg), else: nil
+
+    %__MODULE__{
+      kind: kind,
+      limit: limit_type,
+      message: msg,
+      line: line,
+      exception_type: exception_type
+    }
   end
 
   @doc """
@@ -72,6 +87,13 @@ defmodule Pyex.Error do
   """
   @spec timeout(String.t()) :: t()
   def timeout(msg), do: %__MODULE__{kind: :timeout, message: msg}
+
+  @doc """
+  Creates a resource limit error.
+  """
+  @spec limit(limit_type(), String.t()) :: t()
+  def limit(limit_type, msg),
+    do: %__MODULE__{kind: :limit, limit: limit_type, message: msg}
 
   @doc """
   Creates a route-not-found error.
@@ -99,6 +121,9 @@ defmodule Pyex.Error do
 
       String.contains?(msg, "ComputeTimeout:") ->
         {:timeout, "ComputeTimeout"}
+
+      String.starts_with?(msg, "LimitError:") ->
+        {:limit, "LimitError"}
 
       String.starts_with?(msg, "ImportError:") ->
         {:import, "ImportError"}
@@ -134,6 +159,16 @@ defmodule Pyex.Error do
          end) do
       nil -> {:python, nil}
       prefix -> {:python, prefix}
+    end
+  end
+
+  @spec extract_limit_type(String.t()) :: limit_type()
+  defp extract_limit_type(msg) do
+    cond do
+      String.contains?(msg, "step limit") -> :steps
+      String.contains?(msg, "memory limit") -> :memory
+      String.contains?(msg, "output limit") -> :output
+      true -> nil
     end
   end
 

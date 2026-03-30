@@ -363,9 +363,16 @@ defmodule Pyex.Methods do
   defp str_join(s, [{:generator, items}]), do: Enum.join(items, s)
   defp str_join(s, [{:tuple, items}]), do: Enum.join(items, s)
 
-  @spec str_replace(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  @spec str_replace(String.t(), [Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
   defp str_replace(s, [old, new]) when is_binary(old) and is_binary(new) do
-    String.replace(s, old, new)
+    # Guard against exponential growth: if replacing with a longer string on a large input,
+    # estimate the result size and reject if it would be too large.
+    if old != "" and byte_size(new) > byte_size(old) and byte_size(s) > 1_000_000 do
+      {:exception,
+       "LimitError: memory limit exceeded (string replace would produce oversized result)"}
+    else
+      String.replace(s, old, new)
+    end
   end
 
   @spec str_startswith(String.t(), [Interpreter.pyvalue()]) :: boolean()

@@ -44,8 +44,13 @@ defmodule Pyex.Stdlib do
     "heapq" => Pyex.Stdlib.Heapq,
     "functools" => Pyex.Stdlib.Functools,
     "contextlib" => Pyex.Stdlib.Contextlib,
+    "copy" => Pyex.Stdlib.Copy,
     "io" => Pyex.Stdlib.Io,
-    "abc" => Pyex.Stdlib.Abc
+    "abc" => Pyex.Stdlib.Abc,
+    "enum" => Pyex.Stdlib.EnumModule,
+    "string" => Pyex.Stdlib.String,
+    "typing" => Pyex.Stdlib.Typing,
+    "textwrap" => Pyex.Stdlib.Textwrap
   }
 
   @doc """

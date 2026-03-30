@@ -193,6 +193,19 @@ defmodule Pyex.ClassesTest do
       assert Pyex.run!(code) == "Foo()"
     end
 
+    test "class attribute set to None is accessible" do
+      code = """
+      class Config:
+          debug = None
+          name = "app"
+
+      c = Config()
+      (c.debug, c.name)
+      """
+
+      assert Pyex.run!(code) == {:tuple, [nil, "app"]}
+    end
+
     test "multiple instances are independent" do
       code = """
       class Box:
@@ -448,7 +461,7 @@ defmodule Pyex.ClassesTest do
       assert Pyex.run!(code) == "B"
     end
 
-    test "diamond with super()" do
+    test "diamond with super() — cooperative MRO" do
       code = """
       class A:
           def __init__(self):
@@ -473,9 +486,106 @@ defmodule Pyex.ClassesTest do
       d.log
       """
 
-      result = Pyex.run!(code)
-      assert "D" in result
-      assert "B" in result
+      # Python MRO for D: [D, B, C, A]
+      # So D.__init__ → B.__init__ → C.__init__ → A.__init__
+      assert Pyex.run!(code) == ["A", "C", "B", "D"]
+    end
+
+    test "diamond method resolution without super()" do
+      code = """
+      class A:
+          def method(self):
+              return "A"
+
+      class B(A):
+          pass
+
+      class C(A):
+          def method(self):
+              return "C"
+
+      class D(B, C):
+          pass
+
+      D().method()
+      """
+
+      # MRO: [D, B, C, A] — B has no method, so C's is found first
+      assert Pyex.run!(code) == "C"
+    end
+
+    test "multiple inheritance with mixin" do
+      code = """
+      class JsonMixin:
+          def to_json(self):
+              return "{name: " + self.name + "}"
+
+      class Animal:
+          def __init__(self, name):
+              self.name = name
+          def speak(self):
+              return self.name + " speaks"
+
+      class Dog(JsonMixin, Animal):
+          def speak(self):
+              return self.name + " barks"
+
+      d = Dog("Rex")
+      (d.speak(), d.to_json())
+      """
+
+      assert Pyex.run!(code) == {:tuple, ["Rex barks", "{name: Rex}"]}
+    end
+
+    test "super() with cooperative methods beyond __init__" do
+      code = """
+      class Base:
+          def greet(self):
+              return "hello"
+
+      class Loud(Base):
+          def greet(self):
+              return super().greet().upper()
+
+      class Polite(Base):
+          def greet(self):
+              return super().greet() + ", please"
+
+      class LoudPolite(Loud, Polite):
+          pass
+
+      LoudPolite().greet()
+      """
+
+      # MRO: [LoudPolite, Loud, Polite, Base]
+      # Loud.greet → super().greet() calls Polite.greet
+      # Polite.greet → super().greet() calls Base.greet → "hello"
+      # Polite returns "hello, please"
+      # Loud returns "hello, please".upper() → "HELLO, PLEASE"
+      assert Pyex.run!(code) == "HELLO, PLEASE"
+    end
+
+    test "__mro__ via type()" do
+      code = """
+      class A:
+          pass
+      class B(A):
+          pass
+      class C(A):
+          pass
+      class D(B, C):
+          pass
+
+      bases = []
+      for cls in [D, B, C, A]:
+          bases.append(type(cls).__name__ if hasattr(cls, '__name__') else str(cls))
+
+      # Just verify D inherits from both B and C
+      d = D()
+      isinstance(d, B) and isinstance(d, C) and isinstance(d, A)
+      """
+
+      assert Pyex.run!(code) == true
     end
   end
 

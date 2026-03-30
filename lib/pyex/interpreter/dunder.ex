@@ -72,6 +72,20 @@ defmodule Pyex.Interpreter.Dunder do
         env,
         ctx
       ) do
+    case Ctx.check_step(ctx) do
+      {:exceeded, msg} ->
+        {:ok, instance, {:exception, msg}, env, ctx}
+
+      {:ok, ctx} ->
+        call_dunder_on_class(instance, class, method, args, env, ctx)
+    end
+  end
+
+  def call_dunder_mut(_, _, _, _, _), do: :not_found
+
+  # ------ private helpers --------------------------------------------------
+
+  defp call_dunder_on_class(instance, class, method, args, env, ctx) do
     case ClassLookup.resolve_class_attr(class, method) do
       {:ok, {:function, _, _, _, _} = func} ->
         case Interpreter.call_function({:bound_method, instance, func}, args, %{}, env, ctx) do
@@ -98,10 +112,6 @@ defmodule Pyex.Interpreter.Dunder do
         :not_found
     end
   end
-
-  def call_dunder_mut(_, _, _, _, _), do: :not_found
-
-  # ------ private helpers --------------------------------------------------
 
   @spec call_dunder_mut_generator_cm(
           Interpreter.pyvalue(),

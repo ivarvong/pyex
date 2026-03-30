@@ -221,7 +221,7 @@ defmodule Pyex.ErrorTest do
     end
 
     test "timeout error returns structured error" do
-      ctx = Pyex.Ctx.new(timeout_ms: 50)
+      ctx = Pyex.Ctx.new(timeout: 50)
       {:error, %Error{} = err} = Pyex.run("while True:\n    x = 1", ctx)
       assert err.kind == :timeout
     end

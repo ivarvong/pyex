@@ -12,7 +12,7 @@ defmodule Pyex.Ctx do
 
       Pyex.run(source,
         env: %{"KEY" => "val"},
-        timeout_ms: 5_000,
+        timeout: 5_000,
         modules: %{"mylib" => %{...}})
 
   Use `Ctx.new/1` when you need to share a context across
@@ -78,7 +78,11 @@ defmodule Pyex.Ctx do
           duration_ms: float() | nil,
           file: String.t() | nil,
           heap: %{optional(non_neg_integer()) => term()},
-          next_heap_id: non_neg_integer()
+          next_heap_id: non_neg_integer(),
+          limits: Pyex.Limits.t(),
+          steps: non_neg_integer(),
+          memory_bytes: non_neg_integer(),
+          output_bytes: non_neg_integer()
         }
 
   defstruct filesystem: nil,
@@ -107,7 +111,11 @@ defmodule Pyex.Ctx do
             duration_ms: nil,
             file: nil,
             heap: %{},
-            next_heap_id: 0
+            next_heap_id: 0,
+            limits: %Pyex.Limits{},
+            steps: 0,
+            memory_bytes: 0,
+            output_bytes: 0
 
   @doc """
   Creates a fresh live context that captures output and execution counters.
@@ -119,7 +127,7 @@ defmodule Pyex.Ctx do
   - `:modules` -- custom Python modules available via `import`. A map from
     module name strings to either a `%{String.t() => pyvalue()}` map or a
     module implementing `Pyex.Stdlib.Module`.
-  - `:timeout_ms` -- maximum *compute* time in milliseconds (nil = no limit).
+  - `:timeout` -- maximum *compute* time in milliseconds (nil = no limit).
     I/O time (HTTP requests, SQL queries) does not count against the budget.
   - `:profile` -- when `true`, collects per-line execution counts and
     per-function call counts with timing. Results are stored in the
@@ -167,7 +175,8 @@ defmodule Pyex.Ctx do
     :filesystem,
     :env,
     :modules,
-    :timeout_ms,
+    :timeout,
+    :limits,
     :profile,
     :network,
     :capabilities,
@@ -190,10 +199,12 @@ defmodule Pyex.Ctx do
     env = Keyword.get(opts, :env, %{})
     modules = Keyword.get(opts, :modules, %{}) |> normalize_modules()
 
+    limits = normalize_limits(opts)
+
     timeout =
-      case Keyword.get(opts, :timeout_ms) do
-        nil -> nil
-        ms when is_integer(ms) -> ms
+      case limits.timeout do
+        :infinity -> Keyword.get(opts, :timeout)
+        ms -> ms
       end
 
     profile =
@@ -215,7 +226,8 @@ defmodule Pyex.Ctx do
       profile: profile,
       network: network,
       capabilities: capabilities,
-      file: file
+      file: file,
+      limits: limits
     }
   end
 
@@ -234,6 +246,15 @@ defmodule Pyex.Ctx do
 
   defp resolve_module_value(map) when is_map(map) do
     map
+  end
+
+  @spec normalize_limits(keyword()) :: Pyex.Limits.t()
+  defp normalize_limits(opts) do
+    case Keyword.get(opts, :limits) do
+      nil -> %Pyex.Limits{}
+      %Pyex.Limits{} = l -> l
+      kw when is_list(kw) -> Pyex.Limits.new(kw)
+    end
   end
 
   @spec normalize_capabilities(keyword()) :: MapSet.t(capability())
@@ -469,6 +490,85 @@ defmodule Pyex.Ctx do
   end
 
   @doc """
+  Checks all resource limits at a step boundary.
+
+  Returns `{:ok, updated_ctx}` if within all limits, or
+  `{:exceeded, kind, message}` if any limit is exceeded.
+
+  Called at every loop iteration, function call entry,
+  comprehension element, and generator yield.
+  """
+  @spec check_limits(t()) :: {:ok, t()} | {:exceeded, atom(), String.t()}
+  def check_limits(%__MODULE__{limits: limits} = ctx) do
+    cond do
+      limits.max_steps != :infinity and ctx.steps >= limits.max_steps ->
+        {:exceeded, :steps, "LimitError: step limit exceeded (#{limits.max_steps})"}
+
+      limits.max_memory_bytes != :infinity and ctx.memory_bytes >= limits.max_memory_bytes ->
+        {:exceeded, :memory,
+         "LimitError: memory limit exceeded (#{limits.max_memory_bytes} bytes)"}
+
+      limits.max_output_bytes != :infinity and ctx.output_bytes >= limits.max_output_bytes ->
+        {:exceeded, :output,
+         "LimitError: output limit exceeded (#{limits.max_output_bytes} bytes)"}
+
+      true ->
+        {:ok, %{ctx | steps: ctx.steps + 1}}
+    end
+  end
+
+  @doc """
+  Tracks an estimated memory allocation in bytes.
+  """
+  @spec track_memory(t(), non_neg_integer()) :: t()
+  def track_memory(%__MODULE__{} = ctx, bytes) do
+    %{ctx | memory_bytes: ctx.memory_bytes + bytes}
+  end
+
+  @doc """
+  Estimates the memory cost of a Python value in bytes.
+  """
+  @spec estimate_memory(term()) :: non_neg_integer()
+  def estimate_memory(value) do
+    case value do
+      v when is_binary(v) -> byte_size(v)
+      {:py_list, reversed, _len} -> 64 + 8 * length(reversed)
+      {:py_dict, dict, _order} -> 128 + 48 * map_size(dict)
+      {:set, s} -> 96 + 32 * MapSet.size(s)
+      {:tuple, items} -> 64 + 8 * length(items)
+      {:instance, _, attrs} -> 128 + 48 * map_size(attrs)
+      list when is_list(list) -> 64 + 8 * length(list)
+      _ -> 0
+    end
+  end
+
+  @doc """
+  Checks all resource limits and the compute deadline at a step boundary.
+
+  Returns `{:ok, updated_ctx}` if everything is within budget, or
+  `{:exceeded, message}` if any limit or the deadline is exceeded.
+
+  This is the single function that should be called at step boundaries —
+  it combines `check_limits/1` and `check_deadline/1`.
+  """
+  @spec check_step(t()) :: {:ok, t()} | {:exceeded, String.t()}
+  def check_step(%__MODULE__{} = ctx) do
+    case check_limits(ctx) do
+      {:exceeded, _kind, message} ->
+        {:exceeded, message}
+
+      {:ok, ctx} ->
+        case check_deadline(ctx) do
+          {:exceeded, _} ->
+            {:exceeded, "TimeoutError: execution exceeded time limit"}
+
+          :ok ->
+            {:ok, ctx}
+        end
+    end
+  end
+
+  @doc """
   Checks whether accumulated compute time has exceeded the budget.
 
   Returns `:ok` if within budget (or no timeout set),
@@ -545,7 +645,14 @@ defmodule Pyex.Ctx do
   """
   @spec record(t(), event_type(), term()) :: t()
   def record(ctx, :output, line) do
-    %{ctx | output_buffer: [line | ctx.output_buffer], event_count: ctx.event_count + 1}
+    output_size = if is_binary(line), do: byte_size(line), else: 0
+
+    %{
+      ctx
+      | output_buffer: [line | ctx.output_buffer],
+        event_count: ctx.event_count + 1,
+        output_bytes: ctx.output_bytes + output_size
+    }
   end
 
   def record(ctx, :file_op, _data) do
@@ -588,7 +695,16 @@ defmodule Pyex.Ctx do
   """
   @spec heap_alloc(t(), term()) :: {{:ref, non_neg_integer()}, t()}
   def heap_alloc(%__MODULE__{heap: heap, next_heap_id: id} = ctx, value) do
-    {{:ref, id}, %{ctx | heap: Map.put(heap, id, value), next_heap_id: id + 1}}
+    mem = estimate_memory(value)
+
+    ctx = %{
+      ctx
+      | heap: Map.put(heap, id, value),
+        next_heap_id: id + 1,
+        memory_bytes: ctx.memory_bytes + mem
+    }
+
+    {{:ref, id}, ctx}
   end
 
   @doc """
@@ -675,7 +791,10 @@ defmodule Pyex.Ctx do
   """
   @spec heap_put(t(), non_neg_integer(), term()) :: t()
   def heap_put(%__MODULE__{heap: heap} = ctx, id, value) do
-    %{ctx | heap: Map.put(heap, id, value)}
+    old_mem = estimate_memory(Map.get(heap, id))
+    new_mem = estimate_memory(value)
+    delta = max(new_mem - old_mem, 0)
+    %{ctx | heap: Map.put(heap, id, value), memory_bytes: ctx.memory_bytes + delta}
   end
 
   @doc """

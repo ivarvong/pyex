@@ -466,7 +466,7 @@ defmodule Pyex.Interpreter.Format do
     else
       # Round to 'precision' sig figs to determine the actual exponent after rounding
       exp_before = float_val |> abs() |> :math.log10() |> Float.floor() |> trunc()
-      dec_places_for_round = max(precision - 1 - exp_before, 0)
+      dec_places_for_round = precision - 1 - exp_before
 
       rounded =
         case Decimal.parse(:erlang.float_to_binary(float_val, [])) do
@@ -515,6 +515,12 @@ defmodule Pyex.Interpreter.Format do
   defp pad_string(str, %{width: nil}), do: str
 
   defp pad_string(str, %{width: width, flags: _flags}) when byte_size(str) >= width, do: str
+
+  @max_format_width 10_000_000
+
+  defp pad_string(str, %{width: width} = spec) when width > @max_format_width do
+    pad_string(str, %{spec | width: @max_format_width})
+  end
 
   defp pad_string(str, %{width: width, flags: flags}) do
     padding = width - byte_size(str)

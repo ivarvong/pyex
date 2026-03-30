@@ -15,9 +15,9 @@ defmodule Pyex.Interpreter.ClassLookup do
     mro = c3_linearize(class)
 
     Enum.find_value(mro, :error, fn {:class, _, _, class_attrs} ->
-      case Map.get(class_attrs, attr) do
-        nil -> nil
-        value -> {:ok, value}
+      case Map.fetch(class_attrs, attr) do
+        {:ok, value} -> {:ok, value}
+        :error -> nil
       end
     end)
   end
@@ -29,17 +29,18 @@ defmodule Pyex.Interpreter.ClassLookup do
     mro = c3_linearize(class)
 
     Enum.find_value(mro, :error, fn {:class, _, _, class_attrs} = current_class ->
-      case Map.get(class_attrs, attr) do
-        nil -> nil
-        value -> {:ok, value, current_class}
+      case Map.fetch(class_attrs, attr) do
+        {:ok, value} -> {:ok, value, current_class}
+        :error -> nil
       end
     end)
   end
 
+  @doc "Compute the C3 linearized MRO for a class."
   @spec c3_linearize(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]
-  defp c3_linearize({:class, _, [], _} = class), do: [class]
+  def c3_linearize({:class, _, [], _} = class), do: [class]
 
-  defp c3_linearize({:class, _, bases, _} = class) do
+  def c3_linearize({:class, _, bases, _} = class) do
     parent_mros = Enum.map(bases, &c3_linearize/1)
     [class | c3_merge(parent_mros ++ [bases])]
   end

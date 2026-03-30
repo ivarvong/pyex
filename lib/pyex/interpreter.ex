@@ -1435,11 +1435,11 @@ defmodule Pyex.Interpreter do
   end
 
   def eval_statements([stmt | rest], env, ctx) do
-    case Ctx.check_deadline(ctx) do
-      {:exceeded, _} ->
-        {{:exception, "TimeoutError: execution exceeded time limit"}, env, ctx}
+    case Ctx.check_step(ctx) do
+      {:exceeded, msg} ->
+        {{:exception, msg}, env, ctx}
 
-      :ok ->
+      {:ok, ctx} ->
         ctx = track_line(stmt, ctx)
 
         case eval(stmt, env, ctx) do
@@ -2541,7 +2541,15 @@ defmodule Pyex.Interpreter do
     output = strs |> Enum.reverse() |> Enum.join(sep)
     output = output <> end_str
     ctx = Ctx.record(ctx, :output, output)
-    {nil, env, ctx}
+
+    limits = ctx.limits
+
+    if limits.max_output_bytes != :infinity and ctx.output_bytes >= limits.max_output_bytes do
+      {{:exception, "LimitError: output limit exceeded (#{limits.max_output_bytes} bytes)"}, env,
+       ctx}
+    else
+      {nil, env, ctx}
+    end
   end
 
   @doc false
@@ -2550,13 +2558,20 @@ defmodule Pyex.Interpreter do
     case Env.get(env, "self") do
       {:ok, raw_self} ->
         case Ctx.deref(ctx, raw_self) do
-          {:instance, _, _} = instance ->
+          {:instance, inst_class, _} = instance ->
             case Env.get(env, "__class__") do
-              {:ok, {:class, _, bases, _}} when bases != [] ->
-                {{:super_proxy, instance, bases}, env, ctx}
+              {:ok, {:class, _, _, _} = current_class} ->
+                # Use the MRO of the instance's actual class, then drop everything
+                # up to and including current_class. This is how Python's super()
+                # enables cooperative multiple inheritance.
+                mro = ClassLookup.c3_linearize(inst_class)
+                mro_tail = Enum.drop_while(mro, &(&1 != current_class)) |> Enum.drop(1)
 
-              {:ok, {:class, _, _, _}} ->
-                {{:exception, "TypeError: super(): no parent class"}, env, ctx}
+                if mro_tail == [] do
+                  {{:exception, "TypeError: super(): no parent class"}, env, ctx}
+                else
+                  {{:super_proxy, instance, mro_tail}, env, ctx}
+                end
 
               _ ->
                 {{:exception, "RuntimeError: super(): __class__ is not set"}, env, ctx}

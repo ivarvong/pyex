@@ -231,7 +231,7 @@ defmodule Pyex.Stdlib.PandasTest do
       platform: platform,
       expected_signals: expected_signals
     } do
-      opts = [timeout_ms: 20_000, modules: %{"platform" => platform}]
+      opts = [timeout: 20_000, modules: %{"platform" => platform}]
 
       naive_code = """
       import platform
@@ -268,7 +268,7 @@ defmodule Pyex.Stdlib.PandasTest do
       platform: platform,
       expected_signals: expected_signals
     } do
-      opts = [timeout_ms: 20_000, modules: %{"platform" => platform}]
+      opts = [timeout: 20_000, modules: %{"platform" => platform}]
 
       pandas_code = """
       import pandas as pd
@@ -293,7 +293,7 @@ defmodule Pyex.Stdlib.PandasTest do
 
     @tag timeout: 30_000
     test "pandas via platform.get_prices is faster than naive", %{platform: platform} do
-      opts = [timeout_ms: 20_000, modules: %{"platform" => platform}]
+      opts = [timeout: 20_000, modules: %{"platform" => platform}]
 
       naive_code = """
       import platform
