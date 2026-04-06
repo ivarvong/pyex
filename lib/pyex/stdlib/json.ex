@@ -19,8 +19,55 @@ defmodule Pyex.Stdlib.Json do
   def module_value do
     %{
       "loads" => {:builtin, &do_loads/1},
-      "dumps" => {:builtin_kw, &do_dumps/2}
+      "dumps" => {:builtin_kw, &do_dumps/2},
+      "load" => {:builtin, &do_load/1},
+      "dump" => {:builtin_kw, &do_dump/2}
     }
+  end
+
+  @spec do_load([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp do_load([{:file_handle, id}]) do
+    {:io_call,
+     fn env, ctx ->
+       case Pyex.Ctx.read_handle(ctx, id) do
+         {:ok, content, ctx} ->
+           case Jason.decode(content) do
+             {:ok, value} -> {from_json(value), env, ctx}
+             {:error, reason} -> {{:exception, "json.load failed: #{inspect(reason)}"}, env, ctx}
+           end
+
+         {:error, msg} ->
+           {{:exception, msg}, env, ctx}
+       end
+     end}
+  end
+
+  defp do_load(_args) do
+    {:exception, "TypeError: json.load() argument must be a file object"}
+  end
+
+  @spec do_dump(
+          [Pyex.Interpreter.pyvalue()],
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: Pyex.Interpreter.pyvalue()
+  defp do_dump([value, {:file_handle, id}], kwargs) do
+    case do_dumps([value], kwargs) do
+      {:exception, _} = err ->
+        err
+
+      json_str ->
+        {:io_call,
+         fn env, ctx ->
+           case Pyex.Ctx.write_handle(ctx, id, json_str) do
+             {:ok, ctx} -> {nil, env, ctx}
+             {:error, msg} -> {{:exception, msg}, env, ctx}
+           end
+         end}
+    end
+  end
+
+  defp do_dump(_args, _kwargs) do
+    {:exception, "TypeError: json.dump() requires a value and a file object"}
   end
 
   @spec do_loads([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()

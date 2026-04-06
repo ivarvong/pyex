@@ -50,7 +50,8 @@ defmodule Pyex.Stdlib do
     "enum" => Pyex.Stdlib.EnumModule,
     "string" => Pyex.Stdlib.String,
     "typing" => Pyex.Stdlib.Typing,
-    "textwrap" => Pyex.Stdlib.Textwrap
+    "textwrap" => Pyex.Stdlib.Textwrap,
+    "sys" => Pyex.Stdlib.Sys
   }
 
   @doc """

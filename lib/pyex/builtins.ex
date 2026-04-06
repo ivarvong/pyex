@@ -1033,7 +1033,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  @open_supported_kwargs ["file", "mode", "encoding", "newline"]
+  @open_supported_kwargs ["file", "mode", "encoding", "newline", "errors"]
 
   @spec validate_open_kwargs(%{optional(String.t()) => Interpreter.pyvalue()}) ::
           :ok | {:exception, String.t()}
@@ -1107,7 +1107,9 @@ defmodule Pyex.Builtins do
           {:ctx_call, (Pyex.Env.t(), Pyex.Ctx.t() -> term())}
           | {:exception, String.t()}
   defp open_file_handle(path, mode_str) do
-    case mode_str do
+    normalized = String.replace(mode_str, "b", "")
+
+    case normalized do
       m when m in ["r", "w", "a"] ->
         mode = %{"r" => :read, "w" => :write, "a" => :append} |> Map.fetch!(m)
 
@@ -1123,7 +1125,7 @@ defmodule Pyex.Builtins do
          end}
 
       _ ->
-        {:exception, "ValueError: invalid mode: '#{mode_str}'"}
+        {:exception, "ValueError: invalid mode: '#{mode_str}' (normalized: '#{normalized}')"}
     end
   end
 

@@ -215,9 +215,8 @@ defmodule Pyex.ErrorMessagesTest do
       assert msg =~ "requests"
     end
 
-    test "sys module suggests os" do
-      {:error, %Error{message: msg}} = Pyex.run("import sys")
-      assert msg =~ "os"
+    test "sys module imports successfully" do
+      {:ok, _result, _ctx} = Pyex.run("import sys")
     end
   end
 
