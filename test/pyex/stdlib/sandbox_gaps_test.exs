@@ -170,5 +170,74 @@ defmodule Pyex.Stdlib.SandboxGapsTest do
 
       Pyex.run!(code)
     end
+
+    test "sys.stdin is accessible without raising AttributeError" do
+      code = """
+      import sys
+      sys.stdin
+      """
+
+      Pyex.run!(code)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Dict attribute access must resolve to methods, never shadowed by dict keys
+  # ---------------------------------------------------------------------------
+  describe "dict attribute lookup does not treat dict keys as attributes" do
+    test "d.items() returns method even when dict has a key named 'items'" do
+      code = """
+      d = {"items": [1, 2, 3], "other": 4}
+      list(d.items())
+      """
+
+      # Python: [('items', [1,2,3]), ('other', 4)]
+      result = Pyex.run!(code)
+      assert is_list(result)
+      assert length(result) == 2
+    end
+
+    test "recursive walk over nested dict/list does not fail when a key is named 'items'" do
+      code = """
+      def walk(d):
+          if isinstance(d, dict):
+              for k, v in d.items():
+                  walk(v)
+          elif isinstance(d, list):
+              for item in d:
+                  walk(item)
+      walk({"venue": {"name": "Bar"}, "items": [{"name": "x"}]})
+      """
+
+      Pyex.run!(code)
+    end
+
+    test "d.keys() returns method even when dict has a key named 'keys'" do
+      code = """
+      d = {"keys": "stringvalue"}
+      list(d.keys())
+      """
+
+      assert Pyex.run!(code) == ["keys"]
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Regex evaluation on large inputs with bounded quantifiers
+  # ---------------------------------------------------------------------------
+  describe "re.search with bounded quantifiers on large inputs" do
+    test "re.search with bounded quantifier on a large input completes without ReDoS timeout" do
+      # Size chosen so the match completes under the 10s guard even on
+      # slower CI (OTP 28 recompiles regexes per call). The 1s pre-fix
+      # timeout still fails at this size, so the regression remains covered.
+      code = """
+      import re
+      big = "var x=function(){return 1;};" * 15000
+      m = re.search(r'.{0,300}venue.{0,300}', big)
+      m is None
+      """
+
+      assert Pyex.run!(code) == true
+    end
   end
 end

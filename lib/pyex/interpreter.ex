@@ -852,9 +852,8 @@ defmodule Pyex.Interpreter do
                  ctx}
             end
 
-          {:py_dict, %{^attr => _}, _} = dict ->
-            {:ok, value} = PyDict.fetch(dict, attr)
-            {value, env, ctx}
+          {:py_dict, _, _} = dict ->
+            resolve_dict_attr(dict, attr, env, ctx)
 
           %{^attr => value} ->
             {value, env, ctx}
@@ -1192,6 +1191,52 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  # Resolve `dict.attr`. Python dicts have no attribute access for keys —
+  # `d.items` is always the method, never `d["items"]`. Pyex relaxes this for
+  # internal namespace-as-dict patterns (e.g. `requests.Session()`), so prefer
+  # a stored callable when present, otherwise fall back to the dict method.
+  @spec resolve_dict_attr(pyvalue(), String.t(), Env.t(), Ctx.t()) :: eval_result()
+  defp resolve_dict_attr(dict, attr, env, ctx) do
+    stored =
+      case PyDict.fetch(dict, attr) do
+        {:ok, value} -> {:ok, value}
+        :error -> :error
+      end
+
+    method =
+      case Methods.resolve(dict, attr) do
+        {:ok, m} -> {:ok, m}
+        :error -> :error
+      end
+
+    case {stored, method} do
+      {{:ok, value}, {:ok, _}} ->
+        if callable?(value), do: {value, env, ctx}, else: {elem(method, 1), env, ctx}
+
+      {{:ok, value}, :error} ->
+        {value, env, ctx}
+
+      {:error, {:ok, m}} ->
+        {m, env, ctx}
+
+      {:error, :error} ->
+        {{:exception, "AttributeError: 'dict' object has no attribute '#{attr}'"}, env, ctx}
+    end
+  end
+
+  @spec callable?(pyvalue()) :: boolean()
+  defp callable?({:builtin, _}), do: true
+  defp callable?({:builtin_kw, _}), do: true
+  defp callable?({:builtin_raw, _}), do: true
+  defp callable?({:function, _, _, _, _}), do: true
+  defp callable?({:lambda, _, _, _}), do: true
+  defp callable?({:bound_method, _, _}), do: true
+  defp callable?({:bound_method, _, _, _}), do: true
+  defp callable?({:class, _, _, _}), do: true
+  defp callable?({:ctx_call, _}), do: true
+  defp callable?({:io_call, _}), do: true
+  defp callable?(_), do: false
+
   @spec eval_getattr_on_value(pyvalue(), String.t(), Env.t(), Ctx.t()) :: eval_result()
   defp eval_getattr_on_value(object, attr, env, ctx) do
     object = Ctx.deref(ctx, object)
@@ -1328,9 +1373,8 @@ defmodule Pyex.Interpreter do
         {{:exception, "AttributeError: type object '#{name}' has no attribute '#{attr}'"}, env,
          ctx}
 
-      {:py_dict, %{^attr => _}, _} = dict ->
-        {:ok, value} = PyDict.fetch(dict, attr)
-        {value, env, ctx}
+      {:py_dict, _, _} = dict ->
+        resolve_dict_attr(dict, attr, env, ctx)
 
       %{^attr => value} ->
         {value, env, ctx}

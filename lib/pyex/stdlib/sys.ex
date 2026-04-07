@@ -2,7 +2,7 @@ defmodule Pyex.Stdlib.Sys do
   @moduledoc """
   Minimal Python `sys` module stub.
 
-  Provides `sys.stdout`, `sys.stderr`, `sys.argv`, `sys.version`,
+  Provides `sys.stdin`, `sys.stdout`, `sys.stderr`, `sys.argv`, `sys.version`,
   `sys.exit()`, and `sys.maxsize` so that `import sys` does not fail
   in the sandbox.
   """
@@ -16,6 +16,7 @@ defmodule Pyex.Stdlib.Sys do
       "argv" => {:py_list, [], 0},
       "version" => "3.11.0 (Pyex sandbox) [Python compatible]",
       "maxsize" => 9_223_372_036_854_775_807,
+      "stdin" => {:stringio, make_ref()},
       "stdout" => {:stringio, make_ref()},
       "stderr" => {:stringio, make_ref()},
       "exit" => {:builtin, &do_exit/1}

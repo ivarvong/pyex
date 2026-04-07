@@ -8,7 +8,7 @@ defmodule Pyex.Stdlib.Re do
 
   @behaviour Pyex.Stdlib.Module
 
-  @regex_timeout_ms 1_000
+  @regex_timeout_ms 10_000
 
   @doc """
   Returns the module value map.
