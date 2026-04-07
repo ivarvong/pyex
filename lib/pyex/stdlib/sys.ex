@@ -14,6 +14,7 @@ defmodule Pyex.Stdlib.Sys do
   def module_value do
     %{
       "argv" => {:py_list, [], 0},
+      "path" => {:py_list, [], 0},
       "version" => "3.11.0 (Pyex sandbox) [Python compatible]",
       "maxsize" => 9_223_372_036_854_775_807,
       "stdin" => {:stringio, make_ref()},

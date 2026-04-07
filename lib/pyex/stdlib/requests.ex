@@ -36,9 +36,23 @@ defmodule Pyex.Stdlib.Requests do
       "head" => {:builtin_kw, &do_head/2},
       "options" => {:builtin_kw, &do_options/2},
       "Session" => {:builtin, fn [] -> build_session() end},
-      "HTTPError" => "requests.HTTPError"
+      "HTTPError" => "requests.HTTPError",
+      "__version__" => "2.31.0"
     }
   end
+
+  @doc """
+  Public entry point used by `urllib.request.urlopen` to reuse the same
+  HTTP client, network-policy enforcement, and telemetry pipeline as
+  `requests.get/post/...`. Returns an `{:io_call, fn}` whose result is
+  the same response py_dict as `requests.get`.
+  """
+  @spec request_io_call(
+          atom(),
+          String.t(),
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
+  def request_io_call(method, url, kwargs), do: do_request(method, url, kwargs)
 
   @spec do_get(
           [Pyex.Interpreter.pyvalue()],

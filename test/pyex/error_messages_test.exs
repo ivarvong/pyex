@@ -205,14 +205,12 @@ defmodule Pyex.ErrorMessagesTest do
       end
     end
 
-    test "unsupported urllib submodule suggests requests" do
-      {:error, %Error{message: msg}} = Pyex.run("import urllib.request")
-      assert msg =~ "requests"
+    test "urllib.request imports successfully and exposes urlopen" do
+      {:ok, _result, _ctx} = Pyex.run("from urllib.request import urlopen\ncallable(urlopen)")
     end
 
-    test "urllib.error suggests requests" do
-      {:error, %Error{message: msg}} = Pyex.run("import urllib.error")
-      assert msg =~ "requests"
+    test "urllib.error imports successfully" do
+      {:ok, _result, _ctx} = Pyex.run("import urllib.error")
     end
 
     test "sys module imports successfully" do
