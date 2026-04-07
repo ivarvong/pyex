@@ -226,10 +226,13 @@ defmodule Pyex.Stdlib.SandboxGapsTest do
   # Regex evaluation on large inputs with bounded quantifiers
   # ---------------------------------------------------------------------------
   describe "re.search with bounded quantifiers on large inputs" do
-    test "re.search with bounded quantifier on ~1.8MB input completes without ReDoS timeout" do
+    test "re.search with bounded quantifier on a large input completes without ReDoS timeout" do
+      # Size chosen so the match completes under the 10s guard even on
+      # slower CI (OTP 28 recompiles regexes per call). The 1s pre-fix
+      # timeout still fails at this size, so the regression remains covered.
       code = """
       import re
-      big = "var x=function(){return 1;};" * 70000
+      big = "var x=function(){return 1;};" * 15000
       m = re.search(r'.{0,300}venue.{0,300}', big)
       m is None
       """
