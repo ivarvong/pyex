@@ -300,12 +300,7 @@ defmodule Pyex.Stdlib.Pydantic do
 
   defp coerce(value, "Optional[" <> rest, class) do
     inner = String.trim_trailing(rest, "]")
-
-    if value == nil do
-      {:ok, nil}
-    else
-      coerce(value, inner, class)
-    end
+    coerce(value, inner, class)
   end
 
   defp coerce({:py_list, reversed, _}, "List[" <> rest, class) do

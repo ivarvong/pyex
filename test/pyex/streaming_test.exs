@@ -482,8 +482,7 @@ defmodule Pyex.StreamingTest do
       {:ok, app} = Lambda.boot(@generator_app)
       {:ok, resp, _app} = Lambda.handle_stream(app, %{method: "GET", path: "/stream"})
 
-      assert is_function(resp.chunks) or
-               (is_struct(resp.chunks) and resp.chunks.__struct__ == Stream)
+      assert is_function(resp.chunks)
 
       refute is_list(resp.chunks)
 
