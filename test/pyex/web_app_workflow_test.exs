@@ -23,7 +23,7 @@ defmodule Pyex.WebAppWorkflowTest do
 
   Uses a persistent requests.Session so the auth header and connection
   state are reused across calls. Every request has an explicit timeout,
-  and HTTP failures surface as the domain-specific ApiError exception
+  and HTTP failures surface as the domain-specific APIError exception
   (subclass of Exception) so callers can catch the right thing.
   \"\"\"
 
@@ -33,7 +33,7 @@ defmodule Pyex.WebAppWorkflowTest do
   DEFAULT_TIMEOUT = 10.0
 
 
-  class ApiError(Exception):
+  class APIError(Exception):
       \"\"\"Raised when the items API returns an error response.\"\"\"
 
       def __init__(self, message, status_code=None, item_id=None):
@@ -46,7 +46,7 @@ defmodule Pyex.WebAppWorkflowTest do
           return self.message
 
 
-  class ApiClient:
+  class APIClient:
       def __init__(self, base_url, api_key, timeout=DEFAULT_TIMEOUT):
           if not base_url:
               raise ValueError("base_url is required")
@@ -61,14 +61,14 @@ defmodule Pyex.WebAppWorkflowTest do
           }
 
       def fetch(self, item_id):
-          \"\"\"GET /items/<id>. Raises ApiError on non-2xx.\"\"\"
+          \"\"\"GET /items/<id>. Raises APIError on non-2xx.\"\"\"
           response = requests.get(
               self._item_url(item_id),
               headers=self._headers,
               timeout=self._timeout,
           )
           if not response.ok:
-              raise ApiError(
+              raise APIError(
                   "fetch failed: " + str(response.status_code),
                   status_code=response.status_code,
                   item_id=item_id,
@@ -76,7 +76,7 @@ defmodule Pyex.WebAppWorkflowTest do
           return response.json()
 
       def create(self, payload):
-          \"\"\"POST /items. Raises ApiError on non-2xx.\"\"\"
+          \"\"\"POST /items. Raises APIError on non-2xx.\"\"\"
           if not isinstance(payload, dict):
               raise TypeError("payload must be a dict")
 
@@ -87,7 +87,7 @@ defmodule Pyex.WebAppWorkflowTest do
               timeout=self._timeout,
           )
           if not response.ok:
-              raise ApiError(
+              raise APIError(
                   "create failed: " + str(response.status_code),
                   status_code=response.status_code,
               )
@@ -100,14 +100,14 @@ defmodule Pyex.WebAppWorkflowTest do
   """
 
   @consumer_py """
-  \"\"\"Higher-level operations layered on top of ApiClient.
+  \"\"\"Higher-level operations layered on top of APIClient.
 
   Each public function fetches every id exactly once and returns a
   structured result so the caller has full traceability into what
   succeeded and what failed.
   \"\"\"
 
-  from api_client import ApiError
+  from api_client import APIError
 
 
   def fetch_all(client, ids):
@@ -126,7 +126,7 @@ defmodule Pyex.WebAppWorkflowTest do
 
 
   def fetch_partial(client, ids):
-      \"\"\"Fetch every id, partitioning successes and ApiErrors.
+      \"\"\"Fetch every id, partitioning successes and APIErrors.
 
       Returns {ok: [...], errors: [(id, status_code, message), ...]}.
       Bare exceptions (programming errors) are NOT swallowed.
@@ -136,7 +136,7 @@ defmodule Pyex.WebAppWorkflowTest do
       for item_id in ids:
           try:
               ok.append(client.fetch(item_id))
-          except ApiError as e:
+          except APIError as e:
               errors.append((item_id, e.status_code, str(e)))
       return {"ok": ok, "errors": errors}
   """
@@ -190,7 +190,7 @@ defmodule Pyex.WebAppWorkflowTest do
 
       main = """
       import json
-      from api_client import ApiClient
+      from api_client import APIClient
       from consumer import summarize
 
 
@@ -200,7 +200,7 @@ defmodule Pyex.WebAppWorkflowTest do
 
 
       config = load_config("secrets.json")
-      client = ApiClient(config["base_url"], config["api_key"])
+      client = APIClient(config["base_url"], config["api_key"])
       summarize(client, [1, 2, 3])
       """
 
@@ -245,7 +245,7 @@ defmodule Pyex.WebAppWorkflowTest do
 
       main = """
       import json
-      from api_client import ApiClient
+      from api_client import APIClient
 
 
       def load_config(path):
@@ -254,7 +254,7 @@ defmodule Pyex.WebAppWorkflowTest do
 
 
       config = load_config("secrets.json")
-      client = ApiClient(config["base_url"], config["api_key"])
+      client = APIClient(config["base_url"], config["api_key"])
 
       payloads = [
           {"seq": 1, "name": "alpha"},
@@ -289,12 +289,12 @@ defmodule Pyex.WebAppWorkflowTest do
         run!(
           """
           import json
-          from api_client import ApiClient
+          from api_client import APIClient
 
           with open("secrets.json", "r") as f:
               secrets = json.loads(f.read())
 
-          client = ApiClient(secrets["base_url"], secrets["api_key"])
+          client = APIClient(secrets["base_url"], secrets["api_key"])
           client.create({"seq": 1, "name": "alpha"})
           """,
           project_files(base_url),
@@ -349,7 +349,7 @@ defmodule Pyex.WebAppWorkflowTest do
 
       main = """
       import json
-      from api_client import ApiClient
+      from api_client import APIClient
       from consumer import fetch_partial
 
 
@@ -359,7 +359,7 @@ defmodule Pyex.WebAppWorkflowTest do
 
 
       config = load_config("secrets.json")
-      client = ApiClient(config["base_url"], config["api_key"])
+      client = APIClient(config["base_url"], config["api_key"])
       fetch_partial(client, [1, 2, 3])
       """
 
@@ -375,16 +375,16 @@ defmodule Pyex.WebAppWorkflowTest do
       assert msg =~ "404"
     end
 
-    test "non-ApiError exceptions are NOT swallowed by fetch_partial", %{
+    test "non-APIError exceptions are NOT swallowed by fetch_partial", %{
       base_url: base_url
     } do
-      # Passing a non-int id triggers a TypeError inside ApiClient._item_url.
+      # Passing a non-int id triggers a TypeError inside APIClient._item_url.
       # That's a programming bug, not a server failure, and it must escape.
       assert_raise RuntimeError, ~r/TypeError: item_id must be an int/, fn ->
         run!(
           """
           import json
-          from api_client import ApiClient
+          from api_client import APIClient
           from consumer import fetch_partial
 
 
@@ -394,7 +394,7 @@ defmodule Pyex.WebAppWorkflowTest do
 
 
           config = load_config("secrets.json")
-          client = ApiClient(config["base_url"], config["api_key"])
+          client = APIClient(config["base_url"], config["api_key"])
           fetch_partial(client, ["two", 1, 3])
           """,
           project_files(base_url),
@@ -421,10 +421,10 @@ defmodule Pyex.WebAppWorkflowTest do
 
       # Python code never sees the key — the host injects it.
       main = """
-      from api_client import ApiClient
+      from api_client import APIClient
       from consumer import summarize
 
-      client = ApiClient("#{base_url}", "placeholder-overridden-by-host")
+      client = APIClient("#{base_url}", "placeholder-overridden-by-host")
       summarize(client, [1, 2, 3])["total"]
       """
 
