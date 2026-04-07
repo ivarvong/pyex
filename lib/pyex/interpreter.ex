@@ -2633,8 +2633,8 @@ defmodule Pyex.Interpreter do
     ConnectionRefusedError ConnectionResetError ChildProcessError
   )
 
-  @spec builtin_exception_base_stub(term()) :: pyvalue() | nil
-  defp builtin_exception_base_stub(name) when is_binary(name) do
+  @spec builtin_exception_base_stub(String.t()) :: pyvalue() | nil
+  defp builtin_exception_base_stub(name) do
     if name in @builtin_exception_names do
       noop = fn _args, _kwargs -> nil end
 
@@ -2647,8 +2647,6 @@ defmodule Pyex.Interpreter do
       nil
     end
   end
-
-  defp builtin_exception_base_stub(_), do: nil
 
   @doc false
   @spec eval_super(Env.t(), Ctx.t()) :: eval_result()
