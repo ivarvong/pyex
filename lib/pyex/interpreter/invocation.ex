@@ -287,6 +287,10 @@ defmodule Pyex.Interpreter.Invocation do
 
           {:exception, _} = signal ->
             {signal, env, ctx}
+
+          _ ->
+            {ref, ctx} = Ctx.heap_alloc(ctx, instance)
+            {ref, env, ctx}
         end
 
       :error ->

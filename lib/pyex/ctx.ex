@@ -436,7 +436,9 @@ defmodule Pyex.Ctx do
           else: url_matched_rules |> Enum.flat_map(& &1.methods) |> Enum.uniq()
 
       "NetworkError: HTTP method #{method} is not allowed. " <>
-        "Allowed methods: #{Enum.join(allowed, ", ")}"
+        "Allowed methods: #{Enum.join(allowed, ", ")}. " <>
+        "To permit #{method}, add it to the matching rule's :methods list " <>
+        "(e.g. methods: [\"GET\", \"#{method}\"])"
     else
       prefixes =
         rules

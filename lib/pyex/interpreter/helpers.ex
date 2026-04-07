@@ -127,8 +127,13 @@ defmodule Pyex.Interpreter.Helpers do
     "<class '#{type_name}'>"
   end
 
-  def py_str({:instance, {:class, name, _, _}, _}) do
-    "<#{name} instance>"
+  def py_str({:instance, {:class, name, _, _}, fields}) do
+    case fields do
+      %{"args" => {:tuple, [arg]}} -> py_str(arg)
+      %{"args" => {:tuple, []}} -> ""
+      %{"args" => {:tuple, args}} -> "(" <> Enum.map_join(args, ", ", &py_str/1) <> ")"
+      _ -> "<#{name} instance>"
+    end
   end
 
   def py_str({:super_proxy, _, _}), do: "<super>"

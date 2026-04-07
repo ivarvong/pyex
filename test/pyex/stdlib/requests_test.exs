@@ -471,6 +471,25 @@ defmodule Pyex.Stdlib.RequestsTest do
       end
     end
 
+    test "denial message teaches caller how to permit the blocked method", %{bypass: bypass} do
+      port = bypass.port
+      prefix = "http://localhost:#{port}/"
+
+      err =
+        assert_raise RuntimeError, fn ->
+          Pyex.run!(
+            """
+            import requests
+            requests.post("http://localhost:#{port}/data", json={})
+            """,
+            network: [%{allowed_url_prefix: prefix}]
+          )
+        end
+
+      assert err.message =~ ~s(:methods)
+      assert err.message =~ ~s("POST")
+    end
+
     test "custom methods per prefix", %{bypass: bypass} do
       Bypass.expect_once(bypass, "POST", "/api/data", fn conn ->
         {:ok, _body, conn} = Plug.Conn.read_body(conn)
