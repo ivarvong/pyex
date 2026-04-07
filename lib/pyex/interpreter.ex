@@ -169,14 +169,24 @@ defmodule Pyex.Interpreter do
     ctx = init_profile(ctx)
 
     case eval(ast, env, ctx) do
-      {{:exception, msg}, _env, ctx} ->
-        {:error, Helpers.format_error(msg, ctx), ctx}
+      {{:exception, msg}, env, ctx} ->
+        if system_exit_zero?(msg) do
+          {:ok, nil, env, ctx}
+        else
+          {:error, Helpers.format_error(msg, ctx), ctx}
+        end
 
       {result, env, ctx} ->
         value = Helpers.unwrap(result)
         {:ok, Ctx.deep_deref(ctx, value), env, ctx}
     end
   end
+
+  @spec system_exit_zero?(String.t()) :: boolean()
+  defp system_exit_zero?("SystemExit"), do: true
+  defp system_exit_zero?("SystemExit: 0"), do: true
+  defp system_exit_zero?("SystemExit: None"), do: true
+  defp system_exit_zero?(_), do: false
 
   defmacrop is_py_exception(val) do
     quote do: is_tuple(unquote(val)) and elem(unquote(val), 0) == :exception
@@ -334,8 +344,18 @@ defmodule Pyex.Interpreter do
 
         base_name ->
           case Env.get(env, base_name) do
-            {:ok, {:class, _, _, _} = base} -> base
-            _ -> nil
+            {:ok, {:class, _, _, _} = base} ->
+              base
+
+            _ ->
+              # Builtin exception types (Exception, ValueError, ...) are
+              # not bound as real classes in the env -- they're handled as
+              # tagged strings at raise/except time. To make
+              # `class MyError(Exception): super().__init__(...)` work,
+              # synthesize a stub class for any recognized exception base
+              # name. Other unknown base names still fall through to nil
+              # so we don't silently mask typos.
+              builtin_exception_base_stub(base_name)
           end
       end)
       |> Enum.reject(&is_nil/1)
@@ -2587,6 +2607,38 @@ defmodule Pyex.Interpreter do
        ctx}
     else
       {nil, env, ctx}
+    end
+  end
+
+  # Builtin exception type names that subclass __init__ may legitimately
+  # call `super().__init__(...)` against. Stubs accept any args/kwargs
+  # and do nothing, matching Python's permissive Exception.__init__.
+  @builtin_exception_names ~w(
+    BaseException Exception
+    ArithmeticError AssertionError AttributeError BufferError EOFError
+    FloatingPointError GeneratorExit ImportError IndexError KeyError
+    KeyboardInterrupt LookupError MemoryError NameError NotImplementedError
+    OSError IOError FileNotFoundError FileExistsError PermissionError
+    OverflowError RecursionError ReferenceError RuntimeError StopIteration
+    StopAsyncIteration SyntaxError IndentationError SystemError SystemExit
+    TabError TimeoutError TypeError UnboundLocalError UnicodeError
+    UnicodeDecodeError UnicodeEncodeError UnicodeTranslateError ValueError
+    ZeroDivisionError ConnectionError BrokenPipeError ConnectionAbortedError
+    ConnectionRefusedError ConnectionResetError ChildProcessError
+  )
+
+  @spec builtin_exception_base_stub(String.t()) :: pyvalue() | nil
+  defp builtin_exception_base_stub(name) do
+    if name in @builtin_exception_names do
+      noop = fn _args, _kwargs -> nil end
+
+      {:class, name, [],
+       %{
+         "__name__" => name,
+         "__init__" => {:builtin_kw, noop}
+       }}
+    else
+      nil
     end
   end
 

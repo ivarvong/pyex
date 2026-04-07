@@ -75,6 +75,43 @@ defmodule Pyex.FilesystemImportTest do
 
       assert result == 7
     end
+
+    test "imported module sees __name__ bound to its module name" do
+      {result, _ctx} =
+        run_with_fs!(
+          """
+          import helpers
+          helpers.who_am_i()
+          """,
+          %{
+            "helpers.py" => """
+            def who_am_i():
+                return __name__
+            """
+          }
+        )
+
+      assert result == "helpers"
+    end
+
+    test "imported module's top-level guard does not run as __main__" do
+      {result, _ctx} =
+        run_with_fs!(
+          """
+          import guarded
+          guarded.MARKER
+          """,
+          %{
+            "guarded.py" => """
+            MARKER = "library"
+            if __name__ == "__main__":
+                MARKER = "script"
+            """
+          }
+        )
+
+      assert result == "library"
+    end
   end
 
   describe "from-import from filesystem" do

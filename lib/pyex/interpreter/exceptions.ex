@@ -28,10 +28,10 @@ defmodule Pyex.Interpreter.Exceptions do
   def eval_raise(expr, meta, env, ctx) do
     case expr do
       {:call, _, [{:var, _, [exc_name]}, args]} when is_list(args) ->
-        eval_raise_exc_class(exc_name, args, meta, env, ctx)
+        eval_raise_exc_class(exc_name, args, [], meta, env, ctx)
 
-      {:call, _, [{:var, _, [exc_name]}, args, _kwargs]} when is_list(args) ->
-        eval_raise_exc_class(exc_name, args, meta, env, ctx)
+      {:call, _, [{:var, _, [exc_name]}, args, kwargs]} when is_list(args) ->
+        eval_raise_exc_class(exc_name, args, kwargs, meta, env, ctx)
 
       {:var, _, [exc_name]} ->
         {{:exception, exc_name}, env, ctx}
@@ -65,20 +65,32 @@ defmodule Pyex.Interpreter.Exceptions do
     {:instance, {:class, class_name, [], %{}}, %{"args" => {:tuple, [msg]}}}
   end
 
-  @spec eval_raise_exc_class(String.t(), [Parser.ast_node()], Parser.meta(), Env.t(), Ctx.t()) ::
+  @spec eval_raise_exc_class(
+          String.t(),
+          [Parser.ast_node()],
+          [Parser.ast_node()],
+          Parser.meta(),
+          Env.t(),
+          Ctx.t()
+        ) ::
           eval_result()
-  defp eval_raise_exc_class(exc_name, args, _meta, env, ctx) do
-    case Env.get(env, exc_name) do
-      {:ok, {:class, _, _, _} = class} ->
-        case Interpreter.eval_list(args, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
+  defp eval_raise_exc_class(exc_name, args, kwargs, _meta, env, ctx) do
+    # Use eval_call_args so positional args, {:kwarg, ...} entries, and
+    # an explicit kwargs list are all normalized the same way regular
+    # function calls are. This lets `raise SomeError("msg", code=1)`
+    # work just like `SomeError("msg", code=1)` would.
+    arg_exprs = args ++ List.wrap(kwargs)
 
-          {rev_values, env, ctx} ->
-            values = Enum.reverse(rev_values)
-            msg = format_exc_msg(exc_name, values)
+    case Interpreter.eval_call_args(arg_exprs, env, ctx) do
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
 
-            case Interpreter.call_function(class, values, %{}, env, ctx) do
+      {values, kwargs_map, env, ctx} ->
+        msg = format_exc_msg(exc_name, values)
+
+        case Env.get(env, exc_name) do
+          {:ok, {:class, _, _, _} = class} ->
+            case Interpreter.call_function(class, values, kwargs_map, env, ctx) do
               {{:exception, _}, env, ctx} ->
                 instance = {:instance, class, %{"args" => {:tuple, values}}}
                 ctx = %{ctx | exception_instance: instance}
@@ -86,20 +98,12 @@ defmodule Pyex.Interpreter.Exceptions do
 
               {instance, env, ctx} ->
                 derefed = Ctx.deref(ctx, instance)
+                derefed = ensure_args(derefed, values)
                 ctx = %{ctx | exception_instance: derefed}
                 {{:exception, msg}, env, ctx}
             end
-        end
 
-      _ ->
-        case Interpreter.eval_list(args, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {rev_values, env, ctx} ->
-            values = Enum.reverse(rev_values)
-            msg = format_exc_msg(exc_name, values)
-
+          _ ->
             instance =
               {:instance, {:class, exc_name, [], %{}}, %{"args" => {:tuple, values}}}
 
@@ -108,6 +112,16 @@ defmodule Pyex.Interpreter.Exceptions do
         end
     end
   end
+
+  defp ensure_args({:instance, cls, fields}, values) do
+    if Map.has_key?(fields, "args") do
+      {:instance, cls, fields}
+    else
+      {:instance, cls, Map.put(fields, "args", {:tuple, values})}
+    end
+  end
+
+  defp ensure_args(other, _values), do: other
 
   @spec format_exc_msg(String.t(), [Interpreter.pyvalue()]) :: String.t()
   defp format_exc_msg(exc_name, values) do

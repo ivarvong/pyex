@@ -133,9 +133,23 @@ defmodule Pyex.Interpreter.Import do
         resolve_single_module(single, env, ctx)
 
       [root | parts] ->
+        # Dotted names have two possible meanings:
+        #   1. A nested attribute walk on a module (e.g. `os.path`) — this
+        #      is how the stdlib exposes submodules as map fields.
+        #   2. A file in a package directory on the virtual filesystem
+        #      (e.g. `pkg.math_utils` → `pkg/math_utils.py`).
+        # Try the attribute walk first to preserve stdlib precedence,
+        # then fall back to a direct filesystem lookup so user code can
+        # organize modules into package directories.
         case resolve_single_module(root, env, ctx) do
           {:ok, module_value, ctx} ->
-            resolve_dotted_parts(module_value, parts, name, ctx)
+            case resolve_dotted_parts(module_value, parts, name, ctx) do
+              {:ok, _, _} = ok -> ok
+              {:unknown_module, ctx} -> resolve_filesystem_module(name, env, ctx)
+            end
+
+          {:unknown_module, ctx} ->
+            resolve_filesystem_module(name, env, ctx)
 
           other ->
             other
@@ -294,7 +308,10 @@ defmodule Pyex.Interpreter.Import do
           {:ok, source} ->
             case Pyex.compile(source) do
               {:ok, ast} ->
-                mod_env = Env.push_scope(Builtins.env())
+                mod_env =
+                  Builtins.env()
+                  |> Env.push_scope()
+                  |> Env.put("__name__", name)
 
                 case Interpreter.eval(ast, mod_env, ctx) do
                   {{:exception, msg}, _mod_env, ctx} ->
