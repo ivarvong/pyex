@@ -103,15 +103,10 @@ defmodule Pyex.Stdlib.Requests do
                current_headers = Map.get(ctx2.heap, headers_id, PyDict.new())
                merged_kwargs = merge_session_headers(kwargs, current_headers)
 
-               case do_request(method, url, merged_kwargs) do
-                 {:io_call, inner_fn} ->
-                   ctx2 = Pyex.Ctx.pause_compute(ctx2)
-                   {result, env2, ctx2} = inner_fn.(env2, ctx2)
-                   {result, env2, Pyex.Ctx.resume_compute(ctx2)}
-
-                 result ->
-                   {result, env2, ctx2}
-               end
+               {:io_call, inner_fn} = do_request(method, url, merged_kwargs)
+               ctx2 = Pyex.Ctx.pause_compute(ctx2)
+               {result, env2, ctx2} = inner_fn.(env2, ctx2)
+               {result, env2, Pyex.Ctx.resume_compute(ctx2)}
              end}
           end}
        end

@@ -673,20 +673,14 @@ defmodule Pyex.Interpreter do
                         {value, env, ctx}
 
                       :error ->
-                        case Methods.resolve(instance, attr) do
-                          {:ok, method} ->
-                            {method, env, ctx}
+                        case Dunder.call_dunder(instance, "__getattr__", [attr], env, ctx) do
+                          {:ok, val, env, ctx} ->
+                            {val, env, ctx}
 
-                          :error ->
-                            case Dunder.call_dunder(instance, "__getattr__", [attr], env, ctx) do
-                              {:ok, val, env, ctx} ->
-                                {val, env, ctx}
-
-                              :not_found ->
-                                {{:exception,
-                                  "AttributeError: '#{Helpers.py_type(instance)}' object has no attribute '#{attr}'"},
-                                 env, ctx}
-                            end
+                          :not_found ->
+                            {{:exception,
+                              "AttributeError: '#{Helpers.py_type(instance)}' object has no attribute '#{attr}'"},
+                             env, ctx}
                         end
                     end
                 end
