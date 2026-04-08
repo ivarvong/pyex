@@ -223,6 +223,128 @@ defmodule Pyex.Stdlib.SandboxGapsTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Gap 5: sys.path is a mutable list, not a dict
+  # ---------------------------------------------------------------------------
+  describe "sys.path — list of import search paths" do
+    test "sys.path.insert(0, p) prepends and sys.path[0] returns the inserted value" do
+      code = """
+      import sys
+      sys.path.insert(0, "/app")
+      sys.path.insert(0, "/first")
+      (sys.path[0], sys.path[1])
+      """
+
+      assert Pyex.run!(code) == {:tuple, ["/first", "/app"]}
+    end
+
+    test "sys.path.append adds to the end and len() reflects the new length" do
+      code = """
+      import sys
+      before = len(sys.path)
+      sys.path.append("/lib/one")
+      sys.path.append("/lib/two")
+      (len(sys.path) - before, sys.path[-2], sys.path[-1])
+      """
+
+      assert Pyex.run!(code) == {:tuple, [2, "/lib/one", "/lib/two"]}
+    end
+
+    test "sys.argv[1] parsing under `if __name__ == '__main__'` matches a CLI-style script epilogue" do
+      # Mirrors the epilogue of an LLM-generated API-client script:
+      #   if __name__ == "__main__":
+      #       import sys
+      #       vid = int(sys.argv[1]) if len(sys.argv) > 1 else 50227
+      # We pre-populate sys.argv to simulate `python3 /api.py 50227`.
+      code = """
+      import sys
+      sys.argv.append("/api.py")
+      sys.argv.append("50227")
+
+      parsed = None
+      default_used = None
+      if __name__ == "__main__":
+          vid = int(sys.argv[1]) if len(sys.argv) > 1 else 50227
+          parsed = vid
+          default_used = len(sys.argv) <= 1
+      (parsed, default_used)
+      """
+
+      assert Pyex.run!(code) == {:tuple, [50227, false]}
+    end
+
+    test "sys.argv default branch: len(sys.argv) <= 1 falls through to the literal default" do
+      code = """
+      import sys
+      vid = int(sys.argv[1]) if len(sys.argv) > 1 else 50227
+      vid
+      """
+
+      assert Pyex.run!(code) == 50227
+    end
+
+    test "sys.path mutations persist across statements within a single run" do
+      code = """
+      import sys
+      sys.path.append("/persisted")
+      "/persisted" in sys.path
+      """
+
+      assert Pyex.run!(code) == true
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Gap 6: module dunder attributes resolve via attribute access
+  # ---------------------------------------------------------------------------
+  describe "imported modules expose dunder attributes via attribute access" do
+    test "requests.__version__ is a non-empty dotted version string" do
+      code = """
+      import requests
+      v = requests.__version__
+      (isinstance(v, str), len(v) > 0, "." in v)
+      """
+
+      assert Pyex.run!(code) == {:tuple, [true, true, true]}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Gap 7: urllib.request — urlopen returns a response with read() and status
+  # ---------------------------------------------------------------------------
+  describe "urllib.request.urlopen — HTTP GET returning a response object" do
+    @describetag :external_http
+    @describetag timeout: 30_000
+
+    test "urlopen(url).read() returns a body that echoes the query arg and status is 200" do
+      code = """
+      from urllib.request import urlopen
+      resp = urlopen("https://postman-echo.com/get?source=pyex")
+      body = resp.read()
+      (resp.status, "pyex" in body)
+      """
+
+      assert Pyex.run!(code,
+               network: [%{allowed_url_prefix: "https://postman-echo.com/get"}]
+             ) == {:tuple, [200, true]}
+    end
+
+    test "urlopen response exposes getheader('Content-Type') matching the server-reported type" do
+      code = """
+      from urllib.request import urlopen
+      resp = urlopen("https://postman-echo.com/get")
+      ctype = resp.getheader("Content-Type")
+      # Req returns header values as a list; take the first entry.
+      first = ctype[0] if isinstance(ctype, list) else ctype
+      (resp.status, first.startswith("application/json"))
+      """
+
+      assert Pyex.run!(code,
+               network: [%{allowed_url_prefix: "https://postman-echo.com/get"}]
+             ) == {:tuple, [200, true]}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Regex evaluation on large inputs with bounded quantifiers
   # ---------------------------------------------------------------------------
   describe "re.search with bounded quantifiers on large inputs" do

@@ -77,9 +77,6 @@ defmodule Pyex.Interpreter.Import do
   Returns a helpful error suffix for unknown module names.
   """
   @spec import_hint(String.t()) :: String.t()
-  def import_hint("urllib.request"), do: ". Use 'import requests' instead"
-  def import_hint("urllib.error"), do: ". Use 'import requests' instead"
-
   def import_hint(name) when name in ["urllib2", "http", "httplib", "httpx", "aiohttp"],
     do: ". Use 'import requests' instead"
 

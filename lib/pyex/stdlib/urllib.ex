@@ -1,11 +1,14 @@
 defmodule Pyex.Stdlib.Urllib do
   @moduledoc """
-  Minimal `urllib.parse` support.
+  `urllib.parse` and a minimal `urllib.request.urlopen` that delegates to
+  the same HTTP client as `requests.get`, so network policy, telemetry,
+  and I/O-budget accounting are identical.
   """
 
   @behaviour Pyex.Stdlib.Module
 
-  alias Pyex.Interpreter
+  alias Pyex.{Interpreter, PyDict}
+  alias Pyex.Stdlib.Requests
 
   @impl Pyex.Stdlib.Module
   @spec module_value() :: Pyex.Stdlib.Module.module_value()
@@ -17,9 +20,70 @@ defmodule Pyex.Stdlib.Urllib do
         "unquote" => {:builtin, &url_unquote/1},
         "urlparse" => {:builtin, &urlparse/1},
         "urlencode" => {:builtin, &urlencode/1}
+      },
+      "request" => %{
+        "urlopen" => {:builtin, &urlopen/1}
+      },
+      "error" => %{
+        "URLError" => "urllib.error.URLError",
+        "HTTPError" => "urllib.error.HTTPError"
       }
     }
   end
+
+  @spec urlopen([Interpreter.pyvalue()]) ::
+          {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
+          | {:exception, String.t()}
+  defp urlopen([url]) when is_binary(url) do
+    {:io_call, inner} = Requests.request_io_call(:get, url, %{})
+
+    {:io_call,
+     fn env, ctx ->
+       case inner.(env, ctx) do
+         {{:exception, _} = signal, env, ctx} ->
+           {signal, env, ctx}
+
+         {response, env, ctx} ->
+           {build_urlopen_response(response), env, ctx}
+       end
+     end}
+  end
+
+  defp urlopen(_), do: {:exception, "TypeError: urlopen() expects a URL string"}
+
+  @spec build_urlopen_response(Interpreter.pyvalue()) :: Interpreter.pyvalue()
+  defp build_urlopen_response({:py_dict, _, _} = resp) do
+    status = PyDict.get(resp, "status_code", 0)
+    text = PyDict.get(resp, "text", "")
+    headers = PyDict.get(resp, "headers", PyDict.from_pairs([]))
+
+    getheader = fn
+      [name] when is_binary(name) ->
+        PyDict.get(headers, String.downcase(name), nil)
+
+      [name, default] when is_binary(name) ->
+        PyDict.get(headers, String.downcase(name), default)
+
+      _ ->
+        {:exception, "TypeError: getheader() expects a header name"}
+    end
+
+    read = fn
+      [] -> text
+      [n] when is_integer(n) and n >= 0 -> String.slice(text, 0, n)
+      _ -> {:exception, "TypeError: read() expects 0 or 1 integer argument"}
+    end
+
+    PyDict.from_pairs([
+      {"status", status},
+      {"code", status},
+      {"read", {:builtin, read}},
+      {"getheader", {:builtin, getheader}},
+      {"headers", headers}
+    ])
+  end
+
+  defp build_urlopen_response(other), do: other
 
   @spec urljoin([Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
   defp urljoin([base, url]) when is_binary(base) and is_binary(url),
