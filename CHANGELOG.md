@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0 (2026-04-14)
+
+
+### Performance Improvements
+
+* complete py_list refactor — 300 → 0 test failures, clean dialyzer ([52adaae](https://github.com/ivarvong/pyex/commit/52adaae08ed0ad73a9349d04c2c86e359eabfc93))
+* complete py_list refactor — zero test failures, clean dialyzer ([d188b88](https://github.com/ivarvong/pyex/commit/d188b88fa7157bd338d84b7a382843e10bec954c))
+* remove event log to reduce memory allocation by 99.4% ([c2546e6](https://github.com/ivarvong/pyex/commit/c2546e62d6f11c6733791ca046d8248d3560b151))
+
 ## 0.1.0 — 2026-02-13
 
 Initial release.
