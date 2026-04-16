@@ -48,7 +48,8 @@ defmodule Pyex.Stdlib.Datetime do
     %{
       "datetime" => datetime_class(),
       "date" => date_class(),
-      "timedelta" => timedelta_class()
+      "timedelta" => timedelta_class(),
+      "timezone" => timezone_class()
     }
   end
 
@@ -90,6 +91,119 @@ defmodule Pyex.Stdlib.Datetime do
      })}
   end
 
+  @spec timezone_class() ::
+          {:class, String.t(), [Pyex.Interpreter.pyvalue()],
+           %{optional(String.t()) => Pyex.Interpreter.pyvalue()}}
+  defp timezone_class do
+    cls = timezone_class_bare()
+
+    {:class, "timezone", [],
+     Map.merge(timezone_dunders(), %{
+       "__init__" => {:builtin_kw, &timezone_init/2},
+       "utc" => make_timezone_instance(cls, 0, "UTC")
+     })}
+  end
+
+  @spec timezone_class_bare() ::
+          {:class, String.t(), [Pyex.Interpreter.pyvalue()],
+           %{optional(String.t()) => Pyex.Interpreter.pyvalue()}}
+  defp timezone_class_bare do
+    {:class, "timezone", [],
+     Map.merge(timezone_dunders(), %{
+       "__init__" => {:builtin_kw, &timezone_init/2}
+     })}
+  end
+
+  @spec timezone_dunders() :: %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+  defp timezone_dunders do
+    %{
+      "__str__" => {:builtin, fn [self] -> tz_str(self) end},
+      "__repr__" => {:builtin, fn [self] -> tz_repr(self) end},
+      "__eq__" =>
+        {:builtin,
+         fn [self, other] ->
+           extract_offset_seconds(self) == extract_offset_seconds(other)
+         end}
+    }
+  end
+
+  @spec tz_str(Pyex.Interpreter.pyvalue()) :: String.t()
+  defp tz_str({:instance, _, %{"__tz_name__" => name}}), do: name
+  defp tz_str(_), do: "timezone(...)"
+
+  @spec tz_repr(Pyex.Interpreter.pyvalue()) :: String.t()
+  defp tz_repr({:instance, _, %{"__zoneinfo_key__" => key}}),
+    do: "zoneinfo.ZoneInfo(key='#{key}')"
+
+  defp tz_repr({:instance, _, %{"__tz_name__" => name}}),
+    do: "datetime.timezone(#{name})"
+
+  defp tz_repr(_), do: "datetime.timezone(...)"
+
+  @spec extract_offset_seconds(Pyex.Interpreter.pyvalue()) :: number() | nil
+  defp extract_offset_seconds(
+         {:instance, {:class, "timezone", _, _}, %{"__offset_seconds__" => s}}
+       ),
+       do: s
+
+  defp extract_offset_seconds(_), do: nil
+
+  @spec timezone_init([Pyex.Interpreter.pyvalue()], map()) :: Pyex.Interpreter.pyvalue()
+  defp timezone_init([_self, offset_td], _kwargs) do
+    case extract_total_seconds(offset_td) do
+      ts when is_number(ts) ->
+        make_timezone(ts, nil)
+
+      nil ->
+        {:exception, "TypeError: timezone() argument must be a timedelta"}
+    end
+  end
+
+  defp timezone_init([_self, offset_td, name], _kwargs) when is_binary(name) do
+    case extract_total_seconds(offset_td) do
+      ts when is_number(ts) ->
+        make_timezone(ts, name)
+
+      nil ->
+        {:exception, "TypeError: timezone() argument must be a timedelta"}
+    end
+  end
+
+  @max_tz_offset 86400
+
+  @doc false
+  @spec make_timezone(number(), String.t() | nil) :: Pyex.Interpreter.pyvalue()
+  def make_timezone(offset_seconds, name) do
+    if abs(offset_seconds) >= @max_tz_offset do
+      {:exception,
+       "ValueError: offset must be a timedelta strictly between -timedelta(hours=24) and timedelta(hours=24)"}
+    else
+      make_timezone_instance(timezone_class_bare(), offset_seconds, name)
+    end
+  end
+
+  @spec make_timezone_instance(Pyex.Interpreter.pyvalue(), number(), String.t() | nil) ::
+          Pyex.Interpreter.pyvalue()
+  defp make_timezone_instance(cls, offset_seconds, name) do
+    display_name = name || format_utc_offset(offset_seconds)
+
+    {:instance, cls,
+     %{
+       "__offset_seconds__" => offset_seconds,
+       "__tz_name__" => display_name,
+       "utcoffset" => {:builtin, fn [_dt] -> normalize_timedelta(offset_seconds) end},
+       "tzname" => {:builtin, fn [_dt] -> display_name end},
+       "dst" => {:builtin, fn [_dt] -> nil end}
+     }}
+  end
+
+  @spec format_utc_offset(number()) :: String.t()
+  defp format_utc_offset(offset_seconds) when offset_seconds == 0, do: "UTC"
+
+  defp format_utc_offset(offset_seconds) do
+    "UTC" <> format_offset_iso(offset_seconds)
+  end
+
   @spec datetime_dunders() :: %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
   defp datetime_dunders do
     %{
@@ -97,10 +211,10 @@ defmodule Pyex.Stdlib.Datetime do
       "__repr__" => {:builtin, fn [self] -> dt_repr(self) end},
       "__eq__" => {:builtin, fn [self, other] -> dt_eq(self, other) end},
       "__ne__" => {:builtin, fn [self, other] -> not dt_eq(self, other) end},
-      "__lt__" => {:builtin, fn [self, other] -> dt_cmp(self, other) == :lt end},
-      "__le__" => {:builtin, fn [self, other] -> dt_cmp(self, other) != :gt end},
-      "__gt__" => {:builtin, fn [self, other] -> dt_cmp(self, other) == :gt end},
-      "__ge__" => {:builtin, fn [self, other] -> dt_cmp(self, other) != :lt end},
+      "__lt__" => {:builtin, fn [self, other] -> dt_cmp_check(self, other, :lt) end},
+      "__le__" => {:builtin, fn [self, other] -> dt_cmp_not(self, other, :gt) end},
+      "__gt__" => {:builtin, fn [self, other] -> dt_cmp_check(self, other, :gt) end},
+      "__ge__" => {:builtin, fn [self, other] -> dt_cmp_not(self, other, :lt) end},
       "__add__" => {:builtin, fn [self, other] -> dt_add(self, other) end},
       "__sub__" => {:builtin, fn [self, other] -> dt_sub(self, other) end},
       "__radd__" => {:builtin, fn [self, other] -> dt_add(self, other) end}
@@ -167,6 +281,7 @@ defmodule Pyex.Stdlib.Datetime do
     minute = Map.get(kwargs, "minute", minute)
     second = Map.get(kwargs, "second", second)
     microsecond = Map.get(kwargs, "microsecond", microsecond)
+    tzinfo = Map.get(kwargs, "tzinfo")
 
     if not is_integer(year) or not is_integer(month) or not is_integer(day) do
       {:exception, "TypeError: an integer is required for year, month, day"}
@@ -174,7 +289,13 @@ defmodule Pyex.Stdlib.Datetime do
       with {:ok, date} <- Date.new(year, month, day),
            {:ok, time} <- Time.new(hour, minute, second, {microsecond, 6}),
            {:ok, dt} <- DateTime.new(date, time, "Etc/UTC") do
-        make_datetime(dt)
+        case tzinfo do
+          nil ->
+            make_datetime(dt, nil)
+
+          tz_instance ->
+            make_datetime_from_wall(dt, tz_instance)
+        end
       else
         _ -> {:exception, "ValueError: invalid datetime arguments"}
       end
@@ -207,27 +328,46 @@ defmodule Pyex.Stdlib.Datetime do
   end
 
   @spec datetime_now([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
-  defp datetime_now([]), do: make_datetime(DateTime.utc_now(:second))
+  defp datetime_now([]), do: make_datetime(DateTime.utc_now(:second), nil)
+
+  defp datetime_now([tz_instance]) do
+    make_datetime_from_utc(DateTime.utc_now(:second), tz_instance)
+  end
 
   @spec datetime_utcnow([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
-  defp datetime_utcnow([]), do: make_datetime(DateTime.utc_now(:second))
+  defp datetime_utcnow([]), do: make_datetime(DateTime.utc_now(:second), nil)
 
   @spec datetime_fromisoformat([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp datetime_fromisoformat([s]) when is_binary(s) do
-    case DateTime.from_iso8601(s) do
-      {:ok, dt, _offset} ->
-        make_datetime(DateTime.shift_zone!(dt, "Etc/UTC"))
+    normalized = String.replace_suffix(s, "Z", "+00:00")
+
+    case DateTime.from_iso8601(normalized) do
+      {:ok, dt, offset_seconds} ->
+        utc_dt = DateTime.shift_zone!(dt, "Etc/UTC")
+
+        if offset_seconds == 0 and not String.contains?(s, "+") and not String.ends_with?(s, "Z") and
+             not String.contains?(s, "-00") do
+          try_naive_parse(s)
+        else
+          tz = make_timezone(offset_seconds, nil)
+          make_datetime_with_tz(utc_dt, tz)
+        end
 
       {:error, _} ->
-        case NaiveDateTime.from_iso8601(s) do
-          {:ok, ndt} ->
-            make_datetime(DateTime.from_naive!(ndt, "Etc/UTC"))
+        try_naive_parse(s)
+    end
+  end
 
-          {:error, _} ->
-            case Date.from_iso8601(s) do
-              {:ok, d} -> make_date(d)
-              {:error, _} -> {:exception, "ValueError: Invalid isoformat string: '#{s}'"}
-            end
+  @spec try_naive_parse(String.t()) :: Pyex.Interpreter.pyvalue()
+  defp try_naive_parse(s) do
+    case NaiveDateTime.from_iso8601(s) do
+      {:ok, ndt} ->
+        make_naive_datetime(DateTime.from_naive!(ndt, "Etc/UTC"))
+
+      {:error, _} ->
+        case Date.from_iso8601(s) do
+          {:ok, d} -> make_date(d)
+          {:error, _} -> {:exception, "ValueError: Invalid isoformat string: '#{s}'"}
         end
     end
   end
@@ -245,7 +385,7 @@ defmodule Pyex.Stdlib.Datetime do
     microseconds = round(ts * 1_000_000)
 
     case DateTime.from_unix(microseconds, :microsecond) do
-      {:ok, dt} -> make_datetime(DateTime.truncate(dt, :second))
+      {:ok, dt} -> make_naive_datetime(dt)
       {:error, _} -> {:exception, "ValueError: timestamp out of range for platform datetime"}
     end
   end
@@ -310,6 +450,10 @@ defmodule Pyex.Stdlib.Datetime do
     normalize_timedelta(total_seconds)
   end
 
+  @doc false
+  @spec timedelta_from_seconds(number()) :: Pyex.Interpreter.pyvalue()
+  def timedelta_from_seconds(total_seconds), do: normalize_timedelta(total_seconds)
+
   @spec normalize_timedelta(number()) :: Pyex.Interpreter.pyvalue()
   defp normalize_timedelta(total_seconds) do
     days = trunc(Float.floor(total_seconds / 86400.0))
@@ -334,11 +478,21 @@ defmodule Pyex.Stdlib.Datetime do
   end
 
   @doc false
-  @spec make_datetime(DateTime.t()) :: Pyex.Interpreter.pyvalue()
-  def make_datetime(dt) do
-    dt = DateTime.truncate(dt, :second)
-    iso = dt |> DateTime.to_naive() |> NaiveDateTime.to_iso8601()
+  @spec make_datetime(DateTime.t(), Pyex.Interpreter.pyvalue() | nil) ::
+          Pyex.Interpreter.pyvalue()
+  def make_datetime(dt, tzinfo \\ nil) do
+    if tzinfo != nil do
+      make_datetime_with_tz(dt, tzinfo)
+    else
+      make_naive_datetime(dt)
+    end
+  end
+
+  @spec make_naive_datetime(DateTime.t()) :: Pyex.Interpreter.pyvalue()
+  defp make_naive_datetime(dt) do
     {us, _} = dt.microsecond
+    display_dt = if us == 0, do: DateTime.truncate(dt, :second), else: dt
+    iso = display_dt |> DateTime.to_naive() |> NaiveDateTime.to_iso8601()
 
     {:instance, datetime_class(),
      %{
@@ -349,14 +503,184 @@ defmodule Pyex.Stdlib.Datetime do
        "minute" => dt.minute,
        "second" => dt.second,
        "microsecond" => us,
+       "tzinfo" => nil,
        "isoformat" => {:builtin, fn [] -> iso end},
-       "strftime" => {:builtin_kw, &strftime_method(dt, &1, &2)},
+       "strftime" => {:builtin_kw, &strftime_method(dt, nil, &1, &2)},
        "timestamp" => {:builtin, fn [] -> dt_to_timestamp(dt) end},
-       "replace" => {:builtin_kw, &dt_replace(dt, &1, &2)},
+       "replace" => {:builtin_kw, &dt_replace(dt, nil, &1, &2)},
        "date" => {:builtin, fn [] -> make_date(DateTime.to_date(dt)) end},
        "weekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(dt)) - 1 end},
-       "__dt__" => dt
+       "utcoffset" => {:builtin, fn [] -> nil end},
+       "dst" => {:builtin, fn [] -> nil end},
+       "astimezone" =>
+         {:builtin,
+          fn [_tz] ->
+            {:exception, "ValueError: astimezone() cannot be applied to a naive datetime"}
+          end},
+       "__dt__" => dt,
+       "__tzinfo__" => nil
      }}
+  end
+
+  @spec make_datetime_from_wall(DateTime.t(), Pyex.Interpreter.pyvalue()) ::
+          Pyex.Interpreter.pyvalue()
+  defp make_datetime_from_wall(wall_dt, tz_instance) do
+    case tz_instance do
+      {:instance, _, %{"__offset_seconds__" => :dynamic, "__zoneinfo_key__" => key}} ->
+        ndt = DateTime.to_naive(wall_dt)
+
+        case DateTime.from_naive(ndt, key, Tz.TimeZoneDatabase) do
+          {:ok, local_dt} ->
+            utc_dt = DateTime.shift_zone!(local_dt, "Etc/UTC", Tz.TimeZoneDatabase)
+            offset = local_dt.utc_offset + local_dt.std_offset
+
+            resolved_tz =
+              resolve_zoneinfo_tz(tz_instance, offset, local_dt.zone_abbr, local_dt.std_offset)
+
+            make_datetime_with_tz_resolved(utc_dt, resolved_tz, offset)
+
+          {:ambiguous, dt1, _dt2} ->
+            utc_dt = DateTime.shift_zone!(dt1, "Etc/UTC", Tz.TimeZoneDatabase)
+            offset = dt1.utc_offset + dt1.std_offset
+            resolved_tz = resolve_zoneinfo_tz(tz_instance, offset, dt1.zone_abbr, dt1.std_offset)
+            make_datetime_with_tz_resolved(utc_dt, resolved_tz, offset)
+
+          {:gap, _dt_before, dt_after} ->
+            utc_dt = DateTime.shift_zone!(dt_after, "Etc/UTC", Tz.TimeZoneDatabase)
+            offset = dt_after.utc_offset + dt_after.std_offset
+
+            resolved_tz =
+              resolve_zoneinfo_tz(tz_instance, offset, dt_after.zone_abbr, dt_after.std_offset)
+
+            make_datetime_with_tz_resolved(utc_dt, resolved_tz, offset)
+
+          {:error, _} ->
+            {:exception, "ValueError: invalid datetime for timezone"}
+        end
+
+      {:instance, _, %{"__offset_seconds__" => offset}} when is_number(offset) ->
+        utc_dt = DateTime.add(wall_dt, -trunc(offset), :second)
+        make_datetime_with_tz(utc_dt, tz_instance)
+
+      _ ->
+        make_datetime_with_tz(wall_dt, tz_instance)
+    end
+  end
+
+  @spec resolve_zoneinfo_tz(Pyex.Interpreter.pyvalue(), number(), String.t(), number()) ::
+          Pyex.Interpreter.pyvalue()
+  defp resolve_zoneinfo_tz(original_zi, offset, abbr, std_offset) do
+    {:instance, cls, attrs} = original_zi
+
+    {:instance, cls,
+     Map.merge(attrs, %{
+       "__resolved_offset__" => offset,
+       "__resolved_abbr__" => abbr,
+       "__resolved_std_offset__" => std_offset
+     })}
+  end
+
+  @spec make_datetime_with_tz_resolved(DateTime.t(), Pyex.Interpreter.pyvalue(), number()) ::
+          Pyex.Interpreter.pyvalue()
+  defp make_datetime_with_tz_resolved(utc_dt, tz_instance, offset) do
+    dst_seconds = extract_resolved_std_offset(tz_instance)
+    dst_value = {:builtin, fn [] -> normalize_timedelta(dst_seconds) end}
+    build_aware_datetime(utc_dt, tz_instance, offset, dst_value)
+  end
+
+  @spec make_datetime_from_utc(DateTime.t(), Pyex.Interpreter.pyvalue()) ::
+          Pyex.Interpreter.pyvalue()
+  defp make_datetime_from_utc(utc_dt, tz_instance) do
+    case tz_instance do
+      {:instance, _, %{"__offset_seconds__" => :dynamic, "__zoneinfo_key__" => key}} ->
+        case DateTime.shift_zone(utc_dt, key, Tz.TimeZoneDatabase) do
+          {:ok, local_dt} ->
+            offset = local_dt.utc_offset + local_dt.std_offset
+
+            resolved_tz =
+              resolve_zoneinfo_tz(tz_instance, offset, local_dt.zone_abbr, local_dt.std_offset)
+
+            make_datetime_with_tz_resolved(utc_dt, resolved_tz, offset)
+
+          {:error, _} ->
+            {:exception, "ValueError: invalid timezone conversion"}
+        end
+
+      _ ->
+        make_datetime_with_tz(utc_dt, tz_instance)
+    end
+  end
+
+  @doc false
+  @spec make_datetime_with_tz(DateTime.t(), Pyex.Interpreter.pyvalue()) ::
+          Pyex.Interpreter.pyvalue()
+  def make_datetime_with_tz(utc_dt, tz_instance) do
+    offset = extract_tz_offset(tz_instance)
+    dst_value = {:builtin, fn [] -> nil end}
+    build_aware_datetime(utc_dt, tz_instance, offset, dst_value)
+  end
+
+  @spec build_aware_datetime(
+          DateTime.t(),
+          Pyex.Interpreter.pyvalue(),
+          number(),
+          Pyex.Interpreter.pyvalue()
+        ) :: Pyex.Interpreter.pyvalue()
+  defp build_aware_datetime(utc_dt, tz_instance, offset, dst_method) do
+    utc_dt = DateTime.truncate(utc_dt, :second)
+    local_dt = DateTime.add(utc_dt, trunc(offset), :second)
+    {us, _} = local_dt.microsecond
+    offset_str = format_offset_iso(offset)
+
+    iso =
+      (local_dt |> DateTime.to_naive() |> NaiveDateTime.to_iso8601()) <> offset_str
+
+    {:instance, datetime_class(),
+     %{
+       "year" => local_dt.year,
+       "month" => local_dt.month,
+       "day" => local_dt.day,
+       "hour" => local_dt.hour,
+       "minute" => local_dt.minute,
+       "second" => local_dt.second,
+       "microsecond" => us,
+       "tzinfo" => tz_instance,
+       "isoformat" => {:builtin, fn [] -> iso end},
+       "strftime" => {:builtin_kw, &strftime_method(local_dt, tz_instance, &1, &2)},
+       "timestamp" => {:builtin, fn [] -> dt_to_timestamp(utc_dt) end},
+       "dst" => dst_method,
+       "replace" => {:builtin_kw, &dt_replace(local_dt, tz_instance, &1, &2)},
+       "date" => {:builtin, fn [] -> make_date(DateTime.to_date(local_dt)) end},
+       "weekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(local_dt)) - 1 end},
+       "utcoffset" => {:builtin, fn [] -> normalize_timedelta(offset) end},
+       "astimezone" => {:builtin, fn [new_tz] -> make_datetime_from_utc(utc_dt, new_tz) end},
+       "__dt__" => utc_dt,
+       "__tzinfo__" => tz_instance
+     }}
+  end
+
+  @spec extract_resolved_std_offset(Pyex.Interpreter.pyvalue()) :: number()
+  defp extract_resolved_std_offset({:instance, _, %{"__resolved_std_offset__" => s}}), do: s
+  defp extract_resolved_std_offset(_), do: 0
+
+  @spec extract_tz_offset(Pyex.Interpreter.pyvalue()) :: number()
+  defp extract_tz_offset({:instance, _, %{"__resolved_offset__" => s}}), do: s
+  defp extract_tz_offset({:instance, _, %{"__offset_seconds__" => :dynamic}}), do: 0
+  defp extract_tz_offset({:instance, _, %{"__offset_seconds__" => s}}), do: s
+  defp extract_tz_offset(_), do: 0
+
+  @spec extract_tz_name(Pyex.Interpreter.pyvalue()) :: String.t()
+  defp extract_tz_name({:instance, _, %{"__resolved_abbr__" => abbr}}), do: abbr
+  defp extract_tz_name({:instance, _, %{"__tz_name__" => name}}), do: name
+  defp extract_tz_name(_), do: ""
+
+  @spec format_offset_iso(number()) :: String.t()
+  defp format_offset_iso(offset_seconds) do
+    sign = if offset_seconds < 0, do: "-", else: "+"
+    abs_secs = abs(trunc(offset_seconds))
+    hours = div(abs_secs, 3600)
+    minutes = div(rem(abs_secs, 3600), 60)
+    "#{sign}#{pad2(hours)}:#{pad2(minutes)}"
   end
 
   @doc false
@@ -384,16 +708,21 @@ defmodule Pyex.Stdlib.Datetime do
     |> Kernel./(1000.0)
   end
 
-  @spec strftime_method(DateTime.t(), [Pyex.Interpreter.pyvalue()], map()) ::
+  @spec strftime_method(
+          DateTime.t(),
+          Pyex.Interpreter.pyvalue(),
+          [Pyex.Interpreter.pyvalue()],
+          map()
+        ) ::
           Pyex.Interpreter.pyvalue()
-  defp strftime_method(dt, [fmt], _kwargs) when is_binary(fmt) do
-    format_strftime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, fmt)
+  defp strftime_method(dt, tzinfo, [fmt], _kwargs) when is_binary(fmt) do
+    format_strftime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, fmt, tzinfo)
   end
 
   @spec date_strftime_method(Date.t(), [Pyex.Interpreter.pyvalue()], map()) ::
           Pyex.Interpreter.pyvalue()
   defp date_strftime_method(d, [fmt], _kwargs) when is_binary(fmt) do
-    format_strftime(d.year, d.month, d.day, 0, 0, 0, fmt)
+    format_strftime(d.year, d.month, d.day, 0, 0, 0, fmt, nil)
   end
 
   @spec format_strftime(
@@ -403,77 +732,85 @@ defmodule Pyex.Stdlib.Datetime do
           integer(),
           integer(),
           integer(),
-          String.t()
-        ) :: String.t()
-  defp format_strftime(year, month, day, hour, minute, second, fmt) do
+          String.t(),
+          Pyex.Interpreter.pyvalue()
+        ) :: String.t() | {:exception, String.t()}
+  defp format_strftime(year, month, day, hour, minute, second, fmt, tzinfo) do
     case Date.new(year, month, day) do
       {:error, _} ->
         {:exception, "ValueError: invalid date components: #{year}-#{month}-#{day}"}
 
       {:ok, date} ->
-        format_strftime_with_date(date, hour, minute, second, fmt)
+        format_strftime_with_date(date, hour, minute, second, fmt, tzinfo)
     end
   end
 
-  @spec format_strftime_with_date(Date.t(), integer(), integer(), integer(), String.t()) ::
-          String.t()
-  defp format_strftime_with_date(date, hour, minute, second, fmt) do
+  @spec format_strftime_with_date(
+          Date.t(),
+          integer(),
+          integer(),
+          integer(),
+          String.t(),
+          Pyex.Interpreter.pyvalue()
+        ) :: String.t()
+  @day_abbrs %{
+    1 => "Mon",
+    2 => "Tue",
+    3 => "Wed",
+    4 => "Thu",
+    5 => "Fri",
+    6 => "Sat",
+    7 => "Sun"
+  }
+
+  @day_names %{
+    1 => "Monday",
+    2 => "Tuesday",
+    3 => "Wednesday",
+    4 => "Thursday",
+    5 => "Friday",
+    6 => "Saturday",
+    7 => "Sunday"
+  }
+
+  @month_abbrs %{
+    1 => "Jan",
+    2 => "Feb",
+    3 => "Mar",
+    4 => "Apr",
+    5 => "May",
+    6 => "Jun",
+    7 => "Jul",
+    8 => "Aug",
+    9 => "Sep",
+    10 => "Oct",
+    11 => "Nov",
+    12 => "Dec"
+  }
+
+  @month_names %{
+    1 => "January",
+    2 => "February",
+    3 => "March",
+    4 => "April",
+    5 => "May",
+    6 => "June",
+    7 => "July",
+    8 => "August",
+    9 => "September",
+    10 => "October",
+    11 => "November",
+    12 => "December"
+  }
+
+  defp format_strftime_with_date(date, hour, minute, second, fmt, tzinfo) do
     year = date.year
     month = date.month
     day = date.day
     dow = Date.day_of_week(date)
 
-    day_abbrs = %{
-      1 => "Mon",
-      2 => "Tue",
-      3 => "Wed",
-      4 => "Thu",
-      5 => "Fri",
-      6 => "Sat",
-      7 => "Sun"
-    }
-
-    day_names = %{
-      1 => "Monday",
-      2 => "Tuesday",
-      3 => "Wednesday",
-      4 => "Thursday",
-      5 => "Friday",
-      6 => "Saturday",
-      7 => "Sunday"
-    }
-
-    month_abbrs = %{
-      1 => "Jan",
-      2 => "Feb",
-      3 => "Mar",
-      4 => "Apr",
-      5 => "May",
-      6 => "Jun",
-      7 => "Jul",
-      8 => "Aug",
-      9 => "Sep",
-      10 => "Oct",
-      11 => "Nov",
-      12 => "Dec"
-    }
-
-    month_names = %{
-      1 => "January",
-      2 => "February",
-      3 => "March",
-      4 => "April",
-      5 => "May",
-      6 => "June",
-      7 => "July",
-      8 => "August",
-      9 => "September",
-      10 => "October",
-      11 => "November",
-      12 => "December"
-    }
-
     fmt
+    |> String.replace("%%", "\x00PCT\x00")
     |> String.replace("%Y", pad4(year))
     |> String.replace("%m", pad2(month))
     |> String.replace("%d", pad2(day))
@@ -491,12 +828,33 @@ defmodule Pyex.Stdlib.Datetime do
       )
     )
     |> String.replace("%p", if(hour < 12, do: "AM", else: "PM"))
-    |> String.replace("%a", Map.get(day_abbrs, dow, ""))
-    |> String.replace("%A", Map.get(day_names, dow, ""))
-    |> String.replace("%b", Map.get(month_abbrs, month, ""))
-    |> String.replace("%B", Map.get(month_names, month, ""))
+    |> String.replace("%a", Map.get(@day_abbrs, dow, ""))
+    |> String.replace("%A", Map.get(@day_names, dow, ""))
+    |> String.replace("%b", Map.get(@month_abbrs, month, ""))
+    |> String.replace("%B", Map.get(@month_names, month, ""))
     |> String.replace("%j", pad3(day_of_year(year, month, day)))
-    |> String.replace("%%", "%")
+    |> String.replace("%z", format_strftime_z(tzinfo))
+    |> String.replace("%Z", format_strftime_zone_abbr(tzinfo))
+    |> String.replace("\x00PCT\x00", "%")
+  end
+
+  @spec format_strftime_z(Pyex.Interpreter.pyvalue()) :: String.t()
+  defp format_strftime_z(nil), do: ""
+
+  defp format_strftime_z(tz_instance) do
+    offset = extract_tz_offset(tz_instance)
+    sign = if offset < 0, do: "-", else: "+"
+    abs_secs = abs(trunc(offset))
+    hours = div(abs_secs, 3600)
+    minutes = div(rem(abs_secs, 3600), 60)
+    "#{sign}#{pad2(hours)}#{pad2(minutes)}"
+  end
+
+  @spec format_strftime_zone_abbr(Pyex.Interpreter.pyvalue()) :: String.t()
+  defp format_strftime_zone_abbr(nil), do: ""
+
+  defp format_strftime_zone_abbr(tz_instance) do
+    extract_tz_name(tz_instance)
   end
 
   @spec pad2(integer()) :: String.t()
@@ -515,20 +873,31 @@ defmodule Pyex.Stdlib.Datetime do
     Date.diff(d, jan1) + 1
   end
 
-  @spec dt_replace(DateTime.t(), [Pyex.Interpreter.pyvalue()], map()) ::
+  @spec dt_replace(
+          DateTime.t(),
+          Pyex.Interpreter.pyvalue() | nil,
+          [Pyex.Interpreter.pyvalue()],
+          map()
+        ) ::
           Pyex.Interpreter.pyvalue()
-  defp dt_replace(dt, _args, kwargs) do
+  defp dt_replace(dt, tzinfo, _args, kwargs) do
+    {us, _} = dt.microsecond
     year = Map.get(kwargs, "year", dt.year)
     month = Map.get(kwargs, "month", dt.month)
     day = Map.get(kwargs, "day", dt.day)
     hour = Map.get(kwargs, "hour", dt.hour)
     minute = Map.get(kwargs, "minute", dt.minute)
     second = Map.get(kwargs, "second", dt.second)
+    microsecond = Map.get(kwargs, "microsecond", us)
+    new_tzinfo = Map.get(kwargs, "tzinfo", tzinfo)
 
     with {:ok, date} <- Date.new(year, month, day),
-         {:ok, time} <- Time.new(hour, minute, second),
+         {:ok, time} <- Time.new(hour, minute, second, {microsecond, 6}),
          {:ok, new_dt} <- DateTime.new(date, time, "Etc/UTC") do
-      make_datetime(new_dt)
+      case new_tzinfo do
+        nil -> make_naive_datetime(new_dt)
+        tz -> make_datetime_from_wall(new_dt, tz)
+      end
     else
       _ -> {:exception, "ValueError: invalid replacement values"}
     end
@@ -548,18 +917,28 @@ defmodule Pyex.Stdlib.Datetime do
   end
 
   @spec dt_str(Pyex.Interpreter.pyvalue()) :: String.t()
-  defp dt_str({:instance, _, %{"__dt__" => dt}}) do
-    dt |> DateTime.to_naive() |> NaiveDateTime.to_iso8601()
-  end
-
+  defp dt_str({:instance, _, %{"isoformat" => {:builtin, fun}}}), do: fun.([])
   defp dt_str(_), do: "datetime.datetime(...)"
 
   @spec dt_repr(Pyex.Interpreter.pyvalue()) :: String.t()
   defp dt_repr(
          {:instance, _,
-          %{"year" => y, "month" => m, "day" => d, "hour" => h, "minute" => mi, "second" => s}}
+          %{
+            "year" => y,
+            "month" => m,
+            "day" => d,
+            "hour" => h,
+            "minute" => mi,
+            "second" => s,
+            "tzinfo" => tzinfo
+          }}
        ) do
-    "datetime.datetime(#{y}, #{m}, #{d}, #{h}, #{mi}, #{s})"
+    base = "datetime.datetime(#{y}, #{m}, #{d}, #{h}, #{mi}, #{s}"
+
+    case tzinfo do
+      nil -> base <> ")"
+      tz -> base <> ", tzinfo=#{tz_repr(tz)})"
+    end
   end
 
   defp dt_repr(_), do: "datetime.datetime(...)"
@@ -606,10 +985,13 @@ defmodule Pyex.Stdlib.Datetime do
 
   @spec td_repr_args(Pyex.Interpreter.pyvalue()) :: String.t()
   defp td_repr_args({:instance, _, %{"days" => days, "seconds" => secs}}) do
-    cond do
-      secs > 0 -> "days=#{days}, seconds=#{secs}"
-      days != 0 -> "days=#{days}"
-      true -> "0"
+    parts =
+      if(days != 0, do: ["days=#{days}"], else: []) ++
+        if secs != 0, do: ["seconds=#{secs}"], else: []
+
+    case parts do
+      [] -> "0"
+      _ -> Enum.join(parts, ", ")
     end
   end
 
@@ -643,20 +1025,60 @@ defmodule Pyex.Stdlib.Datetime do
     end
   end
 
-  @spec dt_cmp(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) :: :lt | :eq | :gt
+  @spec dt_cmp(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
+          :lt | :eq | :gt | {:exception, String.t()}
   defp dt_cmp(a, b) do
     case {extract_dt(a), extract_dt(b)} do
-      {%DateTime{} = da, %DateTime{} = db} -> DateTime.compare(da, db)
-      _ -> :eq
+      {%DateTime{} = da, %DateTime{} = db} ->
+        if dt_awareness_mismatch?(a, b) do
+          {:exception, "TypeError: can't compare offset-naive and offset-aware datetimes"}
+        else
+          DateTime.compare(da, db)
+        end
+
+      _ ->
+        :eq
     end
   end
 
+  @spec dt_cmp_check(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue(), :lt | :gt) ::
+          boolean() | {:exception, String.t()}
+  defp dt_cmp_check(a, b, expected) do
+    case dt_cmp(a, b) do
+      {:exception, _} = exc -> exc
+      result -> result == expected
+    end
+  end
+
+  @spec dt_cmp_not(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue(), :lt | :gt) ::
+          boolean() | {:exception, String.t()}
+  defp dt_cmp_not(a, b, excluded) do
+    case dt_cmp(a, b) do
+      {:exception, _} = exc -> exc
+      result -> result != excluded
+    end
+  end
+
+  @spec dt_awareness_mismatch?(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
+          boolean()
+  defp dt_awareness_mismatch?(
+         {:instance, _, %{"__tzinfo__" => tz_a}},
+         {:instance, _, %{"__tzinfo__" => tz_b}}
+       ) do
+    tz_a == nil != (tz_b == nil)
+  end
+
+  defp dt_awareness_mismatch?(_, _), do: false
+
   @spec dt_add(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
           Pyex.Interpreter.pyvalue()
-  defp dt_add(dt, td) do
-    case {extract_dt(dt), extract_total_seconds(td)} do
+  defp dt_add(dt_inst, td) do
+    case {extract_dt(dt_inst), extract_total_seconds(td)} do
       {%DateTime{} = a, ts} when is_number(ts) ->
-        make_datetime(DateTime.add(a, round(ts * 1_000_000), :microsecond))
+        new_utc =
+          DateTime.add(a, round(ts * 1_000_000), :microsecond) |> DateTime.truncate(:second)
+
+        rebuild_datetime(new_utc, extract_instance_tzinfo(dt_inst))
 
       _ ->
         {:exception,
@@ -666,8 +1088,8 @@ defmodule Pyex.Stdlib.Datetime do
 
   @spec dt_sub(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
           Pyex.Interpreter.pyvalue()
-  defp dt_sub(dt, other) do
-    a = extract_dt(dt)
+  defp dt_sub(dt_inst, other) do
+    a = extract_dt(dt_inst)
 
     cond do
       a == nil ->
@@ -675,18 +1097,35 @@ defmodule Pyex.Stdlib.Datetime do
 
       is_timedelta?(other) ->
         ts = extract_total_seconds(other)
-        make_datetime(DateTime.add(a, round(-ts * 1_000_000), :microsecond))
+
+        new_utc =
+          DateTime.add(a, round(-ts * 1_000_000), :microsecond) |> DateTime.truncate(:second)
+
+        rebuild_datetime(new_utc, extract_instance_tzinfo(dt_inst))
 
       extract_dt(other) != nil ->
-        b = extract_dt(other)
-        diff_seconds = DateTime.diff(a, b, :second)
-        normalize_timedelta(diff_seconds)
+        if dt_awareness_mismatch?(dt_inst, other) do
+          {:exception, "TypeError: can't subtract offset-naive and offset-aware datetimes"}
+        else
+          b = extract_dt(other)
+          diff_seconds = DateTime.diff(a, b, :second)
+          normalize_timedelta(diff_seconds)
+        end
 
       true ->
         {:exception,
          "TypeError: unsupported operand type(s) for -: 'datetime' and '#{py_type_name(other)}'"}
     end
   end
+
+  @spec rebuild_datetime(DateTime.t(), Pyex.Interpreter.pyvalue() | nil) ::
+          Pyex.Interpreter.pyvalue()
+  defp rebuild_datetime(utc_dt, nil), do: make_naive_datetime(utc_dt)
+  defp rebuild_datetime(utc_dt, tzinfo), do: make_datetime_from_utc(utc_dt, tzinfo)
+
+  @spec extract_instance_tzinfo(Pyex.Interpreter.pyvalue()) :: Pyex.Interpreter.pyvalue()
+  defp extract_instance_tzinfo({:instance, _, %{"__tzinfo__" => tz}}), do: tz
+  defp extract_instance_tzinfo(_), do: nil
 
   @spec date_eq(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) :: boolean()
   defp date_eq(a, b) do
@@ -886,43 +1325,43 @@ defmodule Pyex.Stdlib.Datetime do
     end
   end
 
+  @month_name_to_num %{
+    "jan" => 1,
+    "feb" => 2,
+    "mar" => 3,
+    "apr" => 4,
+    "may" => 5,
+    "jun" => 6,
+    "jul" => 7,
+    "aug" => 8,
+    "sep" => 9,
+    "oct" => 10,
+    "nov" => 11,
+    "dec" => 12,
+    "january" => 1,
+    "february" => 2,
+    "march" => 3,
+    "april" => 4,
+    "june" => 6,
+    "july" => 7,
+    "august" => 8,
+    "september" => 9,
+    "october" => 10,
+    "november" => 11,
+    "december" => 12
+  }
+
   @spec parse_month(%{optional(String.t()) => String.t()}) :: integer()
   defp parse_month(caps) do
-    month_map = %{
-      "jan" => 1,
-      "feb" => 2,
-      "mar" => 3,
-      "apr" => 4,
-      "may" => 5,
-      "jun" => 6,
-      "jul" => 7,
-      "aug" => 8,
-      "sep" => 9,
-      "oct" => 10,
-      "nov" => 11,
-      "dec" => 12,
-      "january" => 1,
-      "february" => 2,
-      "march" => 3,
-      "april" => 4,
-      "june" => 6,
-      "july" => 7,
-      "august" => 8,
-      "september" => 9,
-      "october" => 10,
-      "november" => 11,
-      "december" => 12
-    }
-
     cond do
       Map.has_key?(caps, "month") and caps["month"] != "" ->
         String.to_integer(caps["month"])
 
       Map.has_key?(caps, "month_abbr") and caps["month_abbr"] != "" ->
-        Map.get(month_map, String.downcase(caps["month_abbr"]), 1)
+        Map.get(@month_name_to_num, String.downcase(caps["month_abbr"]), 1)
 
       Map.has_key?(caps, "month_name") and caps["month_name"] != "" ->
-        Map.get(month_map, String.downcase(caps["month_name"]), 1)
+        Map.get(@month_name_to_num, String.downcase(caps["month_name"]), 1)
 
       true ->
         1

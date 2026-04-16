@@ -1129,4 +1129,484 @@ defmodule Pyex.Stdlib.DatetimeTest do
       assert result == ["b", "a", "c"]
     end
   end
+
+  describe "timezone import and construction" do
+    test "from datetime import timezone succeeds" do
+      result =
+        Pyex.run!("""
+        from datetime import timezone
+        timezone is not None
+        """)
+
+      assert result == true
+    end
+
+    test "timezone.utc is a valid tzinfo" do
+      result =
+        Pyex.run!("""
+        from datetime import timezone
+        str(timezone.utc)
+        """)
+
+      assert result == "UTC"
+    end
+
+    test "timezone(timedelta(hours=-4)) constructs a fixed-offset tz" do
+      result =
+        Pyex.run!("""
+        from datetime import timezone, timedelta
+        tz = timezone(timedelta(hours=-4))
+        str(tz)
+        """)
+
+      assert result == "UTC-04:00"
+    end
+
+    test "timezone(timedelta(hours=5, minutes=30)) positive offset" do
+      result =
+        Pyex.run!("""
+        from datetime import timezone, timedelta
+        tz = timezone(timedelta(hours=5, minutes=30))
+        str(tz)
+        """)
+
+      assert result == "UTC+05:30"
+    end
+
+    test "timezone(timedelta(0)) is same as UTC" do
+      result =
+        Pyex.run!("""
+        from datetime import timezone, timedelta
+        str(timezone(timedelta(0)))
+        """)
+
+      assert result == "UTC"
+    end
+
+    test "timezone with name argument" do
+      result =
+        Pyex.run!("""
+        from datetime import timezone, timedelta
+        tz = timezone(timedelta(hours=-5), "EST")
+        str(tz)
+        """)
+
+      assert result == "EST"
+    end
+  end
+
+  describe "timezone-aware datetime construction" do
+    test "datetime with tzinfo kwarg" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime(2026, 4, 15, 10, 0, tzinfo=timezone.utc)
+        dt.tzinfo is not None
+        """)
+
+      assert result == true
+    end
+
+    test "datetime.now(timezone.utc) returns tz-aware datetime" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime.now(timezone.utc)
+        dt.tzinfo is not None
+        """)
+
+      assert result == true
+    end
+
+    test "tz-aware isoformat ends in +00:00 for UTC" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)
+        dt.isoformat()
+        """)
+
+      assert result == "2026-04-15T10:00:00+00:00"
+    end
+
+    test "naive datetime isoformat has no offset" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime(2026, 4, 15, 10, 0, 0)
+        dt.isoformat()
+        """)
+
+      assert result == "2026-04-15T10:00:00"
+    end
+
+    test "tz-aware strftime %z returns +0000" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)
+        dt.strftime("%z")
+        """)
+
+      assert result == "+0000"
+    end
+
+    test "tz-aware strftime %Z returns zone abbreviation" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)
+        dt.strftime("%Z")
+        """)
+
+      assert result == "UTC"
+    end
+
+    test "naive strftime %z returns empty string" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime(2026, 4, 15, 10, 0, 0)
+        dt.strftime("X%zX")
+        """)
+
+      assert result == "XX"
+    end
+
+    test "dt.utcoffset() returns timedelta for aware datetime" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone, timedelta
+        dt = datetime(2026, 4, 15, 10, 0, tzinfo=timezone.utc)
+        dt.utcoffset().total_seconds()
+        """)
+
+      assert result == 0.0
+    end
+
+    test "dt.utcoffset() returns None for naive datetime" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime(2026, 4, 15, 10, 0)
+        dt.utcoffset() is None
+        """)
+
+      assert result == true
+    end
+  end
+
+  describe "astimezone" do
+    test "UTC to fixed offset" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone, timedelta
+        dt = datetime(2026, 4, 15, 14, 0, 0, tzinfo=timezone.utc)
+        eastern = timezone(timedelta(hours=-4))
+        converted = dt.astimezone(eastern)
+        [converted.hour, converted.minute]
+        """)
+
+      assert result == [10, 0]
+    end
+
+    test "astimezone preserves instant" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone, timedelta
+        dt = datetime(2026, 4, 15, 14, 0, 0, tzinfo=timezone.utc)
+        eastern = timezone(timedelta(hours=-4))
+        converted = dt.astimezone(eastern)
+        converted.isoformat()
+        """)
+
+      assert result == "2026-04-15T10:00:00-04:00"
+    end
+  end
+
+  describe "fromisoformat with timezone" do
+    test "parses offset +00:00" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime.fromisoformat("2026-04-15T10:00:00+00:00")
+        dt.isoformat()
+        """)
+
+      assert result == "2026-04-15T10:00:00+00:00"
+    end
+
+    test "parses Z suffix (Python 3.11+)" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime.fromisoformat("2026-04-15T10:00:00Z")
+        dt.isoformat()
+        """)
+
+      assert result == "2026-04-15T10:00:00+00:00"
+    end
+
+    test "parses negative offset" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime.fromisoformat("2026-04-15T10:00:00-05:00")
+        dt.hour
+        """)
+
+      assert result == 10
+    end
+
+    test "naive fromisoformat stays naive" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime.fromisoformat("2026-04-15T10:00:00")
+        dt.tzinfo is None
+        """)
+
+      assert result == true
+    end
+
+    test "date-only fromisoformat stays naive" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime.fromisoformat("2026-04-15")
+        dt.month
+        """)
+
+      assert result == 4
+    end
+  end
+
+  describe "naive vs aware comparison" do
+    test "comparing naive and aware datetime raises TypeError" do
+      {:error, error} =
+        Pyex.run("""
+        from datetime import datetime, timezone
+        naive = datetime(2026, 1, 1)
+        aware = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        naive < aware
+        """)
+
+      assert error.message =~ "TypeError"
+    end
+
+    test "subtracting naive and aware datetime raises TypeError" do
+      {:error, error} =
+        Pyex.run("""
+        from datetime import datetime, timezone
+        naive = datetime(2026, 1, 1)
+        aware = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        aware - naive
+        """)
+
+      assert error.message =~ "TypeError"
+    end
+  end
+
+  describe "real-world timezone scenarios" do
+    test "RFC-822 date formatting" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)
+        dt.strftime("%a, %d %b %Y %H:%M:%S %z")
+        """)
+
+      assert result == "Wed, 15 Apr 2026 10:00:00 +0000"
+    end
+
+    test "staleness check with timedelta comparison" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone, timedelta
+        ref_set_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        now = datetime(2026, 4, 15, tzinfo=timezone.utc)
+        (now - ref_set_at) > timedelta(days=90)
+        """)
+
+      assert result == true
+    end
+
+    test "datetime.now with tz positional arg" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime.now(timezone.utc)
+        dt.tzinfo is not None
+        """)
+
+      assert result == true
+    end
+
+    test "timedelta(days=90).total_seconds()" do
+      result =
+        Pyex.run!("""
+        from datetime import timedelta
+        timedelta(days=90).total_seconds()
+        """)
+
+      assert result == 7_776_000.0
+    end
+  end
+
+  describe "pre-existing bug fixes" do
+    test "strftime %% produces literal percent" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime(2026, 4, 15, 10, 0, 0)
+        dt.strftime("%%Y")
+        """)
+
+      assert result == "%Y"
+    end
+
+    test "strftime %% does not interfere with directives" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime(2026, 4, 15, 10, 0, 0)
+        dt.strftime("%Y %%m %d")
+        """)
+
+      assert result == "2026 %m 15"
+    end
+
+    test "strftime 100%% complete" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime(2026, 4, 15)
+        dt.strftime("100%%")
+        """)
+
+      assert result == "100%"
+    end
+
+    test "fromtimestamp preserves fractional seconds" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime.fromtimestamp(1700000000.5)
+        dt.microsecond
+        """)
+
+      assert result == 500_000
+    end
+
+    test "fromtimestamp with integer has zero microsecond" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime.fromtimestamp(1700000000)
+        dt.microsecond
+        """)
+
+      assert result == 0
+    end
+
+    test "timedelta repr omits days=0 when only seconds" do
+      result =
+        Pyex.run!("""
+        from datetime import timedelta
+        repr(timedelta(seconds=30))
+        """)
+
+      assert result == "datetime.timedelta(seconds=30)"
+    end
+
+    test "timedelta repr shows days when nonzero" do
+      result =
+        Pyex.run!("""
+        from datetime import timedelta
+        repr(timedelta(days=1, seconds=30))
+        """)
+
+      assert result == "datetime.timedelta(days=1, seconds=30)"
+    end
+
+    test "timedelta repr shows only days when seconds=0" do
+      result =
+        Pyex.run!("""
+        from datetime import timedelta
+        repr(timedelta(days=5))
+        """)
+
+      assert result == "datetime.timedelta(days=5)"
+    end
+
+    test "timedelta repr for zero" do
+      result =
+        Pyex.run!("""
+        from datetime import timedelta
+        repr(timedelta(0))
+        """)
+
+      assert result == "datetime.timedelta(0)"
+    end
+  end
+
+  describe "replace preserves tzinfo" do
+    test "replace on aware datetime keeps timezone" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)
+        dt2 = dt.replace(hour=12)
+        dt2.isoformat()
+        """)
+
+      assert result == "2026-04-15T12:00:00+00:00"
+    end
+
+    test "replace preserves microsecond by default" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime.fromtimestamp(1700000000.5)
+        dt2 = dt.replace(hour=12)
+        dt2.microsecond
+        """)
+
+      assert result == 500_000
+    end
+
+    test "replace allows overriding microsecond" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime(2026, 4, 15, 10, 0, 0)
+        dt2 = dt.replace(microsecond=123456)
+        dt2.microsecond
+        """)
+
+      assert result == 123_456
+    end
+
+    test "timezone offset out of range raises ValueError" do
+      {:error, error} =
+        Pyex.run("""
+        from datetime import timezone, timedelta
+        timezone(timedelta(hours=25))
+        """)
+
+      assert error.message =~ "ValueError"
+    end
+
+    test "replace on naive datetime stays naive" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime(2026, 4, 15, 10, 0, 0)
+        dt2 = dt.replace(hour=12)
+        dt2.isoformat()
+        """)
+
+      assert result == "2026-04-15T12:00:00"
+    end
+  end
 end

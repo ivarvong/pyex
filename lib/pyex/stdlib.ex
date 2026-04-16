@@ -52,7 +52,8 @@ defmodule Pyex.Stdlib do
     "typing" => Pyex.Stdlib.Typing,
     "textwrap" => Pyex.Stdlib.Textwrap,
     "sys" => Pyex.Stdlib.Sys,
-    "crypto" => Pyex.Stdlib.Crypto
+    "crypto" => Pyex.Stdlib.Crypto,
+    "zoneinfo" => Pyex.Stdlib.Zoneinfo
   }
 
   @doc """
