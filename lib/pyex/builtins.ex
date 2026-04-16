@@ -410,10 +410,21 @@ defmodule Pyex.Builtins do
      %{"__name__" => name, "__repr__" => "<class '#{name}'>"}}
   end
 
-  @spec builtin_abs([Interpreter.pyvalue()]) :: number() | {:exception, String.t()}
+  @spec builtin_abs([Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue() | {:exception, String.t()} | {:dunder_call, any(), list()}
   defp builtin_abs([true]), do: 1
   defp builtin_abs([false]), do: 0
   defp builtin_abs([val]) when is_number(val), do: abs(val)
+
+  defp builtin_abs([{:instance, {:class, _name, _bases, class_attrs}, inst_attrs} = inst]) do
+    abs_fn = Map.get(inst_attrs, "__abs__") || Map.get(class_attrs, "__abs__")
+
+    case abs_fn do
+      {:builtin, fun} -> fun.([inst])
+      nil -> {:exception, "TypeError: bad operand type for abs()"}
+      _ -> {:exception, "TypeError: bad operand type for abs()"}
+    end
+  end
 
   defp builtin_abs([_]), do: {:exception, "TypeError: bad operand type for abs()"}
 
@@ -1757,7 +1768,7 @@ defmodule Pyex.Builtins do
   def py_repr(:neg_infinity), do: "-inf"
   def py_repr(:nan), do: "nan"
   def py_repr(:ellipsis), do: "Ellipsis"
-  def py_repr(val) when is_float(val), do: Float.to_string(val)
+  def py_repr(val) when is_float(val), do: Pyex.Interpreter.Helpers.py_float_str(val)
 
   def py_repr({:py_list, reversed, _len}) do
     inner = reversed |> Enum.reverse() |> Enum.map(&py_repr_quoted/1) |> Enum.join(", ")

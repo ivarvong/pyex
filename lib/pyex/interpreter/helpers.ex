@@ -71,7 +71,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_str(:neg_infinity), do: "-inf"
   def py_str(:nan), do: "nan"
   def py_str(:ellipsis), do: "Ellipsis"
-  def py_str(val) when is_float(val), do: Float.to_string(val)
+  def py_str(val) when is_float(val), do: py_float_str(val)
 
   def py_str({:py_list, reversed, _len}) do
     "[" <> (reversed |> Enum.reverse() |> Enum.map_join(", ", &py_repr_fmt/1)) <> "]"
@@ -384,4 +384,106 @@ defmodule Pyex.Interpreter.Helpers do
   end
 
   def rebind_var(env, _expr, _updated_func), do: env
+
+  @doc """
+  Formats a float the way Python does: decimal notation for magnitudes
+  in roughly [1e-4, 1e16), scientific notation outside that range.
+  `NaN`/`±inf` are handled by dedicated `py_str` clauses.
+
+  Matches CPython's `repr(float)` (which `str(float)` delegates to
+  since 3.2).  Uses Erlang's `:short` float formatting so the shortest
+  string that round-trips to the same IEEE-754 double is produced.
+  """
+  @spec py_float_str(float()) :: String.t()
+  def py_float_str(val) when is_float(val) do
+    short = :erlang.float_to_binary(val, [:short])
+
+    cond do
+      val == 0.0 ->
+        short
+
+      String.contains?(short, "e") ->
+        py_float_reformat_scientific(val, short)
+
+      true ->
+        abs_val = abs(val)
+
+        if abs_val >= 1.0e16 or abs_val < 1.0e-4 do
+          val |> :erlang.float_to_binary([:short]) |> normalize_scientific()
+        else
+          short
+        end
+    end
+  end
+
+  @spec py_float_reformat_scientific(float(), binary()) :: binary()
+  defp py_float_reformat_scientific(val, short) do
+    abs_val = abs(val)
+
+    if abs_val >= 1.0e-4 and abs_val < 1.0e16 do
+      expand_scientific(short)
+    else
+      normalize_scientific(short)
+    end
+  end
+
+  @spec expand_scientific(binary()) :: binary()
+  defp expand_scientific(short) do
+    [mantissa_str, exp_str] = String.split(short, "e")
+    exp = String.to_integer(exp_str)
+    expand_mantissa(mantissa_str, exp)
+  end
+
+  @spec expand_mantissa(binary(), integer()) :: binary()
+  defp expand_mantissa(mantissa_str, exp) do
+    {sign, rest} =
+      case mantissa_str do
+        "-" <> r -> {"-", r}
+        r -> {"", r}
+      end
+
+    {int_part, frac_part} =
+      case String.split(rest, ".") do
+        [i, f] -> {i, f}
+        [i] -> {i, ""}
+      end
+
+    digits = int_part <> frac_part
+    point_pos = String.length(int_part) + exp
+    total = String.length(digits)
+
+    cond do
+      point_pos <= 0 ->
+        sign <> "0." <> String.duplicate("0", -point_pos) <> digits
+
+      point_pos >= total ->
+        sign <> digits <> String.duplicate("0", point_pos - total) <> ".0"
+
+      true ->
+        {l, r} = String.split_at(digits, point_pos)
+        sign <> l <> "." <> r
+    end
+  end
+
+  @spec normalize_scientific(binary()) :: binary()
+  defp normalize_scientific(s) do
+    case Regex.run(~r/^(-?\d+(?:\.\d+)?)[eE]([+-]?\d+)$/, s) do
+      [_, mantissa, exp] ->
+        exp_int = String.to_integer(exp)
+        sign = if exp_int < 0, do: "-", else: "+"
+        exp_abs = abs(exp_int) |> Integer.to_string() |> String.pad_leading(2, "0")
+        trim_trailing_dot_zero(mantissa) <> "e" <> sign <> exp_abs
+
+      _ ->
+        s
+    end
+  end
+
+  @spec trim_trailing_dot_zero(binary()) :: binary()
+  defp trim_trailing_dot_zero(mantissa) do
+    case Regex.run(~r/^(-?\d+)\.0+$/, mantissa) do
+      [_, int_part] -> int_part
+      _ -> mantissa
+    end
+  end
 end

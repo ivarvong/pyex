@@ -512,13 +512,36 @@ defmodule Pyex.Stdlib.Datetime do
 
   @spec make_timedelta_instance(integer(), number()) :: Pyex.Interpreter.pyvalue()
   defp make_timedelta_instance(days, seconds) do
-    total = days * 86400.0 + seconds
+    int_secs = trunc(seconds)
+    us = trunc(round((seconds - int_secs) * 1_000_000))
+    # Renormalize if rounding pushed microseconds to 1_000_000.
+    {int_secs, us} =
+      cond do
+        us >= 1_000_000 -> {int_secs + 1, us - 1_000_000}
+        us < 0 -> {int_secs - 1, us + 1_000_000}
+        true -> {int_secs, us}
+      end
+
+    {days, int_secs} =
+      cond do
+        int_secs >= 86400 -> {days + 1, int_secs - 86400}
+        int_secs < 0 -> {days - 1, int_secs + 86400}
+        true -> {days, int_secs}
+      end
+
+    # Match CPython: compute the exact integer microsecond count, then do
+    # a single division.  Using divmod avoids losing precision for very
+    # large timedeltas (~999_999_999 days exceeds 2^53 microseconds).
+    total_us = (days * 86400 + int_secs) * 1_000_000 + us
+    q = div(total_us, 1_000_000)
+    r = rem(total_us, 1_000_000)
+    total = :erlang.float(q) + r / 1_000_000.0
 
     {:instance, timedelta_class(),
      %{
        "days" => days,
-       "seconds" => trunc(seconds),
-       "microseconds" => trunc(round((seconds - trunc(seconds)) * 1_000_000)),
+       "seconds" => int_secs,
+       "microseconds" => us,
        "total_seconds" => {:builtin, fn [] -> total end},
        "__total_seconds__" => total
      }}
@@ -977,18 +1000,25 @@ defmodule Pyex.Stdlib.Datetime do
             "hour" => h,
             "minute" => mi,
             "second" => s,
+            "microsecond" => us,
             "tzinfo" => tzinfo
           }}
        ) do
-    base = "datetime.datetime(#{y}, #{m}, #{d}, #{h}, #{mi}, #{s}"
+    components = [y, m, d, h, mi] ++ dt_repr_tail(s, us)
+    body = Enum.map_join(components, ", ", &Integer.to_string/1)
 
     case tzinfo do
-      nil -> base <> ")"
-      tz -> base <> ", tzinfo=#{tz_repr(tz)})"
+      nil -> "datetime.datetime(#{body})"
+      tz -> "datetime.datetime(#{body}, tzinfo=#{tz_repr(tz)})"
     end
   end
 
   defp dt_repr(_), do: "datetime.datetime(...)"
+
+  @spec dt_repr_tail(integer(), integer()) :: [integer()]
+  defp dt_repr_tail(0, 0), do: []
+  defp dt_repr_tail(s, 0), do: [s]
+  defp dt_repr_tail(s, us), do: [s, us]
 
   @spec date_str(Pyex.Interpreter.pyvalue()) :: String.t()
   defp date_str({:instance, _, %{"__date__" => d}}) do
@@ -1005,27 +1035,33 @@ defmodule Pyex.Stdlib.Datetime do
   defp date_repr(_), do: "datetime.date(...)"
 
   @spec td_str(Pyex.Interpreter.pyvalue()) :: String.t()
-  defp td_str({:instance, _, %{"__total_seconds__" => total}}) do
-    abs_total = abs(total)
-    sign = if total < 0, do: "-", else: ""
-    days = trunc(abs_total / 86400)
-    remaining = abs_total - days * 86400
-    hours = trunc(remaining / 3600)
-    remaining = remaining - hours * 3600
-    minutes = trunc(remaining / 60)
-    secs = trunc(remaining - minutes * 60)
+  defp td_str({:instance, _, %{"days" => days, "seconds" => secs, "microseconds" => us}})
+       when is_integer(days) and is_integer(secs) and is_integer(us) do
+    hours = div(secs, 3600)
+    minutes = div(rem(secs, 3600), 60)
+    seconds = rem(secs, 60)
 
-    time_part = "#{pad_int(hours)}:#{pad2(minutes)}:#{pad2(secs)}"
+    secs_part =
+      if us == 0 do
+        pad2(seconds)
+      else
+        "#{pad2(seconds)}.#{pad6(us)}"
+      end
 
-    if days > 0 do
-      day_word = if days == 1, do: "day", else: "days"
-      "#{sign}#{days} #{day_word}, #{time_part}"
-    else
-      "#{sign}#{time_part}"
+    time_part = "#{pad_int(hours)}:#{pad2(minutes)}:#{secs_part}"
+
+    case days do
+      0 -> time_part
+      1 -> "1 day, #{time_part}"
+      -1 -> "-1 day, #{time_part}"
+      n -> "#{n} days, #{time_part}"
     end
   end
 
   defp td_str(_), do: "datetime.timedelta(...)"
+
+  @spec pad6(integer()) :: String.t()
+  defp pad6(n), do: n |> Integer.to_string() |> String.pad_leading(6, "0")
 
   @spec pad_int(integer()) :: String.t()
   defp pad_int(n), do: Integer.to_string(n)
@@ -1068,8 +1104,17 @@ defmodule Pyex.Stdlib.Datetime do
   @spec dt_eq(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) :: boolean()
   defp dt_eq(a, b) do
     case {extract_dt(a), extract_dt(b)} do
-      {%DateTime{} = da, %DateTime{} = db} -> DateTime.compare(da, db) == :eq
-      _ -> false
+      {%DateTime{} = da, %DateTime{} = db} ->
+        # Python: naive and aware datetimes are never equal, regardless
+        # of underlying UTC representation.
+        if dt_awareness_mismatch?(a, b) do
+          false
+        else
+          DateTime.compare(da, db) == :eq
+        end
+
+      _ ->
+        false
     end
   end
 

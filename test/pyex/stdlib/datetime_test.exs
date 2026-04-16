@@ -523,14 +523,14 @@ defmodule Pyex.Stdlib.DatetimeTest do
       assert result == "2:15:00"
     end
 
-    test "repr(datetime)" do
+    test "repr(datetime) omits zero second like CPython" do
       result =
         Pyex.run!("""
         from datetime import datetime
         repr(datetime(2024, 3, 15, 10, 30, 0))
         """)
 
-      assert result == "datetime.datetime(2024, 3, 15, 10, 30, 0)"
+      assert result == "datetime.datetime(2024, 3, 15, 10, 30)"
     end
   end
 

@@ -91,3 +91,4 @@ Known limitations:
 - `async`/`await` and `asyncio` not yet implemented
 - `bytes`/`bytearray` types not yet implemented
 - `datetime.now()` always returns UTC (not local time)
+- `datetime.time` class not exported (only `datetime`, `date`, `timedelta`, `timezone`)
