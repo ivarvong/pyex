@@ -178,5 +178,81 @@ check("dst_fixed_offset", dt_dst_fixed.dst() is None)
 dt_dst_naive = datetime(2026, 7, 1, 12, 0, 0)
 check("dst_naive", dt_dst_naive.dst() is None)
 
+# ── 22. Microsecond preservation on aware datetimes ─────────────────────────
+dt_us_utc = datetime(2026, 1, 15, 10, 30, 45, 123456, tzinfo=timezone.utc)
+check("aware_us_microsecond", dt_us_utc.microsecond == 123456)
+check("aware_us_isoformat", dt_us_utc.isoformat() == "2026-01-15T10:30:45.123456+00:00")
+
+parsed_us = datetime.fromisoformat("2026-04-15T10:00:00.123456+00:00")
+check("fromisoformat_us", parsed_us.microsecond == 123456)
+check(
+    "fromisoformat_us_iso", parsed_us.isoformat() == "2026-04-15T10:00:00.123456+00:00"
+)
+
+dt_us_ny = datetime(2026, 7, 1, 12, 0, 0, 123456, tzinfo=ny)
+check("zi_us_microsecond", dt_us_ny.microsecond == 123456)
+check("zi_us_isoformat", dt_us_ny.isoformat() == "2026-07-01T12:00:00.123456-04:00")
+
+# ── 23. tzinfo as 8th positional argument ───────────────────────────────────
+dt_pos_tz = datetime(2026, 1, 15, 10, 0, 0, 0, timezone.utc)
+check("positional_tzinfo", dt_pos_tz.tzinfo is not None)
+check("positional_tzinfo_iso", dt_pos_tz.isoformat() == "2026-01-15T10:00:00+00:00")
+
+# ── 24. timezone repr ───────────────────────────────────────────────────────
+check("repr_utc_singleton", repr(timezone.utc) == "datetime.timezone.utc")
+check(
+    "repr_fixed_offset",
+    repr(timezone(timedelta(hours=-5)))
+    == "datetime.timezone(datetime.timedelta(days=-1, seconds=68400))",
+)
+check(
+    "repr_named_offset",
+    repr(timezone(timedelta(hours=-5), "EST"))
+    == "datetime.timezone(datetime.timedelta(days=-1, seconds=68400), 'EST')",
+)
+
+# ── 25. timedelta repr with microseconds ────────────────────────────────────
+check(
+    "repr_td_us_only",
+    repr(timedelta(microseconds=100)) == "datetime.timedelta(microseconds=100)",
+)
+check(
+    "repr_td_combined",
+    repr(timedelta(days=1, seconds=30, microseconds=500))
+    == "datetime.timedelta(days=1, seconds=30, microseconds=500)",
+)
+
+# ── 26. date arithmetic uses timedelta.days ─────────────────────────────────
+check(
+    "date_plus_sub_day",
+    str(date(2026, 1, 15) + timedelta(hours=23, minutes=59)) == "2026-01-15",
+)
+check("date_plus_25h", str(date(2026, 1, 15) + timedelta(hours=25)) == "2026-01-16")
+check("date_minus_25h", str(date(2026, 1, 15) - timedelta(hours=25)) == "2026-01-14")
+check("date_minus_23h", str(date(2026, 1, 15) - timedelta(hours=23)) == "2026-01-15")
+check("date_neg_1h", str(date(2026, 1, 15) + timedelta(hours=-1)) == "2026-01-14")
+check("date_neg_25h", str(date(2026, 1, 15) + timedelta(hours=-25)) == "2026-01-13")
+
+# ── 27. Sub-minute timezone offsets ─────────────────────────────────────────
+check("tz_30sec_str", str(timezone(timedelta(seconds=30))) == "UTC+00:00:30")
+
+try:
+    timezone(timedelta(hours=24))
+    check("tz_24h_rejects", False, "should have raised")
+except ValueError:
+    check("tz_24h_rejects", True)
+
+# ── 28. Aware datetime microsecond arithmetic ───────────────────────────────
+a_us = datetime(2026, 1, 15, 10, 0, 0, 500000, tzinfo=timezone.utc)
+b_us = datetime(2026, 1, 15, 10, 0, 0, 100000, tzinfo=timezone.utc)
+diff_us = a_us - b_us
+check("aware_diff_total", diff_us.total_seconds() == 0.4)
+check("aware_diff_us", diff_us.microseconds == 400000)
+
+dt_add_us = datetime(2026, 1, 15, 10, 0, 0, 100000, tzinfo=timezone.utc) + timedelta(
+    microseconds=500
+)
+check("aware_add_us", dt_add_us.microsecond == 100500)
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 print(f"\n{_pass} passed, {_fail} failed out of {_pass + _fail}")

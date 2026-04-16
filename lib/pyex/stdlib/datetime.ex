@@ -100,8 +100,14 @@ defmodule Pyex.Stdlib.Datetime do
     {:class, "timezone", [],
      Map.merge(timezone_dunders(), %{
        "__init__" => {:builtin_kw, &timezone_init/2},
-       "utc" => make_timezone_instance(cls, 0, "UTC")
+       "utc" => make_utc_singleton(cls)
      })}
+  end
+
+  @spec make_utc_singleton(Pyex.Interpreter.pyvalue()) :: Pyex.Interpreter.pyvalue()
+  defp make_utc_singleton(cls) do
+    {:instance, inner_cls, attrs} = make_timezone_instance(cls, 0, "UTC")
+    {:instance, inner_cls, Map.put(attrs, "__utc_singleton__", true)}
   end
 
   @spec timezone_class_bare() ::
@@ -135,10 +141,27 @@ defmodule Pyex.Stdlib.Datetime do
   defp tz_repr({:instance, _, %{"__zoneinfo_key__" => key}}),
     do: "zoneinfo.ZoneInfo(key='#{key}')"
 
+  defp tz_repr({:instance, _, %{"__utc_singleton__" => true}}),
+    do: "datetime.timezone.utc"
+
+  defp tz_repr({:instance, _, %{"__offset_seconds__" => offset, "__user_name__" => user_name}})
+       when is_number(offset) do
+    case user_name do
+      nil -> "datetime.timezone(#{td_repr_for_offset(offset)})"
+      n -> "datetime.timezone(#{td_repr_for_offset(offset)}, '#{n}')"
+    end
+  end
+
   defp tz_repr({:instance, _, %{"__tz_name__" => name}}),
     do: "datetime.timezone(#{name})"
 
   defp tz_repr(_), do: "datetime.timezone(...)"
+
+  @spec td_repr_for_offset(number()) :: String.t()
+  defp td_repr_for_offset(offset_seconds) do
+    td = normalize_timedelta(offset_seconds)
+    "datetime.timedelta(#{td_repr_args(td)})"
+  end
 
   @spec extract_offset_seconds(Pyex.Interpreter.pyvalue()) :: number() | nil
   defp extract_offset_seconds(
@@ -191,6 +214,7 @@ defmodule Pyex.Stdlib.Datetime do
      %{
        "__offset_seconds__" => offset_seconds,
        "__tz_name__" => display_name,
+       "__user_name__" => name,
        "utcoffset" => {:builtin, fn [_dt] -> normalize_timedelta(offset_seconds) end},
        "tzname" => {:builtin, fn [_dt] -> display_name end},
        "dst" => {:builtin, fn [_dt] -> nil end}
@@ -201,7 +225,31 @@ defmodule Pyex.Stdlib.Datetime do
   defp format_utc_offset(offset_seconds) when offset_seconds == 0, do: "UTC"
 
   defp format_utc_offset(offset_seconds) do
-    "UTC" <> format_offset_iso(offset_seconds)
+    "UTC" <> format_offset_iso_full(offset_seconds)
+  end
+
+  @spec format_offset_iso_full(number()) :: String.t()
+  defp format_offset_iso_full(offset_seconds) do
+    sign = if offset_seconds < 0, do: "-", else: "+"
+    abs_total = abs(offset_seconds)
+    abs_secs = trunc(abs_total)
+    frac = abs_total - abs_secs
+    hours = div(abs_secs, 3600)
+    minutes = div(rem(abs_secs, 3600), 60)
+    seconds = rem(abs_secs, 60)
+    base = "#{sign}#{pad2(hours)}:#{pad2(minutes)}"
+
+    cond do
+      frac != 0 ->
+        us = round(frac * 1_000_000)
+        base <> ":#{pad2(seconds)}.#{String.pad_leading(Integer.to_string(us), 6, "0")}"
+
+      seconds != 0 ->
+        base <> ":#{pad2(seconds)}"
+
+      true ->
+        base
+    end
   end
 
   @spec datetime_dunders() :: %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
@@ -263,15 +311,16 @@ defmodule Pyex.Stdlib.Datetime do
         }) ::
           Pyex.Interpreter.pyvalue()
   defp datetime_init([_self | args], kwargs) do
-    {year, month, day, hour, minute, second, microsecond} =
+    {year, month, day, hour, minute, second, microsecond, pos_tzinfo} =
       case args do
-        [y, m, d] -> {y, m, d, 0, 0, 0, 0}
-        [y, m, d, h] -> {y, m, d, h, 0, 0, 0}
-        [y, m, d, h, mi] -> {y, m, d, h, mi, 0, 0}
-        [y, m, d, h, mi, s] -> {y, m, d, h, mi, s, 0}
-        [y, m, d, h, mi, s, us] -> {y, m, d, h, mi, s, us}
-        [] -> {nil, nil, nil, 0, 0, 0, 0}
-        _ -> {nil, nil, nil, nil, nil, nil, nil}
+        [y, m, d] -> {y, m, d, 0, 0, 0, 0, nil}
+        [y, m, d, h] -> {y, m, d, h, 0, 0, 0, nil}
+        [y, m, d, h, mi] -> {y, m, d, h, mi, 0, 0, nil}
+        [y, m, d, h, mi, s] -> {y, m, d, h, mi, s, 0, nil}
+        [y, m, d, h, mi, s, us] -> {y, m, d, h, mi, s, us, nil}
+        [y, m, d, h, mi, s, us, tz] -> {y, m, d, h, mi, s, us, tz}
+        [] -> {nil, nil, nil, 0, 0, 0, 0, nil}
+        _ -> {nil, nil, nil, nil, nil, nil, nil, nil}
       end
 
     year = Map.get(kwargs, "year", year)
@@ -281,7 +330,7 @@ defmodule Pyex.Stdlib.Datetime do
     minute = Map.get(kwargs, "minute", minute)
     second = Map.get(kwargs, "second", second)
     microsecond = Map.get(kwargs, "microsecond", microsecond)
-    tzinfo = Map.get(kwargs, "tzinfo")
+    tzinfo = Map.get(kwargs, "tzinfo", pos_tzinfo)
 
     if not is_integer(year) or not is_integer(month) or not is_integer(day) do
       {:exception, "TypeError: an integer is required for year, month, day"}
@@ -457,9 +506,7 @@ defmodule Pyex.Stdlib.Datetime do
   @spec normalize_timedelta(number()) :: Pyex.Interpreter.pyvalue()
   defp normalize_timedelta(total_seconds) do
     days = trunc(Float.floor(total_seconds / 86400.0))
-    remaining = total_seconds - days * 86400
-    secs = if is_float(remaining), do: remaining, else: remaining + 0.0
-
+    secs = (total_seconds - days * 86400) * 1.0
     make_timedelta_instance(days, secs)
   end
 
@@ -627,13 +674,13 @@ defmodule Pyex.Stdlib.Datetime do
           Pyex.Interpreter.pyvalue()
         ) :: Pyex.Interpreter.pyvalue()
   defp build_aware_datetime(utc_dt, tz_instance, offset, dst_method) do
-    utc_dt = DateTime.truncate(utc_dt, :second)
     local_dt = DateTime.add(utc_dt, trunc(offset), :second)
     {us, _} = local_dt.microsecond
+    display_local = if us == 0, do: DateTime.truncate(local_dt, :second), else: local_dt
     offset_str = format_offset_iso(offset)
 
     iso =
-      (local_dt |> DateTime.to_naive() |> NaiveDateTime.to_iso8601()) <> offset_str
+      (display_local |> DateTime.to_naive() |> NaiveDateTime.to_iso8601()) <> offset_str
 
     {:instance, datetime_class(),
      %{
@@ -984,10 +1031,11 @@ defmodule Pyex.Stdlib.Datetime do
   defp pad_int(n), do: Integer.to_string(n)
 
   @spec td_repr_args(Pyex.Interpreter.pyvalue()) :: String.t()
-  defp td_repr_args({:instance, _, %{"days" => days, "seconds" => secs}}) do
+  defp td_repr_args({:instance, _, %{"days" => days, "seconds" => secs, "microseconds" => us}}) do
     parts =
       if(days != 0, do: ["days=#{days}"], else: []) ++
-        if secs != 0, do: ["seconds=#{secs}"], else: []
+        if(secs != 0, do: ["seconds=#{secs}"], else: []) ++
+        if us != 0, do: ["microseconds=#{us}"], else: []
 
     case parts do
       [] -> "0"
@@ -1065,7 +1113,7 @@ defmodule Pyex.Stdlib.Datetime do
          {:instance, _, %{"__tzinfo__" => tz_a}},
          {:instance, _, %{"__tzinfo__" => tz_b}}
        ) do
-    tz_a == nil != (tz_b == nil)
+    is_nil(tz_a) != is_nil(tz_b)
   end
 
   defp dt_awareness_mismatch?(_, _), do: false
@@ -1075,8 +1123,7 @@ defmodule Pyex.Stdlib.Datetime do
   defp dt_add(dt_inst, td) do
     case {extract_dt(dt_inst), extract_total_seconds(td)} do
       {%DateTime{} = a, ts} when is_number(ts) ->
-        new_utc =
-          DateTime.add(a, round(ts * 1_000_000), :microsecond) |> DateTime.truncate(:second)
+        new_utc = DateTime.add(a, round(ts * 1_000_000), :microsecond)
 
         rebuild_datetime(new_utc, extract_instance_tzinfo(dt_inst))
 
@@ -1097,10 +1144,7 @@ defmodule Pyex.Stdlib.Datetime do
 
       is_timedelta?(other) ->
         ts = extract_total_seconds(other)
-
-        new_utc =
-          DateTime.add(a, round(-ts * 1_000_000), :microsecond) |> DateTime.truncate(:second)
-
+        new_utc = DateTime.add(a, round(-ts * 1_000_000), :microsecond)
         rebuild_datetime(new_utc, extract_instance_tzinfo(dt_inst))
 
       extract_dt(other) != nil ->
@@ -1108,8 +1152,8 @@ defmodule Pyex.Stdlib.Datetime do
           {:exception, "TypeError: can't subtract offset-naive and offset-aware datetimes"}
         else
           b = extract_dt(other)
-          diff_seconds = DateTime.diff(a, b, :second)
-          normalize_timedelta(diff_seconds)
+          diff_us = DateTime.diff(a, b, :microsecond)
+          normalize_timedelta(diff_us / 1_000_000.0)
         end
 
       true ->
@@ -1146,9 +1190,8 @@ defmodule Pyex.Stdlib.Datetime do
   @spec date_add(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
           Pyex.Interpreter.pyvalue()
   defp date_add(dt, td) do
-    case {extract_date(dt), extract_total_seconds(td)} do
-      {%Date{} = d, ts} when is_number(ts) ->
-        days = trunc(Float.round(ts / 86400.0))
+    case {extract_date(dt), extract_td_days(td)} do
+      {%Date{} = d, days} when is_integer(days) ->
         make_date(Date.add(d, days))
 
       _ ->
@@ -1156,6 +1199,13 @@ defmodule Pyex.Stdlib.Datetime do
          "TypeError: unsupported operand type(s) for +: 'date' and '#{py_type_name(td)}'"}
     end
   end
+
+  @spec extract_td_days(Pyex.Interpreter.pyvalue()) :: integer() | nil
+  defp extract_td_days({:instance, {:class, "timedelta", _, _}, %{"days" => d}})
+       when is_integer(d),
+       do: d
+
+  defp extract_td_days(_), do: nil
 
   @spec date_sub(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
           Pyex.Interpreter.pyvalue()
@@ -1167,8 +1217,7 @@ defmodule Pyex.Stdlib.Datetime do
         {:exception, "TypeError: unsupported operand type(s) for -"}
 
       is_timedelta?(other) ->
-        ts = extract_total_seconds(other)
-        days = trunc(Float.round(ts / 86400.0))
+        days = extract_td_days(other) || 0
         make_date(Date.add(d, -days))
 
       extract_date(other) != nil ->

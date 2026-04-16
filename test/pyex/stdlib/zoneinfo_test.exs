@@ -251,7 +251,7 @@ defmodule Pyex.Stdlib.ZoneinfoTest do
       assert result == "EDT"
     end
 
-    test "datetime.now(ZoneInfo) returns tz-aware with correct offset" do
+    test "astimezone(ZoneInfo) produces correct local hour and offset" do
       result =
         Pyex.run!("""
         from datetime import datetime, timezone
@@ -264,7 +264,7 @@ defmodule Pyex.Stdlib.ZoneinfoTest do
       assert result == [14, -4 * 3600.0]
     end
 
-    test "datetime.now(ZoneInfo) isoformat shows correct offset" do
+    test "datetime(..., tzinfo=ZoneInfo) isoformat shows correct offset" do
       result =
         Pyex.run!("""
         from datetime import datetime

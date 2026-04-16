@@ -1609,4 +1609,230 @@ defmodule Pyex.Stdlib.DatetimeTest do
       assert result == "2026-04-15T12:00:00"
     end
   end
+
+  describe "microsecond preservation on aware datetimes" do
+    test "constructor preserves microseconds with tzinfo" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime(2026, 1, 15, 10, 30, 45, 123456, tzinfo=timezone.utc)
+        [dt.microsecond, dt.isoformat()]
+        """)
+
+      assert result == [123_456, "2026-01-15T10:30:45.123456+00:00"]
+    end
+
+    test "fromisoformat preserves microseconds with offset" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        dt = datetime.fromisoformat("2026-04-15T10:00:00.123456+00:00")
+        [dt.microsecond, dt.isoformat()]
+        """)
+
+      assert result == [123_456, "2026-04-15T10:00:00.123456+00:00"]
+    end
+
+    test "aware replace preserves microseconds" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime(2026, 1, 15, 10, 30, 45, 999_999, tzinfo=timezone.utc)
+        dt2 = dt.replace(hour=11)
+        [dt2.microsecond, dt2.isoformat()]
+        """)
+
+      assert result == [999_999, "2026-01-15T11:30:45.999999+00:00"]
+    end
+
+    test "aware replace with microsecond kwarg" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime(2026, 1, 15, 10, 30, 45, tzinfo=timezone.utc)
+        dt2 = dt.replace(microsecond=500000)
+        [dt2.microsecond, dt2.isoformat()]
+        """)
+
+      assert result == [500_000, "2026-01-15T10:30:45.500000+00:00"]
+    end
+
+    test "aware datetime + timedelta preserves microseconds" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone, timedelta
+        dt = datetime(2026, 1, 15, 10, 0, 0, 100_000, tzinfo=timezone.utc)
+        dt2 = dt + timedelta(microseconds=500)
+        [dt2.microsecond, dt2.isoformat()]
+        """)
+
+      assert result == [100_500, "2026-01-15T10:00:00.100500+00:00"]
+    end
+
+    test "aware datetime subtraction preserves microseconds" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        a = datetime(2026, 1, 15, 10, 0, 0, 500_000, tzinfo=timezone.utc)
+        b = datetime(2026, 1, 15, 10, 0, 0, 100_000, tzinfo=timezone.utc)
+        diff = a - b
+        [diff.total_seconds(), diff.microseconds]
+        """)
+
+      assert result == [0.4, 400_000]
+    end
+
+    test "ZoneInfo-aware datetime preserves microseconds" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        dt = datetime(2026, 7, 1, 12, 0, 0, 123456, tzinfo=ZoneInfo("America/New_York"))
+        [dt.microsecond, dt.isoformat()]
+        """)
+
+      assert result == [123_456, "2026-07-01T12:00:00.123456-04:00"]
+    end
+  end
+
+  describe "datetime tzinfo as positional argument" do
+    test "8-arg constructor accepts tzinfo" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, timezone
+        dt = datetime(2026, 1, 15, 10, 0, 0, 0, timezone.utc)
+        [dt.hour, dt.tzinfo is not None, dt.isoformat()]
+        """)
+
+      assert result == [10, true, "2026-01-15T10:00:00+00:00"]
+    end
+  end
+
+  describe "timezone repr" do
+    test "timezone.utc has dedicated repr" do
+      result =
+        Pyex.run!("""
+        from datetime import timezone
+        repr(timezone.utc)
+        """)
+
+      assert result == "datetime.timezone.utc"
+    end
+
+    test "fixed-offset timezone repr uses timedelta form" do
+      result =
+        Pyex.run!("""
+        from datetime import timezone, timedelta
+        repr(timezone(timedelta(hours=-5)))
+        """)
+
+      assert result == "datetime.timezone(datetime.timedelta(days=-1, seconds=68400))"
+    end
+
+    test "named timezone repr includes name" do
+      result =
+        Pyex.run!("""
+        from datetime import timezone, timedelta
+        repr(timezone(timedelta(hours=-5), "EST"))
+        """)
+
+      assert result == "datetime.timezone(datetime.timedelta(days=-1, seconds=68400), 'EST')"
+    end
+
+    test "positive-offset timezone repr" do
+      result =
+        Pyex.run!("""
+        from datetime import timezone, timedelta
+        repr(timezone(timedelta(hours=5, minutes=30)))
+        """)
+
+      assert result == "datetime.timezone(datetime.timedelta(seconds=19800))"
+    end
+  end
+
+  describe "timedelta repr with microseconds" do
+    test "includes microseconds when nonzero" do
+      result =
+        Pyex.run!("""
+        from datetime import timedelta
+        repr(timedelta(microseconds=100))
+        """)
+
+      assert result == "datetime.timedelta(microseconds=100)"
+    end
+
+    test "combines days, seconds, microseconds" do
+      result =
+        Pyex.run!("""
+        from datetime import timedelta
+        repr(timedelta(days=1, seconds=30, microseconds=500))
+        """)
+
+      assert result == "datetime.timedelta(days=1, seconds=30, microseconds=500)"
+    end
+  end
+
+  describe "sub-minute timezone offsets" do
+    test "timezone with 30-second offset formats with seconds" do
+      result =
+        Pyex.run!("""
+        from datetime import timezone, timedelta
+        str(timezone(timedelta(seconds=30)))
+        """)
+
+      assert result == "UTC+00:00:30"
+    end
+
+    test "timezone exact 24h offset is rejected" do
+      {:error, error} =
+        Pyex.run("""
+        from datetime import timezone, timedelta
+        timezone(timedelta(hours=24))
+        """)
+
+      assert error.message =~ "ValueError"
+    end
+  end
+
+  describe "date + timedelta uses timedelta.days" do
+    test "positive sub-day timedelta does not advance date" do
+      result =
+        Pyex.run!("""
+        from datetime import date, timedelta
+        str(date(2026, 1, 15) + timedelta(hours=23, minutes=59))
+        """)
+
+      assert result == "2026-01-15"
+    end
+
+    test "25-hour timedelta advances by one day" do
+      result =
+        Pyex.run!("""
+        from datetime import date, timedelta
+        str(date(2026, 1, 15) + timedelta(hours=25))
+        """)
+
+      assert result == "2026-01-16"
+    end
+
+    test "date subtraction uses timedelta.days" do
+      result =
+        Pyex.run!("""
+        from datetime import date, timedelta
+        [str(date(2026, 1, 15) - timedelta(hours=25)), str(date(2026, 1, 15) - timedelta(hours=23))]
+        """)
+
+      assert result == ["2026-01-14", "2026-01-15"]
+    end
+
+    test "negative timedelta floors to more days" do
+      result =
+        Pyex.run!("""
+        from datetime import date, timedelta
+        [str(date(2026, 1, 15) + timedelta(hours=-1)), str(date(2026, 1, 15) + timedelta(hours=-25))]
+        """)
+
+      assert result == ["2026-01-14", "2026-01-13"]
+    end
+  end
 end
