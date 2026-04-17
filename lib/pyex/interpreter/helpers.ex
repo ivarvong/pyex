@@ -56,6 +56,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:partial, _, _, _}), do: "partial"
   def py_type({:lru_cached_function, _, _}), do: "function"
   def py_type({:ref, _}), do: "ref"
+  def py_type({:exception_class, name}), do: "<class '#{name}'>"
   def py_type(_), do: "object"
 
   @doc """
@@ -129,6 +130,7 @@ defmodule Pyex.Interpreter.Helpers do
 
   def py_str({:class, name, _, _}), do: "<class '#{name}'>"
   def py_str({:builtin_type, name, _}), do: "<class '#{name}'>"
+  def py_str({:exception_class, name}), do: "<class '#{name}'>"
 
   def py_str({:instance, {:class, "type", _, _}, %{"__name__" => type_name}}) do
     "<class '#{type_name}'>"

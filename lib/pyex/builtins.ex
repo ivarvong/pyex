@@ -68,11 +68,26 @@ defmodule Pyex.Builtins do
           Env.put(env, name, {:builtin, fun})
       end)
 
-    Enum.reduce(type_constructors(), env, fn {name, fun}, env ->
-      Env.put(env, name, {:builtin_type, name, fun})
-    end)
-    |> Env.put("Ellipsis", :ellipsis)
+    env =
+      Enum.reduce(type_constructors(), env, fn {name, fun}, env ->
+        Env.put(env, name, {:builtin_type, name, fun})
+      end)
+
+    env = Enum.reduce(exception_class_names(), env, &Env.put(&2, &1, {:exception_class, &1}))
+
+    Env.put(env, "Ellipsis", :ellipsis)
   end
+
+  @doc """
+  Returns the full list of Python builtin exception class names.
+
+  Each becomes a first-class `{:exception_class, name}` runtime value in
+  the environment, so it can appear in expressions like `isinstance(e,
+  ValueError)`, `except (A, B) as e`, and `[ValueError, TypeError]`.
+  Sourced from `Pyex.ExceptionsHierarchy.all_names/0`.
+  """
+  @spec exception_class_names() :: [String.t()]
+  def exception_class_names, do: Pyex.ExceptionsHierarchy.all_names()
 
   @spec all() :: [{String.t(), ([Interpreter.pyvalue()] -> Interpreter.pyvalue())}]
   defp all do
@@ -825,6 +840,13 @@ defmodule Pyex.Builtins do
   defp builtin_list([{:deque, items, _}]), do: items
   defp builtin_list([{:generator, items}]), do: items
 
+  # When a generator raises during accumulation, we receive a
+  # {:generator_error, items, msg}.  Consuming the generator via list()
+  # should surface that exception after yielding partial results, but
+  # in practice CPython raises immediately from `list(gen())` — we do
+  # the same and discard the partial items.
+  defp builtin_list([{:generator_error, _items, msg}]), do: {:exception, msg}
+
   defp builtin_list([{:range, _, _, _} = r]) do
     case range_to_list(r) do
       {:exception, _} = err -> err
@@ -933,12 +955,18 @@ defmodule Pyex.Builtins do
     name == target_name or check_bases(bases, target_name)
   end
 
+  # Built-in exception classes as runtime values: handle both sides.
+  defp builtin_isinstance([{:instance, {:class, name, bases, _}, _}, {:exception_class, target}]) do
+    Pyex.ExceptionsHierarchy.subclass?(name, target) or check_bases(bases, target)
+  end
+
   defp builtin_isinstance([val, {:tuple, types}]) do
     Enum.any?(types, fn t ->
       builtin_isinstance([val, t])
     end)
   end
 
+  defp builtin_isinstance([val, {:exception_class, _}]) when not is_tuple(val), do: false
   defp builtin_isinstance([_, _]), do: false
 
   @spec builtin_issubclass([Interpreter.pyvalue()]) :: boolean() | {:exception, String.t()}
@@ -956,6 +984,10 @@ defmodule Pyex.Builtins do
     end)
   end
 
+  defp builtin_issubclass([{:class, name, bases, _}, {:exception_class, target}]) do
+    Pyex.ExceptionsHierarchy.subclass?(name, target) or check_bases(bases, target)
+  end
+
   defp builtin_issubclass([{:class, _, _, _}, _]), do: false
 
   # Built-in type hierarchy: bool is a subtype of int
@@ -968,6 +1000,22 @@ defmodule Pyex.Builtins do
   end
 
   defp builtin_issubclass([{:builtin_type, _, _}, _]), do: false
+
+  # Exception classes: subclass relationships both ways.
+  defp builtin_issubclass([{:exception_class, sub}, {:exception_class, sup}]) do
+    Pyex.ExceptionsHierarchy.subclass?(sub, sup)
+  end
+
+  defp builtin_issubclass([{:exception_class, _} = cls, {:tuple, types}]) do
+    Enum.any?(types, fn t -> builtin_issubclass([cls, t]) end)
+  end
+
+  defp builtin_issubclass([{:exception_class, sub}, {:class, sup, bases, _}]) do
+    Pyex.ExceptionsHierarchy.subclass?(sub, sup) or
+      Enum.any?(bases, fn _ -> false end)
+  end
+
+  defp builtin_issubclass([{:exception_class, _}, _]), do: false
 
   defp builtin_issubclass([arg1, _arg2]) do
     {:exception, "TypeError: issubclass() arg 1 must be a class, not #{pytype(arg1)}"}
@@ -1986,6 +2034,8 @@ defmodule Pyex.Builtins do
 
   def py_repr({:instance, {:class, name, _, _}, _}), do: "<#{name} instance>"
   def py_repr({:class, name, _, _}), do: "<class '#{name}'>"
+  def py_repr({:exception_class, name}), do: "<class '#{name}'>"
+  def py_repr({:builtin_type, name, _}), do: "<class '#{name}'>"
   def py_repr({:function, name, _, _, _}), do: "<function #{name}>"
   def py_repr({:builtin, _}), do: "<built-in function>"
   def py_repr({:builtin_kw, _}), do: "<built-in function>"

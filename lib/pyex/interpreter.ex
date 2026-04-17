@@ -83,6 +83,7 @@ defmodule Pyex.Interpreter do
           | {:lru_cached_function, pyvalue(), non_neg_integer()}
           | {:cached_property, pyvalue()}
           | {:ref, non_neg_integer()}
+          | {:exception_class, String.t()}
 
   @typep signal ::
            {:returned, pyvalue()}
@@ -347,14 +348,15 @@ defmodule Pyex.Interpreter do
             {:ok, {:class, _, _, _} = base} ->
               base
 
+            {:ok, {:exception_class, _} = exc} ->
+              # Reify to a real {:class, name, bases, attrs} so the MRO
+              # and super() paths find the builtin __init__ etc.
+              exception_instance_class(exc)
+
             _ ->
-              # Builtin exception types (Exception, ValueError, ...) are
-              # not bound as real classes in the env -- they're handled as
-              # tagged strings at raise/except time. To make
-              # `class MyError(Exception): super().__init__(...)` work,
-              # synthesize a stub class for any recognized exception base
-              # name. Other unknown base names still fall through to nil
-              # so we don't silently mask typos.
+              # Fallback: legacy stub for bases that aren't in env but
+              # happen to be registered exception names (for very old
+              # callsites that may predate the exception_class builtins).
               builtin_exception_base_stub(base_name)
           end
       end)
@@ -580,6 +582,10 @@ defmodule Pyex.Interpreter do
 
   def eval({:raise, meta, [expr]}, env, ctx) do
     Exceptions.eval_raise(expr, meta, env, ctx)
+  end
+
+  def eval({:raise, meta, [expr, cause_expr]}, env, ctx) do
+    Exceptions.eval_raise_from(expr, cause_expr, meta, env, ctx)
   end
 
   def eval({:assert, _, [condition, msg_expr]}, env, ctx) do
@@ -857,6 +863,15 @@ defmodule Pyex.Interpreter do
             case result do
               {:ok, {:function, _, _, _, _} = func, owner_class} ->
                 {{:bound_method, instance, func, owner_class}, env, ctx}
+
+              # Builtin attrs on a parent class should still receive
+              # `self` as first arg (matches Python's bound-method call
+              # semantics).
+              {:ok, {:builtin, _} = builtin, _owner} ->
+                {{:bound_method, instance, builtin}, env, ctx}
+
+              {:ok, {:builtin_kw, _} = builtin, _owner} ->
+                {{:bound_method, instance, builtin}, env, ctx}
 
               {:ok, value, _owner} ->
                 {value, env, ctx}
@@ -1639,6 +1654,13 @@ defmodule Pyex.Interpreter do
     call_function({:builtin, fun}, args, kwargs, env, ctx)
   end
 
+  # Calling a built-in exception class constructs an instance whose `args`
+  # tuple holds the positional arguments, matching CPython semantics.
+  def call_function({:exception_class, _name} = cls, args, _kwargs, env, ctx) do
+    instance = {:instance, exception_instance_class(cls), %{"args" => {:tuple, args}}}
+    {instance, env, ctx}
+  end
+
   def call_function({:builtin_kw, fun}, args, kwargs, env, ctx) do
     Invocation.call_builtin_kw(fun, args, kwargs, env, ctx)
   end
@@ -1727,6 +1749,39 @@ defmodule Pyex.Interpreter do
 
   def call_function(val, _args, _kwargs, env, ctx) do
     {{:exception, "TypeError: '#{Helpers.py_type(val)}' object is not callable"}, env, ctx}
+  end
+
+  @doc false
+  @spec exception_instance_class(pyvalue()) :: pyvalue()
+  def exception_instance_class({:exception_class, name}) do
+    # Represent a built-in exception class as {:class, name, bases, attrs}
+    # so the rest of the interpreter (attribute access, method dispatch,
+    # isinstance on user-defined subclasses) can treat it uniformly.
+    # The only method we expose is __init__, which replaces self.args
+    # with its positional arguments (matches CPython's BaseException).
+    bases =
+      case Pyex.ExceptionsHierarchy.parent(name) do
+        nil -> []
+        parent -> [{:exception_class, parent}]
+      end
+
+    attrs = %{
+      "__init__" =>
+        {:builtin,
+         fn
+           [{:instance, cls, inst_attrs} | rest] ->
+             # Replaces self.args with the positional args, matching
+             # BaseException.__init__.  Returned via {:mutate, ...} so
+             # the caller updates the heap cell backing `self`.
+             new_instance = {:instance, cls, Map.put(inst_attrs, "args", {:tuple, rest})}
+             {:mutate, new_instance, nil}
+
+           _ ->
+             nil
+         end}
+    }
+
+    {:class, name, bases, attrs}
   end
 
   @doc false

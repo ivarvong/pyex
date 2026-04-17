@@ -212,8 +212,8 @@ defmodule Pyex.Parser do
         case parse_expression(rest) do
           {:ok, expr, [{:keyword, _, "from"} | rest]} ->
             case parse_expression(rest) do
-              {:ok, _cause, rest} ->
-                {:ok, {:raise, [line: line], [expr]}, drop_newline(rest)}
+              {:ok, cause, rest} ->
+                {:ok, {:raise, [line: line], [expr, cause]}, drop_newline(rest)}
 
               {:error, _} = error ->
                 error
