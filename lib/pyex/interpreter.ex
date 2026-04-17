@@ -1596,7 +1596,18 @@ defmodule Pyex.Interpreter do
   def call_function({:partial, func, partial_args, partial_kwargs}, args, kwargs, env, ctx) do
     full_args = partial_args ++ args
     full_kwargs = Map.merge(partial_kwargs, kwargs)
-    call_function(func, full_args, full_kwargs, env, ctx)
+
+    case call_function(func, full_args, full_kwargs, env, ctx) do
+      # Preserve the partial wrapper when the inner function returns
+      # an updated closure: without this, callers that reuse the
+      # partial across iterations (e.g. `map(partial(...), ...)`)
+      # would lose the pre-bound arguments on the second call.
+      {val, env, ctx, updated_inner} ->
+        {val, env, ctx, {:partial, updated_inner, partial_args, partial_kwargs}}
+
+      other ->
+        other
+    end
   end
 
   def call_function({:lru_cached_function, func, cache_id}, args, kwargs, env, ctx) do
@@ -2827,22 +2838,54 @@ defmodule Pyex.Interpreter do
         {signal, env, ctx}
 
       {:mutate, _new_object, return_value, new_env, ctx} ->
-        {nil, Env.smart_put(new_env, name, return_value), ctx}
+        {nil, smart_put_decorated(new_env, name, return_value), ctx}
 
       {:mutate, _new_object, return_value, ctx} ->
-        {nil, Env.smart_put(env, name, return_value), ctx}
+        {nil, smart_put_decorated(env, name, return_value), ctx}
 
       {{:register_route, method, path, handler}, env, ctx} ->
         env = register_route(decorator_expr, method, path, handler, env)
-        {nil, Env.smart_put(env, name, handler), ctx}
+        {nil, smart_put_decorated(env, name, handler), ctx}
 
       {result, env, ctx, _updated_func} ->
-        {nil, Env.smart_put(env, name, result), ctx}
+        {nil, smart_put_decorated(env, name, result), ctx}
 
       {result, env, ctx} ->
-        {nil, Env.smart_put(env, name, result), ctx}
+        {nil, smart_put_decorated(env, name, result), ctx}
     end
   end
+
+  # Writes the decorated value to `name` AND rewrites any recursive
+  # self-reference inside the wrapped function's closure to point to the
+  # decorated form.  Without this, calling the decorated function
+  # propagates the stale (undecorated) reference from the function's
+  # closure back to the caller's global scope, defeating lru_cache and
+  # other stateful wrappers.
+  @spec smart_put_decorated(Env.t(), String.t(), pyvalue()) :: Env.t()
+  defp smart_put_decorated(env, name, decorated) do
+    patched = rewrite_self_reference(decorated, name, decorated)
+    Env.smart_put(env, name, patched)
+  end
+
+  @spec rewrite_self_reference(pyvalue(), String.t(), pyvalue()) :: pyvalue()
+  defp rewrite_self_reference(
+         {:lru_cached_function, {:function, fname, params, body, closure_env}, cache_id},
+         name,
+         decorated
+       ) do
+    {:lru_cached_function,
+     {:function, fname, params, body, Env.put_global(closure_env, name, decorated)}, cache_id}
+  end
+
+  defp rewrite_self_reference({:function, fname, params, body, closure_env}, name, decorated) do
+    {:function, fname, params, body, Env.put_global(closure_env, name, decorated)}
+  end
+
+  defp rewrite_self_reference({:partial, inner, args, kwargs}, name, decorated) do
+    {:partial, rewrite_self_reference(inner, name, decorated), args, kwargs}
+  end
+
+  defp rewrite_self_reference(other, _name, _decorated), do: other
 
   @spec with_context_var(node()) :: String.t() | nil
   defp with_context_var({:var, _, [name]}), do: name

@@ -1310,11 +1310,52 @@ defmodule Pyex.Builtins do
     end
   end
 
+  # `functools.partial`, lru-cached functions, classes, and instances
+  # (callable via __call__) are all valid map()/filter() targets in
+  # CPython.  Defer them to the interpreter via :map_call so the full
+  # invocation pipeline applies.
+  defp builtin_map([{:partial, _, _, _} = func | iterables]) when iterables != [] do
+    map_call_defer(func, iterables)
+  end
+
+  defp builtin_map([{:lru_cached_function, _, _} = func | iterables]) when iterables != [] do
+    map_call_defer(func, iterables)
+  end
+
+  defp builtin_map([{:class, _, _, _} = func | iterables]) when iterables != [] do
+    map_call_defer(func, iterables)
+  end
+
+  defp builtin_map([{:exception_class, _} = func | iterables]) when iterables != [] do
+    map_call_defer(func, iterables)
+  end
+
+  defp builtin_map([{:instance, _, _} = func | iterables]) when iterables != [] do
+    map_call_defer(func, iterables)
+  end
+
+  defp builtin_map([{:bound_method, _, _} = func | iterables]) when iterables != [] do
+    map_call_defer(func, iterables)
+  end
+
+  defp builtin_map([{:bound_method, _, _, _} = func | iterables]) when iterables != [] do
+    map_call_defer(func, iterables)
+  end
+
   defp builtin_map([_func | _]),
     do: {:exception, "TypeError: map() first arg must be callable"}
 
   defp builtin_map(_),
     do: {:exception, "TypeError: map() requires at least 2 arguments"}
+
+  @spec map_call_defer(Interpreter.pyvalue(), [Interpreter.pyvalue()]) ::
+          Interpreter.builtin_signal() | {:exception, String.t()}
+  defp map_call_defer(func, iterables) do
+    case collect_iterables(iterables) do
+      {:ok, lists} -> {:map_call, func, zip_truncate(lists)}
+      {:exception, _} = e -> e
+    end
+  end
 
   @spec collect_iterables([Interpreter.pyvalue()]) ::
           {:ok, [[Interpreter.pyvalue()]]} | {:exception, String.t()}

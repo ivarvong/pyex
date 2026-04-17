@@ -41,7 +41,18 @@ defmodule Pyex.Interpreter.Invocation do
       fresh_closure =
         Env.put_global_scope(closure_env, Env.global_scope(env), Env.global_scope_id(env))
 
-      base_env = Env.push_scope(Env.put(fresh_closure, name, func))
+      # Bind `name` to the caller's current binding when available so
+      # decorators (like @lru_cache) that wrap this function are visible
+      # during recursive self-calls.  Falling back to the raw `func`
+      # matters for ordinary recursion in nested/local scopes where the
+      # name isn't in the caller's globals yet.
+      self_binding =
+        case Env.get(env, name) do
+          {:ok, existing} -> existing
+          :undefined -> func
+        end
+
+      base_env = Env.push_scope(Env.put(fresh_closure, name, self_binding))
 
       case CallSupport.bind_params(params, args, kwargs, base_env, ctx) do
         {:exception, msg, ctx} ->

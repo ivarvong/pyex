@@ -87,7 +87,6 @@ Python features.
 Known limitations:
 - Late-binding closures: `lambda x: x + i` in a loop captures final `i`
   (Python late-binding semantics). Use `lambda x, i=i: x + i` as workaround.
-- `@property`, `@staticmethod`, `@classmethod` decorators not yet implemented
 - `async`/`await` and `asyncio` not yet implemented
 - `bytes`/`bytearray` types not yet implemented
 - `datetime.now()` always returns UTC (not local time)
