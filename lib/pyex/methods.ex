@@ -260,6 +260,11 @@ defmodule Pyex.Methods do
            (%{optional(Interpreter.pyvalue()) => Interpreter.pyvalue()},
             [Interpreter.pyvalue()] ->
               Interpreter.pyvalue())}
+          | {:ok_kw,
+             (%{optional(Interpreter.pyvalue()) => Interpreter.pyvalue()},
+              [Interpreter.pyvalue()],
+              %{optional(String.t()) => Interpreter.pyvalue()} ->
+                term())}
           | {:ok_raw,
              (%{optional(Interpreter.pyvalue()) => Interpreter.pyvalue()},
               [Interpreter.pyvalue()] ->
