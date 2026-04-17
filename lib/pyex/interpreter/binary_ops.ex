@@ -320,6 +320,34 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   defp dispatch(:star, l, r) when is_number(l) and is_number(r), do: l * r
 
+  # IEEE-754 special-value multiplication.
+  defp dispatch(:star, :infinity, 0), do: :nan
+  defp dispatch(:star, :infinity, +0.0), do: :nan
+  defp dispatch(:star, :infinity, -0.0), do: :nan
+  defp dispatch(:star, 0, :infinity), do: :nan
+  defp dispatch(:star, +0.0, :infinity), do: :nan
+  defp dispatch(:star, -0.0, :infinity), do: :nan
+  defp dispatch(:star, :neg_infinity, 0), do: :nan
+  defp dispatch(:star, :neg_infinity, +0.0), do: :nan
+  defp dispatch(:star, :neg_infinity, -0.0), do: :nan
+  defp dispatch(:star, 0, :neg_infinity), do: :nan
+  defp dispatch(:star, +0.0, :neg_infinity), do: :nan
+  defp dispatch(:star, -0.0, :neg_infinity), do: :nan
+  defp dispatch(:star, :infinity, r) when is_number(r) and r > 0, do: :infinity
+  defp dispatch(:star, :infinity, r) when is_number(r) and r < 0, do: :neg_infinity
+  defp dispatch(:star, :neg_infinity, r) when is_number(r) and r > 0, do: :neg_infinity
+  defp dispatch(:star, :neg_infinity, r) when is_number(r) and r < 0, do: :infinity
+  defp dispatch(:star, l, :infinity) when is_number(l) and l > 0, do: :infinity
+  defp dispatch(:star, l, :infinity) when is_number(l) and l < 0, do: :neg_infinity
+  defp dispatch(:star, l, :neg_infinity) when is_number(l) and l > 0, do: :neg_infinity
+  defp dispatch(:star, l, :neg_infinity) when is_number(l) and l < 0, do: :infinity
+  defp dispatch(:star, :infinity, :infinity), do: :infinity
+  defp dispatch(:star, :neg_infinity, :neg_infinity), do: :infinity
+  defp dispatch(:star, :infinity, :neg_infinity), do: :neg_infinity
+  defp dispatch(:star, :neg_infinity, :infinity), do: :neg_infinity
+  defp dispatch(:star, :nan, _), do: :nan
+  defp dispatch(:star, _, :nan), do: :nan
+
   defp dispatch(:star, l, r),
     do: type_error("*", l, r)
 
@@ -329,6 +357,20 @@ defmodule Pyex.Interpreter.BinaryOps do
     do: {:exception, "ZeroDivisionError: division by zero"}
 
   defp dispatch(:slash, l, r) when is_number(l) and is_number(r), do: l / r
+
+  # IEEE-754 special-value division: finite / inf -> 0.0, inf / finite -> inf, etc.
+  defp dispatch(:slash, l, :infinity) when is_number(l), do: 0.0
+  defp dispatch(:slash, l, :neg_infinity) when is_number(l), do: -0.0
+  defp dispatch(:slash, :infinity, r) when is_number(r) and r > 0, do: :infinity
+  defp dispatch(:slash, :infinity, r) when is_number(r) and r < 0, do: :neg_infinity
+  defp dispatch(:slash, :neg_infinity, r) when is_number(r) and r > 0, do: :neg_infinity
+  defp dispatch(:slash, :neg_infinity, r) when is_number(r) and r < 0, do: :infinity
+  defp dispatch(:slash, :infinity, :infinity), do: :nan
+  defp dispatch(:slash, :neg_infinity, :neg_infinity), do: :nan
+  defp dispatch(:slash, :infinity, :neg_infinity), do: :nan
+  defp dispatch(:slash, :neg_infinity, :infinity), do: :nan
+  defp dispatch(:slash, :nan, _), do: :nan
+  defp dispatch(:slash, _, :nan), do: :nan
 
   defp dispatch(:slash, l, r),
     do: type_error("/", l, r)

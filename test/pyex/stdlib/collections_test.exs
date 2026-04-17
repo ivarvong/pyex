@@ -1,8 +1,6 @@
 defmodule Pyex.Stdlib.CollectionsTest do
   use ExUnit.Case, async: true
 
-  alias Pyex.Error
-
   describe "Counter" do
     test "counts list elements" do
       result =
@@ -65,15 +63,15 @@ defmodule Pyex.Stdlib.CollectionsTest do
       assert result == 3
     end
 
-    test "Counter missing key raises KeyError" do
-      assert {:error, %Error{message: msg}} =
-               Pyex.run("""
-               from collections import Counter
-               c = Counter([1, 2, 2, 3])
-               c[99]
-               """)
+    test "Counter missing key returns 0 (CPython __missing__ semantics)" do
+      result =
+        Pyex.run!("""
+        from collections import Counter
+        c = Counter([1, 2, 2, 3])
+        c[99]
+        """)
 
-      assert msg =~ "KeyError"
+      assert result == 0
     end
 
     test "most_common without argument returns all" do

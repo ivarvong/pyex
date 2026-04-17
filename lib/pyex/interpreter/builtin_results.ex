@@ -113,16 +113,10 @@ defmodule Pyex.Interpreter.BuiltinResults do
             {{:exception, "TypeError: object has no __next__"}, env, ctx}
         end
 
-      {:iter_sum, val} ->
+      {:iter_sum, val, start} ->
         case Interpreter.to_iterable(val, env, ctx) do
           {:ok, items, env, ctx} ->
-            if Enum.all?(items, &is_number/1) do
-              {Enum.sum(items), env, ctx}
-            else
-              {{:exception,
-                "TypeError: unsupported operand type(s) for +: sum() requires numeric items"},
-               env, ctx}
-            end
+            {Enum.reduce(items, start, &sum_step/2), env, ctx}
 
           {:exception, _} = signal ->
             {signal, env, ctx}
@@ -298,4 +292,19 @@ defmodule Pyex.Interpreter.BuiltinResults do
         {{:exception, "TypeError: '#{Helpers.py_type(inst)}' object is not iterable"}, env, ctx}
     end
   end
+
+  # Mirror Pyex.Builtins.sum_step/2: accumulates for numeric and common
+  # container types used with sum([...], start).
+  @spec sum_step(Interpreter.pyvalue(), Interpreter.pyvalue()) :: Interpreter.pyvalue()
+  defp sum_step(x, acc) when is_number(x) and is_number(acc), do: acc + x
+
+  defp sum_step({:py_list, xr, xlen}, {:py_list, ar, alen}),
+    do: {:py_list, xr ++ ar, alen + xlen}
+
+  defp sum_step({:py_list, xr, xlen}, list) when is_list(list),
+    do: {:py_list, xr ++ Enum.reverse(list), length(list) + xlen}
+
+  defp sum_step(x, acc) when is_list(x) and is_list(acc), do: acc ++ x
+  defp sum_step({:tuple, x}, {:tuple, acc}), do: {:tuple, acc ++ x}
+  defp sum_step(x, acc) when is_binary(x) and is_binary(acc), do: acc <> x
 end

@@ -29,7 +29,7 @@ defmodule Pyex.Stdlib.SandboxGapsTest do
           json.load(f)
       """
 
-      assert_raise RuntimeError, ~r/json\.load failed/, fn ->
+      assert_raise RuntimeError, ~r/JSONDecodeError/, fn ->
         Pyex.run!(code, @fs_opts)
       end
     end

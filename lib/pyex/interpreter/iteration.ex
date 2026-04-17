@@ -25,6 +25,14 @@ defmodule Pyex.Interpreter.Iteration do
 
   defp eval_map_call_acc(_func, [], acc, env, ctx), do: {Enum.reverse(acc), env, ctx}
 
+  defp eval_map_call_acc(func, [args | rest], acc, env, ctx) when is_list(args) do
+    case Interpreter.call_function(func, args, %{}, env, ctx) do
+      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+      {val, env, ctx, updated} -> eval_map_call_acc(updated, rest, [val | acc], env, ctx)
+      {val, env, ctx} -> eval_map_call_acc(func, rest, [val | acc], env, ctx)
+    end
+  end
+
   defp eval_map_call_acc(func, [item | rest], acc, env, ctx) do
     case Interpreter.call_function(func, [item], %{}, env, ctx) do
       {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}

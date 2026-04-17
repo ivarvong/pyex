@@ -463,7 +463,7 @@ defmodule Pyex.TryExceptTest do
       assert result == "something broke"
     end
 
-    test "str() on custom exception with multiple args" do
+    test "str() on custom exception with multiple args matches CPython tuple repr" do
       result =
         Pyex.run!("""
         class MyError(Exception):
@@ -475,7 +475,7 @@ defmodule Pyex.TryExceptTest do
             str(e)
         """)
 
-      assert result == "bad, 42"
+      assert result == "('bad', 42)"
     end
 
     test "custom exception caught by Exception" do
@@ -520,7 +520,7 @@ defmodule Pyex.TryExceptTest do
         raise AppError("not found", 404)
         """)
 
-      assert msg =~ "AppError: not found, 404"
+      assert msg =~ "AppError: ('not found', 404)"
     end
   end
 end

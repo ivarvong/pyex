@@ -91,3 +91,26 @@ Known limitations:
 - `async`/`await` and `asyncio` not yet implemented
 - `bytes`/`bytearray` types not yet implemented
 - `datetime.now()` always returns UTC (not local time)
+- `datetime.time` class not exported (only `datetime`, `date`, `timedelta`, `timezone`)
+- `next(itertools.count())` must be wrapped with `iter()` first; CPython
+  allows it directly because count/cycle return iterator objects natively.
+  In Pyex they return bounded lists/ranges (works with `list()`, `for`,
+  `islice`, etc., just not `next()` directly).
+- `csv.writer(io.StringIO())` doesn't propagate writes back to the
+  StringIO variable because Pyex's StringIO is value-typed.  Workaround:
+  use `csv.writer()` without args (Pyex extension) to get string output
+  from `writerow(...)` directly.  Fix requires heap-allocating StringIO.
+- F-string nested format specs (e.g. `f"{x:{width}d}"`) are not yet
+  supported.  The spec string must be parsed as a nested f-string; Pyex
+  currently parses the literal text.
+- Exception classes like `ValueError`, `TypeError`, `KeyboardInterrupt`,
+  `BaseException` aren't first-class runtime values.  They work as
+  `except` targets and `raise X` instantiation, but can't appear in
+  expressions like `issubclass(ValueError, Exception)` or tuple literals
+  inside an `except` clause: `except (ValueError, TypeError) as e:`.
+- `raise X from Y` doesn't set the `__cause__` attribute on the raised
+  exception.
+- User-defined `__init__` calling `super().__init__(msg)` in an
+  exception subclass mixes up the args list.
+- Exceptions raised inside a generator body don't propagate cleanly to
+  the consumer (`list(gen())` raises TypeError instead of the inner exc).

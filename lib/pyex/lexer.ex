@@ -1068,21 +1068,24 @@ defmodule Pyex.Lexer do
   end
 
   @doc false
-  @spec __hex2_escape__([non_neg_integer()]) :: non_neg_integer()
+  @spec __hex2_escape__([non_neg_integer()]) :: String.t()
   def __hex2_escape__(hex_chars) do
-    hex_chars |> List.to_string() |> String.to_integer(16)
+    cp = hex_chars |> List.to_string() |> String.to_integer(16)
+    <<cp::utf8>>
   end
 
   @doc false
-  @spec __hex4_escape__([non_neg_integer()]) :: non_neg_integer()
+  @spec __hex4_escape__([non_neg_integer()]) :: String.t()
   def __hex4_escape__(hex_chars) do
-    hex_chars |> List.to_string() |> String.to_integer(16)
+    cp = hex_chars |> List.to_string() |> String.to_integer(16)
+    <<cp::utf8>>
   end
 
   @doc false
-  @spec __hex8_escape__([non_neg_integer()]) :: non_neg_integer()
+  @spec __hex8_escape__([non_neg_integer()]) :: String.t()
   def __hex8_escape__(hex_chars) do
-    hex_chars |> List.to_string() |> String.to_integer(16)
+    cp = hex_chars |> List.to_string() |> String.to_integer(16)
+    <<cp::utf8>>
   end
 
   @doc false
@@ -1090,6 +1093,7 @@ defmodule Pyex.Lexer do
   def __raw_escape__(parts) do
     parts
     |> Enum.map(fn
+      c when is_integer(c) and c >= 0x80 and c <= 0xFF -> <<c>>
       c when is_integer(c) -> <<c::utf8>>
       s when is_binary(s) -> s
     end)
@@ -1101,6 +1105,7 @@ defmodule Pyex.Lexer do
   def __unknown_escape__(parts) do
     parts
     |> Enum.map(fn
+      c when is_integer(c) and c >= 0x80 and c <= 0xFF -> <<c>>
       c when is_integer(c) -> <<c::utf8>>
       s when is_binary(s) -> s
     end)
@@ -1112,6 +1117,10 @@ defmodule Pyex.Lexer do
   def __string__(chars) do
     chars
     |> Enum.map(fn
+      # Bytes >= 0x80 from `ascii_char` are already part of a UTF-8
+      # multi-byte sequence in the source.  Emit them verbatim; re-encoding
+      # as `<<c::utf8>>` would double-encode and corrupt the string.
+      c when is_integer(c) and c >= 0x80 and c <= 0xFF -> <<c>>
       c when is_integer(c) -> <<c::utf8>>
       s when is_binary(s) -> s
     end)

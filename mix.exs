@@ -48,6 +48,7 @@ defmodule Pyex.MixProject do
       {:explorer, "~> 0.11.1", optional: true},
       {:stream_data, "~> 1.1", only: :test},
       {:bypass, "~> 2.1", only: :test},
+      {:tz, "~> 0.28"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:benchee, "~> 1.3", only: :dev},
       {:bandit, "~> 1.6", only: :dev}

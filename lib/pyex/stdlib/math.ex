@@ -50,6 +50,7 @@ defmodule Pyex.Stdlib.Math do
       "trunc" => {:builtin, &do_trunc/1},
       "fabs" => {:builtin, &do_fabs/1},
       "fmod" => {:builtin, &do_fmod/1},
+      "remainder" => {:builtin, &do_remainder/1},
       "copysign" => {:builtin, &do_copysign/1},
       # ── angular ──
       "radians" => {:builtin, &do_radians/1},
@@ -129,13 +130,45 @@ defmodule Pyex.Stdlib.Math do
   defp do_fabs([x]) when is_number(x), do: abs(x) / 1
   defp do_fmod([x, y]) when is_number(x) and is_number(y), do: :math.fmod(x, y)
 
+  # IEEE-754 remainder: `r = x - n*y` where n is the nearest integer to x/y,
+  # ties to even.  Python's `math.remainder`.
+  defp do_remainder([x, y]) when is_number(x) and is_number(y) do
+    q = x / y
+    n = round_half_to_even(q)
+    (x - n * y) * 1.0
+  end
+
   defp do_copysign([x, y]) when is_number(x) and is_number(y) do
     magnitude = abs(x) / 1
 
-    if y < 0 do
+    if is_neg_zero?(y) or y < 0 do
       -magnitude
     else
       magnitude
+    end
+  end
+
+  # Detects IEEE-754 negative zero.  Erlang preserves the sign bit, so
+  # dividing a positive number by `y` gives `-infinity` when y is -0.0.
+  @spec is_neg_zero?(number()) :: boolean()
+  defp is_neg_zero?(y) when is_float(y) and y == 0.0 do
+    <<sign::1, _rest::63>> = <<y::float-64>>
+    sign == 1
+  end
+
+  defp is_neg_zero?(_), do: false
+
+  @spec round_half_to_even(float()) :: integer()
+  defp round_half_to_even(q) do
+    f = :erlang.floor(q)
+    diff = q - f
+
+    cond do
+      diff < 0.5 -> trunc(f)
+      diff > 0.5 -> trunc(f) + 1
+      # Exactly 0.5: round to even.
+      rem(trunc(f), 2) == 0 -> trunc(f)
+      true -> trunc(f) + 1
     end
   end
 
@@ -147,13 +180,23 @@ defmodule Pyex.Stdlib.Math do
   # ── number-theoretic ──────────────────────────────────────────
 
   defp do_factorial([n]) when is_integer(n) and n >= 0, do: factorial(n)
-  defp do_gcd([a, b]) when is_integer(a) and is_integer(b), do: Integer.gcd(a, b)
 
-  defp do_lcm([a, b]) when is_integer(a) and is_integer(b) do
-    case Integer.gcd(a, b) do
-      0 -> 0
-      g -> abs(div(a, g) * b)
-    end
+  defp do_gcd(args) when is_list(args) do
+    Enum.reduce(args, 0, fn a, acc when is_integer(a) -> Integer.gcd(acc, a) end)
+  end
+
+  defp do_lcm([]), do: 1
+
+  defp do_lcm(args) when is_list(args) do
+    Enum.reduce(args, 1, fn a, acc when is_integer(a) -> lcm_pair(acc, a) end)
+  end
+
+  @spec lcm_pair(integer(), integer()) :: integer()
+  defp lcm_pair(0, _), do: 0
+  defp lcm_pair(_, 0), do: 0
+
+  defp lcm_pair(a, b) do
+    abs(div(a, Integer.gcd(a, b)) * b)
   end
 
   defp do_comb([n, k]) when is_integer(n) and is_integer(k) and n >= 0 and k >= 0 and k <= n do
@@ -198,11 +241,33 @@ defmodule Pyex.Stdlib.Math do
   # ── summation / product ───────────────────────────────────────
 
   defp do_fsum([{:py_list, reversed, _}]) do
-    Enum.reduce(reversed, 0.0, fn x, acc when is_number(x) -> acc + x end)
+    reversed |> Enum.reverse() |> neumaier_sum()
   end
 
   defp do_fsum([items]) when is_list(items) do
-    Enum.reduce(items, 0.0, fn x, acc when is_number(x) -> acc + x end)
+    neumaier_sum(items)
+  end
+
+  # Neumaier summation: a variant of Kahan summation that handles cases
+  # where the running sum is smaller than the next input.  Enough precision
+  # for the typical Python `math.fsum` use cases (0.1 summed 10 times == 1.0).
+  @spec neumaier_sum([number()]) :: float()
+  defp neumaier_sum(items) do
+    {sum, c} =
+      Enum.reduce(items, {0.0, 0.0}, fn x, {s, c} ->
+        t = s + x
+
+        new_c =
+          if abs(s) >= abs(x) do
+            c + (s - t + x)
+          else
+            c + (x - t + s)
+          end
+
+        {t, new_c}
+      end)
+
+    sum + c
   end
 
   defp do_prod([{:py_list, reversed, _}], kwargs) do

@@ -1485,12 +1485,23 @@ defmodule Pyex.Parser do
     {:ok, Enum.reverse(acc)}
   end
 
+  # `{{` is an f-string escape for a literal `{`.
+  defp parse_fstring_parts(<<"{{", rest::binary>>, line, buf, acc) do
+    parse_fstring_parts(rest, line, <<buf::binary, "{">>, acc)
+  end
+
+  # `}}` is an f-string escape for a literal `}`.
+  defp parse_fstring_parts(<<"}}", rest::binary>>, line, buf, acc) do
+    parse_fstring_parts(rest, line, <<buf::binary, "}">>, acc)
+  end
+
   defp parse_fstring_parts(<<"{", rest::binary>>, line, buf, acc) do
     acc = if buf == "", do: acc, else: [{:lit, buf} | acc]
 
     case extract_brace_content(rest, 0, <<>>) do
       {:ok, full_content, rest} ->
-        {expr_str, conversion, format_spec} = split_fstring_expr(full_content)
+        {expr_str, conversion, format_spec, debug?} =
+          split_fstring_expr_debug(full_content)
 
         case Lexer.tokenize(expr_str) do
           {:ok, tokens} ->
@@ -1511,7 +1522,15 @@ defmodule Pyex.Parser do
                     spec -> {:expr, expr_with_conv, spec}
                   end
 
-                parse_fstring_parts(rest, line, <<>>, [part | acc])
+                # Debug form `{expr=}` prepends "<expr text>=" as a literal.
+                acc =
+                  if debug? do
+                    [part, {:lit, expr_str <> "="} | acc]
+                  else
+                    [part | acc]
+                  end
+
+                parse_fstring_parts(rest, line, <<>>, acc)
 
               {:error, msg} ->
                 {:error, "f-string expression error: #{msg}"}
@@ -1528,6 +1547,148 @@ defmodule Pyex.Parser do
 
   defp parse_fstring_parts(<<c, rest::binary>>, line, buf, acc) do
     parse_fstring_parts(rest, line, <<buf::binary, c>>, acc)
+  end
+
+  # Variant of split_fstring_expr that also detects the debug form `expr=`.
+  # If the expression part (before any `!` conversion or `:` format spec)
+  # ends with `=`, CPython prepends the source text as a literal.
+  # Returns a 4-tuple with a boolean flag for the debug form.
+  @spec split_fstring_expr_debug(String.t()) ::
+          {String.t(), String.t() | nil, String.t() | nil, boolean()}
+  defp split_fstring_expr_debug(content) do
+    # First isolate the expression part (before the first `!` conv or
+    # `:` spec at depth 0).  Debug `=` must live within this part.
+    {expr_only, rest} = split_expr_from_spec_conv(content)
+
+    case check_debug_equals(expr_only) do
+      nil ->
+        {e, conv, spec} = split_fstring_expr(content)
+        {e, conv, spec, false}
+
+      expr_part ->
+        {_, conv, spec} = split_fstring_expr("x" <> rest)
+        {String.trim(expr_part), conv, spec, true}
+    end
+  end
+
+  # Split `content` at the first `:` or `!r/!s/!a` at depth 0 (not inside
+  # brackets/parens/strings).  Returns `{expr, rest_including_delimiter}`.
+  @spec split_expr_from_spec_conv(String.t()) :: {String.t(), String.t()}
+  defp split_expr_from_spec_conv(content) do
+    split_esc_loop(content, 0, 0, 0, false, nil, <<>>)
+  end
+
+  defp split_esc_loop(<<>>, _b, _p, _s, _in_str, _q, acc), do: {acc, ""}
+
+  defp split_esc_loop(<<q, rest::binary>>, b, p, s, false, nil, acc)
+       when q in [?', ?"] do
+    split_esc_loop(rest, b, p, s, true, q, <<acc::binary, q>>)
+  end
+
+  defp split_esc_loop(<<q, rest::binary>>, b, p, s, true, q, acc) do
+    split_esc_loop(rest, b, p, s, false, nil, <<acc::binary, q>>)
+  end
+
+  defp split_esc_loop(<<c, rest::binary>>, b, p, s, true, q, acc) do
+    split_esc_loop(rest, b, p, s, true, q, <<acc::binary, c>>)
+  end
+
+  defp split_esc_loop(<<"[", rest::binary>>, b, p, s, false, nil, acc),
+    do: split_esc_loop(rest, b + 1, p, s, false, nil, <<acc::binary, "[">>)
+
+  defp split_esc_loop(<<"]", rest::binary>>, b, p, s, false, nil, acc) when b > 0,
+    do: split_esc_loop(rest, b - 1, p, s, false, nil, <<acc::binary, "]">>)
+
+  defp split_esc_loop(<<"(", rest::binary>>, b, p, s, false, nil, acc),
+    do: split_esc_loop(rest, b, p + 1, s, false, nil, <<acc::binary, "(">>)
+
+  defp split_esc_loop(<<")", rest::binary>>, b, p, s, false, nil, acc) when p > 0,
+    do: split_esc_loop(rest, b, p - 1, s, false, nil, <<acc::binary, ")">>)
+
+  defp split_esc_loop(<<"{", rest::binary>>, b, p, s, false, nil, acc),
+    do: split_esc_loop(rest, b, p, s + 1, false, nil, <<acc::binary, "{">>)
+
+  defp split_esc_loop(<<"}", rest::binary>>, b, p, s, false, nil, acc) when s > 0,
+    do: split_esc_loop(rest, b, p, s - 1, false, nil, <<acc::binary, "}">>)
+
+  # At depth 0, `:` or `!r/!s/!a` terminates the expression part.
+  defp split_esc_loop(<<":", _::binary>> = rest, 0, 0, 0, false, nil, acc) do
+    {acc, rest}
+  end
+
+  defp split_esc_loop(<<"!", conv, rest::binary>>, 0, 0, 0, false, nil, acc)
+       when conv in [?r, ?s, ?a] do
+    {acc, <<"!", conv, rest::binary>>}
+  end
+
+  defp split_esc_loop(<<c, rest::binary>>, b, p, s, in_str, q, acc) do
+    split_esc_loop(rest, b, p, s, in_str, q, <<acc::binary, c>>)
+  end
+
+  # If `expr_only` ends with a debug-form `=` (a top-level `=` not part
+  # of `==`, `!=`, etc.), return the expression part before the `=`.
+  # Otherwise return nil.
+  @spec check_debug_equals(String.t()) :: String.t() | nil
+  defp check_debug_equals(expr_only) do
+    case split_at_debug_eq_loop(expr_only, 0, 0, 0, false, nil, <<>>) do
+      {_, nil} -> nil
+      {expr, _rest} -> expr
+    end
+  end
+
+  # Returns `{before_equals, after_equals}` if a top-level `=` is present,
+  # else `{acc, nil}`.  Treats `==`, `!=`, `<=`, `>=` as non-debug.
+  defp split_at_debug_eq_loop(<<>>, _b, _p, _s, _in_str, _q, _acc), do: {"", nil}
+
+  defp split_at_debug_eq_loop(<<q, rest::binary>>, b, p, s, false, nil, acc)
+       when q in [?', ?"] do
+    split_at_debug_eq_loop(rest, b, p, s, true, q, <<acc::binary, q>>)
+  end
+
+  defp split_at_debug_eq_loop(<<q, rest::binary>>, b, p, s, true, q, acc) do
+    split_at_debug_eq_loop(rest, b, p, s, false, nil, <<acc::binary, q>>)
+  end
+
+  defp split_at_debug_eq_loop(<<c, rest::binary>>, b, p, s, true, q, acc) do
+    split_at_debug_eq_loop(rest, b, p, s, true, q, <<acc::binary, c>>)
+  end
+
+  defp split_at_debug_eq_loop(<<"[", rest::binary>>, b, p, s, false, nil, acc),
+    do: split_at_debug_eq_loop(rest, b + 1, p, s, false, nil, <<acc::binary, "[">>)
+
+  defp split_at_debug_eq_loop(<<"]", rest::binary>>, b, p, s, false, nil, acc) when b > 0,
+    do: split_at_debug_eq_loop(rest, b - 1, p, s, false, nil, <<acc::binary, "]">>)
+
+  defp split_at_debug_eq_loop(<<"(", rest::binary>>, b, p, s, false, nil, acc),
+    do: split_at_debug_eq_loop(rest, b, p + 1, s, false, nil, <<acc::binary, "(">>)
+
+  defp split_at_debug_eq_loop(<<")", rest::binary>>, b, p, s, false, nil, acc) when p > 0,
+    do: split_at_debug_eq_loop(rest, b, p - 1, s, false, nil, <<acc::binary, ")">>)
+
+  defp split_at_debug_eq_loop(<<"{", rest::binary>>, b, p, s, false, nil, acc),
+    do: split_at_debug_eq_loop(rest, b, p, s + 1, false, nil, <<acc::binary, "{">>)
+
+  defp split_at_debug_eq_loop(<<"}", rest::binary>>, b, p, s, false, nil, acc) when s > 0,
+    do: split_at_debug_eq_loop(rest, b, p, s - 1, false, nil, <<acc::binary, "}">>)
+
+  defp split_at_debug_eq_loop(<<"==", rest::binary>>, b, p, s, false, nil, acc),
+    do: split_at_debug_eq_loop(rest, b, p, s, false, nil, <<acc::binary, "==">>)
+
+  defp split_at_debug_eq_loop(<<"!=", rest::binary>>, b, p, s, false, nil, acc),
+    do: split_at_debug_eq_loop(rest, b, p, s, false, nil, <<acc::binary, "!=">>)
+
+  defp split_at_debug_eq_loop(<<"<=", rest::binary>>, b, p, s, false, nil, acc),
+    do: split_at_debug_eq_loop(rest, b, p, s, false, nil, <<acc::binary, "<=">>)
+
+  defp split_at_debug_eq_loop(<<">=", rest::binary>>, b, p, s, false, nil, acc),
+    do: split_at_debug_eq_loop(rest, b, p, s, false, nil, <<acc::binary, ">=">>)
+
+  defp split_at_debug_eq_loop(<<"=", rest::binary>>, 0, 0, 0, false, nil, acc) do
+    {acc, rest}
+  end
+
+  defp split_at_debug_eq_loop(<<c, rest::binary>>, b, p, s, in_str, q, acc) do
+    split_at_debug_eq_loop(rest, b, p, s, in_str, q, <<acc::binary, c>>)
   end
 
   @spec extract_brace_content(String.t(), non_neg_integer(), String.t()) ::

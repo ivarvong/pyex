@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-04-16T18:47:58.162613Z",
+  "sha256": "4b368de8a665f5483e80efb194f8c6d212b56d5335e9a9933438d65f6691ff83",
+  "source_file": "main.py",
+  "stdout": "PASS tz_utc_str\nPASS tz_utc_not_none\nPASS fixed_offset_str\nPASS fixed_offset_positive\nPASS zero_offset_is_utc\nPASS named_tz_str\nPASS aware_utc_year\nPASS aware_utc_hour\nPASS aware_utc_tzinfo\nPASS isoformat_utc\nPASS isoformat_negative\nPASS isoformat_naive\nPASS strftime_z_utc\nPASS strftime_z_est\nPASS strftime_Z_utc\nPASS strftime_z_naive\nPASS rfc822_format\nPASS utcoffset_utc\nPASS utcoffset_est\nPASS utcoffset_naive\nPASS astimezone_hour\nPASS astimezone_iso\nPASS add_preserves_tz\nPASS sub_preserves_tz\nPASS aware_sub_seconds\nPASS staleness_check\nPASS td_total_seconds\nPASS fromisoformat_utc\nPASS fromisoformat_z\nPASS fromisoformat_neg_hour\nPASS fromisoformat_naive_tzinfo\nPASS fromisoformat_date_month\nPASS zi_ny_str\nPASS zi_london_str\nPASS zi_tokyo_str\nPASS zi_invalid\nPASS est_offset\nPASS edt_offset\nPASS tokyo_offset\nPASS before_dst_offset\nPASS after_dst_offset\nPASS astimezone_zi_hour\nPASS zi_isoformat\nPASS strftime_Z_est\nPASS strftime_Z_edt\nPASS dst_summer_ny\nPASS dst_winter_ny\nPASS dst_tokyo\nPASS dst_fixed_offset\nPASS dst_naive\nPASS aware_us_microsecond\nPASS aware_us_isoformat\nPASS fromisoformat_us\nPASS fromisoformat_us_iso\nPASS zi_us_microsecond\nPASS zi_us_isoformat\nPASS positional_tzinfo\nPASS positional_tzinfo_iso\nPASS repr_utc_singleton\nPASS repr_fixed_offset\nPASS repr_named_offset\nPASS repr_td_us_only\nPASS repr_td_combined\nPASS date_plus_sub_day\nPASS date_plus_25h\nPASS date_minus_25h\nPASS date_minus_23h\nPASS date_neg_1h\nPASS date_neg_25h\nPASS tz_30sec_str\nPASS tz_24h_rejects\nPASS aware_diff_total\nPASS aware_diff_us\nPASS aware_add_us\n\n74 passed, 0 failed out of 74\n"
+}

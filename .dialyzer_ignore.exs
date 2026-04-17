@@ -52,5 +52,9 @@
   {"lib/pyex/interpreter/dunder.ex", :pattern_match},
   # do_request currently always returns {:io_call, fn}; the catch-all branch
   # is a defensive guard for future return variants.
-  {"lib/pyex/stdlib/requests.ex", :pattern_match_cov}
+  {"lib/pyex/stdlib/requests.ex", :pattern_match_cov},
+  # Defensive fallback patterns in json encoding: format_decode_error's
+  # catch-all and indent_at's non-integer indent branch are unreachable
+  # given the current call sites, but kept as guards for future inputs.
+  {"lib/pyex/stdlib/json.ex", :pattern_match_cov}
 ]

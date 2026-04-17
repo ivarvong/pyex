@@ -148,11 +148,18 @@ defmodule Pyex.Interpreter.Protocols do
 
       _ ->
         case Map.get(attrs, "args") do
+          {:tuple, []} ->
+            {:ok, "", env, ctx}
+
           {:tuple, [single]} when is_binary(single) ->
             {:ok, single, env, ctx}
 
-          {:tuple, items} when is_list(items) and items != [] ->
-            {:ok, items |> Enum.map(&Helpers.py_str/1) |> Enum.join(", "), env, ctx}
+          {:tuple, [single]} ->
+            {:ok, Helpers.py_str(single), env, ctx}
+
+          {:tuple, items} when is_list(items) ->
+            # Python: str(Exception("a", "b")) == "('a', 'b')" — the tuple repr.
+            {:ok, Pyex.Builtins.py_repr({:tuple, items}), env, ctx}
 
           _ ->
             {:ok, Helpers.py_str(inst), env, ctx}

@@ -73,6 +73,7 @@ defmodule Pyex.Methods do
   def resolve({:py_dict, _, _} = object, attr) do
     case dict_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      {:ok_kw, method_fn} -> {:ok, {:builtin_kw, bound_kw(method_fn, object)}}
       {:ok_raw, method_fn} -> {:ok, {:builtin_raw, bound(method_fn, object)}}
       :error -> :error
     end
@@ -81,6 +82,7 @@ defmodule Pyex.Methods do
   def resolve(object, attr) when is_map(object) do
     case dict_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      {:ok_kw, method_fn} -> {:ok, {:builtin_kw, bound_kw(method_fn, object)}}
       {:ok_raw, method_fn} -> {:ok, {:builtin_raw, bound(method_fn, object)}}
       :error -> :error
     end
@@ -104,6 +106,25 @@ defmodule Pyex.Methods do
     case tuple_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
       :error -> :error
+    end
+  end
+
+  def resolve(object, attr) when is_integer(object) do
+    case int_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
+  def resolve(object, attr) when is_boolean(object) do
+    # In Python, bool is a subclass of int, so int methods apply.
+    case int_method(attr) do
+      {:ok, method_fn} ->
+        int_val = if object, do: 1, else: 0
+        {:ok, {:builtin, bound(method_fn, int_val)}}
+
+      :error ->
+        :error
     end
   end
 
@@ -189,6 +210,9 @@ defmodule Pyex.Methods do
   defp string_method("count"), do: {:ok, &str_count/2}
   defp string_method("format"), do: {:ok_kw, &str_format/3}
   defp string_method("isdigit"), do: {:ok, &str_isdigit/2}
+  defp string_method("isdecimal"), do: {:ok, &str_isdecimal/2}
+  defp string_method("isnumeric"), do: {:ok, &str_isnumeric/2}
+  defp string_method("casefold"), do: {:ok, &str_casefold/2}
   defp string_method("isalpha"), do: {:ok, &str_isalpha/2}
   defp string_method("title"), do: {:ok, &str_title/2}
   defp string_method("capitalize"), do: {:ok, &str_capitalize/2}
@@ -201,7 +225,6 @@ defmodule Pyex.Methods do
   defp string_method("islower"), do: {:ok, &str_islower/2}
   defp string_method("isspace"), do: {:ok, &str_isspace/2}
   defp string_method("isalnum"), do: {:ok, &str_isalnum/2}
-  defp string_method("isnumeric"), do: {:ok, &str_isnumeric/2}
   defp string_method("istitle"), do: {:ok, &str_istitle/2}
   defp string_method("index"), do: {:ok, &str_index/2}
   defp string_method("rfind"), do: {:ok, &str_rfind/2}
@@ -237,6 +260,11 @@ defmodule Pyex.Methods do
            (%{optional(Interpreter.pyvalue()) => Interpreter.pyvalue()},
             [Interpreter.pyvalue()] ->
               Interpreter.pyvalue())}
+          | {:ok_kw,
+             (%{optional(Interpreter.pyvalue()) => Interpreter.pyvalue()},
+              [Interpreter.pyvalue()],
+              %{optional(String.t()) => Interpreter.pyvalue()} ->
+                term())}
           | {:ok_raw,
              (%{optional(Interpreter.pyvalue()) => Interpreter.pyvalue()},
               [Interpreter.pyvalue()] ->
@@ -247,11 +275,89 @@ defmodule Pyex.Methods do
   defp dict_method("values"), do: {:ok, &dict_values/2}
   defp dict_method("items"), do: {:ok, &dict_items/2}
   defp dict_method("pop"), do: {:ok, &dict_pop/2}
-  defp dict_method("update"), do: {:ok, &dict_update/2}
+  defp dict_method("update"), do: {:ok_kw, &dict_update/3}
   defp dict_method("setdefault"), do: {:ok_raw, &dict_setdefault/2}
   defp dict_method("clear"), do: {:ok, &dict_clear/2}
   defp dict_method("copy"), do: {:ok, &dict_copy/2}
   defp dict_method(_), do: :error
+
+  @spec int_method(String.t()) ::
+          {:ok, (integer(), [Interpreter.pyvalue()] -> term())} | :error
+  defp int_method("bit_length"), do: {:ok, &int_bit_length/2}
+  defp int_method("bit_count"), do: {:ok, &int_bit_count/2}
+  defp int_method("to_bytes"), do: {:ok, &int_to_bytes/2}
+  defp int_method("__abs__"), do: {:ok, fn n, [] -> abs(n) end}
+  defp int_method("__neg__"), do: {:ok, fn n, [] -> -n end}
+  defp int_method(_), do: :error
+
+  @spec int_bit_length(integer(), [Interpreter.pyvalue()]) :: non_neg_integer()
+  defp int_bit_length(0, []), do: 0
+  defp int_bit_length(n, []) when n < 0, do: int_bit_length(-n, [])
+
+  defp int_bit_length(n, []) do
+    n
+    |> Integer.to_string(2)
+    |> byte_size()
+  end
+
+  @spec int_bit_count(integer(), [Interpreter.pyvalue()]) :: non_neg_integer()
+  defp int_bit_count(n, []) when n < 0, do: int_bit_count(-n, [])
+
+  defp int_bit_count(n, []) do
+    n
+    |> Integer.to_string(2)
+    |> String.graphemes()
+    |> Enum.count(&(&1 == "1"))
+  end
+
+  @spec int_to_bytes(integer(), [Interpreter.pyvalue()]) ::
+          String.t() | {:exception, String.t()}
+  defp int_to_bytes(n, [length, byteorder])
+       when is_integer(length) and length >= 0 and is_binary(byteorder) do
+    int_to_bytes_impl(n, length, byteorder, false)
+  end
+
+  defp int_to_bytes(n, [length]) when is_integer(length) and length >= 0,
+    do: int_to_bytes_impl(n, length, "big", false)
+
+  defp int_to_bytes(_, _),
+    do: {:exception, "TypeError: to_bytes() expects (length, byteorder)"}
+
+  @spec int_to_bytes_impl(integer(), non_neg_integer(), String.t(), boolean()) ::
+          String.t() | {:exception, String.t()}
+  defp int_to_bytes_impl(n, length, byteorder, _signed) do
+    if n < 0 do
+      {:exception, "OverflowError: can't convert negative int to unsigned"}
+    else
+      bytes = int_to_byte_list(n, length, [])
+
+      if length(bytes) > length do
+        {:exception, "OverflowError: int too big to convert"}
+      else
+        padded = List.duplicate(0, length - length(bytes)) ++ bytes
+
+        ordered =
+          case byteorder do
+            "big" -> padded
+            "little" -> Enum.reverse(padded)
+            _ -> {:exception, "ValueError: byteorder must be 'big' or 'little'"}
+          end
+
+        case ordered do
+          {:exception, _} = e -> e
+          list -> :erlang.list_to_binary(list)
+        end
+      end
+    end
+  end
+
+  @spec int_to_byte_list(non_neg_integer(), non_neg_integer(), [byte()]) :: [byte()]
+  defp int_to_byte_list(0, 0, acc), do: acc
+  defp int_to_byte_list(0, _remaining, acc), do: acc
+
+  defp int_to_byte_list(n, _remaining, acc) do
+    int_to_byte_list(Bitwise.bsr(n, 8), 0, [Bitwise.band(n, 0xFF) | acc])
+  end
 
   @spec file_method(String.t(), non_neg_integer()) ::
           {:ok, ([Interpreter.pyvalue()] -> term())} | :error
@@ -350,10 +456,11 @@ defmodule Pyex.Methods do
   defp str_split(s, [sep]) when is_binary(sep), do: String.split(s, sep)
 
   defp str_split(s, [sep, maxsplit]) when is_binary(sep) and is_integer(maxsplit) do
-    if sep == "" do
-      {:exception, "ValueError: empty separator"}
-    else
-      String.split(s, sep, parts: maxsplit + 1)
+    cond do
+      sep == "" -> {:exception, "ValueError: empty separator"}
+      # CPython: maxsplit < 0 means no limit.
+      maxsplit < 0 -> String.split(s, sep)
+      true -> String.split(s, sep, parts: maxsplit + 1)
     end
   end
 
@@ -365,13 +472,61 @@ defmodule Pyex.Methods do
 
   @spec str_replace(String.t(), [Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
   defp str_replace(s, [old, new]) when is_binary(old) and is_binary(new) do
-    # Guard against exponential growth: if replacing with a longer string on a large input,
-    # estimate the result size and reject if it would be too large.
     if old != "" and byte_size(new) > byte_size(old) and byte_size(s) > 1_000_000 do
       {:exception,
        "LimitError: memory limit exceeded (string replace would produce oversized result)"}
     else
       String.replace(s, old, new)
+    end
+  end
+
+  defp str_replace(s, [old, new, count])
+       when is_binary(old) and is_binary(new) and is_integer(count) do
+    cond do
+      count < 0 ->
+        str_replace(s, [old, new])
+
+      old == "" ->
+        # Matches CPython: inserts `new` between every codepoint up to count.
+        replace_empty_separator(s, new, count)
+
+      true ->
+        replace_first_n(s, old, new, count)
+    end
+  end
+
+  @spec replace_first_n(String.t(), String.t(), String.t(), non_neg_integer()) :: String.t()
+  defp replace_first_n(s, _old, _new, 0), do: s
+
+  defp replace_first_n(s, old, new, count) do
+    case :binary.match(s, old) do
+      :nomatch ->
+        s
+
+      {start, len} ->
+        prefix = binary_part(s, 0, start)
+        rest = binary_part(s, start + len, byte_size(s) - start - len)
+        prefix <> new <> replace_first_n(rest, old, new, count - 1)
+    end
+  end
+
+  @spec replace_empty_separator(String.t(), String.t(), non_neg_integer()) :: String.t()
+  defp replace_empty_separator(s, new, count) do
+    graphemes = String.graphemes(s)
+    {head, tail} = Enum.split(graphemes, count)
+
+    # Python inserts `new` at the start, between each of the first `count`
+    # graphemes, and once at the end only if count >= length of s.
+    leading =
+      case head do
+        [] -> new
+        _ -> new <> Enum.join(head, new)
+      end
+
+    if tail == [] do
+      leading <> new
+    else
+      leading <> Enum.join(tail, "")
     end
   end
 
@@ -417,8 +572,28 @@ defmodule Pyex.Methods do
 
   @spec str_count(String.t(), [Interpreter.pyvalue()]) :: non_neg_integer()
   defp str_count(s, [sub]) when is_binary(sub) do
-    length(String.split(s, sub)) - 1
+    count_substring(s, sub)
   end
+
+  defp str_count(s, [sub, start]) when is_binary(sub) and is_integer(start) do
+    len = String.length(s)
+    norm_start = normalize_index(start, len)
+    slice = String.slice(s, norm_start, len)
+    count_substring(slice, sub)
+  end
+
+  defp str_count(s, [sub, start, stop])
+       when is_binary(sub) and is_integer(start) and is_integer(stop) do
+    len = String.length(s)
+    norm_start = normalize_index(start, len)
+    norm_stop = normalize_index(stop, len)
+    slice = String.slice(s, norm_start, max(norm_stop - norm_start, 0))
+    count_substring(slice, sub)
+  end
+
+  @spec count_substring(String.t(), String.t()) :: non_neg_integer()
+  defp count_substring(s, ""), do: String.length(s) + 1
+  defp count_substring(s, sub), do: length(String.split(s, sub)) - 1
 
   @spec str_format(String.t(), [Interpreter.pyvalue()], map()) ::
           String.t() | {:exception, String.t()}
@@ -546,6 +721,17 @@ defmodule Pyex.Methods do
   defp str_isdigit(s, []) when s == "", do: false
   defp str_isdigit(s, []), do: String.match?(s, ~r/^\d+$/)
 
+  @spec str_isdecimal(String.t(), [Interpreter.pyvalue()]) :: boolean()
+  defp str_isdecimal("", []), do: false
+  defp str_isdecimal(s, []), do: String.match?(s, ~r/^[0-9]+$/)
+
+  @spec str_isnumeric(String.t(), [Interpreter.pyvalue()]) :: boolean()
+  defp str_isnumeric("", []), do: false
+  defp str_isnumeric(s, []), do: String.match?(s, ~r/^\d+$/u)
+
+  @spec str_casefold(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  defp str_casefold(s, []), do: String.downcase(s, :default)
+
   @spec str_isalpha(String.t(), [Interpreter.pyvalue()]) :: boolean()
   defp str_isalpha(s, []) when s == "", do: false
   defp str_isalpha(s, []), do: String.match?(s, ~r/^[a-zA-Z]+$/)
@@ -658,10 +844,6 @@ defmodule Pyex.Methods do
   defp str_isalnum("", []), do: false
   defp str_isalnum(s, []), do: String.match?(s, ~r/^[a-zA-Z0-9]+$/)
 
-  @spec str_isnumeric(String.t(), [Interpreter.pyvalue()]) :: boolean()
-  defp str_isnumeric("", []), do: false
-  defp str_isnumeric(s, []), do: String.match?(s, ~r/^\d+$/)
-
   @spec str_istitle(String.t(), [Interpreter.pyvalue()]) :: boolean()
   defp str_istitle("", []), do: false
 
@@ -761,7 +943,20 @@ defmodule Pyex.Methods do
   end
 
   @spec str_splitlines(String.t(), [Interpreter.pyvalue()]) :: [String.t()]
-  defp str_splitlines(s, []), do: String.split(s, ~r/\r\n|\r|\n/)
+  defp str_splitlines("", []), do: []
+
+  defp str_splitlines(s, []) do
+    # Python's str.splitlines does NOT include a trailing empty line when
+    # the string ends with a line terminator: "a\nb\n" -> ["a", "b"].
+    parts = String.split(s, ~r/\r\n|\r|\n/)
+
+    case Enum.reverse(parts) do
+      ["" | rest] -> Enum.reverse(rest)
+      _ -> parts
+    end
+  end
+
+  defp str_splitlines("", [true]), do: []
   defp str_splitlines(s, [true]), do: split_keeping_ends(s)
   defp str_splitlines(s, [false]), do: String.split(s, ~r/\r\n|\r|\n/)
 
@@ -875,24 +1070,47 @@ defmodule Pyex.Methods do
     {:mutate, rest, val}
   end
 
-  @spec dict_update(map() | PyDict.t(), [Interpreter.pyvalue()]) ::
+  @spec dict_update(map() | PyDict.t(), [Interpreter.pyvalue()], map()) ::
           {:mutate, map() | PyDict.t(), nil}
-  defp dict_update({:py_dict, _, _} = dict, [{:py_dict, _, _} = other]) do
-    {:mutate, PyDict.merge(dict, Builtins.visible_dict(other)), nil}
+  defp dict_update({:py_dict, attrs, _} = dict, [arg], _kwargs)
+       when is_map_key(attrs, "__counter__") do
+    {:mutate, Pyex.Stdlib.Collections.counter_update(dict, arg), nil}
   end
 
-  defp dict_update({:py_dict, _, _} = dict, [other]) when is_map(other) do
-    {:mutate, PyDict.merge_map(dict, Builtins.visible_dict(other)), nil}
+  defp dict_update({:py_dict, _, _} = dict, [{:py_dict, _, _} = other], kwargs) do
+    merged = PyDict.merge(dict, Builtins.visible_dict(other))
+    {:mutate, apply_kwargs_to_dict(merged, kwargs), nil}
   end
 
-  defp dict_update(map, [{:py_dict, _, _} = other]) when is_map(map) do
+  defp dict_update({:py_dict, _, _} = dict, [other], kwargs) when is_map(other) do
+    merged = PyDict.merge_map(dict, Builtins.visible_dict(other))
+    {:mutate, apply_kwargs_to_dict(merged, kwargs), nil}
+  end
+
+  defp dict_update({:py_dict, _, _} = dict, [], kwargs) do
+    {:mutate, apply_kwargs_to_dict(dict, kwargs), nil}
+  end
+
+  defp dict_update(map, [{:py_dict, _, _} = other], kwargs) when is_map(map) do
     merged = Map.merge(map, PyDict.to_map(Builtins.visible_dict(other)))
+    merged = Enum.reduce(kwargs, merged, fn {k, v}, acc -> Map.put(acc, k, v) end)
     {:mutate, merged, nil}
   end
 
-  defp dict_update(map, [other]) when is_map(other) do
+  defp dict_update(map, [other], kwargs) when is_map(other) do
     merged = Map.merge(map, Builtins.visible_dict(other))
+    merged = Enum.reduce(kwargs, merged, fn {k, v}, acc -> Map.put(acc, k, v) end)
     {:mutate, merged, nil}
+  end
+
+  defp dict_update(map, [], kwargs) when is_map(map) do
+    merged = Enum.reduce(kwargs, map, fn {k, v}, acc -> Map.put(acc, k, v) end)
+    {:mutate, merged, nil}
+  end
+
+  @spec apply_kwargs_to_dict(PyDict.t(), map()) :: PyDict.t()
+  defp apply_kwargs_to_dict(dict, kwargs) do
+    Enum.reduce(kwargs, dict, fn {k, v}, acc -> PyDict.put(acc, k, v) end)
   end
 
   @spec dict_setdefault(map() | PyDict.t(), [Interpreter.pyvalue()]) ::
@@ -1020,22 +1238,34 @@ defmodule Pyex.Methods do
   @spec list_insert({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
           {:mutate, {:py_list, [term()], non_neg_integer()}, nil}
   defp list_insert({:py_list, reversed, len}, [index, item]) when is_integer(index) do
-    # Transform Python index to storage index
-    real_index =
-      if index < 0 do
-        max(-index - 1, 0)
-      else
-        len - index
+    # Resolve python index to a clamped python position in [0, len].
+    py_pos =
+      cond do
+        index < 0 -> max(len + index, 0)
+        index > len -> len
+        true -> index
       end
-      # Clamp to valid range
-      |> min(len)
 
-    {before, rest} = Enum.split(reversed, real_index)
+    # Storage is reversed: python position `p` corresponds to storage
+    # position `len - p` when inserting (shifts everything at p..end
+    # right by one in python, which is storage positions 0..len-p-1).
+    storage_index = len - py_pos
+
+    {before, rest} = Enum.split(reversed, storage_index)
     {:mutate, {:py_list, before ++ [item | rest], len + 1}, nil}
   end
 
   defp list_insert(list, [index, item]) when is_list(list) and is_integer(index) do
-    {:mutate, List.insert_at(list, index, item), nil}
+    len = length(list)
+
+    pos =
+      cond do
+        index < 0 -> max(len + index, 0)
+        index > len -> len
+        true -> index
+      end
+
+    {:mutate, List.insert_at(list, pos, item), nil}
   end
 
   @spec list_remove({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
@@ -1150,21 +1380,53 @@ defmodule Pyex.Methods do
 
   @spec list_index({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
           integer() | {:exception, String.t()}
-  defp list_index({:py_list, reversed, _len}, [item]) do
+  defp list_index({:py_list, reversed, _len}, args) do
     items = Enum.reverse(reversed)
+    list_index_impl(items, args)
+  end
 
+  defp list_index(list, args) when is_list(list), do: list_index_impl(list, args)
+
+  @spec list_index_impl([Interpreter.pyvalue()], [Interpreter.pyvalue()]) ::
+          integer() | {:exception, String.t()}
+  defp list_index_impl(items, [item]), do: find_index_or_error(items, item, 0)
+
+  defp list_index_impl(items, [item, start]) when is_integer(start) do
+    len = length(items)
+    s = clamp_slice_index(start, len)
+    sliced = Enum.drop(items, s)
+
+    case find_index_or_error(sliced, item, 0) do
+      {:exception, _} = e -> e
+      idx -> idx + s
+    end
+  end
+
+  defp list_index_impl(items, [item, start, stop])
+       when is_integer(start) and is_integer(stop) do
+    len = length(items)
+    s = clamp_slice_index(start, len)
+    e = clamp_slice_index(stop, len)
+    sliced = items |> Enum.drop(s) |> Enum.take(max(e - s, 0))
+
+    case find_index_or_error(sliced, item, 0) do
+      {:exception, _} = err -> err
+      idx -> idx + s
+    end
+  end
+
+  @spec find_index_or_error([Interpreter.pyvalue()], Interpreter.pyvalue(), non_neg_integer()) ::
+          non_neg_integer() | {:exception, String.t()}
+  defp find_index_or_error(items, item, offset) do
     case Enum.find_index(items, &(&1 == item)) do
       nil -> {:exception, "ValueError: #{inspect(item)} is not in list"}
-      idx -> idx
+      idx -> idx + offset
     end
   end
 
-  defp list_index(list, [item]) when is_list(list) do
-    case Enum.find_index(list, &(&1 == item)) do
-      nil -> {:exception, "ValueError: #{inspect(item)} is not in list"}
-      idx -> idx
-    end
-  end
+  @spec clamp_slice_index(integer(), non_neg_integer()) :: non_neg_integer()
+  defp clamp_slice_index(i, len) when i < 0, do: max(len + i, 0)
+  defp clamp_slice_index(i, len), do: min(i, len)
 
   @spec list_count({:py_list, [term()], non_neg_integer()}, [Interpreter.pyvalue()]) ::
           non_neg_integer()
