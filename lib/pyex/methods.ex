@@ -189,6 +189,9 @@ defmodule Pyex.Methods do
   defp string_method("count"), do: {:ok, &str_count/2}
   defp string_method("format"), do: {:ok_kw, &str_format/3}
   defp string_method("isdigit"), do: {:ok, &str_isdigit/2}
+  defp string_method("isdecimal"), do: {:ok, &str_isdecimal/2}
+  defp string_method("isnumeric"), do: {:ok, &str_isnumeric/2}
+  defp string_method("casefold"), do: {:ok, &str_casefold/2}
   defp string_method("isalpha"), do: {:ok, &str_isalpha/2}
   defp string_method("title"), do: {:ok, &str_title/2}
   defp string_method("capitalize"), do: {:ok, &str_capitalize/2}
@@ -350,10 +353,11 @@ defmodule Pyex.Methods do
   defp str_split(s, [sep]) when is_binary(sep), do: String.split(s, sep)
 
   defp str_split(s, [sep, maxsplit]) when is_binary(sep) and is_integer(maxsplit) do
-    if sep == "" do
-      {:exception, "ValueError: empty separator"}
-    else
-      String.split(s, sep, parts: maxsplit + 1)
+    cond do
+      sep == "" -> {:exception, "ValueError: empty separator"}
+      # CPython: maxsplit < 0 means no limit.
+      maxsplit < 0 -> String.split(s, sep)
+      true -> String.split(s, sep, parts: maxsplit + 1)
     end
   end
 
@@ -365,13 +369,61 @@ defmodule Pyex.Methods do
 
   @spec str_replace(String.t(), [Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
   defp str_replace(s, [old, new]) when is_binary(old) and is_binary(new) do
-    # Guard against exponential growth: if replacing with a longer string on a large input,
-    # estimate the result size and reject if it would be too large.
     if old != "" and byte_size(new) > byte_size(old) and byte_size(s) > 1_000_000 do
       {:exception,
        "LimitError: memory limit exceeded (string replace would produce oversized result)"}
     else
       String.replace(s, old, new)
+    end
+  end
+
+  defp str_replace(s, [old, new, count])
+       when is_binary(old) and is_binary(new) and is_integer(count) do
+    cond do
+      count < 0 ->
+        str_replace(s, [old, new])
+
+      old == "" ->
+        # Matches CPython: inserts `new` between every codepoint up to count.
+        replace_empty_separator(s, new, count)
+
+      true ->
+        replace_first_n(s, old, new, count)
+    end
+  end
+
+  @spec replace_first_n(String.t(), String.t(), String.t(), non_neg_integer()) :: String.t()
+  defp replace_first_n(s, _old, _new, 0), do: s
+
+  defp replace_first_n(s, old, new, count) do
+    case :binary.match(s, old) do
+      :nomatch ->
+        s
+
+      {start, len} ->
+        prefix = binary_part(s, 0, start)
+        rest = binary_part(s, start + len, byte_size(s) - start - len)
+        prefix <> new <> replace_first_n(rest, old, new, count - 1)
+    end
+  end
+
+  @spec replace_empty_separator(String.t(), String.t(), non_neg_integer()) :: String.t()
+  defp replace_empty_separator(s, new, count) do
+    graphemes = String.graphemes(s)
+    {head, tail} = Enum.split(graphemes, count)
+
+    # Python inserts `new` at the start, between each of the first `count`
+    # graphemes, and once at the end only if count >= length of s.
+    leading =
+      case head do
+        [] -> new
+        _ -> new <> Enum.join(head, new)
+      end
+
+    if tail == [] do
+      leading <> new
+    else
+      leading <> Enum.join(tail, "")
     end
   end
 
@@ -417,8 +469,28 @@ defmodule Pyex.Methods do
 
   @spec str_count(String.t(), [Interpreter.pyvalue()]) :: non_neg_integer()
   defp str_count(s, [sub]) when is_binary(sub) do
-    length(String.split(s, sub)) - 1
+    count_substring(s, sub)
   end
+
+  defp str_count(s, [sub, start]) when is_binary(sub) and is_integer(start) do
+    len = String.length(s)
+    norm_start = normalize_index(start, len)
+    slice = String.slice(s, norm_start, len)
+    count_substring(slice, sub)
+  end
+
+  defp str_count(s, [sub, start, stop])
+       when is_binary(sub) and is_integer(start) and is_integer(stop) do
+    len = String.length(s)
+    norm_start = normalize_index(start, len)
+    norm_stop = normalize_index(stop, len)
+    slice = String.slice(s, norm_start, max(norm_stop - norm_start, 0))
+    count_substring(slice, sub)
+  end
+
+  @spec count_substring(String.t(), String.t()) :: non_neg_integer()
+  defp count_substring(s, ""), do: String.length(s) + 1
+  defp count_substring(s, sub), do: length(String.split(s, sub)) - 1
 
   @spec str_format(String.t(), [Interpreter.pyvalue()], map()) ::
           String.t() | {:exception, String.t()}
@@ -546,6 +618,17 @@ defmodule Pyex.Methods do
   defp str_isdigit(s, []) when s == "", do: false
   defp str_isdigit(s, []), do: String.match?(s, ~r/^\d+$/)
 
+  @spec str_isdecimal(String.t(), [Interpreter.pyvalue()]) :: boolean()
+  defp str_isdecimal("", []), do: false
+  defp str_isdecimal(s, []), do: String.match?(s, ~r/^[0-9]+$/)
+
+  @spec str_isnumeric(String.t(), [Interpreter.pyvalue()]) :: boolean()
+  defp str_isnumeric("", []), do: false
+  defp str_isnumeric(s, []), do: String.match?(s, ~r/^\d+$/u)
+
+  @spec str_casefold(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  defp str_casefold(s, []), do: String.downcase(s, :default)
+
   @spec str_isalpha(String.t(), [Interpreter.pyvalue()]) :: boolean()
   defp str_isalpha(s, []) when s == "", do: false
   defp str_isalpha(s, []), do: String.match?(s, ~r/^[a-zA-Z]+$/)
@@ -658,10 +741,6 @@ defmodule Pyex.Methods do
   defp str_isalnum("", []), do: false
   defp str_isalnum(s, []), do: String.match?(s, ~r/^[a-zA-Z0-9]+$/)
 
-  @spec str_isnumeric(String.t(), [Interpreter.pyvalue()]) :: boolean()
-  defp str_isnumeric("", []), do: false
-  defp str_isnumeric(s, []), do: String.match?(s, ~r/^\d+$/)
-
   @spec str_istitle(String.t(), [Interpreter.pyvalue()]) :: boolean()
   defp str_istitle("", []), do: false
 
@@ -761,7 +840,20 @@ defmodule Pyex.Methods do
   end
 
   @spec str_splitlines(String.t(), [Interpreter.pyvalue()]) :: [String.t()]
-  defp str_splitlines(s, []), do: String.split(s, ~r/\r\n|\r|\n/)
+  defp str_splitlines("", []), do: []
+
+  defp str_splitlines(s, []) do
+    # Python's str.splitlines does NOT include a trailing empty line when
+    # the string ends with a line terminator: "a\nb\n" -> ["a", "b"].
+    parts = String.split(s, ~r/\r\n|\r|\n/)
+
+    case Enum.reverse(parts) do
+      ["" | rest] -> Enum.reverse(rest)
+      _ -> parts
+    end
+  end
+
+  defp str_splitlines("", [true]), do: []
   defp str_splitlines(s, [true]), do: split_keeping_ends(s)
   defp str_splitlines(s, [false]), do: String.split(s, ~r/\r\n|\r|\n/)
 

@@ -24,6 +24,10 @@ defmodule Pyex.Stdlib.Time do
       "time_ns" => {:builtin, &do_time_ns/1},
       "monotonic" => {:builtin, &do_monotonic/1},
       "monotonic_ns" => {:builtin, &do_monotonic_ns/1},
+      "perf_counter" => {:builtin, &do_monotonic/1},
+      "perf_counter_ns" => {:builtin, &do_monotonic_ns/1},
+      "process_time" => {:builtin, &do_monotonic/1},
+      "process_time_ns" => {:builtin, &do_monotonic_ns/1},
       "sleep" => {:builtin, &do_sleep/1}
     }
   end

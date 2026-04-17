@@ -75,16 +75,17 @@ defmodule Pyex.Stdlib.RandomTest do
   end
 
   describe "random.shuffle" do
-    test "returns a shuffled list" do
+    test "mutates the list in place and returns None" do
       result =
         Pyex.run!("""
         import random
         random.seed(5)
-        random.shuffle([1, 2, 3, 4, 5])
+        items = [1, 2, 3, 4, 5]
+        rv = random.shuffle(items)
+        [rv, sorted(items), len(items)]
         """)
 
-      assert is_list(result)
-      assert Enum.sort(result) == [1, 2, 3, 4, 5]
+      assert result == [nil, [1, 2, 3, 4, 5], 5]
     end
   end
 

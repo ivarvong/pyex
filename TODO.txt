@@ -96,3 +96,7 @@ Known limitations:
   allows it directly because count/cycle return iterator objects natively.
   In Pyex they return bounded lists/ranges (works with `list()`, `for`,
   `islice`, etc., just not `next()` directly).
+- `csv.writer(io.StringIO())` doesn't propagate writes back to the
+  StringIO variable because Pyex's StringIO is value-typed.  Workaround:
+  use `csv.writer()` without args (Pyex extension) to get string output
+  from `writerow(...)` directly.  Fix requires heap-allocating StringIO.

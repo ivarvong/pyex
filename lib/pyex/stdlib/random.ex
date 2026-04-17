@@ -55,12 +55,18 @@ defmodule Pyex.Stdlib.Random do
   end
 
   @spec do_shuffle([Pyex.Interpreter.pyvalue()]) ::
-          Pyex.Interpreter.pyvalue() | {:exception, String.t()}
+          {:mutate_arg, non_neg_integer(), Pyex.Interpreter.pyvalue(), nil}
+          | {:exception, String.t()}
+  # Python's random.shuffle mutates in place.  We signal a mutation of
+  # argument 0 so the caller's list reference is updated.
   defp do_shuffle([{:py_list, reversed, len}]) do
-    {:py_list, Enum.shuffle(reversed), len}
+    shuffled = Enum.shuffle(reversed)
+    {:mutate_arg, 0, {:py_list, shuffled, len}, nil}
   end
 
-  defp do_shuffle([list]) when is_list(list), do: Enum.shuffle(list)
+  defp do_shuffle([list]) when is_list(list) do
+    {:mutate_arg, 0, Enum.shuffle(list), nil}
+  end
 
   @spec do_uniform([Pyex.Interpreter.pyvalue()]) :: float()
   defp do_uniform([a, b]) when is_number(a) and is_number(b) do
@@ -99,6 +105,42 @@ defmodule Pyex.Stdlib.Random do
     else
       Enum.take_random(list, k)
     end
+  end
+
+  defp do_sample([{:range, start, stop, step}, k]) when is_integer(k) and k >= 0 do
+    case Pyex.Builtins.range_to_list({:range, start, stop, step}) do
+      {:exception, _} = e ->
+        e
+
+      items when is_list(items) ->
+        if k > length(items) do
+          {:exception, "ValueError: Sample larger than population"}
+        else
+          Enum.take_random(items, k)
+        end
+    end
+  end
+
+  defp do_sample([{:tuple, items}, k]) when is_integer(k) and k >= 0 do
+    if k > length(items) do
+      {:exception, "ValueError: Sample larger than population"}
+    else
+      Enum.take_random(items, k)
+    end
+  end
+
+  defp do_sample([str, k]) when is_binary(str) and is_integer(k) and k >= 0 do
+    items = String.codepoints(str)
+
+    if k > length(items) do
+      {:exception, "ValueError: Sample larger than population"}
+    else
+      Enum.take_random(items, k)
+    end
+  end
+
+  defp do_sample(_args) do
+    {:exception, "TypeError: sample() requires a population and a sample size"}
   end
 
   @spec do_seed([Pyex.Interpreter.pyvalue()]) :: nil
