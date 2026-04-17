@@ -245,8 +245,118 @@ defmodule Pyex.Stdlib.Csv do
     build_writer(id, kwargs)
   end
 
+  defp do_writer([{:ref, id}], kwargs) do
+    # The argument must be deref'd by the interpreter before we see it,
+    # but in practice heap refs often slip through.  Treat as a StringIO
+    # backing ref: each writerow will heap_put the appended value.
+    build_stringio_writer(id, kwargs)
+  end
+
   defp do_writer(_, _kwargs) do
     {:exception, "TypeError: csv.writer() argument 1 must be a file object"}
+  end
+
+  # Builds a writer that targets a heap-allocated StringIO via its ref
+  # id.  writerow/writerows append their formatted line to the buffer
+  # stored in the heap cell and return nil.  Uses `:ctx_call` signals so
+  # the heap update happens within the interpreter's context update
+  # pipeline, keeping mutations visible to all aliases of the buffer.
+  @spec build_stringio_writer(non_neg_integer(), map()) :: map()
+  defp build_stringio_writer(ref_id, kwargs) do
+    delimiter = Map.get(kwargs, "delimiter", ",")
+    quotechar = Map.get(kwargs, "quotechar", "\"")
+    quoting = Map.get(kwargs, "quoting", @quote_minimal)
+    lineterminator = Map.get(kwargs, "lineterminator", "\r\n")
+
+    append = fn line ->
+      {:ctx_call,
+       fn env, ctx ->
+         case Pyex.Ctx.deref(ctx, {:ref, ref_id}) do
+           {:stringio, buf} ->
+             ctx = Pyex.Ctx.heap_put(ctx, ref_id, {:stringio, buf <> line})
+             {nil, env, ctx}
+
+           _ ->
+             {{:exception, "csv.Error: underlying StringIO was replaced"}, env, ctx}
+         end
+       end}
+    end
+
+    writerow_fn = fn
+      [{:py_list, reversed, _}] ->
+        line =
+          format_csv_row(Enum.reverse(reversed), delimiter, quotechar, quoting, lineterminator)
+
+        append.(line)
+
+      [row] when is_list(row) ->
+        line = format_csv_row(row, delimiter, quotechar, quoting, lineterminator)
+        append.(line)
+
+      [{:tuple, items}] ->
+        line = format_csv_row(items, delimiter, quotechar, quoting, lineterminator)
+        append.(line)
+
+      _ ->
+        {:exception, "csv.Error: iterable expected"}
+    end
+
+    writerows_fn = fn
+      [{:py_list, reversed, _}] ->
+        rows = Enum.reverse(reversed)
+
+        case collect_row_items(rows) do
+          {:ok, items_list} ->
+            combined =
+              Enum.map_join(items_list, fn items ->
+                format_csv_row(items, delimiter, quotechar, quoting, lineterminator)
+              end)
+
+            append.(combined)
+
+          :error ->
+            {:exception, "csv.Error: iterable expected"}
+        end
+
+      [rows] when is_list(rows) ->
+        case collect_row_items(rows) do
+          {:ok, items_list} ->
+            combined =
+              Enum.map_join(items_list, fn items ->
+                format_csv_row(items, delimiter, quotechar, quoting, lineterminator)
+              end)
+
+            append.(combined)
+
+          :error ->
+            {:exception, "csv.Error: iterable expected"}
+        end
+
+      _ ->
+        {:exception, "csv.Error: iterable expected"}
+    end
+
+    %{
+      "writerow" => {:builtin, writerow_fn},
+      "writerows" => {:builtin, writerows_fn}
+    }
+  end
+
+  @spec collect_row_items([Pyex.Interpreter.pyvalue()]) ::
+          {:ok, [[Pyex.Interpreter.pyvalue()]]} | :error
+  defp collect_row_items(rows) do
+    Enum.reduce_while(rows, {:ok, []}, fn row, {:ok, acc} ->
+      case row do
+        {:py_list, r, _} -> {:cont, {:ok, [Enum.reverse(r) | acc]}}
+        l when is_list(l) -> {:cont, {:ok, [l | acc]}}
+        {:tuple, items} -> {:cont, {:ok, [items | acc]}}
+        _ -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
+      err -> err
+    end
   end
 
   @spec build_writer(non_neg_integer() | nil, %{

@@ -733,10 +733,19 @@ defmodule Pyex.Ctx do
 
   @spec deep_deref(t(), term(), MapSet.t()) :: term()
   def deep_deref(%__MODULE__{} = ctx, {:ref, id} = ref, visited) do
-    if MapSet.member?(visited, id) do
-      ref
-    else
-      deep_deref(ctx, deref(ctx, ref), MapSet.put(visited, id))
+    cond do
+      MapSet.member?(visited, id) ->
+        ref
+
+      # StringIO must round-trip through heap refs so callers with an
+      # aliased reference (e.g. a csv.writer holding it in a closure)
+      # observe each other's writes.  Preserve the ref; consumers who
+      # actually need the buffer string call `deref` themselves.
+      match?({:stringio, _}, deref(ctx, ref)) ->
+        ref
+
+      true ->
+        deep_deref(ctx, deref(ctx, ref), MapSet.put(visited, id))
     end
   end
 

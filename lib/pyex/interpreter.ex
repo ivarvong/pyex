@@ -2109,13 +2109,39 @@ defmodule Pyex.Interpreter do
       {raw, env, ctx} ->
         val = Ctx.deref(ctx, raw)
 
-        case Pyex.Interpreter.FstringFormat.apply_format_spec(val, format_spec) do
-          {:exception, _} = signal ->
+        # Resolve nested expressions within the spec, e.g. `{w}d` -> `8d`.
+        case interpolate_format_spec(format_spec, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
             {signal, env, ctx}
 
-          formatted ->
-            eval_fstring(rest, <<acc::binary, formatted::binary>>, env, ctx)
+          {resolved_spec, env, ctx} ->
+            case Pyex.Interpreter.FstringFormat.apply_format_spec(val, resolved_spec) do
+              {:exception, _} = signal ->
+                {signal, env, ctx}
+
+              formatted ->
+                eval_fstring(rest, <<acc::binary, formatted::binary>>, env, ctx)
+            end
         end
+    end
+  end
+
+  # Expands `{expr}` inside a format spec by evaluating and stringifying
+  # each expression.  Matches CPython's nested f-string spec semantics.
+  # Literal `{{` / `}}` still escape to single braces.
+  @spec interpolate_format_spec(String.t(), Env.t(), Ctx.t()) ::
+          {String.t(), Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  defp interpolate_format_spec(spec, env, ctx) do
+    if String.contains?(spec, "{") do
+      case Parser.parse_fstring_template(spec) do
+        {:ok, parts} ->
+          eval_fstring(parts, <<>>, env, ctx)
+
+        {:error, msg} ->
+          {{:exception, "ValueError: invalid format spec: #{msg}"}, env, ctx}
+      end
+    else
+      {spec, env, ctx}
     end
   end
 

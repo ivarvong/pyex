@@ -97,10 +97,6 @@ defmodule Pyex.Conformance.FstringTest do
   end
 
   describe "nested format specs" do
-    # Nested format spec braces (like f"{42:{w}d}") require the spec to
-    # itself be parsed as an f-string.  Pyex doesn't support this yet;
-    # see TODO.txt.  Tests live here as a future target.
-    @tag :skip
     test "dynamic width" do
       check!(~S"""
       w = 8
@@ -108,11 +104,17 @@ defmodule Pyex.Conformance.FstringTest do
       """)
     end
 
-    @tag :skip
     test "dynamic precision" do
       check!(~S"""
       p = 3
       print(f"{3.14159:.{p}f}")
+      """)
+    end
+
+    test "nested width and fill" do
+      check!(~S"""
+      w, f = 6, "*"
+      print(f"{42:{f}>{w}}")
       """)
     end
   end
