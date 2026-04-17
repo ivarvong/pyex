@@ -131,6 +131,59 @@ defmodule Pyex.Stdlib.Collections do
     )
   end
 
+  @doc """
+  Counter.update(iterable) — adds counts from another iterable or Counter.
+  Called from `Pyex.Methods` when a Counter dict receives the `update` message.
+  """
+  @spec counter_update(PyDict.t(), Pyex.Interpreter.pyvalue()) :: PyDict.t()
+  def counter_update(counter_dict, arg) do
+    counts = dict_to_counts(counter_dict)
+
+    added =
+      case arg do
+        {:py_list, reversed, _} ->
+          Enum.reverse(reversed)
+
+        list when is_list(list) ->
+          list
+
+        str when is_binary(str) ->
+          String.codepoints(str)
+
+        {:py_dict, _, _} = dict ->
+          # Mapping mode: values are added as counts.
+          for {k, v} <- PyDict.to_map(dict), do: {k, v}
+
+        _ ->
+          []
+      end
+
+    new_counts =
+      Enum.reduce(added, counts, fn
+        {k, v}, acc when is_integer(v) -> Map.update(acc, k, v, &(&1 + v))
+        item, acc -> Map.update(acc, item, 1, &(&1 + 1))
+      end)
+
+    counter_with_methods(new_counts)
+  end
+
+  @spec dict_to_counts(PyDict.t()) :: %{term() => integer()}
+  defp dict_to_counts(dict) do
+    dict
+    |> PyDict.to_map()
+    |> Enum.reject(fn {k, _} -> is_marker_key?(k) end)
+    |> Enum.reject(fn {_, v} -> match?({:builtin, _}, v) end)
+    |> Map.new()
+  end
+
+  @spec is_marker_key?(term()) :: boolean()
+  defp is_marker_key?("__counter__"), do: true
+  defp is_marker_key?("__defaultdict_factory__"), do: true
+  defp is_marker_key?("most_common"), do: true
+  defp is_marker_key?("elements"), do: true
+  defp is_marker_key?("update"), do: true
+  defp is_marker_key?(_), do: false
+
   @spec defaultdict([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp defaultdict([]) do
     PyDict.new()

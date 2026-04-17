@@ -21,31 +21,41 @@ defmodule Pyex.Stdlib.Re do
       "search" => {:builtin, &do_search/1},
       "findall" => {:builtin, &do_findall/1},
       "finditer" => {:builtin, &do_finditer/1},
-      "sub" => {:builtin, &do_sub/1},
-      "split" => {:builtin, &do_split/1},
+      "sub" => {:builtin_kw, &do_sub/2},
+      "split" => {:builtin_kw, &do_split/2},
       "compile" => {:builtin, &do_compile/1},
+      "escape" => {:builtin, &do_escape/1},
+      "fullmatch" => {:builtin, &do_fullmatch/1},
       "IGNORECASE" => 2,
+      "I" => 2,
       "DOTALL" => 4,
-      "MULTILINE" => 8
+      "S" => 4,
+      "MULTILINE" => 8,
+      "M" => 8
     }
   end
 
   @spec do_match([Pyex.Interpreter.pyvalue()]) ::
           Pyex.Interpreter.pyvalue() | {:exception, String.t()}
-  defp do_match([pattern, string]) when is_binary(pattern) and is_binary(string) do
+  defp do_match([pattern, string]) when is_binary(pattern) and is_binary(string),
+    do: do_match_with_flags(pattern, string, 0)
+
+  defp do_match([pattern, string, flags])
+       when is_binary(pattern) and is_binary(string) and is_integer(flags),
+       do: do_match_with_flags(pattern, string, flags)
+
+  @spec do_match_with_flags(String.t(), String.t(), integer()) ::
+          Pyex.Interpreter.pyvalue() | {:exception, String.t()}
+  defp do_match_with_flags(pattern, string, flags) do
+    opts = flags_to_regex_opts(flags)
     anchored = "\\A" <> pattern
 
-    case Regex.compile(anchored) do
+    case Regex.compile(anchored, opts) do
       {:ok, re} ->
         case safe_regex(fn -> Regex.run(re, string, return: :index) end) do
-          {:ok, nil} ->
-            nil
-
-          {:ok, indices} ->
-            make_match_object(re, string, indices)
-
-          {:exception, _} = err ->
-            err
+          {:ok, nil} -> nil
+          {:ok, indices} -> make_match_object(re, string, indices)
+          {:exception, _} = err -> err
         end
 
       {:error, {msg, _}} ->
@@ -55,24 +65,60 @@ defmodule Pyex.Stdlib.Re do
 
   @spec do_search([Pyex.Interpreter.pyvalue()]) ::
           Pyex.Interpreter.pyvalue() | {:exception, String.t()}
-  defp do_search([pattern, string]) when is_binary(pattern) and is_binary(string) do
-    case Regex.compile(pattern) do
+  defp do_search([pattern, string]) when is_binary(pattern) and is_binary(string),
+    do: do_search_with_flags(pattern, string, 0)
+
+  defp do_search([pattern, string, flags])
+       when is_binary(pattern) and is_binary(string) and is_integer(flags),
+       do: do_search_with_flags(pattern, string, flags)
+
+  @spec do_search_with_flags(String.t(), String.t(), integer()) ::
+          Pyex.Interpreter.pyvalue() | {:exception, String.t()}
+  defp do_search_with_flags(pattern, string, flags) do
+    opts = flags_to_regex_opts(flags)
+
+    case Regex.compile(pattern, opts) do
       {:ok, re} ->
         case safe_regex(fn -> Regex.run(re, string, return: :index) end) do
-          {:ok, nil} ->
-            nil
-
-          {:ok, indices} ->
-            make_match_object(re, string, indices)
-
-          {:exception, _} = err ->
-            err
+          {:ok, nil} -> nil
+          {:ok, indices} -> make_match_object(re, string, indices)
+          {:exception, _} = err -> err
         end
 
       {:error, {msg, _}} ->
         {:exception, "re.error: #{msg}"}
     end
   end
+
+  @spec do_fullmatch([Pyex.Interpreter.pyvalue()]) ::
+          Pyex.Interpreter.pyvalue() | {:exception, String.t()}
+  defp do_fullmatch([pattern, string]) when is_binary(pattern) and is_binary(string),
+    do: do_fullmatch_with_flags(pattern, string, 0)
+
+  defp do_fullmatch([pattern, string, flags])
+       when is_binary(pattern) and is_binary(string) and is_integer(flags),
+       do: do_fullmatch_with_flags(pattern, string, flags)
+
+  defp do_fullmatch_with_flags(pattern, string, flags) do
+    opts = flags_to_regex_opts(flags)
+    wrapped = "\\A(?:" <> pattern <> ")\\z"
+
+    case Regex.compile(wrapped, opts) do
+      {:ok, re} ->
+        case safe_regex(fn -> Regex.run(re, string, return: :index) end) do
+          {:ok, nil} -> nil
+          {:ok, indices} -> make_match_object(re, string, indices)
+          {:exception, _} = err -> err
+        end
+
+      {:error, {msg, _}} ->
+        {:exception, "re.error: #{msg}"}
+    end
+  end
+
+  @spec do_escape([Pyex.Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
+  defp do_escape([s]) when is_binary(s), do: Regex.escape(s)
+  defp do_escape(_), do: {:exception, "TypeError: re.escape() expects a string"}
 
   @spec do_findall([Pyex.Interpreter.pyvalue()]) ::
           [Pyex.Interpreter.pyvalue()] | {:exception, String.t()}
@@ -144,12 +190,51 @@ defmodule Pyex.Stdlib.Re do
     end
   end
 
-  @spec do_sub([Pyex.Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
-  defp do_sub([pattern, replacement, string])
+  @spec do_sub([Pyex.Interpreter.pyvalue()], map()) :: String.t() | {:exception, String.t()}
+  defp do_sub([pattern, replacement, string], kwargs)
        when is_binary(pattern) and is_binary(replacement) and is_binary(string) do
-    case Regex.compile(pattern) do
+    count = Map.get(kwargs, "count", 0)
+    flags = Map.get(kwargs, "flags", 0)
+    do_sub_impl(pattern, replacement, string, count, flags)
+  end
+
+  defp do_sub([pattern, replacement, string, count], kwargs)
+       when is_binary(pattern) and is_binary(replacement) and is_binary(string) and
+              is_integer(count) do
+    flags = Map.get(kwargs, "flags", 0)
+    do_sub_impl(pattern, replacement, string, count, flags)
+  end
+
+  defp do_sub([pattern, replacement, string, count, flags], _kwargs)
+       when is_binary(pattern) and is_binary(replacement) and is_binary(string) and
+              is_integer(count) and is_integer(flags) do
+    do_sub_impl(pattern, replacement, string, count, flags)
+  end
+
+  defp do_sub(_args, _kwargs),
+    do: {:exception, "TypeError: re.sub() expects (pattern, repl, string[, count, flags])"}
+
+  @spec do_sub_impl(String.t(), String.t(), String.t(), integer(), integer()) ::
+          String.t() | {:exception, String.t()}
+  defp do_sub_impl(pattern, replacement, string, count, flags) do
+    opts = flags_to_regex_opts(flags)
+
+    case Regex.compile(pattern, opts) do
       {:ok, re} ->
-        case safe_regex(fn -> Regex.replace(re, string, replacement) end) do
+        # Python uses \1..\9 and \g<N>/\g<name>; Elixir Regex.replace uses \0..\N
+        # so we need to translate the replacement string.
+        elixir_repl = translate_python_replacement(replacement)
+
+        replace_opts =
+          if count > 0, do: [global: false], else: []
+
+        case safe_regex(fn ->
+               if count > 0 and count > 1 do
+                 apply_n_replacements(re, string, elixir_repl, count)
+               else
+                 Regex.replace(re, string, elixir_repl, replace_opts)
+               end
+             end) do
           {:ok, result} -> result
           {:exception, _} = err -> err
         end
@@ -159,11 +244,70 @@ defmodule Pyex.Stdlib.Re do
     end
   end
 
-  @spec do_split([Pyex.Interpreter.pyvalue()]) :: [String.t()] | {:exception, String.t()}
-  defp do_split([pattern, string]) when is_binary(pattern) and is_binary(string) do
-    case Regex.compile(pattern) do
+  @spec apply_n_replacements(Regex.t(), String.t(), String.t(), non_neg_integer()) :: String.t()
+  defp apply_n_replacements(_re, string, _repl, 0), do: string
+
+  defp apply_n_replacements(re, string, repl, n) do
+    # Replace the first occurrence, then recurse into the remaining string.
+    case Regex.run(re, string, return: :index) do
+      nil ->
+        string
+
+      [{start, len} | _] ->
+        prefix = binary_part(string, 0, start)
+        matched = binary_part(string, start, len)
+        rest = binary_part(string, start + len, byte_size(string) - start - len)
+        replaced = Regex.replace(re, matched, repl, global: false)
+        prefix <> replaced <> apply_n_replacements(re, rest, repl, n - 1)
+    end
+  end
+
+  @spec translate_python_replacement(String.t()) :: String.t()
+  defp translate_python_replacement(repl) do
+    # \g<0> -> \0, \g<N> -> \N, \g<name> -> \g{name}, \\N -> \N (already ok)
+    # Elixir's Regex.replace already understands \0..\N; we only need to
+    # handle \g<...> syntax.
+    Regex.replace(~r/\\g<([^>]+)>/, repl, fn _, name ->
+      case Integer.parse(name) do
+        {n, ""} -> "\\#{n}"
+        _ -> "\\g{#{name}}"
+      end
+    end)
+  end
+
+  @spec do_split([Pyex.Interpreter.pyvalue()], map()) :: [String.t()] | {:exception, String.t()}
+  defp do_split([pattern, string], kwargs)
+       when is_binary(pattern) and is_binary(string) do
+    maxsplit = Map.get(kwargs, "maxsplit", 0)
+    flags = Map.get(kwargs, "flags", 0)
+    do_split_impl(pattern, string, maxsplit, flags)
+  end
+
+  defp do_split([pattern, string, maxsplit], kwargs)
+       when is_binary(pattern) and is_binary(string) and is_integer(maxsplit) do
+    flags = Map.get(kwargs, "flags", 0)
+    do_split_impl(pattern, string, maxsplit, flags)
+  end
+
+  defp do_split([pattern, string, maxsplit, flags], _kwargs)
+       when is_binary(pattern) and is_binary(string) and is_integer(maxsplit) and
+              is_integer(flags) do
+    do_split_impl(pattern, string, maxsplit, flags)
+  end
+
+  defp do_split(_args, _kwargs),
+    do: {:exception, "TypeError: re.split() expects (pattern, string[, maxsplit, flags])"}
+
+  @spec do_split_impl(String.t(), String.t(), integer(), integer()) ::
+          [String.t()] | {:exception, String.t()}
+  defp do_split_impl(pattern, string, maxsplit, flags) do
+    opts = flags_to_regex_opts(flags)
+
+    case Regex.compile(pattern, opts) do
       {:ok, re} ->
-        case safe_regex(fn -> Regex.split(re, string) end) do
+        split_opts = if maxsplit > 0, do: [parts: maxsplit + 1], else: []
+
+        case safe_regex(fn -> Regex.split(re, string, split_opts) end) do
           {:ok, result} -> result
           {:exception, _} = err -> err
         end
@@ -425,6 +569,19 @@ defmodule Pyex.Stdlib.Re do
         {:builtin,
          fn
            [] -> {:tuple, groups}
+           [default] -> {:tuple, Enum.map(groups, fn g -> if is_nil(g), do: default, else: g end)}
+         end},
+      "groupdict" =>
+        {:builtin,
+         fn
+           [] ->
+             Pyex.PyDict.from_pairs(Enum.map(named_map, fn {k, v} -> {k, v} end))
+
+           [default] ->
+             pairs =
+               Enum.map(named_map, fn {k, v} -> {k, if(is_nil(v), do: default, else: v)} end)
+
+             Pyex.PyDict.from_pairs(pairs)
          end},
       "lastgroup" => last_group
     }

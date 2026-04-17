@@ -877,6 +877,10 @@ defmodule Pyex.Methods do
 
   @spec dict_update(map() | PyDict.t(), [Interpreter.pyvalue()]) ::
           {:mutate, map() | PyDict.t(), nil}
+  defp dict_update({:py_dict, attrs, _} = dict, [arg]) when is_map_key(attrs, "__counter__") do
+    {:mutate, Pyex.Stdlib.Collections.counter_update(dict, arg), nil}
+  end
+
   defp dict_update({:py_dict, _, _} = dict, [{:py_dict, _, _} = other]) do
     {:mutate, PyDict.merge(dict, Builtins.visible_dict(other)), nil}
   end

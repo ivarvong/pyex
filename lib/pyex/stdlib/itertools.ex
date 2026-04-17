@@ -25,7 +25,7 @@ defmodule Pyex.Stdlib.Itertools do
   @spec module_value() :: Pyex.Stdlib.Module.module_value()
   def module_value do
     %{
-      "chain" => {:builtin, &do_chain/1},
+      "chain" => chain_value(),
       "chain_from_iterable" => {:builtin, &do_chain_from_iterable/1},
       "islice" => {:builtin, &do_islice/1},
       "product" => {:builtin_kw, &do_product/2},
@@ -55,6 +55,9 @@ defmodule Pyex.Stdlib.Itertools do
   defp materialize({:generator, items}), do: items
   defp materialize({:set, s}), do: MapSet.to_list(s)
   defp materialize({:frozenset, s}), do: MapSet.to_list(s)
+  # Iterators produced by other itertools functions (e.g. count, cycle):
+  # we can't re-peek into ctx here, so the caller has already dereffed.
+  # Fall through to :error via the catch-all below if we ever see one.
 
   defp materialize({:range, _, _, _} = r) do
     case Builtins.range_to_list(r) do
@@ -77,6 +80,27 @@ defmodule Pyex.Stdlib.Itertools do
     iterable
     |> materialize()
     |> Enum.flat_map(&materialize/1)
+  end
+
+  # `itertools.chain` is a class-like callable in CPython: `chain(a, b, c)`
+  # acts as a constructor, and `chain.from_iterable(outer)` is a classmethod.
+  # We model this as a Pyex instance whose class exposes `__call__` (so
+  # `chain(...)` works) plus `from_iterable` as an ordinary attribute on
+  # the instance.  The `call_callable_instance` path passes user args
+  # directly without prepending `self`.
+  @spec chain_value() :: Pyex.Interpreter.pyvalue()
+  defp chain_value do
+    cls =
+      {:class, "chain", [],
+       %{
+         "__call__" => {:builtin, &do_chain/1},
+         "from_iterable" => {:builtin, &do_chain_from_iterable/1}
+       }}
+
+    {:instance, cls,
+     %{
+       "from_iterable" => {:builtin, &do_chain_from_iterable/1}
+     }}
   end
 
   @spec do_islice([Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]
@@ -376,14 +400,7 @@ defmodule Pyex.Stdlib.Itertools do
   end
 
   defp do_count([start, step]) when is_integer(start) and is_integer(step) do
-    stop =
-      if step > 0 do
-        start + step * 1_000_000
-      else
-        start + step * 1_000_000
-      end
-
-    {:range, start, stop, step}
+    {:range, start, start + step * 1_000_000, step}
   end
 
   @spec do_cycle([Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]

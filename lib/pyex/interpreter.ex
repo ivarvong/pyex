@@ -1952,6 +1952,10 @@ defmodule Pyex.Interpreter do
             {:defaultdict_auto_insert, default_val, new_dict, env, ctx}
         end
 
+      {:py_dict, %{"__counter__" => true}, _} ->
+        # Counter.__missing__ returns 0 for any missing key.
+        {0, env, ctx}
+
       val when is_integer(val) or is_float(val) or is_boolean(val) or val == nil ->
         {{:exception, "TypeError: '#{Helpers.py_type(val)}' object is not subscriptable"}, env,
          ctx}

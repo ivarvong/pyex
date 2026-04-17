@@ -92,3 +92,7 @@ Known limitations:
 - `bytes`/`bytearray` types not yet implemented
 - `datetime.now()` always returns UTC (not local time)
 - `datetime.time` class not exported (only `datetime`, `date`, `timedelta`, `timezone`)
+- `next(itertools.count())` must be wrapped with `iter()` first; CPython
+  allows it directly because count/cycle return iterator objects natively.
+  In Pyex they return bounded lists/ranges (works with `list()`, `for`,
+  `islice`, etc., just not `next()` directly).

@@ -318,6 +318,18 @@ defmodule Pyex.Interpreter.Invocation do
       {:ok, {:function, _, _, _, _} = func} ->
         Interpreter.call_function({:bound_method, instance, func}, args, kwargs, env, ctx)
 
+      {:ok, {:builtin, fun}} ->
+        # Builtins don't take `self`, so callers emulate the Python
+        # signature directly.  Used by stdlib classes that are really
+        # callable factories (e.g. `itertools.chain`).
+        derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
+        {fun.(derefed_args), env, ctx}
+
+      {:ok, {:builtin_kw, fun}} ->
+        derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
+        derefed_kwargs = Map.new(kwargs, fn {k, v} -> {k, Ctx.deep_deref(ctx, v)} end)
+        {fun.(derefed_args, derefed_kwargs), env, ctx}
+
       _ ->
         {{:exception, "TypeError: '#{Helpers.py_type(instance)}' object is not callable"}, env,
          ctx}

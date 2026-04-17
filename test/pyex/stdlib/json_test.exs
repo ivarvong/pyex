@@ -24,8 +24,8 @@ defmodule Pyex.Stdlib.JsonTest do
       assert result == %{"name" => "test", "value" => 42}
     end
 
-    test "raises on invalid JSON" do
-      assert_raise RuntimeError, ~r/json\.loads failed/, fn ->
+    test "raises JSONDecodeError on invalid JSON" do
+      assert_raise RuntimeError, ~r/JSONDecodeError/, fn ->
         Pyex.run!("""
         import json
         json.loads("not valid json")
