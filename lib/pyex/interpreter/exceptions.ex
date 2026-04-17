@@ -126,10 +126,20 @@ defmodule Pyex.Interpreter.Exceptions do
   @spec format_exc_msg(String.t(), [Interpreter.pyvalue()]) :: String.t()
   defp format_exc_msg(exc_name, values) do
     case values do
-      [] -> exc_name
-      [m] when is_binary(m) -> "#{exc_name}: #{m}"
-      [m] -> "#{exc_name}: #{Helpers.py_str(m)}"
-      _ -> "#{exc_name}: #{values |> Enum.map(&Helpers.py_str/1) |> Enum.join(", ")}"
+      [] ->
+        exc_name
+
+      [m] when is_binary(m) ->
+        "#{exc_name}: #{m}"
+
+      [m] ->
+        "#{exc_name}: #{Helpers.py_str(m)}"
+
+      multiple ->
+        # Python's Exception.__str__ returns str(self.args).  For 2+ args
+        # that renders the tuple's repr, e.g. ValueError("a", "b") -> "('a', 'b')".
+        tuple_repr = Pyex.Builtins.py_repr({:tuple, multiple})
+        "#{exc_name}: #{tuple_repr}"
     end
   end
 end

@@ -110,7 +110,14 @@ defmodule Pyex.Interpreter.Helpers do
     do: "deque([" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> "], maxlen=#{maxlen})"
 
   def py_str({:tuple, items}), do: "(" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> ")"
-  def py_str({:set, s}), do: "{" <> Enum.map_join(MapSet.to_list(s), ", ", &py_repr_fmt/1) <> "}"
+
+  def py_str({:set, s}) do
+    if MapSet.size(s) == 0 do
+      "set()"
+    else
+      "{" <> Enum.map_join(MapSet.to_list(s), ", ", &py_repr_fmt/1) <> "}"
+    end
+  end
 
   def py_str({:frozenset, s}) do
     if MapSet.size(s) == 0 do
@@ -129,10 +136,18 @@ defmodule Pyex.Interpreter.Helpers do
 
   def py_str({:instance, {:class, name, _, _}, fields}) do
     case fields do
-      %{"args" => {:tuple, [arg]}} -> py_str(arg)
-      %{"args" => {:tuple, []}} -> ""
-      %{"args" => {:tuple, args}} -> "(" <> Enum.map_join(args, ", ", &py_str/1) <> ")"
-      _ -> "<#{name} instance>"
+      %{"args" => {:tuple, [arg]}} ->
+        py_str(arg)
+
+      %{"args" => {:tuple, []}} ->
+        ""
+
+      %{"args" => {:tuple, args}} ->
+        # Python: str(exc) with multiple args renders as the tuple's repr.
+        "(" <> Enum.map_join(args, ", ", &py_repr_fmt/1) <> ")"
+
+      _ ->
+        "<#{name} instance>"
     end
   end
 

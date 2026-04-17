@@ -88,7 +88,7 @@ defmodule Pyex.Builtins do
       {"sorted", {:kw, &builtin_sorted/2}},
       {"reversed", &builtin_reversed/1},
       {"enumerate", {:kw, &builtin_enumerate/2}},
-      {"zip", &builtin_zip/1},
+      {"zip", {:kw, &builtin_zip/2}},
       {"isinstance", &builtin_isinstance/1},
       {"issubclass", &builtin_issubclass/1},
       {"round", &builtin_round/1},
@@ -311,11 +311,18 @@ defmodule Pyex.Builtins do
   defp builtin_int([val]) when is_float(val), do: trunc(val)
 
   defp builtin_int([val]) when is_binary(val) do
+    # Python accepts underscores as digit separators: int("1_000_000") == 1000000.
     trimmed = String.trim(val)
 
-    case Integer.parse(trimmed) do
-      {n, ""} -> n
-      _ -> {:exception, "ValueError: invalid literal for int() with base 10: '#{val}'"}
+    case validate_and_strip_underscores(trimmed) do
+      {:ok, cleaned} ->
+        case Integer.parse(cleaned) do
+          {n, ""} -> n
+          _ -> {:exception, "ValueError: invalid literal for int() with base 10: '#{val}'"}
+        end
+
+      :error ->
+        {:exception, "ValueError: invalid literal for int() with base 10: '#{val}'"}
     end
   end
 
@@ -329,6 +336,17 @@ defmodule Pyex.Builtins do
   defp builtin_int([val]),
     do:
       {:exception, "TypeError: int() argument must be a string or a number, not '#{pytype(val)}'"}
+
+  @spec validate_and_strip_underscores(String.t()) :: {:ok, String.t()} | :error
+  defp validate_and_strip_underscores(""), do: :error
+
+  defp validate_and_strip_underscores(s) do
+    cond do
+      String.starts_with?(s, "_") or String.ends_with?(s, "_") -> :error
+      String.contains?(s, "__") -> :error
+      true -> {:ok, String.replace(s, "_", "")}
+    end
+  end
 
   @spec int_with_base(String.t(), integer()) :: integer() | {:exception, String.t()}
   defp int_with_base(_str, base) when base != 0 and (base < 2 or base > 36) do
@@ -434,13 +452,19 @@ defmodule Pyex.Builtins do
         ) :: Interpreter.pyvalue() | Interpreter.builtin_signal()
   defp builtin_min(args, kwargs) do
     key_fn = Map.get(kwargs, "key")
+    has_default = Map.has_key?(kwargs, "default")
+    default = Map.get(kwargs, "default")
 
     case extract_minmax_items(args) do
       {:ok, items} when items != [] ->
         if key_fn, do: {:min_call, items, key_fn}, else: Enum.min(items)
 
       {:ok, []} ->
-        {:exception, "ValueError: min() arg is an empty sequence"}
+        if has_default do
+          default
+        else
+          {:exception, "ValueError: min() arg is an empty sequence"}
+        end
 
       {:error, msg} ->
         {:exception, msg}
@@ -453,13 +477,19 @@ defmodule Pyex.Builtins do
         ) :: Interpreter.pyvalue() | Interpreter.builtin_signal()
   defp builtin_max(args, kwargs) do
     key_fn = Map.get(kwargs, "key")
+    has_default = Map.has_key?(kwargs, "default")
+    default = Map.get(kwargs, "default")
 
     case extract_minmax_items(args) do
       {:ok, items} when items != [] ->
         if key_fn, do: {:max_call, items, key_fn}, else: Enum.max(items)
 
       {:ok, []} ->
-        {:exception, "ValueError: max() arg is an empty sequence"}
+        if has_default do
+          default
+        else
+          {:exception, "ValueError: max() arg is an empty sequence"}
+        end
 
       {:error, msg} ->
         {:exception, msg}
@@ -490,21 +520,85 @@ defmodule Pyex.Builtins do
   defp extract_minmax_items(args) when length(args) >= 2, do: {:ok, args}
   defp extract_minmax_items(_), do: {:error, "TypeError: expected iterable argument"}
 
-  @spec builtin_sum([Interpreter.pyvalue()]) :: number() | {:iter_sum, Interpreter.pyvalue()}
-  defp builtin_sum([{:py_list, reversed, _}]), do: Enum.sum(Enum.reverse(reversed))
-  defp builtin_sum([list]) when is_list(list), do: Enum.sum(list)
-  defp builtin_sum([{:tuple, items}]), do: Enum.sum(items)
-  defp builtin_sum([{:generator, items}]), do: Enum.sum(items)
+  @spec builtin_sum([Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue() | {:iter_sum, Interpreter.pyvalue()} | {:exception, String.t()}
+  defp builtin_sum([iterable]), do: builtin_sum([iterable, 0])
 
-  defp builtin_sum([{:range, _, _, _} = r]) do
+  defp builtin_sum([{:py_list, reversed, _}, start]),
+    do: sum_with_start(Enum.reverse(reversed), start)
+
+  defp builtin_sum([list, start]) when is_list(list), do: sum_with_start(list, start)
+  defp builtin_sum([{:tuple, items}, start]), do: sum_with_start(items, start)
+  defp builtin_sum([{:generator, items}, start]), do: sum_with_start(items, start)
+
+  defp builtin_sum([{:range, _, _, _} = r, start]) do
     case range_to_list(r) do
       {:exception, _} = err -> err
-      list -> Enum.sum(list)
+      list -> sum_with_start(list, start)
     end
   end
 
-  defp builtin_sum([{:instance, _, _} = inst]), do: {:iter_sum, inst}
-  defp builtin_sum([{:iterator, _} = it]), do: {:iter_sum, it}
+  defp builtin_sum([{:instance, _, _} = inst, start]), do: {:iter_sum, inst, start}
+  defp builtin_sum([{:iterator, _} = it, start]), do: {:iter_sum, it, start}
+
+  @spec sum_with_start([Interpreter.pyvalue()], Interpreter.pyvalue()) ::
+          Interpreter.pyvalue() | {:exception, String.t()}
+  defp sum_with_start(items, start) do
+    cond do
+      py_numeric?(start) and Enum.all?(items, &py_numeric?/1) ->
+        ints = Enum.map([start | items], &bool_to_int/1)
+
+        if is_float(start) or Enum.any?(items, &is_float/1) do
+          neumaier_sum(ints)
+        else
+          Enum.reduce(tl(ints), hd(ints), &+/2)
+        end
+
+      true ->
+        Enum.reduce(items, start, &sum_step/2)
+    end
+  end
+
+  @spec py_numeric?(Interpreter.pyvalue()) :: boolean()
+  defp py_numeric?(v) when is_number(v), do: true
+  defp py_numeric?(true), do: true
+  defp py_numeric?(false), do: true
+  defp py_numeric?(_), do: false
+
+  # Neumaier summation: a Kahan variant that handles the case where
+  # `x` is larger than the running sum.  Matches CPython's `math.fsum`
+  # / `sum` precision for the common float-accumulation patterns.
+  @spec neumaier_sum([number()]) :: float()
+  defp neumaier_sum(items) do
+    {sum, c} =
+      Enum.reduce(items, {0.0, 0.0}, fn x, {s, c} ->
+        t = s + x
+
+        new_c =
+          if abs(s) >= abs(x) do
+            c + (s - t + x)
+          else
+            c + (x - t + s)
+          end
+
+        {t, new_c}
+      end)
+
+    sum + c
+  end
+
+  @spec sum_step(Interpreter.pyvalue(), Interpreter.pyvalue()) :: Interpreter.pyvalue()
+  defp sum_step(x, acc) when is_number(x) and is_number(acc), do: acc + x
+
+  defp sum_step({:py_list, xr, xlen}, {:py_list, ar, alen}),
+    do: {:py_list, xr ++ ar, alen + xlen}
+
+  defp sum_step({:py_list, xr, xlen}, list) when is_list(list),
+    do: {:py_list, xr ++ Enum.reverse(list), length(list) + xlen}
+
+  defp sum_step(x, acc) when is_list(x) and is_list(acc), do: acc ++ x
+  defp sum_step({:tuple, x}, {:tuple, acc}), do: {:tuple, acc ++ x}
+  defp sum_step(x, acc) when is_binary(x) and is_binary(acc), do: acc <> x
 
   @spec builtin_sorted([Interpreter.pyvalue()], %{optional(String.t()) => Interpreter.pyvalue()}) ::
           {:sort_call, [Interpreter.pyvalue()], Interpreter.pyvalue() | nil, boolean()}
@@ -644,11 +738,13 @@ defmodule Pyex.Builtins do
     end
   end
 
-  @spec builtin_zip([Interpreter.pyvalue()]) ::
+  @spec builtin_zip([Interpreter.pyvalue()], map()) ::
           [{:tuple, [Interpreter.pyvalue()]}] | {:exception, String.t()}
-  defp builtin_zip([]), do: []
+  defp builtin_zip([], _kwargs), do: []
 
-  defp builtin_zip(args) when is_list(args) do
+  defp builtin_zip(args, kwargs) when is_list(args) do
+    strict = Map.get(kwargs, "strict", false)
+
     lists =
       Enum.reduce_while(args, {:ok, []}, fn arg, {:ok, acc} ->
         case to_list(arg) do
@@ -659,10 +755,19 @@ defmodule Pyex.Builtins do
 
     case lists do
       {:ok, reversed_lists} ->
-        reversed_lists
-        |> Enum.reverse()
-        |> Enum.zip()
-        |> Enum.map(fn t -> {:tuple, Tuple.to_list(t)} end)
+        ordered = Enum.reverse(reversed_lists)
+        lengths = Enum.map(ordered, &length/1)
+
+        cond do
+          strict and length(Enum.uniq(lengths)) > 1 ->
+            {:exception,
+             "ValueError: zip() argument #{Enum.find_index(lengths, fn l -> l != List.first(lengths) end) + 1} is shorter than argument #{1}"}
+
+          true ->
+            ordered
+            |> Enum.zip()
+            |> Enum.map(fn t -> {:tuple, Tuple.to_list(t)} end)
+        end
 
       :error ->
         {:exception, "TypeError: zip argument is not iterable"}
@@ -1174,31 +1279,78 @@ defmodule Pyex.Builtins do
 
   @spec builtin_map([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
-  defp builtin_map([{:builtin, func}, list]) when is_list(list) do
-    map_with_func(func, list)
-  end
-
-  defp builtin_map([{:builtin_type, _, func}, list]) when is_list(list) do
-    map_with_func(func, list)
-  end
-
-  defp builtin_map([{:function, _, _, _, _} = func, list]) when is_list(list) do
-    {:map_call, func, list}
-  end
-
-  defp builtin_map([func, iterable]) do
-    case to_list(iterable) do
-      {:ok, items} -> builtin_map([func, items])
-      :error -> {:exception, "TypeError: map() argument is not iterable"}
+  defp builtin_map([{:builtin, func} | iterables]) when iterables != [] do
+    case collect_iterables(iterables) do
+      {:ok, lists} -> map_with_func(func, lists)
+      {:exception, _} = e -> e
     end
   end
 
-  @spec map_with_func(([Interpreter.pyvalue()] -> Interpreter.pyvalue()), [Interpreter.pyvalue()]) ::
-          [Interpreter.pyvalue()] | {:exception, String.t()}
-  defp map_with_func(func, list) do
+  defp builtin_map([{:builtin_type, _, func} | iterables]) when iterables != [] do
+    case collect_iterables(iterables) do
+      {:ok, lists} -> map_with_func(func, lists)
+      {:exception, _} = e -> e
+    end
+  end
+
+  defp builtin_map([{:function, _, _, _, _} = func | iterables]) when iterables != [] do
+    case collect_iterables(iterables) do
+      {:ok, lists} -> {:map_call, func, zip_truncate(lists)}
+      {:exception, _} = e -> e
+    end
+  end
+
+  defp builtin_map([{:builtin_kw, func} | iterables]) when iterables != [] do
+    case collect_iterables(iterables) do
+      {:ok, lists} ->
+        map_with_func(fn args -> func.(args, %{}) end, lists)
+
+      {:exception, _} = e ->
+        e
+    end
+  end
+
+  defp builtin_map([_func | _]),
+    do: {:exception, "TypeError: map() first arg must be callable"}
+
+  defp builtin_map(_),
+    do: {:exception, "TypeError: map() requires at least 2 arguments"}
+
+  @spec collect_iterables([Interpreter.pyvalue()]) ::
+          {:ok, [[Interpreter.pyvalue()]]} | {:exception, String.t()}
+  defp collect_iterables(iterables) do
+    Enum.reduce_while(iterables, {:ok, []}, fn iter, {:ok, acc} ->
+      case to_list(iter) do
+        {:ok, list} -> {:cont, {:ok, [list | acc]}}
+        :error -> {:halt, {:exception, "TypeError: map() argument is not iterable"}}
+      end
+    end)
+    |> case do
+      {:ok, reversed} -> {:ok, Enum.reverse(reversed)}
+      err -> err
+    end
+  end
+
+  @spec zip_truncate([[Interpreter.pyvalue()]]) :: [[Interpreter.pyvalue()]]
+  defp zip_truncate([]), do: []
+  defp zip_truncate([single]), do: Enum.map(single, &[&1])
+
+  defp zip_truncate(lists) do
+    lists
+    |> Enum.zip()
+    |> Enum.map(&Tuple.to_list/1)
+  end
+
+  @spec map_with_func(
+          ([Interpreter.pyvalue()] -> Interpreter.pyvalue()),
+          [[Interpreter.pyvalue()]]
+        ) :: [Interpreter.pyvalue()] | {:exception, String.t()}
+  defp map_with_func(func, lists) do
+    grouped = zip_truncate(lists)
+
     result =
-      Enum.reduce_while(list, [], fn item, acc ->
-        case func.([item]) do
+      Enum.reduce_while(grouped, [], fn args, acc ->
+        case func.(args) do
           {:exception, _} = exc -> {:halt, exc}
           val -> {:cont, [val | acc]}
         end
@@ -1714,6 +1866,7 @@ defmodule Pyex.Builtins do
   def truthy?(nil), do: false
   def truthy?(0), do: false
   def truthy?(+0.0), do: false
+  def truthy?(-0.0), do: false
   def truthy?(""), do: false
   def truthy?([]), do: false
   def truthy?({:py_list, _, 0}), do: false

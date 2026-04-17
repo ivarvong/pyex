@@ -100,3 +100,17 @@ Known limitations:
   StringIO variable because Pyex's StringIO is value-typed.  Workaround:
   use `csv.writer()` without args (Pyex extension) to get string output
   from `writerow(...)` directly.  Fix requires heap-allocating StringIO.
+- F-string nested format specs (e.g. `f"{x:{width}d}"`) are not yet
+  supported.  The spec string must be parsed as a nested f-string; Pyex
+  currently parses the literal text.
+- Exception classes like `ValueError`, `TypeError`, `KeyboardInterrupt`,
+  `BaseException` aren't first-class runtime values.  They work as
+  `except` targets and `raise X` instantiation, but can't appear in
+  expressions like `issubclass(ValueError, Exception)` or tuple literals
+  inside an `except` clause: `except (ValueError, TypeError) as e:`.
+- `raise X from Y` doesn't set the `__cause__` attribute on the raised
+  exception.
+- User-defined `__init__` calling `super().__init__(msg)` in an
+  exception subclass mixes up the args list.
+- Exceptions raised inside a generator body don't propagate cleanly to
+  the consumer (`list(gen())` raises TypeError instead of the inner exc).

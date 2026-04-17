@@ -463,32 +463,124 @@ defmodule Pyex.Interpreter.ControlFlow do
     do: true
 
   defp class_is_subclass?(class_name, target_name, env, ctx) do
-    case Env.get(env, class_name) do
-      {:ok, {:class, ^class_name, bases, _}} ->
-        Enum.any?(bases, fn base ->
-          case base do
-            {:var, _, [base_name]} ->
-              class_is_subclass?(base_name, target_name, env, ctx)
+    cond do
+      builtin_exception_subclass?(class_name, target_name) ->
+        true
 
-            {:class, base_name, _, _} ->
-              class_is_subclass?(base_name, target_name, env, ctx)
+      true ->
+        case Env.get(env, class_name) do
+          {:ok, {:class, ^class_name, bases, _}} ->
+            Enum.any?(bases, fn base ->
+              case base do
+                {:var, _, [base_name]} ->
+                  class_is_subclass?(base_name, target_name, env, ctx)
 
-            _ ->
-              false
-          end
-        end)
+                {:class, base_name, _, _} ->
+                  class_is_subclass?(base_name, target_name, env, ctx)
 
-      {:ok, {:instance, {:class, name, bases, _}, _}} ->
-        class_is_subclass?(name, target_name, env, ctx) or
-          Enum.any?(bases, fn base ->
-            case base do
-              {:var, _, [base_name]} -> class_is_subclass?(base_name, target_name, env, ctx)
-              _ -> false
-            end
-          end)
+                _ ->
+                  false
+              end
+            end)
 
-      _ ->
-        false
+          {:ok, {:instance, {:class, name, bases, _}, _}} ->
+            class_is_subclass?(name, target_name, env, ctx) or
+              Enum.any?(bases, fn base ->
+                case base do
+                  {:var, _, [base_name]} -> class_is_subclass?(base_name, target_name, env, ctx)
+                  _ -> false
+                end
+              end)
+
+          _ ->
+            false
+        end
+    end
+  end
+
+  # Python's builtin exception hierarchy.  Each entry maps a concrete
+  # exception name to its direct parent (we walk the chain for subclass
+  # queries).  Sourced from:
+  # https://docs.python.org/3/library/exceptions.html#exception-hierarchy
+  @builtin_exception_parents %{
+    "BaseException" => nil,
+    "SystemExit" => "BaseException",
+    "KeyboardInterrupt" => "BaseException",
+    "GeneratorExit" => "BaseException",
+    "Exception" => "BaseException",
+    "StopIteration" => "Exception",
+    "StopAsyncIteration" => "Exception",
+    "ArithmeticError" => "Exception",
+    "FloatingPointError" => "ArithmeticError",
+    "OverflowError" => "ArithmeticError",
+    "ZeroDivisionError" => "ArithmeticError",
+    "AssertionError" => "Exception",
+    "AttributeError" => "Exception",
+    "BufferError" => "Exception",
+    "EOFError" => "Exception",
+    "ImportError" => "Exception",
+    "ModuleNotFoundError" => "ImportError",
+    "LookupError" => "Exception",
+    "IndexError" => "LookupError",
+    "KeyError" => "LookupError",
+    "MemoryError" => "Exception",
+    "NameError" => "Exception",
+    "UnboundLocalError" => "NameError",
+    "OSError" => "Exception",
+    "BlockingIOError" => "OSError",
+    "ChildProcessError" => "OSError",
+    "ConnectionError" => "OSError",
+    "BrokenPipeError" => "ConnectionError",
+    "ConnectionAbortedError" => "ConnectionError",
+    "ConnectionRefusedError" => "ConnectionError",
+    "ConnectionResetError" => "ConnectionError",
+    "FileExistsError" => "OSError",
+    "FileNotFoundError" => "OSError",
+    "InterruptedError" => "OSError",
+    "IsADirectoryError" => "OSError",
+    "NotADirectoryError" => "OSError",
+    "PermissionError" => "OSError",
+    "ProcessLookupError" => "OSError",
+    "TimeoutError" => "OSError",
+    "ReferenceError" => "Exception",
+    "RuntimeError" => "Exception",
+    "NotImplementedError" => "RuntimeError",
+    "RecursionError" => "RuntimeError",
+    "SyntaxError" => "Exception",
+    "IndentationError" => "SyntaxError",
+    "TabError" => "IndentationError",
+    "SystemError" => "Exception",
+    "TypeError" => "Exception",
+    "ValueError" => "Exception",
+    "UnicodeError" => "ValueError",
+    "UnicodeDecodeError" => "UnicodeError",
+    "UnicodeEncodeError" => "UnicodeError",
+    "UnicodeTranslateError" => "UnicodeError",
+    "Warning" => "Exception",
+    "DeprecationWarning" => "Warning",
+    "PendingDeprecationWarning" => "Warning",
+    "RuntimeWarning" => "Warning",
+    "SyntaxWarning" => "Warning",
+    "UserWarning" => "Warning",
+    "FutureWarning" => "Warning",
+    "ImportWarning" => "Warning",
+    "UnicodeWarning" => "Warning",
+    "BytesWarning" => "Warning",
+    "ResourceWarning" => "Warning"
+  }
+
+  @spec builtin_exception_subclass?(String.t(), String.t()) :: boolean()
+  defp builtin_exception_subclass?(class_name, target_name) do
+    builtin_exception_chain(class_name)
+    |> Enum.member?(target_name)
+  end
+
+  @spec builtin_exception_chain(String.t()) :: [String.t()]
+  defp builtin_exception_chain(name) do
+    case Map.fetch(@builtin_exception_parents, name) do
+      {:ok, nil} -> [name]
+      {:ok, parent} -> [name | builtin_exception_chain(parent)]
+      :error -> []
     end
   end
 end

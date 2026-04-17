@@ -111,6 +111,8 @@ defmodule Pyex.Interpreter.FstringFormat do
       "s" -> format_string(val, spec)
       "e" -> format_scientific(val, spec, "e")
       "E" -> format_scientific(val, spec, "E")
+      "g" -> format_general(val, spec, "e")
+      "G" -> format_general(val, spec, "E")
       "x" -> format_base(val, spec, 16, false)
       "X" -> format_base(val, spec, 16, true)
       "o" -> format_base(val, spec, 8, false)
@@ -186,6 +188,76 @@ defmodule Pyex.Interpreter.FstringFormat do
   defp format_scientific(val, _spec, _e_char) do
     {:exception,
      "ValueError: Unknown format code 'e' for object of type '#{Helpers.py_type(val)}'"}
+  end
+
+  # Python's "g" format:
+  #   - precision P defaults to 6; P == 0 means P == 1
+  #   - compute the exponent of the value (call it X)
+  #   - if -4 <= X < P: use fixed notation with precision P-1-X
+  #   - otherwise: use scientific notation with precision P-1
+  #   - strip trailing zeros (and the decimal point if that's all that's left)
+  @spec format_general(term(), map(), String.t()) :: String.t() | {:exception, String.t()}
+  defp format_general(val, spec, e_char) when is_number(val) do
+    precision = spec.precision || 6
+    precision = if precision == 0, do: 1, else: precision
+    float_val = val / 1
+
+    exp =
+      if float_val == 0.0 do
+        0
+      else
+        float_val |> abs() |> :math.log10() |> Float.floor() |> trunc()
+      end
+
+    formatted =
+      if exp >= -4 and exp < precision do
+        # Fixed notation
+        fixed_spec = %{spec | precision: max(precision - 1 - exp, 0), type: "f"}
+        trim_trailing_zeros(format_float(val, fixed_spec))
+      else
+        sci_spec = %{spec | precision: max(precision - 1, 0), type: e_char}
+
+        case format_scientific(val, sci_spec, e_char) do
+          {:exception, _} = e -> e
+          s -> trim_scientific_trailing_zeros(s)
+        end
+      end
+
+    case formatted do
+      {:exception, _} = e -> e
+      s -> apply_alignment(s, spec, val)
+    end
+  end
+
+  defp format_general(val, _spec, _e) do
+    {:exception,
+     "ValueError: Unknown format code 'g' for object of type '#{Helpers.py_type(val)}'"}
+  end
+
+  @spec trim_trailing_zeros(String.t()) :: String.t()
+  defp trim_trailing_zeros(s) do
+    if String.contains?(s, ".") do
+      stripped = String.trim_trailing(s, "0")
+      # Don't leave a bare decimal point.
+      String.trim_trailing(stripped, ".")
+    else
+      s
+    end
+  end
+
+  @spec trim_scientific_trailing_zeros(String.t()) :: String.t()
+  defp trim_scientific_trailing_zeros(s) do
+    case Regex.run(~r/^(-?\d+)\.(\d*?)(0*)([eE][+-]?\d+)$/, s) do
+      [_, int_part, frac, _zeros, exp] ->
+        if frac == "" do
+          int_part <> exp
+        else
+          int_part <> "." <> frac <> exp
+        end
+
+      _ ->
+        s
+    end
   end
 
   @spec format_scientific_bankers(float(), non_neg_integer()) :: String.t()
@@ -292,13 +364,14 @@ defmodule Pyex.Interpreter.FstringFormat do
   defp format_default(val, spec) when is_integer(val) do
     formatted = Integer.to_string(val)
     formatted = maybe_group(formatted, spec.grouping)
+    formatted = apply_sign(formatted, spec.sign, val)
     apply_alignment(formatted, spec, val)
   end
 
   defp format_default(val, spec) when is_float(val) do
-    # Python default float formatting
     formatted = format_default_float(val)
     formatted = maybe_group(formatted, spec.grouping)
+    formatted = apply_sign(formatted, spec.sign, val)
     apply_alignment(formatted, spec, val)
   end
 
@@ -311,11 +384,9 @@ defmodule Pyex.Interpreter.FstringFormat do
   end
 
   defp format_default_float(f) do
-    # Python uses repr-style float formatting by default
-    s = Float.to_string(f)
-    # Erlang Float.to_string may add extra precision;
-    # just use it as is since it generally matches Python well enough
-    s
+    # Match CPython: Python uses `repr(float)` which is decimal for
+    # magnitudes in [1e-4, 1e16) and scientific otherwise.
+    Helpers.py_float_str(f)
   end
 
   # Apply comma/underscore grouping to the integer part of a number string
