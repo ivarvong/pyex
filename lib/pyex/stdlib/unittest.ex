@@ -53,26 +53,41 @@ defmodule Pyex.Stdlib.Unittest do
 
   @spec assertion_methods() :: %{optional(String.t()) => Interpreter.pyvalue()}
   defp assertion_methods do
+    # Each assertion is bound-method style: `self.assertEqual(a, b)`
+    # dispatches with `self` prepended.  Wrap each plain assertion so
+    # it ignores the leading `self`.
     %{
-      "assertEqual" => {:builtin, &assert_equal/1},
-      "assertNotEqual" => {:builtin, &assert_not_equal/1},
-      "assertTrue" => {:builtin, &assert_true/1},
-      "assertFalse" => {:builtin, &assert_false/1},
-      "assertIs" => {:builtin, &assert_is/1},
-      "assertIsNot" => {:builtin, &assert_is_not/1},
-      "assertIsNone" => {:builtin, &assert_is_none/1},
-      "assertIsNotNone" => {:builtin, &assert_is_not_none/1},
-      "assertIn" => {:builtin, &assert_in/1},
-      "assertNotIn" => {:builtin, &assert_not_in/1},
-      "assertGreater" => {:builtin, &assert_greater/1},
-      "assertGreaterEqual" => {:builtin, &assert_greater_equal/1},
-      "assertLess" => {:builtin, &assert_less/1},
-      "assertLessEqual" => {:builtin, &assert_less_equal/1},
-      "assertAlmostEqual" => {:builtin, &assert_almost_equal/1},
-      "assertRaises" => {:builtin, &assert_raises/1},
-      "assertIsInstance" => {:builtin, &assert_is_instance/1},
-      "fail" => {:builtin, &do_fail/1}
+      "assertEqual" => {:builtin, strip_self(&assert_equal/1)},
+      "assertNotEqual" => {:builtin, strip_self(&assert_not_equal/1)},
+      "assertTrue" => {:builtin, strip_self(&assert_true/1)},
+      "assertFalse" => {:builtin, strip_self(&assert_false/1)},
+      "assertIs" => {:builtin, strip_self(&assert_is/1)},
+      "assertIsNot" => {:builtin, strip_self(&assert_is_not/1)},
+      "assertIsNone" => {:builtin, strip_self(&assert_is_none/1)},
+      "assertIsNotNone" => {:builtin, strip_self(&assert_is_not_none/1)},
+      "assertIn" => {:builtin, strip_self(&assert_in/1)},
+      "assertNotIn" => {:builtin, strip_self(&assert_not_in/1)},
+      "assertGreater" => {:builtin, strip_self(&assert_greater/1)},
+      "assertGreaterEqual" => {:builtin, strip_self(&assert_greater_equal/1)},
+      "assertLess" => {:builtin, strip_self(&assert_less/1)},
+      "assertLessEqual" => {:builtin, strip_self(&assert_less_equal/1)},
+      "assertAlmostEqual" => {:builtin, strip_self(&assert_almost_equal/1)},
+      "assertRaises" => {:builtin, strip_self(&assert_raises/1)},
+      "assertIsInstance" => {:builtin, strip_self(&assert_is_instance/1)},
+      "fail" => {:builtin, strip_self(&do_fail/1)}
     }
+  end
+
+  # Wraps a function so it ignores the leading `self` argument that
+  # Pyex prepends when dispatching `self.method(...)`.  We accept
+  # one-or-more args; the first one is `self`.
+  @spec strip_self(([Interpreter.pyvalue()] -> term())) ::
+          ([Interpreter.pyvalue()] -> term())
+  defp strip_self(fun) do
+    fn
+      [_self | rest] -> fun.(rest)
+      args -> fun.(args)
+    end
   end
 
   @spec do_main([Interpreter.pyvalue()]) :: {:unittest_main}

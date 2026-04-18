@@ -2,7 +2,7 @@ defmodule Pyex.Stdlib.EnumModuleTest do
   use ExUnit.Case, async: true
 
   describe "basic enum" do
-    test "class attributes are accessible as enum values" do
+    test "class attribute returns enum member (not raw value)" do
       result =
         Pyex.run!("""
         from enum import Enum
@@ -10,10 +10,22 @@ defmodule Pyex.Stdlib.EnumModuleTest do
             RED = 1
             GREEN = 2
             BLUE = 3
-        Color.RED
+        Color.RED.value
         """)
 
       assert result == 1
+    end
+
+    test "enum member has .name" do
+      result =
+        Pyex.run!("""
+        from enum import Enum
+        class Color(Enum):
+            RED = 1
+        Color.RED.name
+        """)
+
+      assert result == "RED"
     end
 
     test "multiple enum values are distinct" do
@@ -24,7 +36,7 @@ defmodule Pyex.Stdlib.EnumModuleTest do
             RED = 1
             GREEN = 2
             BLUE = 3
-        (Color.RED, Color.GREEN, Color.BLUE)
+        (Color.RED.value, Color.GREEN.value, Color.BLUE.value)
         """)
 
       assert result == {:tuple, [1, 2, 3]}
@@ -32,14 +44,14 @@ defmodule Pyex.Stdlib.EnumModuleTest do
   end
 
   describe "IntEnum" do
-    test "IntEnum values work as integers" do
+    test "IntEnum members have integer values" do
       result =
         Pyex.run!("""
         from enum import IntEnum
         class Status(IntEnum):
             OK = 200
             NOT_FOUND = 404
-        Status.OK + 0
+        Status.OK.value
         """)
 
       assert result == 200
@@ -68,7 +80,7 @@ defmodule Pyex.Stdlib.EnumModuleTest do
             NORTH = auto()
             SOUTH = auto()
             EAST = auto()
-        (Direction.NORTH, Direction.SOUTH, Direction.EAST)
+        (Direction.NORTH.value, Direction.SOUTH.value, Direction.EAST.value)
         """)
 
       {_, [a, b, c]} = result

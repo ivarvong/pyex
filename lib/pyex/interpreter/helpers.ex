@@ -57,6 +57,9 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:lru_cached_function, _, _}), do: "function"
   def py_type({:ref, _}), do: "ref"
   def py_type({:exception_class, name}), do: "<class '#{name}'>"
+  def py_type({:bytes, _}), do: "bytes"
+  def py_type({:bytearray, _}), do: "bytearray"
+  def py_type({:complex, _, _}), do: "complex"
   def py_type(_), do: "object"
 
   @doc """
@@ -131,6 +134,19 @@ defmodule Pyex.Interpreter.Helpers do
   def py_str({:class, name, _, _}), do: "<class '#{name}'>"
   def py_str({:builtin_type, name, _}), do: "<class '#{name}'>"
   def py_str({:exception_class, name}), do: "<class '#{name}'>"
+  def py_str({:bytes, b}), do: bytes_repr(b, "b")
+  def py_str({:bytearray, b}), do: "bytearray(" <> bytes_repr(b, "b") <> ")"
+
+  def py_str({:complex, r, i}) do
+    cond do
+      r == 0.0 ->
+        "#{complex_part(i)}j"
+
+      true ->
+        sign = if i < 0, do: "-", else: "+"
+        "(#{complex_part(r)}#{sign}#{complex_part(abs(i))}j)"
+    end
+  end
 
   def py_str({:instance, {:class, "type", _, _}, %{"__name__" => type_name}}) do
     "<class '#{type_name}'>"
@@ -503,4 +519,53 @@ defmodule Pyex.Interpreter.Helpers do
       _ -> mantissa
     end
   end
+
+  @doc """
+  Renders a bytes value in Python's repr form: `b'hello\\xc2\\xa9'`.
+  Printable ASCII stays as-is; non-printable bytes become `\\xhh` escapes.
+  """
+  @spec bytes_repr(binary(), String.t()) :: String.t()
+  def bytes_repr(b, prefix) do
+    inner =
+      b
+      |> :binary.bin_to_list()
+      |> Enum.map_join(fn
+        byte when byte == ?\\ ->
+          "\\\\"
+
+        byte when byte == ?' ->
+          "\\'"
+
+        byte when byte == ?\n ->
+          "\\n"
+
+        byte when byte == ?\r ->
+          "\\r"
+
+        byte when byte == ?\t ->
+          "\\t"
+
+        byte when byte >= 0x20 and byte <= 0x7E ->
+          <<byte>>
+
+        byte ->
+          "\\x" <> String.pad_leading(Integer.to_string(byte, 16) |> String.downcase(), 2, "0")
+      end)
+
+    "#{prefix}'#{inner}'"
+  end
+
+  # Formats a complex component the way CPython does: strips `.0` when
+  # the value is integer-valued, otherwise uses Python's standard float
+  # formatting.  Matches `str(complex(3, 4)) == '(3+4j)'`.
+  @spec complex_part(float() | integer()) :: String.t()
+  defp complex_part(f) when is_float(f) do
+    if f == trunc(f) and abs(f) < 1.0e16 do
+      Integer.to_string(trunc(f))
+    else
+      py_float_str(f)
+    end
+  end
+
+  defp complex_part(other), do: "#{other}"
 end

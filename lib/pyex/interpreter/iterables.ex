@@ -42,6 +42,12 @@ defmodule Pyex.Interpreter.Iterables do
 
   def to_iterable({:deque, items, _}, env, ctx), do: {:ok, items, env, ctx}
   def to_iterable({:generator, items}, env, ctx), do: {:ok, items, env, ctx}
+
+  # Iterating an enum class yields its members in definition order.
+  def to_iterable({:class, _, _, %{"__enum_members__" => members}}, env, ctx) do
+    {:ok, Enum.map(members, fn {_n, inst} -> inst end), env, ctx}
+  end
+
   def to_iterable({:generator_error, items, _msg}, env, ctx), do: {:ok, items, env, ctx}
 
   def to_iterable({:iterator, id}, env, ctx), do: {:ok, Ctx.iter_items(ctx, id), env, ctx}
