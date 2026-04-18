@@ -212,8 +212,8 @@ defmodule Pyex.Parser do
         case parse_expression(rest) do
           {:ok, expr, [{:keyword, _, "from"} | rest]} ->
             case parse_expression(rest) do
-              {:ok, _cause, rest} ->
-                {:ok, {:raise, [line: line], [expr]}, drop_newline(rest)}
+              {:ok, cause, rest} ->
+                {:ok, {:raise, [line: line], [expr, cause]}, drop_newline(rest)}
 
               {:error, _} = error ->
                 error
@@ -1470,6 +1470,18 @@ defmodule Pyex.Parser do
   defp parse_lambda_params(tokens, _acc) do
     {:error, "unexpected token in lambda params at #{token_line(tokens)}"}
   end
+
+  @doc """
+  Parses the body of an f-string or f-string format spec into a list of
+  `{:lit, str}` / `{:expr, ast}` / `{:expr, ast, spec}` parts.
+
+  Exported so the interpreter can recursively resolve nested format
+  specs (`f"{x:{width}d}"`) without duplicating the tokenization logic.
+  """
+  @spec parse_fstring_template(String.t()) ::
+          {:ok, [{:lit, String.t()} | {:expr, ast_node()} | {:expr, ast_node(), String.t()}]}
+          | {:error, String.t()}
+  def parse_fstring_template(template), do: parse_fstring_parts(template, 1)
 
   @spec parse_fstring_parts(String.t(), pos_integer()) ::
           {:ok, [{:lit, String.t()} | {:expr, ast_node()}]} | {:error, String.t()}

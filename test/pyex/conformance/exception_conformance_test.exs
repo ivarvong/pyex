@@ -41,8 +41,7 @@ defmodule Pyex.Conformance.ExceptionTest do
       """)
     end
 
-    @tag :skip
-    test "except tuple of types (exception classes not first-class values)" do
+    test "except tuple of types" do
       check!("""
       for exc in [ValueError("v"), TypeError("t"), KeyError("k")]:
           try:
@@ -200,8 +199,7 @@ defmodule Pyex.Conformance.ExceptionTest do
       """)
     end
 
-    @tag :skip
-    test "exception with custom __init__ (super() dispatch issue)" do
+    test "exception with custom __init__" do
       check!("""
       class MyError(Exception):
           def __init__(self, code, msg):
@@ -229,8 +227,7 @@ defmodule Pyex.Conformance.ExceptionTest do
       """)
     end
 
-    @tag :skip
-    test "raise from (__cause__ not yet set)" do
+    test "raise from sets __cause__" do
       check!("""
       try:
           try:
@@ -283,8 +280,7 @@ defmodule Pyex.Conformance.ExceptionTest do
   end
 
   describe "KeyboardInterrupt and SystemExit (special)" do
-    @tag :skip
-    test "KeyboardInterrupt / BaseException (not defined as values)" do
+    test "Exception does NOT catch KeyboardInterrupt" do
       check!("""
       print(issubclass(KeyboardInterrupt, Exception))
       print(issubclass(KeyboardInterrupt, BaseException))
@@ -293,8 +289,7 @@ defmodule Pyex.Conformance.ExceptionTest do
   end
 
   describe "exception in generator" do
-    @tag :skip
-    test "exception bubbles from generator (consumer TypeError)" do
+    test "exception bubbles from generator consumer list()" do
       check!("""
       def gen():
           yield 1

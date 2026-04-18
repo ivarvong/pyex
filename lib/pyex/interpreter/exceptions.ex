@@ -34,7 +34,29 @@ defmodule Pyex.Interpreter.Exceptions do
         eval_raise_exc_class(exc_name, args, kwargs, meta, env, ctx)
 
       {:var, _, [exc_name]} ->
-        {{:exception, exc_name}, env, ctx}
+        case Env.get(env, exc_name) do
+          {:ok, {:exception_class, name}} ->
+            instance =
+              {:instance, Interpreter.exception_instance_class({:exception_class, name}),
+               %{"args" => {:tuple, []}}}
+
+            ctx = %{ctx | exception_instance: instance}
+            {{:exception, name}, env, ctx}
+
+          # `raise some_var` where some_var holds an already-constructed
+          # exception instance: bubble it up as the active exception.
+          {:ok, raw} ->
+            case Ctx.deref(ctx, raw) do
+              {:instance, _, _} = inst ->
+                eval_raise_value(inst, env, ctx)
+
+              _ ->
+                {{:exception, exc_name}, env, ctx}
+            end
+
+          _ ->
+            {{:exception, exc_name}, env, ctx}
+        end
 
       _ ->
         case Interpreter.eval(expr, env, ctx) do
@@ -42,13 +64,96 @@ defmodule Pyex.Interpreter.Exceptions do
             {signal, env, ctx}
 
           {value, env, ctx} ->
-            msg =
-              case value do
-                msg when is_binary(msg) -> "Exception: #{msg}"
-                _ -> "Exception: #{inspect(value)}"
+            eval_raise_value(value, env, ctx)
+        end
+    end
+  end
+
+  @spec eval_raise_value(Interpreter.pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp eval_raise_value(value, env, ctx) do
+    case value do
+      # An already-constructed exception instance bubbles up with the
+      # class name as the error tag and the instance attached for
+      # `as e:` binding.
+      {:instance, {:class, name, _, _} = _cls, attrs} = inst ->
+        args = Map.get(attrs, "args", {:tuple, []})
+        msg = format_inst_msg(name, args)
+        ctx = %{ctx | exception_instance: inst}
+        {{:exception, msg}, env, ctx}
+
+      # `raise SomeExceptionClass` with no call: synthesize an empty instance.
+      {:exception_class, name} ->
+        instance =
+          {:instance, Interpreter.exception_instance_class({:exception_class, name}),
+           %{"args" => {:tuple, []}}}
+
+        ctx = %{ctx | exception_instance: instance}
+        {{:exception, name}, env, ctx}
+
+      msg when is_binary(msg) ->
+        {{:exception, "Exception: #{msg}"}, env, ctx}
+
+      _ ->
+        {{:exception, "Exception: #{inspect(value)}"}, env, ctx}
+    end
+  end
+
+  @spec format_inst_msg(String.t(), Interpreter.pyvalue()) :: String.t()
+  defp format_inst_msg(name, {:tuple, []}), do: name
+  defp format_inst_msg(name, {:tuple, [arg]}) when is_binary(arg), do: "#{name}: #{arg}"
+  defp format_inst_msg(name, {:tuple, [arg]}), do: "#{name}: #{Helpers.py_str(arg)}"
+
+  defp format_inst_msg(name, {:tuple, args}) do
+    tuple_repr = Pyex.Builtins.py_repr({:tuple, args})
+    "#{name}: #{tuple_repr}"
+  end
+
+  defp format_inst_msg(name, _), do: name
+
+  @doc """
+  Evaluates `raise expr from cause_expr`.
+
+  First resolves the cause expression (must be an exception instance,
+  None, or raise TypeError at runtime — we currently relax to accept any
+  value).  Then evaluates the main raise; if it produces an exception
+  instance, we attach the cause as `__cause__` on the instance.
+  """
+  @spec eval_raise_from(
+          Parser.ast_node(),
+          Parser.ast_node(),
+          Parser.meta(),
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  def eval_raise_from(expr, cause_expr, meta, env, ctx) do
+    case Interpreter.eval(cause_expr, env, ctx) do
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {cause_val, env, ctx} ->
+        cause = Ctx.deref(ctx, cause_val)
+
+        {signal, env, ctx} = eval_raise(expr, meta, env, ctx)
+
+        case signal do
+          {:exception, _} ->
+            new_instance =
+              case ctx.exception_instance do
+                {:instance, cls, attrs} ->
+                  {:instance, cls, Map.put(attrs, "__cause__", cause)}
+
+                _ ->
+                  nil
               end
 
-            {{:exception, msg}, env, ctx}
+            ctx =
+              if new_instance do
+                %{ctx | exception_instance: new_instance}
+              else
+                ctx
+              end
+
+            {signal, env, ctx}
         end
     end
   end
@@ -102,6 +207,12 @@ defmodule Pyex.Interpreter.Exceptions do
                 ctx = %{ctx | exception_instance: derefed}
                 {{:exception, msg}, env, ctx}
             end
+
+          {:ok, {:exception_class, _} = exc_cls} ->
+            cls = Interpreter.exception_instance_class(exc_cls)
+            instance = {:instance, cls, %{"args" => {:tuple, values}}}
+            ctx = %{ctx | exception_instance: instance}
+            {{:exception, msg}, env, ctx}
 
           _ ->
             instance =

@@ -293,6 +293,29 @@ defmodule Pyex.Interpreter.Invocation do
             {ref, env, ctx}
         end
 
+      # A builtin __init__ (e.g. the one synthesized for built-in
+      # exception classes) takes `self` as its first arg and may return
+      # {:mutate, new_instance, _} to replace the instance.
+      {:ok, {:builtin, fun}, _defining_class} ->
+        derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
+
+        case fun.([instance | derefed_args]) do
+          {:mutate, new_instance, _ret} ->
+            {ref, ctx} = Ctx.heap_alloc(ctx, new_instance)
+            {ref, env, ctx}
+
+          {:instance, _, _} = updated_instance ->
+            {ref, ctx} = Ctx.heap_alloc(ctx, updated_instance)
+            {ref, env, ctx}
+
+          {:exception, _} = signal ->
+            {signal, env, ctx}
+
+          _ ->
+            {ref, ctx} = Ctx.heap_alloc(ctx, instance)
+            {ref, env, ctx}
+        end
+
       :error ->
         if args == [] do
           {ref, ctx} = Ctx.heap_alloc(ctx, instance)

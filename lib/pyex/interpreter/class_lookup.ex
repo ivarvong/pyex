@@ -41,9 +41,21 @@ defmodule Pyex.Interpreter.ClassLookup do
   def c3_linearize({:class, _, [], _} = class), do: [class]
 
   def c3_linearize({:class, _, bases, _} = class) do
-    parent_mros = Enum.map(bases, &c3_linearize/1)
-    [class | c3_merge(parent_mros ++ [bases])]
+    reified = Enum.map(bases, &reify_base/1)
+    parent_mros = Enum.map(reified, &c3_linearize/1)
+    [class | c3_merge(parent_mros ++ [reified])]
   end
+
+  # Built-in exception classes are represented as {:exception_class, name}
+  # in the environment but participate in class lookup as if they were
+  # {:class, name, [parent_exc], %{}} classes.  Reify on demand.
+  def c3_linearize({:exception_class, _} = exc) do
+    c3_linearize(Interpreter.exception_instance_class(exc))
+  end
+
+  @spec reify_base(Interpreter.pyvalue()) :: Interpreter.pyvalue()
+  defp reify_base({:exception_class, _} = exc), do: Interpreter.exception_instance_class(exc)
+  defp reify_base(other), do: other
 
   @spec c3_merge([[Interpreter.pyvalue()]]) :: [Interpreter.pyvalue()]
   defp c3_merge(lists) do

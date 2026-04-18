@@ -125,4 +125,68 @@ defmodule Pyex.Conformance.CsvTest do
       """)
     end
   end
+
+  describe "writer with io.StringIO" do
+    test "simple writerow" do
+      check!("""
+      import csv, io
+      buf = io.StringIO()
+      w = csv.writer(buf)
+      w.writerow(["a", "b", "c"])
+      print(repr(buf.getvalue()))
+      """)
+    end
+
+    test "multiple writerows" do
+      check!("""
+      import csv, io
+      buf = io.StringIO()
+      w = csv.writer(buf)
+      w.writerow(["header1", "header2"])
+      w.writerow([1, 2])
+      w.writerow([3, 4])
+      print(repr(buf.getvalue()))
+      """)
+    end
+
+    test "writerows" do
+      check!("""
+      import csv, io
+      buf = io.StringIO()
+      w = csv.writer(buf)
+      w.writerows([["a", "b"], [1, 2], [3, 4]])
+      print(repr(buf.getvalue()))
+      """)
+    end
+
+    test "quotes field with embedded comma" do
+      check!(~S"""
+      import csv, io
+      buf = io.StringIO()
+      w = csv.writer(buf)
+      w.writerow(["hello, world", "foo"])
+      print(repr(buf.getvalue()))
+      """)
+    end
+
+    test "doubles embedded quote" do
+      check!(~S"""
+      import csv, io
+      buf = io.StringIO()
+      w = csv.writer(buf)
+      w.writerow(['he said "hi"', "foo"])
+      print(repr(buf.getvalue()))
+      """)
+    end
+
+    test "custom delimiter" do
+      check!(~S"""
+      import csv, io
+      buf = io.StringIO()
+      w = csv.writer(buf, delimiter=";")
+      w.writerow(["a", "b", "c"])
+      print(repr(buf.getvalue()))
+      """)
+    end
+  end
 end
