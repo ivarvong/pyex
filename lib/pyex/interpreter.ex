@@ -377,13 +377,26 @@ defmodule Pyex.Interpreter do
     else
       class_scope = Env.current_scope(class_env)
 
-      class_attrs =
+      raw_attrs =
         Enum.reduce(class_scope, %{}, fn {k, v}, acc ->
           Map.put(acc, k, v)
         end)
         |> Map.put("__name__", name)
 
-      class_val = {:class, name, bases, class_attrs}
+      class_val = {:class, name, bases, raw_attrs}
+
+      # Enum subclasses transform plain value assignments into enum
+      # member instances with `.name` and `.value` attributes.
+      class_val =
+        if enum_base?(bases) do
+          # Preserve the definition order of member names by walking
+          # the class body AST.
+          body_order = body_assignment_order(body)
+          transform_enum_class(class_val, body_order)
+        else
+          class_val
+        end
+
       {nil, Env.smart_put(env, name, class_val), ctx}
     end
   end
@@ -683,6 +696,9 @@ defmodule Pyex.Interpreter do
                       {:ok, {:builtin_kw, _} = bkw, _owner} ->
                         {{:bound_method, raw, bkw}, env, ctx}
 
+                      {:ok, {:builtin, _} = b, _owner} ->
+                        {{:bound_method, raw, b}, env, ctx}
+
                       {:ok, {:property, fget, _, _}, _owner} when fget != nil ->
                         case call_function(fget, [instance], %{}, env, ctx) do
                           {val, env, ctx, _} -> {val, env, ctx}
@@ -747,6 +763,9 @@ defmodule Pyex.Interpreter do
 
                       {:ok, {:builtin_kw, _} = bkw, _owner} ->
                         {{:bound_method, raw_object, bkw}, env, ctx}
+
+                      {:ok, {:builtin, _} = b, _owner} ->
+                        {{:bound_method, raw_object, b}, env, ctx}
 
                       {:ok, value, _owner} ->
                         {value, env, ctx}
@@ -1298,6 +1317,9 @@ defmodule Pyex.Interpreter do
                   {:ok, {:builtin_kw, _} = bkw, _owner} ->
                     {{:bound_method, object, bkw}, env, ctx}
 
+                  {:ok, {:builtin, _} = b, _owner} ->
+                    {{:bound_method, object, b}, env, ctx}
+
                   {:ok, {:property, fget, _, _}, _owner} when fget != nil ->
                     case call_function(fget, [object], %{}, env, ctx) do
                       {val, env, ctx, _} -> {val, env, ctx}
@@ -1337,6 +1359,33 @@ defmodule Pyex.Interpreter do
         case attr do
           "__class__" ->
             {{:class, "type", [], %{"__name__" => "type"}}, env, ctx}
+
+          "__mro__" ->
+            mro =
+              ClassLookup.c3_linearize(class_val)
+              |> Enum.map(fn {:class, _, _, _} = c -> c end)
+
+            # Match CPython: every class's MRO ends with `object`.
+            object_class = {:class, "object", [], %{"__name__" => "object"}}
+
+            mro_with_object =
+              if Enum.any?(mro, fn {:class, n, _, _} -> n == "object" end) do
+                mro
+              else
+                mro ++ [object_class]
+              end
+
+            {{:tuple, mro_with_object}, env, ctx}
+
+          "__bases__" ->
+            {:class, _, bases, _} = class_val
+            {{:tuple, bases}, env, ctx}
+
+          "__name__" ->
+            case Map.fetch(class_attrs, "__name__") do
+              {:ok, v} -> {v, env, ctx}
+              :error -> {class_name, env, ctx}
+            end
 
           _ ->
             case Map.get(class_attrs, attr) do
@@ -1397,6 +1446,52 @@ defmodule Pyex.Interpreter do
             {{:exception, "AttributeError: type object 'dict' has no attribute '#{attr}'"}, env,
              ctx}
         end
+
+      {:builtin_type, "str", _} when attr == "maketrans" ->
+        {{:builtin,
+          fn args ->
+            case args do
+              [a, b] when is_binary(a) and is_binary(b) and byte_size(a) == byte_size(b) ->
+                # Build a mapping from codepoint -> codepoint (as strings).
+                a_cps = String.codepoints(a)
+                b_cps = String.codepoints(b)
+
+                pairs =
+                  Enum.zip(a_cps, b_cps)
+                  |> Enum.map(fn {k, v} ->
+                    <<cp::utf8>> = k
+                    {cp, v}
+                  end)
+
+                Pyex.PyDict.from_pairs(pairs)
+
+              [a, b, c] when is_binary(a) and is_binary(b) and is_binary(c) ->
+                a_cps = String.codepoints(a)
+                b_cps = String.codepoints(b)
+
+                pairs =
+                  Enum.zip(a_cps, b_cps)
+                  |> Enum.map(fn {k, v} ->
+                    <<cp::utf8>> = k
+                    {cp, v}
+                  end)
+
+                delete_pairs =
+                  String.codepoints(c)
+                  |> Enum.map(fn k ->
+                    <<cp::utf8>> = k
+                    {cp, nil}
+                  end)
+
+                Pyex.PyDict.from_pairs(pairs ++ delete_pairs)
+
+              [dict_arg] when is_map(dict_arg) ->
+                dict_arg
+
+              _ ->
+                {:exception, "TypeError: str.maketrans() requires 1-3 arguments"}
+            end
+          end}, env, ctx}
 
       {:builtin_type, name, _} ->
         {{:exception, "AttributeError: type object '#{name}' has no attribute '#{attr}'"}, env,
@@ -1740,8 +1835,14 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  def call_function({:class, name, _bases, _class_attrs} = class, args, kwargs, env, ctx) do
-    Invocation.call_class(class, name, args, kwargs, env, ctx)
+  def call_function({:class, name, _bases, class_attrs} = class, args, kwargs, env, ctx) do
+    case Map.get(class_attrs, "__enum_members__") do
+      members when is_list(members) ->
+        call_enum_lookup(members, name, args, env, ctx)
+
+      _ ->
+        Invocation.call_class(class, name, args, kwargs, env, ctx)
+    end
   end
 
   def call_function({:instance, {:class, _, _, _} = class, _} = instance, args, kwargs, env, ctx) do
@@ -3008,5 +3109,132 @@ defmodule Pyex.Interpreter do
           end
       end
     end)
+  end
+
+  @spec enum_base?([pyvalue()]) :: boolean()
+  defp enum_base?(bases) do
+    Enum.any?(bases, fn
+      {:class, "Enum", _, _} -> true
+      {:class, "IntEnum", _, _} -> true
+      {:class, _, inner_bases, _} -> enum_base?(inner_bases)
+      _ -> false
+    end)
+  end
+
+  # Transforms an `enum.Enum` subclass: each class-level value assignment
+  # becomes a singleton instance with `.name` and `.value`.  The class
+  # also gains `__enum_members__` (ordered list) and a callable form
+  # `Color(1) -> Color.RED` for value lookup.
+  @spec transform_enum_class(pyvalue(), [String.t()]) :: pyvalue()
+  defp transform_enum_class({:class, name, bases, attrs}, body_order) do
+    {members_map, rest} =
+      Enum.split_with(attrs, fn {k, v} -> enum_member_value?(k, v) end)
+
+    members_map = Map.new(members_map)
+
+    # Order members by the sequence they appeared in the class body.
+    members =
+      body_order
+      |> Enum.filter(&Map.has_key?(members_map, &1))
+      |> Enum.map(fn n -> {n, Map.fetch!(members_map, n)} end)
+
+    class_skeleton = {:class, name, bases, Map.new(rest)}
+
+    member_instances =
+      Enum.map(members, fn {member_name, value} ->
+        instance = {:instance, class_skeleton, enum_member_attrs(member_name, value)}
+        {member_name, instance}
+      end)
+
+    finalize_enum_class(name, bases, rest, member_instances)
+  end
+
+  # Extracts the order of top-level name assignments in a class body,
+  # preserving the source-code sequence needed for enum iteration.
+  @spec body_assignment_order([Parser.ast_node()]) :: [String.t()]
+  defp body_assignment_order(body) do
+    Enum.flat_map(body, fn
+      {:assign, _, [name, _]} when is_binary(name) -> [name]
+      {:assign, _, [{:var, _, [name]}, _]} -> [name]
+      {:ann_assign, _, [name, _, _]} when is_binary(name) -> [name]
+      {:ann_assign, _, [{:var, _, [name]}, _, _]} -> [name]
+      {:def, _, [name, _, _]} -> [name]
+      {:class, _, [name, _, _]} -> [name]
+      {:decorated_def, _, [_, inner]} -> body_assignment_order([inner])
+      _ -> []
+    end)
+  end
+
+  @spec finalize_enum_class(
+          String.t(),
+          [pyvalue()],
+          list(),
+          [{String.t(), pyvalue()}]
+        ) :: pyvalue()
+  defp finalize_enum_class(name, bases, rest_attrs, member_instances) do
+    attrs_map =
+      rest_attrs
+      |> Map.new()
+      |> Map.put("__enum_members__", member_instances)
+
+    # Add members as attributes once so lookups work before we rewrite
+    # their class pointer below.
+    attrs_map =
+      Enum.reduce(member_instances, attrs_map, fn {n, inst}, acc -> Map.put(acc, n, inst) end)
+
+    final_class = {:class, name, bases, attrs_map}
+
+    final_members =
+      Enum.map(member_instances, fn {n, {:instance, _, inst_attrs}} ->
+        {n, {:instance, final_class, inst_attrs}}
+      end)
+
+    final_attrs =
+      Enum.reduce(final_members, attrs_map, fn {n, inst}, acc -> Map.put(acc, n, inst) end)
+      |> Map.put("__enum_members__", final_members)
+
+    {:class, name, bases, final_attrs}
+  end
+
+  @spec enum_member_value?(String.t(), pyvalue()) :: boolean()
+  defp enum_member_value?("__" <> _, _), do: false
+
+  defp enum_member_value?(_name, v) do
+    case v do
+      v when is_number(v) -> true
+      v when is_binary(v) -> true
+      true -> true
+      false -> true
+      nil -> false
+      {:tuple, _} -> true
+      {:py_list, _, _} -> true
+      _ -> false
+    end
+  end
+
+  @spec enum_member_attrs(String.t(), pyvalue()) :: map()
+  defp enum_member_attrs(name, value) do
+    %{
+      "name" => name,
+      "value" => value,
+      "_name_" => name,
+      "_value_" => value
+    }
+  end
+
+  @spec call_enum_lookup([{String.t(), pyvalue()}], String.t(), [pyvalue()], Env.t(), Ctx.t()) ::
+          call_result()
+  defp call_enum_lookup(members, class_name, [value], env, ctx) do
+    case Enum.find(members, fn {_n, {:instance, _, attrs}} -> Map.get(attrs, "value") == value end) do
+      nil ->
+        {{:exception, "ValueError: #{inspect(value)} is not a valid #{class_name}"}, env, ctx}
+
+      {_n, inst} ->
+        {inst, env, ctx}
+    end
+  end
+
+  defp call_enum_lookup(_members, class_name, _args, env, ctx) do
+    {{:exception, "TypeError: #{class_name}() takes exactly 1 argument"}, env, ctx}
   end
 end

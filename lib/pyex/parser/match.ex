@@ -42,10 +42,22 @@ defmodule Pyex.Parser.Match do
 
   defp parse_match_cases([{:name, _, "case"} | rest], acc) do
     with {:ok, pattern, rest} <- parse_match_pattern(rest),
-         {:ok, guard, rest} <- parse_match_guard(rest),
-         {:ok, rest} <- Parser.expect_block_start(rest, "case"),
-         {:ok, body, rest} <- Parser.parse_block(rest) do
-      parse_match_cases(rest, [{pattern, guard, body} | acc])
+         {:ok, guard, rest} <- parse_match_guard(rest) do
+      case rest do
+        [{:op, _, :colon}, :newline, :indent | block_rest] ->
+          with {:ok, body, rest} <- Parser.parse_block(block_rest) do
+            parse_match_cases(rest, [{pattern, guard, body} | acc])
+          end
+
+        [{:op, _, :colon} | inline_rest] ->
+          # Single-line `case p: expr` (matches CPython).
+          with {:ok, stmt, rest} <- Parser.parse_inline_body(inline_rest) do
+            parse_match_cases(rest, [{pattern, guard, [stmt]} | acc])
+          end
+
+        _ ->
+          {:error, "expected ':' after case at #{token_line(rest)}"}
+      end
     end
   end
 

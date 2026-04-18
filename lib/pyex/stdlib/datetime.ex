@@ -48,9 +48,263 @@ defmodule Pyex.Stdlib.Datetime do
     %{
       "datetime" => datetime_class(),
       "date" => date_class(),
+      "time" => time_class(),
       "timedelta" => timedelta_class(),
       "timezone" => timezone_class()
     }
+  end
+
+  @spec time_class() :: Pyex.Interpreter.pyvalue()
+  defp time_class do
+    methods = %{
+      "__init__" => {:builtin_kw, &time_init/2},
+      "__repr__" => {:builtin, &time_repr/1},
+      "__str__" => {:builtin, &time_str/1},
+      "__eq__" => {:builtin, &time_eq/1},
+      "__lt__" => {:builtin, &time_lt/1},
+      "__le__" => {:builtin, &time_le/1},
+      "__gt__" => {:builtin, &time_gt/1},
+      "__ge__" => {:builtin, &time_ge/1},
+      "__hash__" => {:builtin, &time_hash/1},
+      "isoformat" => {:builtin, &time_isoformat/1},
+      "replace" => {:builtin_kw, &time_replace/2},
+      "strftime" => {:builtin, &time_strftime/1},
+      "fromisoformat" => {:builtin, &time_fromisoformat/1}
+    }
+
+    base = {:class, "time", [], methods}
+
+    # Attach class-level singletons (min/max/resolution) whose values
+    # reference the bare class itself, avoiding infinite recursion.
+    singletons = %{
+      "min" =>
+        {:instance, base,
+         %{
+           "hour" => 0,
+           "minute" => 0,
+           "second" => 0,
+           "microsecond" => 0,
+           "__time_components__" => {0, 0, 0, 0}
+         }},
+      "max" =>
+        {:instance, base,
+         %{
+           "hour" => 23,
+           "minute" => 59,
+           "second" => 59,
+           "microsecond" => 999_999,
+           "__time_components__" => {23, 59, 59, 999_999}
+         }},
+      "resolution" => make_timedelta_instance(0, 0.000001)
+    }
+
+    {:class, "time", [], Map.merge(methods, singletons)}
+  end
+
+  @spec time_init([Pyex.Interpreter.pyvalue()], map()) :: Pyex.Interpreter.pyvalue()
+  defp time_init([_self | args], kwargs) do
+    {hour, minute, second, microsecond} =
+      case args do
+        [] -> {0, 0, 0, 0}
+        [h] -> {h, 0, 0, 0}
+        [h, m] -> {h, m, 0, 0}
+        [h, m, s] -> {h, m, s, 0}
+        [h, m, s, us] -> {h, m, s, us}
+        _ -> {nil, nil, nil, nil}
+      end
+
+    hour = Map.get(kwargs, "hour", hour)
+    minute = Map.get(kwargs, "minute", minute)
+    second = Map.get(kwargs, "second", second)
+    microsecond = Map.get(kwargs, "microsecond", microsecond)
+
+    cond do
+      not (is_integer(hour) and hour >= 0 and hour <= 23) ->
+        {:exception, "ValueError: hour must be in 0..23"}
+
+      not (is_integer(minute) and minute >= 0 and minute <= 59) ->
+        {:exception, "ValueError: minute must be in 0..59"}
+
+      not (is_integer(second) and second >= 0 and second <= 59) ->
+        {:exception, "ValueError: second must be in 0..59"}
+
+      not (is_integer(microsecond) and microsecond >= 0 and microsecond <= 999_999) ->
+        {:exception, "ValueError: microsecond must be in 0..999999"}
+
+      true ->
+        make_time_instance(hour, minute, second, microsecond)
+    end
+  end
+
+  @spec make_time_instance(integer(), integer(), integer(), integer()) ::
+          Pyex.Interpreter.pyvalue()
+  defp make_time_instance(h, m, s, us) do
+    {:instance, time_class(),
+     %{
+       "hour" => h,
+       "minute" => m,
+       "second" => s,
+       "microsecond" => us,
+       "__time_components__" => {h, m, s, us}
+     }}
+  end
+
+  defp time_repr([
+         {:instance, _, %{"hour" => h, "minute" => m, "second" => s, "microsecond" => us}}
+       ]) do
+    args =
+      cond do
+        us != 0 -> "#{h}, #{m}, #{s}, #{us}"
+        s != 0 -> "#{h}, #{m}, #{s}"
+        true -> "#{h}, #{m}"
+      end
+
+    "datetime.time(#{args})"
+  end
+
+  defp time_repr(_), do: "datetime.time(...)"
+
+  defp time_str([inst]), do: time_isoformat([inst])
+
+  defp time_isoformat([
+         {:instance, _, %{"hour" => h, "minute" => m, "second" => s, "microsecond" => us}}
+       ]) do
+    base = "#{pad2(h)}:#{pad2(m)}:#{pad2(s)}"
+
+    if us == 0 do
+      base
+    else
+      base <> "." <> String.pad_leading(Integer.to_string(us), 6, "0")
+    end
+  end
+
+  defp time_isoformat(_), do: "00:00:00"
+
+  defp time_components([{:instance, _, attrs}]), do: Map.get(attrs, "__time_components__")
+  defp time_components(_), do: nil
+
+  defp time_eq([a, b]) do
+    case {time_components([a]), time_components([b])} do
+      {nil, _} -> false
+      {_, nil} -> false
+      {x, y} -> x == y
+    end
+  end
+
+  defp time_lt([a, b]) do
+    case {time_components([a]), time_components([b])} do
+      {nil, _} -> false
+      {_, nil} -> false
+      {x, y} -> x < y
+    end
+  end
+
+  defp time_le([a, b]) do
+    case {time_components([a]), time_components([b])} do
+      {nil, _} -> false
+      {_, nil} -> false
+      {x, y} -> x <= y
+    end
+  end
+
+  defp time_gt([a, b]) do
+    case {time_components([a]), time_components([b])} do
+      {nil, _} -> false
+      {_, nil} -> false
+      {x, y} -> x > y
+    end
+  end
+
+  defp time_ge([a, b]) do
+    case {time_components([a]), time_components([b])} do
+      {nil, _} -> false
+      {_, nil} -> false
+      {x, y} -> x >= y
+    end
+  end
+
+  defp time_hash([{:instance, _, attrs}]) do
+    {h, m, s, us} = Map.get(attrs, "__time_components__", {0, 0, 0, 0})
+    :erlang.phash2({h, m, s, us})
+  end
+
+  defp time_hash(_), do: 0
+
+  defp time_replace([{:instance, _, attrs}], kwargs) do
+    h = Map.get(kwargs, "hour", Map.get(attrs, "hour"))
+    m = Map.get(kwargs, "minute", Map.get(attrs, "minute"))
+    s = Map.get(kwargs, "second", Map.get(attrs, "second"))
+    us = Map.get(kwargs, "microsecond", Map.get(attrs, "microsecond"))
+    make_time_instance(h, m, s, us)
+  end
+
+  defp time_replace(_, _), do: {:exception, "TypeError: replace() argument must be a time"}
+
+  defp time_strftime([inst, fmt]) when is_binary(fmt) do
+    # Minimal strftime: reuse the datetime strftime path by synthesizing
+    # a datetime on 1900-01-01 with the time's components.
+    {:instance, _, %{"hour" => h, "minute" => m, "second" => s, "microsecond" => us}} = inst
+    naive = NaiveDateTime.new!(1900, 1, 1, h, m, s, {us, 6})
+
+    fmt
+    |> String.replace("%H", pad2(h))
+    |> String.replace("%M", pad2(m))
+    |> String.replace("%S", pad2(s))
+    |> String.replace("%f", String.pad_leading(Integer.to_string(us), 6, "0"))
+    |> String.replace("%p", if(h < 12, do: "AM", else: "PM"))
+    |> String.replace("%I", pad2(rem(h + 11, 12) + 1))
+    |> then(fn s ->
+      # catch any unhandled % directive
+      _ = naive
+      s
+    end)
+  end
+
+  defp time_strftime(_), do: {:exception, "TypeError: strftime() requires a format string"}
+
+  defp time_fromisoformat([s]) when is_binary(s) do
+    case parse_iso_time(s) do
+      {:ok, {h, m, sec, us}} -> make_time_instance(h, m, sec, us)
+      :error -> {:exception, "ValueError: Invalid isoformat string: '#{s}'"}
+    end
+  end
+
+  defp time_fromisoformat(_), do: {:exception, "TypeError: fromisoformat expects a string"}
+
+  defp parse_iso_time(s) do
+    # Accepts HH, HH:MM, HH:MM:SS, HH:MM:SS.ffffff
+    case String.split(s, ":") do
+      [hh] ->
+        with {h, ""} <- Integer.parse(hh), do: {:ok, {h, 0, 0, 0}}
+
+      [hh, mm] ->
+        with {h, ""} <- Integer.parse(hh),
+             {m, ""} <- Integer.parse(mm),
+             do: {:ok, {h, m, 0, 0}}
+
+      [hh, mm, ss] ->
+        with {h, ""} <- Integer.parse(hh),
+             {m, ""} <- Integer.parse(mm) do
+          case String.split(ss, ".") do
+            [sec] ->
+              with {s, ""} <- Integer.parse(sec), do: {:ok, {h, m, s, 0}}
+
+            [sec, us_str] ->
+              with {s, ""} <- Integer.parse(sec),
+                   {us, ""} <-
+                     Integer.parse(String.pad_trailing(us_str, 6, "0") |> String.slice(0, 6)) do
+                {:ok, {h, m, s, us}}
+              end
+          end
+        end
+
+      _ ->
+        :error
+    end
+    |> case do
+      {:ok, _} = ok -> ok
+      _ -> :error
+    end
   end
 
   @spec datetime_class() ::

@@ -213,6 +213,7 @@ defmodule Pyex.Methods do
   defp string_method("isdecimal"), do: {:ok, &str_isdecimal/2}
   defp string_method("isnumeric"), do: {:ok, &str_isnumeric/2}
   defp string_method("casefold"), do: {:ok, &str_casefold/2}
+  defp string_method("translate"), do: {:ok, &str_translate/2}
   defp string_method("isalpha"), do: {:ok, &str_isalpha/2}
   defp string_method("title"), do: {:ok, &str_title/2}
   defp string_method("capitalize"), do: {:ok, &str_capitalize/2}
@@ -731,6 +732,24 @@ defmodule Pyex.Methods do
 
   @spec str_casefold(String.t(), [Interpreter.pyvalue()]) :: String.t()
   defp str_casefold(s, []), do: String.downcase(s, :default)
+
+  @spec str_translate(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  defp str_translate(s, [{:py_dict, _, _} = table]) do
+    s
+    |> String.codepoints()
+    |> Enum.map_join(fn char ->
+      <<cp::utf8>> = char
+
+      case PyDict.fetch(table, cp) do
+        {:ok, nil} -> ""
+        {:ok, repl} when is_binary(repl) -> repl
+        {:ok, repl} when is_integer(repl) -> <<repl::utf8>>
+        _ -> char
+      end
+    end)
+  end
+
+  defp str_translate(s, [_other]), do: s
 
   @spec str_isalpha(String.t(), [Interpreter.pyvalue()]) :: boolean()
   defp str_isalpha(s, []) when s == "", do: false
