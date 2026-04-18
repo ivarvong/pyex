@@ -252,6 +252,18 @@ defmodule Pyex.Parser.Definitions do
     parse_params([{:op, 0, :rparen} | rest], [{"*", :kwonly_sep} | acc])
   end
 
+  # Positional-only separator `/` — every parameter before it is
+  # positional-only (cannot be passed by keyword).  In Pyex we mark
+  # the preceding params as positional-only via a sentinel tag; call
+  # sites enforce this by rejecting kwargs for those names.
+  defp parse_params([{:op, _, :slash}, {:op, _, :comma} | rest], acc) do
+    parse_params(rest, [{"/", :pos_only_sep} | acc])
+  end
+
+  defp parse_params([{:op, _, :slash}, {:op, _, :rparen} | rest], acc) do
+    parse_params([{:op, 0, :rparen} | rest], [{"/", :pos_only_sep} | acc])
+  end
+
   defp parse_params([{:name, _, name} | rest], acc) do
     parse_params(rest, [{name, nil} | acc])
   end

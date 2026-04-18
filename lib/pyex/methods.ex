@@ -109,6 +109,20 @@ defmodule Pyex.Methods do
     end
   end
 
+  def resolve({:bytes, _} = object, attr) do
+    case bytes_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
+  def resolve({:bytearray, _} = object, attr) do
+    case bytes_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
   def resolve(object, attr) when is_integer(object) do
     case int_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
@@ -290,6 +304,99 @@ defmodule Pyex.Methods do
   defp int_method("__abs__"), do: {:ok, fn n, [] -> abs(n) end}
   defp int_method("__neg__"), do: {:ok, fn n, [] -> -n end}
   defp int_method(_), do: :error
+
+  # -- Bytes methods ---------------------------------------------------
+
+  @spec bytes_method(String.t()) :: {:ok, (term(), [term()] -> term())} | :error
+  defp bytes_method("decode"), do: {:ok, &bytes_decode/2}
+  defp bytes_method("hex"), do: {:ok, &bytes_hex/2}
+  defp bytes_method("startswith"), do: {:ok, &bytes_startswith/2}
+  defp bytes_method("endswith"), do: {:ok, &bytes_endswith/2}
+
+  defp bytes_method("upper"),
+    do: {:ok, fn {_tag, b}, [] -> {:bytes, :binary.copy(b) |> String.upcase()} end}
+
+  defp bytes_method("lower"),
+    do: {:ok, fn {_tag, b}, [] -> {:bytes, :binary.copy(b) |> String.downcase()} end}
+
+  defp bytes_method("split"), do: {:ok, &bytes_split/2}
+  defp bytes_method("strip"), do: {:ok, &bytes_strip/2}
+  defp bytes_method("replace"), do: {:ok, &bytes_replace/2}
+  defp bytes_method("__len__"), do: {:ok, fn {_tag, b}, [] -> byte_size(b) end}
+  defp bytes_method(_), do: :error
+
+  @spec bytes_decode(term(), [term()]) :: String.t() | {:exception, String.t()}
+  defp bytes_decode({_tag, b}, []), do: b
+
+  defp bytes_decode({_tag, b}, [encoding]) when is_binary(encoding) do
+    case String.downcase(encoding) do
+      e when e in ["utf-8", "utf8", "latin-1", "latin1", "ascii"] -> b
+      _ -> {:exception, "LookupError: unknown encoding: #{encoding}"}
+    end
+  end
+
+  defp bytes_decode(_, _), do: {:exception, "TypeError: decode() expects optional encoding arg"}
+
+  @spec bytes_hex(term(), [term()]) :: String.t()
+  defp bytes_hex({_tag, b}, []) do
+    b
+    |> :binary.bin_to_list()
+    |> Enum.map_join(fn byte ->
+      String.pad_leading(Integer.to_string(byte, 16) |> String.downcase(), 2, "0")
+    end)
+  end
+
+  defp bytes_hex(_, _), do: ""
+
+  @spec bytes_startswith(term(), [term()]) :: boolean()
+  defp bytes_startswith({_tag, b}, [{:bytes, pref}]), do: String.starts_with?(b, pref)
+  defp bytes_startswith({_tag, b}, [pref]) when is_binary(pref), do: String.starts_with?(b, pref)
+  defp bytes_startswith(_, _), do: false
+
+  @spec bytes_endswith(term(), [term()]) :: boolean()
+  defp bytes_endswith({_tag, b}, [{:bytes, suf}]), do: String.ends_with?(b, suf)
+  defp bytes_endswith({_tag, b}, [suf]) when is_binary(suf), do: String.ends_with?(b, suf)
+  defp bytes_endswith(_, _), do: false
+
+  @spec bytes_split(term(), [term()]) :: [term()]
+  defp bytes_split({tag, b}, []) do
+    b |> String.split() |> Enum.map(fn part -> {tag, part} end)
+  end
+
+  defp bytes_split({tag, b}, [{:bytes, sep}]) when is_binary(sep) do
+    b |> String.split(sep) |> Enum.map(fn part -> {tag, part} end)
+  end
+
+  defp bytes_split({tag, b}, [sep]) when is_binary(sep) do
+    b |> String.split(sep) |> Enum.map(fn part -> {tag, part} end)
+  end
+
+  defp bytes_split(_, _), do: []
+
+  @spec bytes_strip(term(), [term()]) :: term()
+  defp bytes_strip({tag, b}, []), do: {tag, String.trim(b)}
+
+  defp bytes_strip({tag, b}, [{:bytes, chars}]) when is_binary(chars),
+    do: {tag, String.trim(b, chars)}
+
+  defp bytes_strip({tag, b}, [chars]) when is_binary(chars),
+    do: {tag, String.trim(b, chars)}
+
+  defp bytes_strip(b, _), do: b
+
+  @spec bytes_replace(term(), [term()]) :: term() | {:exception, String.t()}
+  defp bytes_replace({tag, b}, [old, new]) do
+    old_bin = if is_tuple(old), do: elem(old, 1), else: old
+    new_bin = if is_tuple(new), do: elem(new, 1), else: new
+
+    if is_binary(old_bin) and is_binary(new_bin) do
+      {tag, String.replace(b, old_bin, new_bin)}
+    else
+      {:exception, "TypeError: bytes.replace() requires bytes arguments"}
+    end
+  end
+
+  defp bytes_replace(_, _), do: {:exception, "TypeError: bytes.replace() requires 2 args"}
 
   @spec int_bit_length(integer(), [Interpreter.pyvalue()]) :: non_neg_integer()
   defp int_bit_length(0, []), do: 0
@@ -1024,9 +1131,52 @@ defmodule Pyex.Methods do
     String.replace(s, "\t", String.duplicate(" ", tabsize))
   end
 
-  @spec str_encode(String.t(), [Interpreter.pyvalue()]) :: String.t()
-  defp str_encode(s, []), do: s
-  defp str_encode(s, [_encoding]), do: s
+  @spec str_encode(String.t(), [Interpreter.pyvalue()]) ::
+          {:bytes, binary()} | {:exception, String.t()}
+  defp str_encode(s, []), do: {:bytes, s}
+
+  defp str_encode(s, [encoding]) when is_binary(encoding) do
+    case String.downcase(encoding) do
+      e when e in ["utf-8", "utf8"] ->
+        {:bytes, s}
+
+      e when e in ["latin-1", "latin1", "iso-8859-1"] ->
+        # For pure-ASCII strings this is equivalent; for non-ASCII we
+        # drop to codepoint-per-byte (codepoints > 0xFF raise).
+        case encode_latin1(s) do
+          {:ok, b} -> {:bytes, b}
+          :error -> {:exception, "UnicodeEncodeError: 'latin-1' codec can't encode character"}
+        end
+
+      "ascii" ->
+        if String.printable?(s, :infinity) and ascii_only?(s) do
+          {:bytes, s}
+        else
+          {:exception, "UnicodeEncodeError: 'ascii' codec can't encode character"}
+        end
+
+      _ ->
+        {:exception, "LookupError: unknown encoding: #{encoding}"}
+    end
+  end
+
+  defp str_encode(_s, _), do: {:exception, "TypeError: encode() expects optional encoding arg"}
+
+  @spec encode_latin1(String.t()) :: {:ok, binary()} | :error
+  defp encode_latin1(s) do
+    Enum.reduce_while(String.to_charlist(s), <<>>, fn cp, acc ->
+      if cp <= 0xFF, do: {:cont, <<acc::binary, cp>>}, else: {:halt, :error}
+    end)
+    |> case do
+      :error -> :error
+      b -> {:ok, b}
+    end
+  end
+
+  @spec ascii_only?(String.t()) :: boolean()
+  defp ascii_only?(s) do
+    Enum.all?(String.to_charlist(s), fn cp -> cp < 128 end)
+  end
 
   @spec dict_get(map() | PyDict.t(), [Interpreter.pyvalue()]) :: Interpreter.pyvalue()
   defp dict_get({:py_dict, _, _} = dict, [key]), do: PyDict.get(dict, key)

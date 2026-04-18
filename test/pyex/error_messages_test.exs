@@ -48,71 +48,42 @@ defmodule Pyex.ErrorMessagesTest do
     end
   end
 
-  describe "unimplemented: exec/eval/compile" do
-    test "exec() gives NotImplementedError with explanation" do
-      {:error, %Error{message: msg}} = Pyex.run(~s|exec("x = 1")|)
-      assert msg =~ "NotImplementedError"
-      assert msg =~ "exec()"
-      assert msg =~ "not supported"
-      refute msg =~ "NameError"
+  describe "exec/eval now supported" do
+    test "exec(str) defines vars in current scope" do
+      assert Pyex.run!(~s|exec("x = 1")\nx|) == 1
     end
 
-    test "eval() gives NotImplementedError with explanation" do
-      {:error, %Error{message: msg}} = Pyex.run(~s|eval("1 + 2")|)
-      assert msg =~ "NotImplementedError"
-      assert msg =~ "eval()"
-      assert msg =~ "not supported"
-      refute msg =~ "NameError"
+    test "eval(str) returns expression value" do
+      assert Pyex.run!(~s|eval("1 + 2")|) == 3
     end
 
-    test "compile() gives NotImplementedError with explanation" do
+    test "compile() still unsupported" do
       {:error, %Error{message: msg}} = Pyex.run(~s|compile("x", "<string>", "eval")|)
       assert msg =~ "NotImplementedError"
-      assert msg =~ "compile()"
-      assert msg =~ "not supported"
-      refute msg =~ "NameError"
     end
   end
 
-  describe "unimplemented: complex numbers" do
-    test "complex() gives NotImplementedError" do
-      {:error, %Error{message: msg}} = Pyex.run("x = complex(1, 2)")
-      assert msg =~ "NotImplementedError"
-      assert msg =~ "complex"
-      assert msg =~ "not supported"
-      refute msg =~ "NameError"
+  describe "complex numbers now supported" do
+    test "complex() succeeds" do
+      {:ok, _, _} = Pyex.run("x = complex(1, 2)")
     end
 
-    test "j literal suffix gives NotImplementedError" do
-      {:error, %Error{message: msg}} = Pyex.run("x = 2j")
-      assert msg =~ "NotImplementedError"
-      assert msg =~ "complex"
-      assert msg =~ "not supported"
-      refute msg =~ "NameError"
+    test "j literal suffix succeeds" do
+      {:ok, _, _} = Pyex.run("x = 2j")
     end
   end
 
-  describe "unimplemented: bytes/bytearray" do
-    test "b-string literal gives NotImplementedError" do
-      {:error, %Error{message: msg}} = Pyex.run(~s|x = b"hello"|)
-      assert msg =~ "NotImplementedError"
-      assert msg =~ "bytes"
-      assert msg =~ "not supported"
-      refute msg =~ "NameError"
+  describe "bytes/bytearray now supported" do
+    test "b-string literal succeeds" do
+      {:ok, _, _} = Pyex.run(~s|x = b"hello"|)
     end
 
-    test "bytearray() gives NotImplementedError" do
-      {:error, %Error{message: msg}} = Pyex.run(~s|x = bytearray(b"hello")|)
-      assert msg =~ "NotImplementedError"
-      assert msg =~ "not supported"
-      refute msg =~ "NameError"
+    test "bytearray() succeeds" do
+      {:ok, _, _} = Pyex.run(~s|x = bytearray(b"hello")|)
     end
 
-    test "bytes() gives NotImplementedError" do
-      {:error, %Error{message: msg}} = Pyex.run("x = bytes([72, 101])")
-      assert msg =~ "NotImplementedError"
-      assert msg =~ "not supported"
-      refute msg =~ "NameError"
+    test "bytes() succeeds" do
+      {:ok, _, _} = Pyex.run("x = bytes([72, 101])")
     end
   end
 

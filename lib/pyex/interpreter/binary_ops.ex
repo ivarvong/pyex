@@ -247,12 +247,41 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:plus, :neg_infinity, :neg_infinity), do: :neg_infinity
   defp dispatch(:plus, l, r) when is_number(l) and is_number(r), do: l + r
 
+  defp dispatch(:plus, {:bytes, a}, {:bytes, b}), do: {:bytes, a <> b}
+  defp dispatch(:plus, {:bytearray, a}, {:bytes, b}), do: {:bytearray, a <> b}
+  defp dispatch(:plus, {:bytes, a}, {:bytearray, b}), do: {:bytearray, a <> b}
+  defp dispatch(:plus, {:bytearray, a}, {:bytearray, b}), do: {:bytearray, a <> b}
+
+  defp dispatch(:plus, {:complex, r1, i1}, {:complex, r2, i2}), do: {:complex, r1 + r2, i1 + i2}
+  defp dispatch(:plus, {:complex, r, i}, n) when is_number(n), do: {:complex, r + n, i}
+  defp dispatch(:plus, n, {:complex, r, i}) when is_number(n), do: {:complex, n + r, i}
+
   defp dispatch(:plus, l, r),
     do: type_error("+", l, r)
 
   # -- minus ----------------------------------------------------------
 
   defp dispatch(:minus, l, r) when is_number(l) and is_number(r), do: l - r
+  defp dispatch(:minus, {:complex, r1, i1}, {:complex, r2, i2}), do: {:complex, r1 - r2, i1 - i2}
+  defp dispatch(:minus, {:complex, r, i}, n) when is_number(n), do: {:complex, r - n, i}
+  defp dispatch(:minus, n, {:complex, r, i}) when is_number(n), do: {:complex, n - r, -i}
+
+  defp dispatch(:star, {:complex, a, b}, {:complex, c, d}),
+    do: {:complex, a * c - b * d, a * d + b * c}
+
+  defp dispatch(:star, {:complex, a, b}, n) when is_number(n),
+    do: {:complex, a * n, b * n}
+
+  defp dispatch(:star, n, {:complex, a, b}) when is_number(n),
+    do: {:complex, n * a, n * b}
+
+  defp dispatch(:slash, {:complex, a, b}, {:complex, c, d}) do
+    denom = c * c + d * d
+    {:complex, (a * c + b * d) / denom, (b * c - a * d) / denom}
+  end
+
+  defp dispatch(:slash, {:complex, a, b}, n) when is_number(n),
+    do: {:complex, a / n, b / n}
 
   defp dispatch(:minus, {:set, a}, {:set, b}),
     do: {:set, MapSet.difference(a, b)}

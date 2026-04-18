@@ -174,6 +174,8 @@ defmodule Pyex.Builtins do
   defp builtin_len([{:tuple, items}]), do: length(items)
   defp builtin_len([{:set, s}]), do: MapSet.size(s)
   defp builtin_len([{:frozenset, s}]), do: MapSet.size(s)
+  defp builtin_len([{:bytes, b}]), do: byte_size(b)
+  defp builtin_len([{:bytearray, b}]), do: byte_size(b)
   defp builtin_len([{:deque, items, _}]), do: length(items)
   defp builtin_len([{:generator, items}]), do: length(items)
   defp builtin_len([{:range, _, _, _} = r]), do: range_length(r)
@@ -1905,18 +1907,56 @@ defmodule Pyex.Builtins do
     do_mod_pow(base, div(exp, 2), mod, result)
   end
 
-  @spec builtin_exec([Interpreter.pyvalue()]) :: {:exception, String.t()}
-  defp builtin_exec(_args) do
-    {:exception,
-     "NotImplementedError: exec() is not supported. " <>
-       "Write your logic directly instead of using dynamic code execution"}
+  @spec builtin_exec([Interpreter.pyvalue()]) ::
+          Interpreter.builtin_signal() | {:exception, String.t()}
+  defp builtin_exec([code]) when is_binary(code) do
+    {:ctx_call,
+     fn env, ctx ->
+       case do_eval_or_exec(code, env, ctx, :exec) do
+         {:ok, _val, env, ctx} -> {nil, env, ctx}
+         {:error, msg, env, ctx} -> {{:exception, msg}, env, ctx}
+       end
+     end}
   end
 
-  @spec builtin_eval([Interpreter.pyvalue()]) :: {:exception, String.t()}
-  defp builtin_eval(_args) do
-    {:exception,
-     "NotImplementedError: eval() is not supported. " <>
-       "Write your logic directly instead of using dynamic code execution"}
+  defp builtin_exec(_),
+    do: {:exception, "TypeError: exec() expects a string of source code"}
+
+  @spec builtin_eval([Interpreter.pyvalue()]) ::
+          Interpreter.builtin_signal() | {:exception, String.t()}
+  defp builtin_eval([code]) when is_binary(code) do
+    {:ctx_call,
+     fn env, ctx ->
+       case do_eval_or_exec(code, env, ctx, :eval) do
+         {:ok, val, env, ctx} -> {val, env, ctx}
+         {:error, msg, env, ctx} -> {{:exception, msg}, env, ctx}
+       end
+     end}
+  end
+
+  defp builtin_eval(_),
+    do: {:exception, "TypeError: eval() expects a string expression"}
+
+  # Executes `code` in the context of `env`/`ctx`.  For :eval, the code
+  # must be a single expression and its value is returned.  For :exec,
+  # the code may be any statements; we return `nil` as the result.
+  @spec do_eval_or_exec(String.t(), Env.t(), Ctx.t(), :eval | :exec) ::
+          {:ok, Interpreter.pyvalue(), Env.t(), Ctx.t()}
+          | {:error, String.t(), Env.t(), Ctx.t()}
+  defp do_eval_or_exec(code, env, ctx, mode) do
+    with {:ok, tokens} <- Pyex.Lexer.tokenize(code),
+         {:ok, {:module, _, statements}} <- Pyex.Parser.parse(tokens) do
+      # For :eval, callers expect the expression's value to be returned.
+      # For :exec, we discard the final value and return nil upstream.
+      _ = mode
+
+      case Interpreter.eval_statements(statements, env, ctx) do
+        {{:exception, msg}, _env, ctx} -> {:error, msg, env, ctx}
+        {val, new_env, ctx} -> {:ok, val, new_env, ctx}
+      end
+    else
+      {:error, msg} -> {:error, "SyntaxError: #{msg}", env, ctx}
+    end
   end
 
   @spec builtin_compile([Interpreter.pyvalue()]) :: {:exception, String.t()}
@@ -1926,25 +1966,163 @@ defmodule Pyex.Builtins do
        "Write your logic directly instead of using dynamic code execution"}
   end
 
-  @spec builtin_complex([Interpreter.pyvalue()]) :: {:exception, String.t()}
-  defp builtin_complex(_args) do
-    {:exception,
-     "NotImplementedError: complex numbers are not supported. " <>
-       "Use separate variables for real and imaginary parts"}
+  @spec builtin_complex([Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue() | {:exception, String.t()}
+  defp builtin_complex([]), do: {:complex, 0.0, 0.0}
+  defp builtin_complex([r]) when is_number(r), do: {:complex, r * 1.0, 0.0}
+  defp builtin_complex([{:complex, _, _} = c]), do: c
+
+  defp builtin_complex([r, i]) when is_number(r) and is_number(i),
+    do: {:complex, r * 1.0, i * 1.0}
+
+  defp builtin_complex([{:complex, r, i}, {:complex, r2, i2}]),
+    do: {:complex, r - i2, i + r2}
+
+  defp builtin_complex([s]) when is_binary(s) do
+    # Very small complex-literal parser: accepts "1+2j", "2j", "-3.5j", "1".
+    trimmed = s |> String.trim() |> String.replace(~r/\s+/, "")
+
+    cond do
+      String.ends_with?(trimmed, "j") or String.ends_with?(trimmed, "J") ->
+        parse_complex_with_j(trimmed)
+
+      true ->
+        case Float.parse(trimmed) do
+          {r, ""} -> {:complex, r, 0.0}
+          _ -> {:exception, "ValueError: complex() arg is a malformed string"}
+        end
+    end
   end
 
-  @spec builtin_bytes([Interpreter.pyvalue()]) :: {:exception, String.t()}
+  defp builtin_complex(_),
+    do: {:exception, "TypeError: complex() takes at most 2 arguments"}
+
+  @spec parse_complex_with_j(String.t()) :: Interpreter.pyvalue()
+  defp parse_complex_with_j(s) do
+    # Strip the trailing j/J and look for a split +/- in the middle.
+    without_j = String.slice(s, 0, String.length(s) - 1)
+
+    result =
+      case split_complex(without_j) do
+        {:just_imag, imag_str} ->
+          case Float.parse(imag_str) do
+            {i, ""} -> {:complex, 0.0, i}
+            _ -> :parse_error
+          end
+
+        {:both, real_str, imag_str} ->
+          with {r, ""} <- Float.parse(real_str),
+               {i, ""} <- Float.parse(imag_str) do
+            {:complex, r, i}
+          else
+            _ -> :parse_error
+          end
+      end
+
+    case result do
+      {:complex, _, _} = c -> c
+      _ -> {:exception, "ValueError: complex() arg is a malformed string"}
+    end
+  end
+
+  @spec split_complex(String.t()) ::
+          {:just_imag, String.t()} | {:both, String.t(), String.t()}
+  defp split_complex(s) do
+    # Find a + or - that's not at position 0 and not after `e`/`E`.
+    chars = String.to_charlist(s)
+
+    idx =
+      Enum.reduce_while(Enum.with_index(chars), :none, fn {c, i}, _ ->
+        cond do
+          i == 0 -> {:cont, :none}
+          c in [?+, ?-] and Enum.at(chars, i - 1) not in [?e, ?E] -> {:halt, i}
+          true -> {:cont, :none}
+        end
+      end)
+
+    case idx do
+      :none ->
+        imag_part = if s == "" or s == "+" or s == "-", do: s <> "1", else: s
+        {:just_imag, imag_part}
+
+      i ->
+        {real, imag_rest} = String.split_at(s, i)
+        imag = if imag_rest in ["+", "-"], do: imag_rest <> "1", else: imag_rest
+        {:both, real, imag}
+    end
+  end
+
+  @spec builtin_bytes([Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue() | {:exception, String.t()}
+  defp builtin_bytes([]), do: {:bytes, ""}
+  defp builtin_bytes([n]) when is_integer(n) and n >= 0, do: {:bytes, :binary.copy(<<0>>, n)}
+
+  defp builtin_bytes([{:bytes, b}]), do: {:bytes, b}
+  defp builtin_bytes([{:bytearray, b}]), do: {:bytes, b}
+
+  defp builtin_bytes([s]) when is_binary(s) do
+    # bytes(str) in CPython requires an encoding; we mirror this by
+    # accepting the default UTF-8 encoding when no second arg is given.
+    {:exception, "TypeError: string argument without an encoding"}
+  end
+
+  defp builtin_bytes([{:py_list, reversed, _}]),
+    do: bytes_from_iterable(Enum.reverse(reversed))
+
+  defp builtin_bytes([list]) when is_list(list), do: bytes_from_iterable(list)
+  defp builtin_bytes([{:tuple, items}]), do: bytes_from_iterable(items)
+
+  defp builtin_bytes([s, encoding]) when is_binary(s) and is_binary(encoding) do
+    case String.downcase(encoding) do
+      "utf-8" ->
+        {:bytes, s}
+
+      "utf8" ->
+        {:bytes, s}
+
+      "ascii" ->
+        if String.printable?(s, :infinity),
+          do: {:bytes, s},
+          else: {:exception, "UnicodeEncodeError: 'ascii' codec can't encode character"}
+
+      "latin-1" ->
+        {:bytes, s}
+
+      "latin1" ->
+        {:bytes, s}
+
+      _ ->
+        {:exception, "LookupError: unknown encoding: #{encoding}"}
+    end
+  end
+
   defp builtin_bytes(_args) do
-    {:exception,
-     "NotImplementedError: bytes type is not supported. " <>
-       "Use strings instead"}
+    {:exception, "TypeError: cannot convert argument to bytes"}
   end
 
-  @spec builtin_bytearray([Interpreter.pyvalue()]) :: {:exception, String.t()}
-  defp builtin_bytearray(_args) do
-    {:exception,
-     "NotImplementedError: bytearray type is not supported. " <>
-       "Use lists of integers or strings instead"}
+  @spec bytes_from_iterable([Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue() | {:exception, String.t()}
+  defp bytes_from_iterable(items) do
+    Enum.reduce_while(items, <<>>, fn
+      n, acc when is_integer(n) and n >= 0 and n <= 255 ->
+        {:cont, <<acc::binary, n>>}
+
+      _bad, _acc ->
+        {:halt, :error}
+    end)
+    |> case do
+      :error -> {:exception, "ValueError: bytes must be in range(0, 256)"}
+      b -> {:bytes, b}
+    end
+  end
+
+  @spec builtin_bytearray([Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue() | {:exception, String.t()}
+  defp builtin_bytearray(args) do
+    case builtin_bytes(args) do
+      {:bytes, b} -> {:bytearray, b}
+      other -> other
+    end
   end
 
   @doc """
@@ -1968,6 +2146,9 @@ defmodule Pyex.Builtins do
 
   def truthy?({:range, start, stop, step}),
     do: range_length({:range, start, stop, step}) > 0
+
+  def truthy?({:bytes, b}), do: byte_size(b) > 0
+  def truthy?({:bytearray, b}), do: byte_size(b) > 0
 
   def truthy?({:pyex_decimal, d}), do: not Decimal.equal?(d, Decimal.new(0))
 
@@ -1996,6 +2177,9 @@ defmodule Pyex.Builtins do
   defp pytype({:range, _, _, _}), do: "range"
   defp pytype({:bound_method, _, _}), do: "method"
   defp pytype({:bound_method, _, _, _}), do: "method"
+  defp pytype({:bytes, _}), do: "bytes"
+  defp pytype({:bytearray, _}), do: "bytearray"
+  defp pytype({:complex, _, _}), do: "complex"
 
   @doc """
   Converts a Python value to its `str()` representation.
@@ -2077,6 +2261,13 @@ defmodule Pyex.Builtins do
   def py_repr({:class, name, _, _}), do: "<class '#{name}'>"
   def py_repr({:exception_class, name}), do: "<class '#{name}'>"
   def py_repr({:builtin_type, name, _}), do: "<class '#{name}'>"
+  def py_repr({:bytes, b}), do: Pyex.Interpreter.Helpers.bytes_repr(b, "b")
+
+  def py_repr({:bytearray, b}),
+    do: "bytearray(" <> Pyex.Interpreter.Helpers.bytes_repr(b, "b") <> ")"
+
+  def py_repr({:complex, _, _} = c), do: Pyex.Interpreter.Helpers.py_str(c)
+
   def py_repr({:function, name, _, _, _}), do: "<function #{name}>"
   def py_repr({:builtin, _}), do: "<built-in function>"
   def py_repr({:builtin_kw, _}), do: "<built-in function>"

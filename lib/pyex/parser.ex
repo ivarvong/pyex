@@ -1216,6 +1216,12 @@ defmodule Pyex.Parser do
   defp parse_atom([{:float, line, n} | rest]), do: {:ok, {:lit, [line: line], [n]}, rest}
   defp parse_atom([{:string, line, s} | rest]), do: {:ok, {:lit, [line: line], [s]}, rest}
 
+  defp parse_atom([{:bytes_literal, line, s} | rest]),
+    do: {:ok, {:lit, [line: line], [{:bytes, s}]}, rest}
+
+  defp parse_atom([{:complex_literal, line, imag} | rest]),
+    do: {:ok, {:lit, [line: line], [{:complex, 0.0, imag}]}, rest}
+
   defp parse_atom([{:fstring, line, template} | rest]) do
     case parse_fstring_parts(template, line) do
       {:ok, parts} -> {:ok, {:fstring, [line: line], [parts]}, rest}

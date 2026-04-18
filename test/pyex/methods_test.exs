@@ -747,12 +747,12 @@ defmodule Pyex.MethodsTest do
   end
 
   describe "string.encode()" do
-    test "returns string unchanged" do
-      assert Pyex.run!(~S["hello".encode()]) == "hello"
+    test "returns bytes (CPython semantics)" do
+      assert Pyex.run!(~S["hello".encode()]) == {:bytes, "hello"}
     end
 
     test "accepts encoding argument" do
-      assert Pyex.run!(~S["hello".encode("utf-8")]) == "hello"
+      assert Pyex.run!(~S["hello".encode("utf-8")]) == {:bytes, "hello"}
     end
   end
 

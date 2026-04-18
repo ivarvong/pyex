@@ -59,34 +59,35 @@ defmodule Pyex.Stdlib.Hashlib do
   end
 
   @spec do_md5([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
-  defp do_md5([]), do: make_hash_object("md5", <<>>)
-  defp do_md5([data]) when is_binary(data), do: make_hash_object("md5", data)
-  defp do_md5(_), do: {:exception, "TypeError: md5() argument must be a string"}
+  defp do_md5(args), do: hash_with("md5", args)
 
   @spec do_sha1([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
-  defp do_sha1([]), do: make_hash_object("sha1", <<>>)
-  defp do_sha1([data]) when is_binary(data), do: make_hash_object("sha1", data)
-  defp do_sha1(_), do: {:exception, "TypeError: sha1() argument must be a string"}
+  defp do_sha1(args), do: hash_with("sha1", args)
 
   @spec do_sha224([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
-  defp do_sha224([]), do: make_hash_object("sha224", <<>>)
-  defp do_sha224([data]) when is_binary(data), do: make_hash_object("sha224", data)
-  defp do_sha224(_), do: {:exception, "TypeError: sha224() argument must be a string"}
+  defp do_sha224(args), do: hash_with("sha224", args)
 
   @spec do_sha256([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
-  defp do_sha256([]), do: make_hash_object("sha256", <<>>)
-  defp do_sha256([data]) when is_binary(data), do: make_hash_object("sha256", data)
-  defp do_sha256(_), do: {:exception, "TypeError: sha256() argument must be a string"}
+  defp do_sha256(args), do: hash_with("sha256", args)
 
   @spec do_sha384([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
-  defp do_sha384([]), do: make_hash_object("sha384", <<>>)
-  defp do_sha384([data]) when is_binary(data), do: make_hash_object("sha384", data)
-  defp do_sha384(_), do: {:exception, "TypeError: sha384() argument must be a string"}
+  defp do_sha384(args), do: hash_with("sha384", args)
 
   @spec do_sha512([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
-  defp do_sha512([]), do: make_hash_object("sha512", <<>>)
-  defp do_sha512([data]) when is_binary(data), do: make_hash_object("sha512", data)
-  defp do_sha512(_), do: {:exception, "TypeError: sha512() argument must be a string"}
+  defp do_sha512(args), do: hash_with("sha512", args)
+
+  @spec hash_with(String.t(), [Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp hash_with(algo, []), do: make_hash_object(algo, <<>>)
+  defp hash_with(algo, [{:bytes, data}]), do: make_hash_object(algo, data)
+  defp hash_with(algo, [{:bytearray, data}]), do: make_hash_object(algo, data)
+
+  # CPython raises TypeError for strings; Pyex accepts them for
+  # convenience by treating them as UTF-8 bytes.
+  defp hash_with(algo, [data]) when is_binary(data),
+    do: make_hash_object(algo, data)
+
+  defp hash_with(algo, _),
+    do: {:exception, "TypeError: #{algo}() argument must be bytes"}
 
   @spec do_new([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp do_new([name]) when is_binary(name) do
@@ -123,11 +124,26 @@ defmodule Pyex.Stdlib.Hashlib do
     update_fn =
       {:builtin,
        fn
+         [_self, {:bytes, new_data}] ->
+           {:mutate, make_hash_object(algo_name, data <> new_data), nil}
+
+         [_self, {:bytearray, new_data}] ->
+           {:mutate, make_hash_object(algo_name, data <> new_data), nil}
+
+         [_self, new_data] when is_binary(new_data) ->
+           {:mutate, make_hash_object(algo_name, data <> new_data), nil}
+
+         [{:bytes, new_data}] ->
+           make_hash_object(algo_name, data <> new_data)
+
+         [{:bytearray, new_data}] ->
+           make_hash_object(algo_name, data <> new_data)
+
          [new_data] when is_binary(new_data) ->
            make_hash_object(algo_name, data <> new_data)
 
          _ ->
-           {:exception, "TypeError: update() argument must be a string"}
+           {:exception, "TypeError: update() argument must be bytes"}
        end}
 
     hexdigest_fn =

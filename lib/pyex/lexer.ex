@@ -62,10 +62,13 @@ defmodule Pyex.Lexer do
           {:integer, line(), integer()}
           | {:float, line(), float()}
           | {:string, line(), String.t()}
+          | {:bytes_literal, line(), binary()}
+          | {:complex_literal, line(), float()}
           | {:fstring, line(), String.t()}
           | {:name, line(), String.t()}
           | {:keyword, line(), String.t()}
           | {:op, line(), operator()}
+          | {:newline_raw, non_neg_integer()}
           | :newline
           | :indent
           | :dedent
@@ -486,19 +489,20 @@ defmodule Pyex.Lexer do
               |> rewrite_keywords()
               |> assign_lines()
 
-            case detect_unsupported_syntax(tokens) do
-              :ok ->
-                tokens =
-                  tokens
-                  |> suppress_bracketed_newlines()
-                  |> merge_adjacent_strings()
-                  |> process_indentation()
+            # `detect_unsupported_syntax/1` currently has no rejection
+            # paths left now that bytes/complex literals lex to their
+            # own token kinds.  Kept as a hook for future validation.
+            :ok = detect_unsupported_syntax(tokens)
 
-                {:ok, tokens}
+            tokens =
+              tokens
+              |> collapse_bytes_literals()
+              |> collapse_complex_literals()
+              |> suppress_bracketed_newlines()
+              |> merge_adjacent_strings()
+              |> process_indentation()
 
-              {:error, _} = err ->
-                err
-            end
+            {:ok, tokens}
 
           {:error, message, rest, _, _, _} ->
             {:error, "Lexer error: #{message} near: #{String.slice(rest, 0, 20)}"}
@@ -806,40 +810,58 @@ defmodule Pyex.Lexer do
   defp detect_unsupported_syntax(tokens), do: check_tokens(tokens)
 
   @spec check_tokens([raw_token() | token()]) :: :ok | {:error, String.t()}
-  defp check_tokens([{:name, line, "b"}, {:string, _, _} | _]) do
-    {:error,
-     "NotImplementedError: bytes literals (b\"...\") are not supported. " <>
-       "Use strings instead (line #{line})"}
-  end
-
-  defp check_tokens([{:name, line, "rb"}, {:string, _, _} | _]) do
-    {:error,
-     "NotImplementedError: bytes literals (rb\"...\") are not supported. " <>
-       "Use strings instead (line #{line})"}
-  end
-
-  defp check_tokens([{:name, line, "br"}, {:string, _, _} | _]) do
-    {:error,
-     "NotImplementedError: bytes literals (br\"...\") are not supported. " <>
-       "Use strings instead (line #{line})"}
-  end
-
-  defp check_tokens([{:integer, line, _}, {:name, _, suffix} | _])
-       when suffix in ["j", "J"] do
-    {:error,
-     "NotImplementedError: complex number literals (e.g. 2j) are not supported. " <>
-       "Use separate variables for real and imaginary parts (line #{line})"}
-  end
-
-  defp check_tokens([{:float, line, _}, {:name, _, suffix} | _])
-       when suffix in ["j", "J"] do
-    {:error,
-     "NotImplementedError: complex number literals (e.g. 2.5j) are not supported. " <>
-       "Use separate variables for real and imaginary parts (line #{line})"}
-  end
-
   defp check_tokens([_ | rest]), do: check_tokens(rest)
   defp check_tokens([]), do: :ok
+
+  # Collapses `b"..."`, `rb"..."`, `br"..."` into a single `:bytes_literal`
+  # token.  The original string body is kept verbatim because bytes literals
+  # interpret escapes slightly differently (e.g. non-ASCII is rejected),
+  # but we accept UTF-8 bytes as-is for simplicity.
+  @spec collapse_bytes_literals([token()]) :: [token()]
+  defp collapse_bytes_literals(tokens), do: do_collapse_bytes(tokens, [])
+
+  defp do_collapse_bytes([], acc), do: Enum.reverse(acc)
+
+  defp do_collapse_bytes([{:name, line, prefix}, {:string, _, value} | rest], acc)
+       when prefix in ["b", "rb", "br", "B", "rB", "Rb", "BR", "bR", "Br", "RB"] do
+    # The lexer treats the string body as Unicode: `b"\xff"` becomes
+    # UTF-8 `<<0xC3, 0xBF>>`.  Bytes literals should hold raw bytes, so
+    # re-encode each codepoint as a single byte (codepoints > 0xFF
+    # would be invalid in a real bytes literal, we truncate mod 256).
+    raw = codepoints_to_bytes(value)
+    do_collapse_bytes(rest, [{:bytes_literal, line, raw} | acc])
+  end
+
+  defp do_collapse_bytes([token | rest], acc),
+    do: do_collapse_bytes(rest, [token | acc])
+
+  @spec codepoints_to_bytes(String.t()) :: binary()
+  defp codepoints_to_bytes(s) do
+    s
+    |> String.to_charlist()
+    |> Enum.map(fn cp -> rem(cp, 256) end)
+    |> :erlang.list_to_binary()
+  end
+
+  # Collapses `2j`, `2.5J`, `0j` into a single `:complex_literal` token
+  # carrying the imaginary part as a float.
+  @spec collapse_complex_literals([token()]) :: [token()]
+  defp collapse_complex_literals(tokens), do: do_collapse_complex(tokens, [])
+
+  defp do_collapse_complex([], acc), do: Enum.reverse(acc)
+
+  defp do_collapse_complex([{:integer, line, n}, {:name, _, suffix} | rest], acc)
+       when suffix in ["j", "J"] do
+    do_collapse_complex(rest, [{:complex_literal, line, n * 1.0} | acc])
+  end
+
+  defp do_collapse_complex([{:float, line, f}, {:name, _, suffix} | rest], acc)
+       when suffix in ["j", "J"] do
+    do_collapse_complex(rest, [{:complex_literal, line, f} | acc])
+  end
+
+  defp do_collapse_complex([token | rest], acc),
+    do: do_collapse_complex(rest, [token | acc])
 
   @spec rewrite_keywords([raw_token()]) :: [raw_token()]
   defp rewrite_keywords(tokens) do

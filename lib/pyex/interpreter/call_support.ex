@@ -171,6 +171,11 @@ defmodule Pyex.Interpreter.CallSupport do
   @spec split_variadic_params([Parser.param()]) ::
           {[Parser.param()], Parser.param() | nil, [Parser.param()], Parser.param() | nil}
   defp split_variadic_params(params) do
+    # Strip any positional-only separator `/`; callers don't need the
+    # marker after we've extracted the position count (which the bind
+    # path uses to reject kwarg forms for positional-only names).
+    params = Enum.reject(params, fn p -> elem(p, 0) == "/" end)
+
     {regular_rev, star, kwonly_rev, dstar} =
       Enum.reduce(params, {[], nil, [], nil}, fn param, {regular, star, kwonly, dstar} ->
         name = elem(param, 0)

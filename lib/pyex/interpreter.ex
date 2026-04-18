@@ -84,6 +84,9 @@ defmodule Pyex.Interpreter do
           | {:cached_property, pyvalue()}
           | {:ref, non_neg_integer()}
           | {:exception_class, String.t()}
+          | {:bytes, binary()}
+          | {:bytearray, binary()}
+          | {:complex, float(), float()}
 
   @typep signal ::
            {:returned, pyvalue()}
@@ -822,6 +825,22 @@ defmodule Pyex.Interpreter do
                 end
             end
 
+          {:complex, r, i} ->
+            case attr do
+              "real" ->
+                {r, env, ctx}
+
+              "imag" ->
+                {i, env, ctx}
+
+              "conjugate" ->
+                {{:builtin, fn _ -> {:complex, r, -i} end}, env, ctx}
+
+              _ ->
+                {{:exception, "AttributeError: 'complex' object has no attribute '#{attr}'"}, env,
+                 ctx}
+            end
+
           {:property, fget, fset, fdel} ->
             case attr do
               "setter" ->
@@ -1132,6 +1151,10 @@ defmodule Pyex.Interpreter do
           is_number(val) ->
             {-val, env, ctx}
 
+          match?({:complex, _, _}, val) ->
+            {:complex, r, i} = val
+            {{:complex, -r, -i}, env, ctx}
+
           match?({:instance, _, _}, val) ->
             case Dunder.call_dunder(val, "__neg__", [], env, ctx) do
               {:ok, result, env, ctx} ->
@@ -1297,6 +1320,22 @@ defmodule Pyex.Interpreter do
 
           :error ->
             {{:exception, "AttributeError: function has no attribute '#{attr}'"}, env, ctx}
+        end
+
+      {:complex, r, i} ->
+        case attr do
+          "real" ->
+            {r, env, ctx}
+
+          "imag" ->
+            {i, env, ctx}
+
+          "conjugate" ->
+            {{:builtin, fn _ -> {:complex, r, -i} end}, env, ctx}
+
+          _ ->
+            {{:exception, "AttributeError: 'complex' object has no attribute '#{attr}'"}, env,
+             ctx}
         end
 
       {:instance, {:class, _, _, _} = class, inst_attrs} ->
@@ -3086,6 +3125,9 @@ defmodule Pyex.Interpreter do
 
         {name, :kwonly_sep} ->
           {{name, :kwonly_sep}, ctx}
+
+        {name, :pos_only_sep} ->
+          {{name, :pos_only_sep}, ctx}
 
         {name, nil, type} ->
           {{name, nil, type}, ctx}
