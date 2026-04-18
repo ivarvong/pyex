@@ -14,9 +14,91 @@ defmodule Pyex.Stdlib.Heapq do
       "heapify" => {:builtin, &heapify/1},
       "heappush" => {:builtin, &heappush/1},
       "heappop" => {:builtin, &heappop/1},
-      "heapreplace" => {:builtin, &heapreplace/1}
+      "heapreplace" => {:builtin, &heapreplace/1},
+      "heappushpop" => {:builtin, &heappushpop/1},
+      "nlargest" => {:builtin_kw, &nlargest/2},
+      "nsmallest" => {:builtin_kw, &nsmallest/2},
+      "merge" => {:builtin_kw, &merge/2}
     }
   end
+
+  @spec heappushpop([Interpreter.pyvalue()]) :: term()
+  defp heappushpop([heap, item]) do
+    with {:ok, items, wrap} <- heap_parts(heap) do
+      cond do
+        items == [] ->
+          {item, nil}
+
+        hd(items) < item ->
+          [root | rest] = items
+          new_heap = sift_down([item | rest], 0)
+          {:mutate_arg, 0, wrap.(new_heap), root}
+
+        true ->
+          # item is smaller than root — no change, return item
+          {:mutate_arg, 0, wrap.(items), item}
+      end
+    end
+  end
+
+  defp heappushpop(_),
+    do: {:exception, "TypeError: heappushpop() takes exactly 2 arguments"}
+
+  @spec nlargest([Interpreter.pyvalue()], map()) :: [Interpreter.pyvalue()]
+  defp nlargest([n, iterable], kwargs) when is_integer(n) do
+    do_n(n, iterable, kwargs, :desc)
+  end
+
+  defp nlargest(_, _), do: {:exception, "TypeError: nlargest() requires (n, iterable)"}
+
+  @spec nsmallest([Interpreter.pyvalue()], map()) :: [Interpreter.pyvalue()]
+  defp nsmallest([n, iterable], kwargs) when is_integer(n) do
+    do_n(n, iterable, kwargs, :asc)
+  end
+
+  defp nsmallest(_, _), do: {:exception, "TypeError: nsmallest() requires (n, iterable)"}
+
+  @spec do_n(integer(), Interpreter.pyvalue(), map(), :asc | :desc) :: term()
+  defp do_n(n, _iterable, _kwargs, _order) when n <= 0, do: []
+
+  defp do_n(n, iterable, kwargs, order) do
+    items = materialize(iterable)
+
+    case Map.get(kwargs, "key") do
+      nil ->
+        items
+        |> Enum.sort(if order == :asc, do: :asc, else: :desc)
+        |> Enum.take(n)
+
+      func ->
+        # Use the interpreter's :sort_call machinery to evaluate the key
+        # function for each item, then slice to n elements.
+        {:ctx_call,
+         fn env, ctx ->
+           case Pyex.Interpreter.eval_sort(items, func, order == :desc, env, ctx) do
+             {{:exception, _} = signal, env, ctx} ->
+               {signal, env, ctx}
+
+             {sorted, env, ctx} ->
+               {Enum.take(sorted, n), env, ctx}
+           end
+         end}
+    end
+  end
+
+  @spec merge([Interpreter.pyvalue()], map()) :: [Interpreter.pyvalue()]
+  defp merge(iterables, _kwargs) do
+    iterables
+    |> Enum.flat_map(&materialize/1)
+    |> Enum.sort()
+  end
+
+  @spec materialize(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]
+  defp materialize({:py_list, reversed, _}), do: Enum.reverse(reversed)
+  defp materialize({:tuple, items}), do: items
+  defp materialize({:set, s}), do: MapSet.to_list(s)
+  defp materialize(list) when is_list(list), do: list
+  defp materialize(_), do: []
 
   @spec heapify([Interpreter.pyvalue()]) :: term()
   defp heapify([heap]) do
@@ -97,7 +179,7 @@ defmodule Pyex.Stdlib.Heapq do
 
   defp build_heap(items) do
     start = div(length(items), 2) - 1
-    Enum.reduce(start..0, items, fn idx, acc -> sift_down(acc, idx) end)
+    Enum.reduce(start..0//-1, items, fn idx, acc -> sift_down(acc, idx) end)
   end
 
   @spec sift_up([Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]

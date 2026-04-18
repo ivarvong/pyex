@@ -594,6 +594,9 @@ defmodule Pyex.Interpreter.Assignments do
 
                 case Interpreter.call_function(fset, [self_arg, value], %{}, env, ctx) do
                   {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+                  # call_function may return a 4-tuple with updated_func
+                  # when the setter is a regular Python function.
+                  {{:exception, _} = signal, env, ctx, _} -> {signal, env, ctx}
                   {_, env, ctx, _} -> {nil, env, ctx}
                   {_, env, ctx} -> {nil, env, ctx}
                 end

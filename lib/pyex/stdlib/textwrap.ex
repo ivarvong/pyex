@@ -15,8 +15,49 @@ defmodule Pyex.Stdlib.Textwrap do
       "dedent" => {:builtin, &do_dedent/1},
       "indent" => {:builtin, &do_indent/1},
       "wrap" => {:builtin_kw, &do_wrap/2},
-      "fill" => {:builtin_kw, &do_fill/2}
+      "fill" => {:builtin_kw, &do_fill/2},
+      "shorten" => {:builtin_kw, &do_shorten/2}
     }
+  end
+
+  @spec do_shorten([Pyex.Interpreter.pyvalue()], map()) :: Pyex.Interpreter.pyvalue()
+  defp do_shorten([text], kwargs) when is_binary(text) do
+    do_shorten([text, Map.get(kwargs, "width", 70)], kwargs)
+  end
+
+  defp do_shorten([text, width], kwargs) when is_binary(text) and is_integer(width) do
+    placeholder = Map.get(kwargs, "placeholder", " [...]")
+    # Collapse whitespace (CPython's behavior)
+    collapsed = text |> String.split() |> Enum.join(" ")
+
+    if String.length(collapsed) <= width do
+      collapsed
+    else
+      # Build longest prefix of words such that prefix + placeholder fits.
+      limit = width - String.length(placeholder)
+
+      if limit <= 0 do
+        placeholder
+      else
+        words = String.split(collapsed)
+        shorten_words(words, limit, "", placeholder)
+      end
+    end
+  end
+
+  defp do_shorten(_, _), do: {:exception, "TypeError: shorten() expects a string and width"}
+
+  @spec shorten_words([String.t()], integer(), String.t(), String.t()) :: String.t()
+  defp shorten_words([], _limit, acc, placeholder), do: acc <> placeholder
+
+  defp shorten_words([word | rest], limit, acc, placeholder) do
+    candidate = if acc == "", do: word, else: acc <> " " <> word
+
+    if String.length(candidate) <= limit do
+      shorten_words(rest, limit, candidate, placeholder)
+    else
+      acc <> placeholder
+    end
   end
 
   @spec do_dedent([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()

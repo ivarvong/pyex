@@ -176,6 +176,9 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:mutate, new_object, return_value} ->
         {:mutate, new_object, return_value, ctx}
 
+      {:mutate_arg, index, new_object, return_value} ->
+        {:mutate_arg, index, new_object, return_value, ctx}
+
       {:io_call, io_fun} ->
         ctx = Ctx.pause_compute(ctx)
         {result, env, ctx} = io_fun.(env, ctx)

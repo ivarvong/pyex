@@ -53,7 +53,9 @@ defmodule Pyex.Stdlib do
     "textwrap" => Pyex.Stdlib.Textwrap,
     "sys" => Pyex.Stdlib.Sys,
     "crypto" => Pyex.Stdlib.Crypto,
-    "zoneinfo" => Pyex.Stdlib.Zoneinfo
+    "zoneinfo" => Pyex.Stdlib.Zoneinfo,
+    "operator" => Pyex.Stdlib.Operator,
+    "bisect" => Pyex.Stdlib.Bisect
   }
 
   @doc """
