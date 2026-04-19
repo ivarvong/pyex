@@ -109,9 +109,91 @@ defmodule Pyex.Interpreter.Dunder do
         end
 
       _ ->
+        # Subclasses of builtin types store their underlying value in
+        # `__wrapped__`.  Forward dunder calls (`__len__`, `__getitem__`,
+        # `__contains__`, `__str__`, ...) to it so `class MyList(list)`
+        # behaves list-like out of the box.
+        forward_to_wrapped(instance, method, args, env, ctx)
+    end
+  end
+
+  @spec forward_to_wrapped(
+          Interpreter.pyvalue(),
+          String.t(),
+          [Interpreter.pyvalue()],
+          Env.t(),
+          Ctx.t()
+        ) :: {:ok, Interpreter.pyvalue(), Interpreter.pyvalue(), Env.t(), Ctx.t()} | :not_found
+  defp forward_to_wrapped({:instance, _, attrs} = instance, method, args, env, ctx) do
+    case Map.fetch(attrs, "__wrapped__") do
+      {:ok, wrapped} ->
+        case wrapped_dunder(Ctx.deref(ctx, wrapped), method, args) do
+          {:ok, value} -> {:ok, instance, value, env, ctx}
+          :not_found -> :not_found
+        end
+
+      :error ->
         :not_found
     end
   end
+
+  @spec wrapped_dunder(Interpreter.pyvalue(), String.t(), [Interpreter.pyvalue()]) ::
+          {:ok, Interpreter.pyvalue()} | :not_found
+  defp wrapped_dunder({:py_list, _, len}, "__len__", []), do: {:ok, len}
+  defp wrapped_dunder(list, "__len__", []) when is_list(list), do: {:ok, length(list)}
+  defp wrapped_dunder({:tuple, items}, "__len__", []), do: {:ok, length(items)}
+  defp wrapped_dunder({:py_dict, _, _} = d, "__len__", []), do: {:ok, Pyex.PyDict.size(d)}
+  defp wrapped_dunder(m, "__len__", []) when is_map(m), do: {:ok, map_size(m)}
+  defp wrapped_dunder({:set, s}, "__len__", []), do: {:ok, MapSet.size(s)}
+  defp wrapped_dunder(b, "__len__", []) when is_binary(b), do: {:ok, String.length(b)}
+
+  defp wrapped_dunder({:py_list, rev, _}, "__getitem__", [i]) when is_integer(i) do
+    items = Enum.reverse(rev)
+    len = length(items)
+    idx = if i < 0, do: len + i, else: i
+
+    if idx < 0 or idx >= len,
+      do: {:ok, {:exception, "IndexError: list index out of range"}},
+      else: {:ok, Enum.at(items, idx)}
+  end
+
+  defp wrapped_dunder(items, "__getitem__", [i]) when is_list(items) and is_integer(i) do
+    len = length(items)
+    idx = if i < 0, do: len + i, else: i
+
+    if idx < 0 or idx >= len,
+      do: {:ok, {:exception, "IndexError: list index out of range"}},
+      else: {:ok, Enum.at(items, idx)}
+  end
+
+  defp wrapped_dunder({:py_dict, _, _} = d, "__getitem__", [k]) do
+    case Pyex.PyDict.fetch(d, k) do
+      {:ok, v} -> {:ok, v}
+      :error -> {:ok, {:exception, "KeyError: #{Pyex.Builtins.py_repr_quoted(k)}"}}
+    end
+  end
+
+  defp wrapped_dunder({:py_list, rev, _}, "__contains__", [v]) do
+    {:ok, v in rev}
+  end
+
+  defp wrapped_dunder(items, "__contains__", [v]) when is_list(items), do: {:ok, v in items}
+
+  defp wrapped_dunder({:py_dict, _, _} = d, "__contains__", [k]) do
+    {:ok, Pyex.PyDict.has_key?(d, k)}
+  end
+
+  defp wrapped_dunder({:set, s}, "__contains__", [v]), do: {:ok, MapSet.member?(s, v)}
+
+  defp wrapped_dunder({:py_list, _, _} = l, "__iter__", []), do: {:ok, l}
+  defp wrapped_dunder(items, "__iter__", []) when is_list(items), do: {:ok, items}
+  defp wrapped_dunder({:py_dict, _, _} = d, "__iter__", []), do: {:ok, d}
+  defp wrapped_dunder({:set, _} = s, "__iter__", []), do: {:ok, s}
+
+  defp wrapped_dunder(val, "__str__", []), do: {:ok, Pyex.Interpreter.Helpers.py_str(val)}
+  defp wrapped_dunder(val, "__repr__", []), do: {:ok, Pyex.Builtins.py_repr(val)}
+
+  defp wrapped_dunder(_, _, _), do: :not_found
 
   @spec call_dunder_mut_generator_cm(
           Interpreter.pyvalue(),

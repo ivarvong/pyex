@@ -201,7 +201,7 @@ defmodule Pyex.Stdlib.Operator do
       {:py_dict, _, _} = dict ->
         case Pyex.PyDict.fetch(dict, key) do
           {:ok, v} -> v
-          :error -> {:exception, "KeyError: #{inspect(key)}"}
+          :error -> {:exception, "KeyError: #{Pyex.Builtins.py_repr_quoted(key)}"}
         end
 
       _ ->

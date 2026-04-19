@@ -52,7 +52,7 @@ defmodule Pyex.Interpreter.Iterables do
 
   def to_iterable({:iterator, id}, env, ctx), do: {:ok, Ctx.iter_items(ctx, id), env, ctx}
 
-  def to_iterable({:instance, _, _} = inst, env, ctx) do
+  def to_iterable({:instance, _, attrs} = inst, env, ctx) do
     case Dunder.call_dunder(inst, "__iter__", [], env, ctx) do
       {:ok, raw_result, env, ctx} ->
         result = Ctx.deref(ctx, raw_result)
@@ -69,7 +69,12 @@ defmodule Pyex.Interpreter.Iterables do
         end
 
       :not_found ->
-        {:exception, "TypeError: '#{Helpers.py_type(inst)}' object is not iterable"}
+        # Subclasses of builtin types (`class MyList(list)`) carry their
+        # underlying value in `__wrapped__`.  Fall back to iterating it.
+        case Map.fetch(attrs, "__wrapped__") do
+          {:ok, wrapped} -> to_iterable(Ctx.deref(ctx, wrapped), env, ctx)
+          :error -> {:exception, "TypeError: '#{Helpers.py_type(inst)}' object is not iterable"}
+        end
     end
   end
 

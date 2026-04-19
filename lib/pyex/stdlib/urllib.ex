@@ -13,21 +13,27 @@ defmodule Pyex.Stdlib.Urllib do
   @impl Pyex.Stdlib.Module
   @spec module_value() :: Pyex.Stdlib.Module.module_value()
   def module_value do
+    parse_attrs = %{
+      "urljoin" => {:builtin, &urljoin/1},
+      "quote" => {:builtin, &url_quote/1},
+      "unquote" => {:builtin, &url_unquote/1},
+      "urlparse" => {:builtin, &urlparse/1},
+      "urlencode" => {:builtin, &urlencode/1}
+    }
+
+    request_attrs = %{
+      "urlopen" => {:builtin, &urlopen/1}
+    }
+
+    error_attrs = %{
+      "URLError" => "urllib.error.URLError",
+      "HTTPError" => "urllib.error.HTTPError"
+    }
+
     %{
-      "parse" => %{
-        "urljoin" => {:builtin, &urljoin/1},
-        "quote" => {:builtin, &url_quote/1},
-        "unquote" => {:builtin, &url_unquote/1},
-        "urlparse" => {:builtin, &urlparse/1},
-        "urlencode" => {:builtin, &urlencode/1}
-      },
-      "request" => %{
-        "urlopen" => {:builtin, &urlopen/1}
-      },
-      "error" => %{
-        "URLError" => "urllib.error.URLError",
-        "HTTPError" => "urllib.error.HTTPError"
-      }
+      "parse" => {:module, "urllib.parse", parse_attrs},
+      "request" => {:module, "urllib.request", request_attrs},
+      "error" => {:module, "urllib.error", error_attrs}
     }
   end
 

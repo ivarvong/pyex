@@ -311,7 +311,7 @@ defmodule Pyex.Stdlib.Datetime do
           {:class, String.t(), [Pyex.Interpreter.pyvalue()],
            %{optional(String.t()) => Pyex.Interpreter.pyvalue()}}
   defp datetime_class do
-    {:class, "datetime", [],
+    {:class, "datetime", [date_class()],
      Map.merge(datetime_dunders(), %{
        "__init__" => {:builtin_kw, &datetime_init/2},
        "now" => {:builtin, &datetime_now/1},
@@ -319,7 +319,8 @@ defmodule Pyex.Stdlib.Datetime do
        "fromisoformat" => {:builtin, &datetime_fromisoformat/1},
        "strptime" => {:builtin, &datetime_strptime/1},
        "fromtimestamp" => {:builtin, &datetime_fromtimestamp/1},
-       "utcfromtimestamp" => {:builtin, &datetime_fromtimestamp/1}
+       "utcfromtimestamp" => {:builtin, &datetime_fromtimestamp/1},
+       "combine" => {:builtin_kw, &datetime_combine/2}
      })}
   end
 
@@ -696,6 +697,83 @@ defmodule Pyex.Stdlib.Datetime do
   defp datetime_fromtimestamp([ts]) do
     {:exception, "TypeError: an integer or float is required, got #{py_type_name(ts)}"}
   end
+
+  @spec datetime_combine([Pyex.Interpreter.pyvalue()], %{
+          optional(String.t()) => Pyex.Interpreter.pyvalue()
+        }) ::
+          Pyex.Interpreter.pyvalue()
+  defp datetime_combine([_self | args], kwargs) do
+    {date_arg, time_arg, pos_tz} =
+      case args do
+        [d, t] -> {d, t, nil}
+        [d, t, tz] -> {d, t, tz}
+        _ -> {nil, nil, nil}
+      end
+
+    tzinfo = Map.get(kwargs, "tzinfo", pos_tz)
+
+    with {:ok, d} <- combine_extract_date(date_arg),
+         {:ok, {h, mi, s, us}, time_tz} <- combine_extract_time(time_arg) do
+      # Mirror CPython: when tzinfo is not supplied, inherit it from the time
+      # argument (if it was a datetime-valued argument with tzinfo).
+      tz = if tzinfo == nil, do: time_tz, else: tzinfo
+
+      with {:ok, time} <- Time.new(h, mi, s, {us, 6}),
+           {:ok, dt} <- DateTime.new(d, time, "Etc/UTC") do
+        case tz do
+          nil -> make_datetime(dt, nil)
+          tz_instance -> make_datetime_from_wall(dt, tz_instance)
+        end
+      else
+        _ -> {:exception, "ValueError: invalid combine arguments"}
+      end
+    else
+      {:error, msg} -> {:exception, msg}
+    end
+  end
+
+  @spec combine_extract_date(Pyex.Interpreter.pyvalue()) ::
+          {:ok, Date.t()} | {:error, String.t()}
+  defp combine_extract_date({:instance, {:class, "datetime", _, _}, %{"__dt__" => dt}}) do
+    {:ok, DateTime.to_date(dt)}
+  end
+
+  defp combine_extract_date({:instance, {:class, "date", _, _}, %{"__date__" => d}}) do
+    {:ok, d}
+  end
+
+  defp combine_extract_date({:instance, _, %{"__date__" => d}}), do: {:ok, d}
+  defp combine_extract_date({:instance, _, %{"__dt__" => dt}}), do: {:ok, DateTime.to_date(dt)}
+  defp combine_extract_date(_), do: {:error, "TypeError: combine() argument 1 must be date"}
+
+  @spec combine_extract_time(Pyex.Interpreter.pyvalue()) ::
+          {:ok, {integer(), integer(), integer(), integer()}, Pyex.Interpreter.pyvalue() | nil}
+          | {:error, String.t()}
+  defp combine_extract_time(
+         {:instance, {:class, "time", _, _}, %{"__time_components__" => {h, m, s, us}}}
+       ) do
+    {:ok, {h, m, s, us}, nil}
+  end
+
+  defp combine_extract_time({:instance, {:class, "datetime", _, _}, attrs}) do
+    dt = Map.get(attrs, "__dt__")
+    tz = Map.get(attrs, "__tzinfo__")
+
+    case dt do
+      %DateTime{} ->
+        {us, _} = dt.microsecond
+        {:ok, {dt.hour, dt.minute, dt.second, us}, tz}
+
+      _ ->
+        {:error, "TypeError: combine() argument 2 must be time"}
+    end
+  end
+
+  defp combine_extract_time({:instance, _, %{"__time_components__" => {h, m, s, us}}}) do
+    {:ok, {h, m, s, us}, nil}
+  end
+
+  defp combine_extract_time(_), do: {:error, "TypeError: combine() argument 2 must be time"}
 
   @spec date_fromisoformat([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp date_fromisoformat([s]) when is_binary(s) do

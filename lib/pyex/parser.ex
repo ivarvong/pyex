@@ -1080,6 +1080,10 @@ defmodule Pyex.Parser do
           line = node_line(expr)
           parse_slice_after_colon(expr, line, key, rest)
 
+        [{:op, _, :comma} | _] ->
+          # a[x, y, z] is sugar for a[(x, y, z)]
+          parse_subscript_tuple_rest(expr, [key], rest)
+
         _ ->
           {:error, "expected ']' at #{token_line(rest)}"}
       end
@@ -1087,6 +1091,36 @@ defmodule Pyex.Parser do
   end
 
   defp parse_postfix_rest(expr, rest), do: {:ok, expr, rest}
+
+  @spec parse_subscript_tuple_rest(ast_node(), [ast_node()], [Lexer.token()]) :: parse_result()
+  defp parse_subscript_tuple_rest(expr, acc, [{:op, _, :comma} | rest]) do
+    case rest do
+      [{:op, _, :rbracket} | _] ->
+        parse_subscript_finish_tuple(expr, acc, rest)
+
+      _ ->
+        case parse_expression(rest) do
+          {:ok, next_key, rest2} ->
+            parse_subscript_tuple_rest(expr, [next_key | acc], rest2)
+
+          error ->
+            error
+        end
+    end
+  end
+
+  defp parse_subscript_tuple_rest(expr, acc, rest),
+    do: parse_subscript_finish_tuple(expr, acc, rest)
+
+  defp parse_subscript_finish_tuple(expr, acc, [{:op, _, :rbracket} | rest]) do
+    line = node_line(expr)
+    tuple_ast = {:tuple, [line: line], [Enum.reverse(acc)]}
+    parse_postfix_rest({:subscript, [line: line], [expr, tuple_ast]}, rest)
+  end
+
+  defp parse_subscript_finish_tuple(_expr, _acc, rest) do
+    {:error, "expected ']' at #{token_line(rest)}"}
+  end
 
   @spec parse_slice_after_colon(ast_node(), non_neg_integer(), ast_node() | nil, [Lexer.token()]) ::
           parse_result()

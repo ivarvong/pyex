@@ -30,13 +30,15 @@ defmodule Pyex.Stdlib.FastAPI do
   @impl Pyex.Stdlib.Module
   @spec module_value() :: Pyex.Stdlib.Module.module_value()
   def module_value do
+    responses_attrs = %{
+      "HTMLResponse" => {:builtin_kw, &html_response/2},
+      "JSONResponse" => {:builtin_kw, &json_response/2},
+      "StreamingResponse" => {:builtin_kw, &streaming_response/2}
+    }
+
     %{
       "FastAPI" => {:builtin, &create_app/1},
-      "responses" => %{
-        "HTMLResponse" => {:builtin_kw, &html_response/2},
-        "JSONResponse" => {:builtin_kw, &json_response/2},
-        "StreamingResponse" => {:builtin_kw, &streaming_response/2}
-      },
+      "responses" => {:module, "fastapi.responses", responses_attrs},
       "HTMLResponse" => {:builtin_kw, &html_response/2},
       "JSONResponse" => {:builtin_kw, &json_response/2},
       "StreamingResponse" => {:builtin_kw, &streaming_response/2}

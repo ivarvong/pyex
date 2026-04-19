@@ -34,7 +34,7 @@ defmodule Pyex.LambdaTest do
       assert {:ok, resp} = Lambda.invoke(source, %{method: "GET", path: "/users/42"})
       assert resp.status == 200
       assert resp.body["id"] == "42"
-      {:instance, _, %{"__name__" => name}} = resp.body["type"]
+      {:class, name, _, _} = resp.body["type"]
       assert name == "str"
     end
 
@@ -51,7 +51,7 @@ defmodule Pyex.LambdaTest do
       assert {:ok, resp} = Lambda.invoke(source, %{method: "GET", path: "/users/42"})
       assert resp.status == 200
       assert resp.body["id"] == 42
-      {:instance, _, %{"__name__" => name}} = resp.body["type"]
+      {:class, name, _, _} = resp.body["type"]
       assert name == "int"
     end
 

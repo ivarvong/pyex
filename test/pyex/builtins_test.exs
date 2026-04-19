@@ -59,7 +59,7 @@ defmodule Pyex.BuiltinsTest do
     end
 
     test "range returns lazy object, not list" do
-      {:instance, _, %{"__name__" => name}} = Pyex.run!("type(range(5))")
+      {:class, name, _, _} = Pyex.run!("type(range(5))")
       assert name == "range"
     end
 
@@ -277,32 +277,32 @@ defmodule Pyex.BuiltinsTest do
 
   describe "type()" do
     test "returns type of int" do
-      {:instance, _, %{"__name__" => name}} = Pyex.run!("type(42)")
+      {:class, name, _, _} = Pyex.run!("type(42)")
       assert name == "int"
     end
 
     test "returns type of string" do
-      {:instance, _, %{"__name__" => name}} = Pyex.run!("type(\"hello\")")
+      {:class, name, _, _} = Pyex.run!("type(\"hello\")")
       assert name == "str"
     end
 
     test "returns type of list" do
-      {:instance, _, %{"__name__" => name}} = Pyex.run!("type([])")
+      {:class, name, _, _} = Pyex.run!("type([])")
       assert name == "list"
     end
 
     test "returns type of None" do
-      {:instance, _, %{"__name__" => name}} = Pyex.run!("type(None)")
+      {:class, name, _, _} = Pyex.run!("type(None)")
       assert name == "NoneType"
     end
 
     test "returns type of bool" do
-      {:instance, _, %{"__name__" => name}} = Pyex.run!("type(True)")
+      {:class, name, _, _} = Pyex.run!("type(True)")
       assert name == "bool"
     end
 
     test "returns type of dict" do
-      {:instance, _, %{"__name__" => name}} = Pyex.run!("type({})")
+      {:class, name, _, _} = Pyex.run!("type({})")
       assert name == "dict"
     end
 

@@ -441,7 +441,7 @@ defmodule Pyex.InterpreterTest do
         (type(os).__name__, type(json).__name__)
         """)
 
-      assert result == {:tuple, ["dict", "dict"]}
+      assert result == {:tuple, ["module", "module"]}
     end
 
     test "comma-separated imports with aliases" do
@@ -451,7 +451,77 @@ defmodule Pyex.InterpreterTest do
         (type(operating_system).__name__, type(json_lib).__name__)
         """)
 
-      assert result == {:tuple, ["dict", "dict"]}
+      assert result == {:tuple, ["module", "module"]}
+    end
+
+    test "type(module) is module" do
+      assert Pyex.run!("""
+             import datetime as dt
+             type(dt).__name__
+             """) == "module"
+    end
+
+    test "module has __name__" do
+      assert Pyex.run!("""
+             import datetime as dt
+             dt.__name__
+             """) == "datetime"
+    end
+
+    test "aliased module __name__ is the original module name" do
+      assert Pyex.run!("""
+             import json as j
+             j.__name__
+             """) == "json"
+    end
+
+    test "submodule __name__ is dotted" do
+      assert Pyex.run!("""
+             import os
+             os.path.__name__
+             """) == "os.path"
+    end
+
+    test "attribute access on module returns class, not dict method" do
+      {:class, "datetime", _, _} =
+        Pyex.run!("""
+        import datetime as dt
+        dt.datetime
+        """)
+    end
+
+    test "from datetime import time binds the time class" do
+      {:class, "time", _, _} =
+        Pyex.run!("""
+        from datetime import time
+        time
+        """)
+    end
+
+    test "attribute error on missing module attr mentions module name" do
+      assert_raise RuntimeError, ~r/module 'datetime' has no attribute 'nope'/, fn ->
+        Pyex.run!("""
+        import datetime
+        datetime.nope
+        """)
+      end
+    end
+
+    test "dir(module) returns attribute names" do
+      names = Pyex.run!("import datetime\ndir(datetime)")
+      assert is_list(names)
+      assert "datetime" in names
+      assert "date" in names
+      assert "time" in names
+      assert "timedelta" in names
+      assert "timezone" in names
+    end
+
+    test "repr of module" do
+      assert Pyex.run!("""
+             import datetime
+             repr(datetime)
+             """) == "<module 'datetime'>"
     end
   end
 
@@ -1161,7 +1231,7 @@ defmodule Pyex.InterpreterTest do
     end
 
     test "tuple type function" do
-      {:instance, _, %{"__name__" => name}} = Pyex.run!("type((1, 2))")
+      {:class, name, _, _} = Pyex.run!("type((1, 2))")
       assert name == "tuple"
     end
   end

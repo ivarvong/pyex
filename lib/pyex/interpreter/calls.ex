@@ -167,6 +167,10 @@ defmodule Pyex.Interpreter.Calls do
                 end
             end
 
+          {:module, mod_name, attrs} ->
+            updated = {:module, mod_name, Map.put(attrs, attr, new_object)}
+            {Env.put_at_source(env, var_name, updated), ctx}
+
           _ ->
             {Env.smart_put(env, var_name, new_object), ctx}
         end

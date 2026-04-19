@@ -1216,7 +1216,7 @@ defmodule Pyex.Methods do
       {val, rest} = PyDict.pop(dict, key)
       {:mutate, rest, val}
     else
-      {:exception, "KeyError: #{Builtins.py_repr(key)}"}
+      {:exception, "KeyError: #{Builtins.py_repr_quoted(key)}"}
     end
   end
 
@@ -1230,7 +1230,7 @@ defmodule Pyex.Methods do
       {val, rest} = Map.pop(map, key)
       {:mutate, rest, val}
     else
-      {:exception, "KeyError: #{Builtins.py_repr(key)}"}
+      {:exception, "KeyError: #{Builtins.py_repr_quoted(key)}"}
     end
   end
 
@@ -1662,7 +1662,7 @@ defmodule Pyex.Methods do
     if MapSet.member?(s, item) do
       {:mutate, {:set, MapSet.delete(s, item)}, nil}
     else
-      {:exception, "KeyError: #{inspect(item)}"}
+      {:exception, "KeyError: #{Builtins.py_repr_quoted(item)}"}
     end
   end
 

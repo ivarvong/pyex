@@ -20,7 +20,12 @@ defmodule Pyex.Stdlib.Typing do
   @impl Pyex.Stdlib.Module
   @spec module_value() :: Pyex.Stdlib.Module.module_value()
   def module_value do
-    noop_map = Map.new(@noop_names, fn name -> {name, nil} end)
+    noop_map =
+      Map.new(@noop_names, fn name ->
+        # Each typing-generic is a subscriptable stub so `List[int]`,
+        # `Optional[str]`, etc. parse and evaluate without errors.
+        {name, make_generic(name)}
+      end)
 
     builtins = %{
       "TypeVar" => {:builtin, &do_typevar/1},
@@ -30,6 +35,23 @@ defmodule Pyex.Stdlib.Typing do
     }
 
     Map.merge(noop_map, builtins)
+  end
+
+  @spec make_generic(String.t()) :: Pyex.Interpreter.pyvalue()
+  defp make_generic(name) do
+    # Indexing a typing generic returns another typing generic so chains
+    # like `Dict[str, List[int]]` parse and evaluate without errors.
+    getitem = {:builtin, fn _args -> make_generic(name) end}
+
+    cls =
+      {:class, name, [],
+       %{
+         "__name__" => name,
+         "__qualname__" => name,
+         "__getitem__" => getitem
+       }}
+
+    {:instance, cls, %{"__name__" => name}}
   end
 
   # TypeVar('T') -> nil

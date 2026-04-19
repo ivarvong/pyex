@@ -60,7 +60,90 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:bytes, _}), do: "bytes"
   def py_type({:bytearray, _}), do: "bytearray"
   def py_type({:complex, _, _}), do: "complex"
+  def py_type({:module, _, _}), do: "module"
   def py_type(_), do: "object"
+
+  @doc """
+  Resolves a dunder-style attribute on a function pyvalue.
+
+  Returns `{:ok, value}` for recognized dunders
+  (`__name__`, `__qualname__`, `__module__`, `__doc__`, `__defaults__`,
+  `__kwdefaults__`, `__annotations__`, `__class__`) and `:error` otherwise.
+  Accepts both `{:function, ...}` and `{:func_with_attrs, func, _}` shapes.
+  """
+  @spec function_attr(Pyex.Interpreter.pyvalue(), String.t()) ::
+          {:ok, Pyex.Interpreter.pyvalue()} | :error
+  def function_attr({:func_with_attrs, func, _attrs}, attr), do: function_attr(func, attr)
+
+  def function_attr({:function, name, params, body, _env}, attr) do
+    case attr do
+      "__name__" -> {:ok, name}
+      "__qualname__" -> {:ok, name}
+      "__module__" -> {:ok, nil}
+      "__doc__" -> {:ok, function_docstring(body)}
+      "__defaults__" -> {:ok, function_positional_defaults(params)}
+      "__kwdefaults__" -> {:ok, function_kw_defaults(params)}
+      "__annotations__" -> {:ok, PyDict.from_pairs([])}
+      "__class__" -> {:ok, {:class, "function", [], %{"__name__" => "function"}}}
+      _ -> :error
+    end
+  end
+
+  def function_attr(_, _), do: :error
+
+  @spec function_docstring(list()) :: String.t() | nil
+  defp function_docstring([{:expr, _, [{:lit, _, [s]}]} | _]) when is_binary(s), do: s
+  defp function_docstring([{:lit, _, [s]} | _]) when is_binary(s), do: s
+  defp function_docstring(_), do: nil
+
+  @spec function_positional_defaults([Parser.param()]) :: Pyex.Interpreter.pyvalue()
+  defp function_positional_defaults(params) do
+    positional =
+      params
+      |> Enum.take_while(fn
+        {name, _} -> not String.starts_with?(name, "*") and name != "*"
+        {name, _, _} -> not String.starts_with?(name, "*") and name != "*"
+        _ -> false
+      end)
+      |> Enum.map(&param_default_value/1)
+      |> Enum.reject(&is_nil/1)
+
+    case positional do
+      [] -> nil
+      vals -> {:tuple, vals}
+    end
+  end
+
+  @spec function_kw_defaults([Parser.param()]) :: Pyex.Interpreter.pyvalue()
+  defp function_kw_defaults(params) do
+    after_sep =
+      params
+      |> Enum.drop_while(fn
+        {name, _} -> not String.starts_with?(name, "*") and name != "*"
+        {name, _, _} -> not String.starts_with?(name, "*") and name != "*"
+        _ -> true
+      end)
+      |> Enum.drop(1)
+
+    pairs =
+      after_sep
+      |> Enum.map(fn param -> {elem(param, 0), param_default_value(param)} end)
+      |> Enum.reject(fn {_, v} -> v == nil end)
+
+    case pairs do
+      [] -> nil
+      _ -> PyDict.from_pairs(pairs)
+    end
+  end
+
+  @spec param_default_value(Parser.param()) :: Pyex.Interpreter.pyvalue() | nil
+  defp param_default_value({_name, {:__evaluated__, v}}), do: v
+  defp param_default_value({_name, {:__evaluated__, v}, _ann}), do: v
+  defp param_default_value({_name, nil}), do: nil
+  defp param_default_value({_name, nil, _ann}), do: nil
+  defp param_default_value({_name, :kwonly_sep}), do: nil
+  defp param_default_value({_name, :pos_only_sep}), do: nil
+  defp param_default_value(_), do: nil
 
   @doc """
   Converts a Python value to its `str()` representation.
@@ -132,6 +215,7 @@ defmodule Pyex.Interpreter.Helpers do
   end
 
   def py_str({:class, name, _, _}), do: "<class '#{name}'>"
+  def py_str({:module, name, _}), do: "<module '#{name}'>"
   def py_str({:builtin_type, name, _}), do: "<class '#{name}'>"
   def py_str({:exception_class, name}), do: "<class '#{name}'>"
   def py_str({:bytes, b}), do: bytes_repr(b, "b")

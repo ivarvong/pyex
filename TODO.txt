@@ -8,6 +8,65 @@ Heap-based reference system is complete for lists, dicts, sets, and
 class instances.  Aliasing works: `b = a; b.val = 99` → `a.val == 99`.
 Intrusive linked lists work: `node.prev.next = node.next`.
 
+## Recently fixed (class system, type(), descriptors, subclassing)
+
+- `type(cls) is type` holds: `type` is now the canonical class singleton
+  (`type_class()`), bound directly in the builtins env.  `isinstance(Foo, type)`,
+  `isinstance(int, type)` all return True.
+- `type(x)` for primitives returns a class value structurally equal to the
+  corresponding builtin (`type(42) is int`, `type("x") is str`, etc.).
+- Subclassing stdlib classes preserves subclass identity.  `class MyDT(datetime.datetime)`
+  — `MyDT(...)` returns a `MyDT` instance, `type(m).__name__ == "MyDT"`, and
+  subclass method overrides beat the baked-in parent closures.  `super().foo()`
+  falls back to baked-in parent methods when the class MRO doesn't find `foo`.
+- Subclassing built-in types (`list`, `dict`, `set`, `str`, `int`, `tuple`,
+  ...) now works via a `__wrapped__` pattern.  `class MyList(list): def total(self): return sum(self)`
+  works for iteration, `len`, subscript, `in`, `isinstance(ml, list)` etc.
+  Methods on the wrapped value (`ml.append`, `md.values`) forward automatically.
+- Custom data descriptors honored: classes with `__get__`/`__set__` on
+  instance attributes now work as in CPython.
+- `__slots__` is enforced: slotted classes raise `AttributeError` on
+  assignment to undeclared attributes.  Plain classes are unaffected.
+- Dict keys with custom `__eq__`/`__hash__` resolve correctly:
+  `d = {K(1): "v"}; d[K(1)]` returns `"v"`.  Sets dedupe by value.
+- `KeyError` messages use Python-style repr (`KeyError: 'y'`) instead of
+  leaking internal `{:ref, N}` tuples.  Affects all `d["missing"]`,
+  `dict.pop`, `operator.getitem`, `set.remove`, etc.
+- `hasattr` no longer crashes on non-`{:class, ...}` pyvalues (generators,
+  caught exceptions, builtin types).  Each returns the correct boolean.
+- Function dunders expose `__name__`, `__doc__`, `__annotations__`,
+  `__defaults__`, `__kwdefaults__`, `__qualname__`, `__module__`,
+  `__class__`.  `hasattr`, `getattr`, attribute access all work uniformly.
+- Class dunders: `__qualname__`, `__module__`, `__doc__`, `__dict__`,
+  `__mro__`, `__bases__`, `__name__`, `__class__` (→ `type`).
+- Module dunders: `__name__` (settable after mutation), `__class__`,
+  `__dict__`, `__doc__`.  `vars(module)` works.
+- Built-in type dunders: `int.__mro__`, `bool.__mro__` (includes `int`),
+  `str.__name__`, `list.__bases__`, etc.
+- `typing.List[int]`, `Optional[str]`, `Dict[str, int]` (with multi-arg
+  subscripts) parse and evaluate without errors.  Parser now supports
+  `a[x, y]` sugar for `a[(x, y)]`.
+
+## Recently fixed (module & datetime class hierarchy)
+
+- Modules are now `{:module, name, attrs}` pyvalues (were bare maps)
+  - `type(m)` returns `"module"` (was `"dict"`)
+  - `repr(m)` renders as `<module 'name'>`
+  - `m.__name__` and `m.__class__` work correctly
+  - `dir(m)` returns module attribute names
+  - `os.path`, `urllib.parse/request/error`, `fastapi.responses` are
+    now real submodule pyvalues (were plain maps)
+  - Attribute access on modules now raises
+    `AttributeError: module 'X' has no attribute 'Y'` (Pythonic)
+  - `getattr(module, attr, default)` and `hasattr(module, attr)` work
+- `datetime.datetime` is now a subclass of `datetime.date`
+  - `issubclass(datetime, date)` → True
+  - `isinstance(dt, date)` → True
+  - `datetime.__mro__` → `(datetime, date, object)`
+- `datetime.datetime.combine(date, time, tzinfo=...)` classmethod added
+- `getattr(cls, "name")` now walks the class MRO (was failing with
+  AttributeError for inherited/classmethod attributes)
+
 ## Recently fixed (third batch — staff-level Python)
 
 - `@property` / `@property.setter` — getter/setter descriptor protocol
@@ -90,7 +149,6 @@ Known limitations:
 - `async`/`await` and `asyncio` not yet implemented
 - `bytes`/`bytearray` types not yet implemented
 - `datetime.now()` always returns UTC (not local time)
-- `datetime.time` class not exported (only `datetime`, `date`, `timedelta`, `timezone`)
 - `next(itertools.count())` must be wrapped with `iter()` first; CPython
   allows it directly because count/cycle return iterator objects natively.
   In Pyex they return bounded lists/ranges (works with `list()`, `for`,

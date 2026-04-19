@@ -1835,4 +1835,141 @@ defmodule Pyex.Stdlib.DatetimeTest do
       assert result == ["2026-01-14", "2026-01-13"]
     end
   end
+
+  describe "class hierarchy matches CPython" do
+    test "datetime is a subclass of date" do
+      assert Pyex.run!("""
+             from datetime import datetime, date
+             issubclass(datetime, date)
+             """) == true
+    end
+
+    test "datetime instance is-instance-of date" do
+      assert Pyex.run!("""
+             from datetime import datetime, date
+             isinstance(datetime(2024, 1, 15), date)
+             """) == true
+    end
+
+    test "a date instance is not a datetime" do
+      assert Pyex.run!("""
+             from datetime import datetime, date
+             isinstance(date(2024, 1, 15), datetime)
+             """) == false
+    end
+
+    test "__mro__ is (datetime, date, object)" do
+      {:tuple, classes} =
+        Pyex.run!("""
+        from datetime import datetime
+        datetime.__mro__
+        """)
+
+      names = Enum.map(classes, fn {:class, name, _, _} -> name end)
+      assert names == ["datetime", "date", "object"]
+    end
+
+    test "date.__mro__ is (date, object)" do
+      {:tuple, classes} =
+        Pyex.run!("""
+        from datetime import date
+        date.__mro__
+        """)
+
+      names = Enum.map(classes, fn {:class, name, _, _} -> name end)
+      assert names == ["date", "object"]
+    end
+  end
+
+  describe "datetime.combine" do
+    test "combines date and time at midnight UTC" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, date, time, timezone
+        dt = datetime.combine(date(2024, 1, 15), time.min, tzinfo=timezone.utc)
+        dt.isoformat()
+        """)
+
+      assert result == "2024-01-15T00:00:00+00:00"
+    end
+
+    test "combines date and time without tzinfo" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, date, time
+        dt = datetime.combine(date(2024, 1, 15), time(12, 30, 45))
+        dt.isoformat()
+        """)
+
+      assert result == "2024-01-15T12:30:45"
+    end
+
+    test "combine via module-qualified class" do
+      result =
+        Pyex.run!("""
+        import datetime as dt_mod
+        dt = dt_mod.datetime.combine(dt_mod.date(2024, 1, 15), dt_mod.time(9, 0, 0))
+        dt.isoformat()
+        """)
+
+      assert result == "2024-01-15T09:00:00"
+    end
+
+    test "accepts tzinfo as positional" do
+      result =
+        Pyex.run!("""
+        from datetime import datetime, date, time, timezone
+        dt = datetime.combine(date(2024, 1, 15), time.min, timezone.utc)
+        dt.isoformat()
+        """)
+
+      assert result == "2024-01-15T00:00:00+00:00"
+    end
+  end
+
+  describe "classmethods reachable via the class" do
+    test "datetime.now via import datetime" do
+      {:instance, {:class, "datetime", _, _}, _} =
+        Pyex.run!("""
+        import datetime
+        datetime.datetime.now()
+        """)
+    end
+
+    test "getattr(datetime.datetime, 'now') returns a callable" do
+      {:instance, {:class, "datetime", _, _}, _} =
+        Pyex.run!("""
+        import datetime
+        now = getattr(datetime.datetime, "now")
+        now()
+        """)
+    end
+
+    test "hasattr(datetime, 'now') is True" do
+      assert Pyex.run!("""
+             import datetime
+             hasattr(datetime.datetime, "now")
+             """) == true
+    end
+
+    test "getattr(cls, 'missing', default) returns default" do
+      assert Pyex.run!("""
+             from datetime import datetime
+             getattr(datetime, "nonexistent", "default_val")
+             """) == "default_val"
+    end
+
+    test "strptime via class and getattr" do
+      {:instance, {:class, "datetime", _, _}, attrs} =
+        Pyex.run!("""
+        from datetime import datetime
+        fn = getattr(datetime, "strptime")
+        fn("2024-01-15", "%Y-%m-%d")
+        """)
+
+      assert Map.get(attrs, "year") == 2024
+      assert Map.get(attrs, "month") == 1
+      assert Map.get(attrs, "day") == 15
+    end
+  end
 end

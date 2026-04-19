@@ -269,7 +269,33 @@ defmodule Pyex.Interpreter.Invocation do
           Env.t(),
           Ctx.t()
         ) :: Interpreter.call_result()
+  def call_class({:class, "type", [], _} = class, name, args, kwargs, env, ctx) do
+    # `type(x)` returns the class/type of x; `type(name, bases, attrs)`
+    # constructs a new class.  Kwargs are not meaningful for the 1-arg
+    # form in CPython — fall through to instance construction if given.
+    case {args, map_size(kwargs)} do
+      {[val], 0} ->
+        derefed = Ctx.deep_deref(ctx, val)
+        {Pyex.Builtins.builtin_type_of(derefed), env, ctx}
+
+      _ ->
+        call_class_generic(class, name, args, kwargs, env, ctx)
+    end
+  end
+
   def call_class({:class, _, _, _} = class, name, args, kwargs, env, ctx) do
+    call_class_generic(class, name, args, kwargs, env, ctx)
+  end
+
+  @spec call_class_generic(
+          Interpreter.pyvalue(),
+          String.t(),
+          [Interpreter.pyvalue()],
+          %{optional(String.t()) => Interpreter.pyvalue()},
+          Env.t(),
+          Ctx.t()
+        ) :: Interpreter.call_result()
+  defp call_class_generic({:class, _, _, _} = class, name, args, kwargs, env, ctx) do
     instance = {:instance, class, %{}}
 
     case ClassLookup.resolve_class_attr_with_owner(class, "__init__") do
@@ -293,7 +319,16 @@ defmodule Pyex.Interpreter.Invocation do
 
         case fun.([instance | derefed_args], derefed_kwargs) do
           {:instance, _, _} = updated_instance ->
-            {ref, ctx} = Ctx.heap_alloc(ctx, updated_instance)
+            # Preserve subclass identity: if a stdlib parent __init__
+            # returned an instance tagged with the parent class, rebind
+            # it to the subclass being constructed.
+            rebound = rebind_to_subclass(updated_instance, class)
+            {ref, ctx} = Ctx.heap_alloc(ctx, rebound)
+            {ref, env, ctx}
+
+          {:mutate, new_instance, _ret} ->
+            rebound = rebind_to_subclass(new_instance, class)
+            {ref, ctx} = Ctx.heap_alloc(ctx, rebound)
             {ref, env, ctx}
 
           {:exception, _} = signal ->
@@ -312,11 +347,13 @@ defmodule Pyex.Interpreter.Invocation do
 
         case fun.([instance | derefed_args]) do
           {:mutate, new_instance, _ret} ->
-            {ref, ctx} = Ctx.heap_alloc(ctx, new_instance)
+            rebound = rebind_to_subclass(new_instance, class)
+            {ref, ctx} = Ctx.heap_alloc(ctx, rebound)
             {ref, env, ctx}
 
           {:instance, _, _} = updated_instance ->
-            {ref, ctx} = Ctx.heap_alloc(ctx, updated_instance)
+            rebound = rebind_to_subclass(updated_instance, class)
+            {ref, ctx} = Ctx.heap_alloc(ctx, rebound)
             {ref, env, ctx}
 
           {:exception, _} = signal ->
@@ -337,6 +374,32 @@ defmodule Pyex.Interpreter.Invocation do
         end
     end
   end
+
+  @spec rebind_to_subclass(Interpreter.pyvalue(), Interpreter.pyvalue()) ::
+          Interpreter.pyvalue()
+  defp rebind_to_subclass({:instance, current_class, attrs} = inst, requested_class) do
+    # The parent's builtin __init__ returns `{:instance, ParentClass, ...}`.
+    # If the caller asked for a subclass, retag the instance so
+    # `type(obj) is Subclass` and `isinstance(obj, Subclass)` hold.
+    # Only rebind when `requested_class` is a strict descendant of
+    # `current_class` so we don't accidentally broaden an instance.
+    if is_strict_subclass?(requested_class, current_class) do
+      {:instance, requested_class, attrs}
+    else
+      inst
+    end
+  end
+
+  defp rebind_to_subclass(other, _class), do: other
+
+  @spec is_strict_subclass?(Interpreter.pyvalue(), Interpreter.pyvalue()) :: boolean()
+  defp is_strict_subclass?({:class, _, _, _} = sub, {:class, _, _, _} = sup)
+       when sub != sup do
+    mro = Pyex.Interpreter.ClassLookup.c3_linearize(sub)
+    Enum.any?(mro, fn cls -> cls == sup end)
+  end
+
+  defp is_strict_subclass?(_, _), do: false
 
   @doc false
   @spec call_callable_instance(

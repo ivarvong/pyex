@@ -28,7 +28,7 @@ defmodule Pyex.ClassesTest do
       type(e)
       """
 
-      {:instance, _, %{"__name__" => name}} = Pyex.run!(code)
+      {:class, name, _, _} = Pyex.run!(code)
       assert name == "Empty"
     end
 
@@ -1399,6 +1399,230 @@ defmodule Pyex.ClassesTest do
     test ".add() raises AttributeError" do
       {:error, err} = Pyex.run("frozenset([1]).add(2)")
       assert err.message =~ "AttributeError"
+    end
+  end
+
+  describe "type() and isinstance() matching CPython" do
+    test "type(Foo) is type" do
+      assert Pyex.run!("class Foo: pass\ntype(Foo) is type") == true
+    end
+
+    test "isinstance(Foo, type) is True" do
+      assert Pyex.run!("class Foo: pass\nisinstance(Foo, type)") == true
+    end
+
+    test "type(Foo).__name__ is 'type'" do
+      assert Pyex.run!("class Foo: pass\ntype(Foo).__name__") == "type"
+    end
+
+    test "isinstance(int, type) is True" do
+      assert Pyex.run!("isinstance(int, type)") == true
+    end
+
+    test "type(42) is int" do
+      assert Pyex.run!("type(42) is int") == true
+    end
+
+    test "type(\"x\") is str" do
+      assert Pyex.run!("type(\"x\") is str") == true
+    end
+
+    test "type(True) is bool" do
+      assert Pyex.run!("type(True) is bool") == true
+    end
+
+    test "bool.__mro__ is (bool, int, object)" do
+      {:tuple, classes} = Pyex.run!("bool.__mro__")
+      names = Enum.map(classes, fn {:class, n, _, _} -> n end)
+      assert names == ["bool", "int", "object"]
+    end
+  end
+
+  describe "subclassing stdlib classes" do
+    test "subclass of datetime.datetime preserves subclass identity" do
+      result =
+        Pyex.run!("""
+        import datetime
+
+        class MyDT(datetime.datetime):
+            def greet(self):
+                return "hi"
+
+        m = MyDT(2024, 1, 15, 10, 30)
+        (type(m).__name__, isinstance(m, MyDT), isinstance(m, datetime.date), m.greet())
+        """)
+
+      assert result == {:tuple, ["MyDT", true, true, "hi"]}
+    end
+
+    test "subclass can override parent method with super()" do
+      assert Pyex.run!("""
+             import datetime
+
+             class MyDT(datetime.datetime):
+                 def isoformat(self):
+                     return "X:" + super().isoformat()
+
+             MyDT(2024, 1, 15).isoformat()
+             """) == "X:2024-01-15T00:00:00"
+    end
+
+    test "subclass of list works" do
+      result =
+        Pyex.run!("""
+        class MyList(list):
+            def total(self):
+                return sum(self)
+
+        ml = MyList([1, 2, 3])
+        (type(ml).__name__, ml.total(), len(ml), ml[0], isinstance(ml, list))
+        """)
+
+      assert result == {:tuple, ["MyList", 6, 3, 1, true]}
+    end
+
+    test "subclass of dict works" do
+      result =
+        Pyex.run!("""
+        class MyDict(dict):
+            def combined(self):
+                return sum(self.values())
+
+        md = MyDict(a=1, b=2)
+        (type(md).__name__, md.combined(), len(md), md["a"], isinstance(md, dict))
+        """)
+
+      assert result == {:tuple, ["MyDict", 3, 2, 1, true]}
+    end
+  end
+
+  describe "dict keys with __eq__/__hash__" do
+    test "equal custom keys resolve to the same entry" do
+      assert Pyex.run!("""
+             class K:
+                 def __init__(self, v): self.v = v
+                 def __eq__(self, other): return isinstance(other, K) and self.v == other.v
+                 def __hash__(self): return hash(self.v)
+
+             d = {K(1): "first"}
+             d[K(1)]
+             """) == "first"
+    end
+
+    test "KeyError message doesn't leak ref internals" do
+      {:error, err} = Pyex.run("d = {\"x\": 1}\nd[\"y\"]")
+      # Should show 'y' with Python repr quoting, not {:ref, ...} or :y
+      assert err.message =~ "KeyError: 'y'"
+      refute err.message =~ "ref"
+    end
+  end
+
+  describe "function dunders" do
+    test "function exposes __name__, __doc__, __defaults__, __kwdefaults__" do
+      assert Pyex.run!("""
+             def f(x, y=10, *args, z=20, **kw):
+                 "docstring"
+                 return x
+
+             (f.__name__, f.__doc__, f.__defaults__, f.__kwdefaults__["z"])
+             """) == {:tuple, ["f", "docstring", {:tuple, [10]}, 20]}
+    end
+
+    test "lambda has __name__ '<lambda>'" do
+      assert Pyex.run!("(lambda x: x).__name__") == "<lambda>"
+    end
+
+    test "hasattr works on functions" do
+      assert Pyex.run!("""
+             def f(): pass
+             (hasattr(f, "__name__"), hasattr(f, "nope"))
+             """) == {:tuple, [true, false]}
+    end
+  end
+
+  describe "class __qualname__, __module__, __doc__, __dict__" do
+    test "user class exposes qualname, module, doc, dict" do
+      result =
+        Pyex.run!("""
+        class C:
+            "the C class"
+            x = 1
+
+        (C.__qualname__, C.__module__, C.__doc__, "x" in C.__dict__)
+        """)
+
+      assert result == {:tuple, ["C", "__main__", "the C class", true]}
+    end
+  end
+
+  describe "custom data descriptors" do
+    test "__get__ and __set__ descriptors honored" do
+      result =
+        Pyex.run!("""
+        class Prop:
+            def __init__(self, v): self.v = v
+            def __get__(self, obj, objtype=None): return self.v
+            def __set__(self, obj, value): self.v = value
+
+        class C:
+            p = Prop(10)
+
+        c = C()
+        before = c.p
+        c.p = 99
+        after = c.p
+        (before, after)
+        """)
+
+      assert result == {:tuple, [10, 99]}
+    end
+  end
+
+  describe "__slots__ enforcement" do
+    test "slotted class rejects undeclared attrs" do
+      {:error, err} =
+        Pyex.run("""
+        class S:
+            __slots__ = ("x", "y")
+            def __init__(self, x, y):
+                self.x = x
+                self.y = y
+
+        s = S(1, 2)
+        s.z = 3
+        """)
+
+      assert err.message =~ "AttributeError"
+      assert err.message =~ "'S'"
+      assert err.message =~ "'z'"
+    end
+
+    test "regular class still allows arbitrary attrs" do
+      assert Pyex.run!("""
+             class C:
+                 def __init__(self):
+                     self.a = 1
+
+             c = C()
+             c.b = 2
+             c.a + c.b
+             """) == 3
+    end
+  end
+
+  describe "typing generics" do
+    test "List[int] returns a typing-generic without error" do
+      assert match?(
+               {:instance, {:class, "List", _, _}, _},
+               Pyex.run!("from typing import List\nList[int]")
+             )
+    end
+
+    test "Dict[str, int] works with multi-arg subscript" do
+      assert match?(
+               {:instance, {:class, "Dict", _, _}, _},
+               Pyex.run!("from typing import Dict\nDict[str, int]")
+             )
     end
   end
 end

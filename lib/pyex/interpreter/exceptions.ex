@@ -167,7 +167,14 @@ defmodule Pyex.Interpreter.Exceptions do
         [name] -> {name, ""}
       end
 
-    {:instance, {:class, class_name, [], %{}}, %{"args" => {:tuple, [msg]}}}
+    class =
+      if Pyex.ExceptionsHierarchy.known?(class_name) do
+        Interpreter.exception_instance_class({:exception_class, class_name})
+      else
+        {:class, class_name, [], %{"__name__" => class_name, "__qualname__" => class_name}}
+      end
+
+    {:instance, class, %{"args" => {:tuple, [msg]}}}
   end
 
   @spec eval_raise_exc_class(

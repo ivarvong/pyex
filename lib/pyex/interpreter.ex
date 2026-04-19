@@ -87,6 +87,8 @@ defmodule Pyex.Interpreter do
           | {:bytes, binary()}
           | {:bytearray, binary()}
           | {:complex, float(), float()}
+          | {:module, String.t(), %{optional(String.t()) => pyvalue()}}
+          | {:func_with_attrs, pyvalue(), %{optional(String.t()) => pyvalue()}}
 
   @typep signal ::
            {:returned, pyvalue()}
@@ -342,6 +344,7 @@ defmodule Pyex.Interpreter do
       Enum.map(base_names, fn
         {:dotted, mod_name, attr_name} ->
           case Env.get(env, mod_name) do
+            {:ok, {:module, _, %{^attr_name => {:class, _, _, _} = base}}} -> base
             {:ok, %{^attr_name => {:class, _, _, _} = base}} -> base
             _ -> nil
           end
@@ -355,6 +358,12 @@ defmodule Pyex.Interpreter do
               # Reify to a real {:class, name, bases, attrs} so the MRO
               # and super() paths find the builtin __init__ etc.
               exception_instance_class(exc)
+
+            {:ok, {:builtin_type, _, _} = btype} ->
+              # Reify `list`, `dict`, `set`, `str`, `int`, `tuple`, ... so
+              # `class MyList(list)` works.  Subclass instances carry their
+              # wrapped value under `__wrapped__`.
+              builtin_type_base_class(btype)
 
             _ ->
               # Fallback: legacy stub for bases that aren't in env but
@@ -380,11 +389,27 @@ defmodule Pyex.Interpreter do
     else
       class_scope = Env.current_scope(class_env)
 
+      docstring =
+        case body do
+          [{:expr, _, [{:lit, _, [s]}]} | _] when is_binary(s) -> s
+          [{:lit, _, [s]} | _] when is_binary(s) -> s
+          _ -> nil
+        end
+
+      module_name =
+        case Env.get(env, "__name__") do
+          {:ok, n} when is_binary(n) -> n
+          _ -> "__main__"
+        end
+
       raw_attrs =
         Enum.reduce(class_scope, %{}, fn {k, v}, acc ->
           Map.put(acc, k, v)
         end)
         |> Map.put("__name__", name)
+        |> Map.put("__qualname__", name)
+        |> Map.put("__module__", module_name)
+        |> Map.put("__doc__", docstring)
 
       class_val = {:class, name, bases, raw_attrs}
 
@@ -687,11 +712,16 @@ defmodule Pyex.Interpreter do
                 {class, env, ctx}
 
               _ ->
-                case Map.fetch(inst_attrs, attr) do
-                  {:ok, value} ->
+                override = subclass_method_override(class, attr)
+
+                case {override, Map.fetch(inst_attrs, attr)} do
+                  {{:ok, func, owner_class}, _} ->
+                    {{:bound_method, raw, func, owner_class}, env, ctx}
+
+                  {_, {:ok, value}} ->
                     {value, env, ctx}
 
-                  :error ->
+                  {_, :error} ->
                     case ClassLookup.resolve_class_attr_with_owner(class, attr) do
                       {:ok, {:function, _, _, _, _} = func, owner_class} ->
                         {{:bound_method, raw, func, owner_class}, env, ctx}
@@ -715,17 +745,23 @@ defmodule Pyex.Interpreter do
                         {{:bound_method, class, func}, env, ctx}
 
                       {:ok, value, _owner} ->
-                        {value, env, ctx}
+                        invoke_descriptor_get(value, instance, class, env, ctx)
 
                       :error ->
-                        case Dunder.call_dunder(instance, "__getattr__", [attr], env, ctx) do
-                          {:ok, val, env, ctx} ->
-                            {val, env, ctx}
+                        case forward_method_to_wrapped(inst_attrs, attr) do
+                          {:ok, bound} ->
+                            {bound, env, ctx}
 
                           :not_found ->
-                            {{:exception,
-                              "AttributeError: '#{Helpers.py_type(instance)}' object has no attribute '#{attr}'"},
-                             env, ctx}
+                            case Dunder.call_dunder(instance, "__getattr__", [attr], env, ctx) do
+                              {:ok, val, env, ctx} ->
+                                {val, env, ctx}
+
+                              :not_found ->
+                                {{:exception,
+                                  "AttributeError: '#{Helpers.py_type(instance)}' object has no attribute '#{attr}'"},
+                                 env, ctx}
+                            end
                         end
                     end
                 end
@@ -755,11 +791,16 @@ defmodule Pyex.Interpreter do
                 {class, env, ctx}
 
               _ ->
-                case Map.fetch(inst_attrs, attr) do
-                  {:ok, value} ->
+                override = subclass_method_override(class, attr)
+
+                case {override, Map.fetch(inst_attrs, attr)} do
+                  {{:ok, func, owner_class}, _} ->
+                    {{:bound_method, raw_object, func, owner_class}, env, ctx}
+
+                  {_, {:ok, value}} ->
                     {value, env, ctx}
 
-                  :error ->
+                  {_, :error} ->
                     case ClassLookup.resolve_class_attr_with_owner(class, attr) do
                       {:ok, {:function, _, _, _, _} = func, owner_class} ->
                         {{:bound_method, raw_object, func, owner_class}, env, ctx}
@@ -771,7 +812,7 @@ defmodule Pyex.Interpreter do
                         {{:bound_method, raw_object, b}, env, ctx}
 
                       {:ok, value, _owner} ->
-                        {value, env, ctx}
+                        invoke_descriptor_get(value, object, class, env, ctx)
 
                       :error ->
                         case Methods.resolve(object, attr) do
@@ -779,14 +820,20 @@ defmodule Pyex.Interpreter do
                             {method, env, ctx}
 
                           :error ->
-                            case Dunder.call_dunder(object, "__getattr__", [attr], env, ctx) do
-                              {:ok, val, env, ctx} ->
-                                {val, env, ctx}
+                            case forward_method_to_wrapped(elem(object, 2), attr) do
+                              {:ok, bound} ->
+                                {bound, env, ctx}
 
                               :not_found ->
-                                {{:exception,
-                                  "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
-                                 env, ctx}
+                                case Dunder.call_dunder(object, "__getattr__", [attr], env, ctx) do
+                                  {:ok, val, env, ctx} ->
+                                    {val, env, ctx}
+
+                                  :not_found ->
+                                    {{:exception,
+                                      "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
+                                     env, ctx}
+                                end
                             end
                         end
                     end
@@ -796,7 +843,31 @@ defmodule Pyex.Interpreter do
           {:class, class_name, _, class_attrs} = class_val ->
             case attr do
               "__class__" ->
-                {{:class, "type", [], %{"__name__" => "type"}}, env, ctx}
+                {Builtins.type_class(), env, ctx}
+
+              "__mro__" ->
+                mro =
+                  ClassLookup.c3_linearize(class_val)
+                  |> Enum.map(fn {:class, _, _, _} = c -> c end)
+
+                object_class = {:class, "object", [], %{"__name__" => "object"}}
+
+                mro_with_object =
+                  if Enum.any?(mro, fn {:class, n, _, _} -> n == "object" end) do
+                    mro
+                  else
+                    mro ++ [object_class]
+                  end
+
+                {{:tuple, mro_with_object}, env, ctx}
+
+              "__bases__" ->
+                {:class, _, bases, _} = class_val
+                {{:tuple, bases}, env, ctx}
+
+              "__dict__" ->
+                pairs = Enum.map(class_attrs, fn {k, v} -> {k, v} end)
+                {PyDict.from_pairs(pairs), env, ctx}
 
               _ ->
                 case Map.get(class_attrs, attr) do
@@ -915,12 +986,69 @@ defmodule Pyex.Interpreter do
                 {value, env, ctx}
 
               :error ->
-                {{:exception, "AttributeError: 'super' object has no attribute '#{attr}'"}, env,
-                 ctx}
+                # Fallback for stdlib parents that bake methods into
+                # instance attrs (e.g. datetime): if the instance has
+                # the method attr inst-level, prefer it over raising.
+                derefed = Ctx.deref(ctx, instance)
+
+                case derefed do
+                  {:instance, _, inst_attrs} ->
+                    case Map.fetch(inst_attrs, attr) do
+                      {:ok, value} ->
+                        {value, env, ctx}
+
+                      :error ->
+                        {{:exception,
+                          "AttributeError: 'super' object has no attribute '#{attr}'"}, env, ctx}
+                    end
+
+                  _ ->
+                    {{:exception, "AttributeError: 'super' object has no attribute '#{attr}'"},
+                     env, ctx}
+                end
             end
 
           {:py_dict, _, _} = dict ->
             resolve_dict_attr(dict, attr, env, ctx)
+
+          {:module, name, attrs} ->
+            case module_attr(name, attrs, attr) do
+              {:ok, value} ->
+                {value, env, ctx}
+
+              :error ->
+                {{:exception, "AttributeError: module '#{name}' has no attribute '#{attr}'"}, env,
+                 ctx}
+            end
+
+          {:exception_class, exc_name} ->
+            case attr do
+              "__name__" ->
+                {exc_name, env, ctx}
+
+              "__qualname__" ->
+                {exc_name, env, ctx}
+
+              "__class__" ->
+                {Builtins.type_class(), env, ctx}
+
+              "__mro__" ->
+                {{:tuple, exception_class_mro(exc_name)}, env, ctx}
+
+              "__bases__" ->
+                {{:tuple, exception_class_bases(exc_name)}, env, ctx}
+
+              "__module__" ->
+                {"builtins", env, ctx}
+
+              "__doc__" ->
+                {nil, env, ctx}
+
+              _ ->
+                {{:exception,
+                  "AttributeError: type object '#{exc_name}' has no attribute '#{attr}'"}, env,
+                 ctx}
+            end
 
           %{^attr => value} ->
             {value, env, ctx}
@@ -939,6 +1067,31 @@ defmodule Pyex.Interpreter do
               _ ->
                 {{:exception, "AttributeError: 'range' object has no attribute '#{attr}'"}, env,
                  ctx}
+            end
+
+          {:function, _, _, _, _} = func ->
+            case Helpers.function_attr(func, attr) do
+              {:ok, value} ->
+                {value, env, ctx}
+
+              :error ->
+                {{:exception, "AttributeError: function has no attribute '#{attr}'"}, env, ctx}
+            end
+
+          {:func_with_attrs, func, attrs} ->
+            case Map.fetch(attrs, attr) do
+              {:ok, value} ->
+                {value, env, ctx}
+
+              :error ->
+                case Helpers.function_attr(func, attr) do
+                  {:ok, value} ->
+                    {value, env, ctx}
+
+                  :error ->
+                    {{:exception, "AttributeError: function has no attribute '#{attr}'"}, env,
+                     ctx}
+                end
             end
 
           _ ->
@@ -1313,8 +1466,23 @@ defmodule Pyex.Interpreter do
     object = Ctx.deref(ctx, object)
 
     case object do
-      {:func_with_attrs, _func, attrs} ->
+      {:func_with_attrs, func, attrs} ->
         case Map.fetch(attrs, attr) do
+          {:ok, value} ->
+            {value, env, ctx}
+
+          :error ->
+            case Helpers.function_attr(func, attr) do
+              {:ok, value} ->
+                {value, env, ctx}
+
+              :error ->
+                {{:exception, "AttributeError: function has no attribute '#{attr}'"}, env, ctx}
+            end
+        end
+
+      {:function, _, _, _, _} = func ->
+        case Helpers.function_attr(func, attr) do
           {:ok, value} ->
             {value, env, ctx}
 
@@ -1344,11 +1512,20 @@ defmodule Pyex.Interpreter do
             {class, env, ctx}
 
           _ ->
-            case Map.fetch(inst_attrs, attr) do
-              {:ok, value} ->
+            # If the instance's MRO contains a user-defined subclass override
+            # for this attr, prefer it over baked-in parent methods in
+            # inst_attrs.  This makes stdlib subclass methods (e.g.
+            # overriding datetime.isoformat) work as expected.
+            override = subclass_method_override(class, attr)
+
+            case {override, Map.fetch(inst_attrs, attr)} do
+              {{:ok, {:function, _, _, _, _} = func, owner_class}, _} ->
+                {{:bound_method, object, func, owner_class}, env, ctx}
+
+              {_, {:ok, value}} ->
                 {value, env, ctx}
 
-              :error ->
+              {_, :error} ->
                 case ClassLookup.resolve_class_attr_with_owner(class, attr) do
                   {:ok, {:function, _, _, _, _} = func, owner_class} ->
                     {{:bound_method, object, func, owner_class}, env, ctx}
@@ -1372,7 +1549,7 @@ defmodule Pyex.Interpreter do
                     {{:bound_method, class, func}, env, ctx}
 
                   {:ok, value, _owner} ->
-                    {value, env, ctx}
+                    invoke_descriptor_get(value, object, class, env, ctx)
 
                   :error ->
                     case Methods.resolve(object, attr) do
@@ -1380,14 +1557,20 @@ defmodule Pyex.Interpreter do
                         {method, env, ctx}
 
                       :error ->
-                        case Dunder.call_dunder(object, "__getattr__", [attr], env, ctx) do
-                          {:ok, val, env, ctx} ->
-                            {val, env, ctx}
+                        case forward_method_to_wrapped(elem(object, 2), attr) do
+                          {:ok, bound} ->
+                            {bound, env, ctx}
 
                           :not_found ->
-                            {{:exception,
-                              "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
-                             env, ctx}
+                            case Dunder.call_dunder(object, "__getattr__", [attr], env, ctx) do
+                              {:ok, val, env, ctx} ->
+                                {val, env, ctx}
+
+                              :not_found ->
+                                {{:exception,
+                                  "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
+                                 env, ctx}
+                            end
                         end
                     end
                 end
@@ -1397,7 +1580,7 @@ defmodule Pyex.Interpreter do
       {:class, class_name, _, class_attrs} = class_val ->
         case attr do
           "__class__" ->
-            {{:class, "type", [], %{"__name__" => "type"}}, env, ctx}
+            {Builtins.type_class(), env, ctx}
 
           "__mro__" ->
             mro =
@@ -1425,6 +1608,11 @@ defmodule Pyex.Interpreter do
               {:ok, v} -> {v, env, ctx}
               :error -> {class_name, env, ctx}
             end
+
+          "__dict__" ->
+            # Expose a read-only view of class attrs as a dict
+            pairs = Enum.map(class_attrs, fn {k, v} -> {k, v} end)
+            {PyDict.from_pairs(pairs), env, ctx}
 
           _ ->
             case Map.get(class_attrs, attr) do
@@ -1533,11 +1721,55 @@ defmodule Pyex.Interpreter do
           end}, env, ctx}
 
       {:builtin_type, name, _} ->
-        {{:exception, "AttributeError: type object '#{name}' has no attribute '#{attr}'"}, env,
-         ctx}
+        case builtin_type_attr(name, attr) do
+          {:ok, value} ->
+            {value, env, ctx}
+
+          :error ->
+            {{:exception, "AttributeError: type object '#{name}' has no attribute '#{attr}'"},
+             env, ctx}
+        end
 
       {:py_dict, _, _} = dict ->
         resolve_dict_attr(dict, attr, env, ctx)
+
+      {:exception_class, name} ->
+        case attr do
+          "__name__" ->
+            {name, env, ctx}
+
+          "__qualname__" ->
+            {name, env, ctx}
+
+          "__class__" ->
+            {Builtins.type_class(), env, ctx}
+
+          "__mro__" ->
+            {{:tuple, exception_class_mro(name)}, env, ctx}
+
+          "__bases__" ->
+            {{:tuple, exception_class_bases(name)}, env, ctx}
+
+          "__module__" ->
+            {"builtins", env, ctx}
+
+          "__doc__" ->
+            {nil, env, ctx}
+
+          _ ->
+            {{:exception, "AttributeError: type object '#{name}' has no attribute '#{attr}'"},
+             env, ctx}
+        end
+
+      {:module, name, attrs} ->
+        case module_attr(name, attrs, attr) do
+          {:ok, value} ->
+            {value, env, ctx}
+
+          :error ->
+            {{:exception, "AttributeError: module '#{name}' has no attribute '#{attr}'"}, env,
+             ctx}
+        end
 
       %{^attr => value} ->
         {value, env, ctx}
@@ -1917,6 +2149,9 @@ defmodule Pyex.Interpreter do
       end
 
     attrs = %{
+      "__name__" => name,
+      "__qualname__" => name,
+      "__module__" => "builtins",
       "__init__" =>
         {:builtin,
          fn
@@ -2026,9 +2261,274 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  @doc false
+  @spec invoke_descriptor_get(pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  def invoke_descriptor_get(value, instance, owner_class, env, ctx) do
+    derefed = Ctx.deref(ctx, value)
+
+    case derefed do
+      {:instance, {:class, _, _, _} = desc_class, _} ->
+        case ClassLookup.resolve_class_attr(desc_class, "__get__") do
+          {:ok, {:function, _, _, _, _} = func} ->
+            result =
+              call_function(
+                {:bound_method, value, func},
+                [instance, owner_class],
+                %{},
+                env,
+                ctx
+              )
+
+            normalize_call_result(result)
+
+          _ ->
+            {value, env, ctx}
+        end
+
+      _ ->
+        {value, env, ctx}
+    end
+  end
+
+  @spec invoke_descriptor_set(pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) ::
+          {:ok, Env.t(), Ctx.t()} | :no_descriptor
+  def invoke_descriptor_set(value, instance, new_value, env, ctx) do
+    derefed = Ctx.deref(ctx, value)
+
+    case derefed do
+      {:instance, {:class, _, _, _} = desc_class, _} ->
+        case ClassLookup.resolve_class_attr(desc_class, "__set__") do
+          {:ok, {:function, _, _, _, _} = func} ->
+            result =
+              call_function(
+                {:bound_method, value, func},
+                [instance, new_value],
+                %{},
+                env,
+                ctx
+              )
+
+            case normalize_call_result(result) do
+              {_val, env, ctx} -> {:ok, env, ctx}
+            end
+
+          _ ->
+            :no_descriptor
+        end
+
+      _ ->
+        :no_descriptor
+    end
+  end
+
+  @spec normalize_call_result(term()) :: eval_result()
+  defp normalize_call_result(result) do
+    case result do
+      {val, env, ctx, _updated} -> {val, env, ctx}
+      {val, env, ctx} -> {val, env, ctx}
+    end
+  end
+
+  @doc false
+  @spec builtin_type_attr(String.t(), String.t()) :: {:ok, pyvalue()} | :error
+  def builtin_type_attr(name, "__name__"), do: {:ok, name}
+  def builtin_type_attr(name, "__qualname__"), do: {:ok, name}
+  def builtin_type_attr(_, "__module__"), do: {:ok, "builtins"}
+  def builtin_type_attr(_, "__class__"), do: {:ok, Builtins.type_class()}
+  def builtin_type_attr(_, "__doc__"), do: {:ok, nil}
+
+  def builtin_type_attr(name, "__mro__") do
+    mro = builtin_type_mro_classes(name)
+    {:ok, {:tuple, mro}}
+  end
+
+  def builtin_type_attr(name, "__bases__") do
+    bases = builtin_type_bases_classes(name)
+    {:ok, {:tuple, bases}}
+  end
+
+  def builtin_type_attr(_, _), do: :error
+
+  @spec builtin_type_mro_classes(String.t()) :: [pyvalue()]
+  defp builtin_type_mro_classes(name) do
+    object_class = {:class, "object", [], %{"__name__" => "object"}}
+
+    case name do
+      "bool" ->
+        [
+          {:class, "bool", [], %{"__name__" => "bool"}},
+          {:class, "int", [], %{"__name__" => "int"}},
+          object_class
+        ]
+
+      n
+      when n in [
+             "int",
+             "float",
+             "str",
+             "list",
+             "dict",
+             "set",
+             "frozenset",
+             "tuple",
+             "bytes",
+             "bytearray",
+             "complex",
+             "range"
+           ] ->
+        [{:class, n, [], %{"__name__" => n}}, object_class]
+
+      n ->
+        [{:class, n, [], %{"__name__" => n}}, object_class]
+    end
+  end
+
+  @spec builtin_type_bases_classes(String.t()) :: [pyvalue()]
+  defp builtin_type_bases_classes("bool"), do: [{:class, "int", [], %{"__name__" => "int"}}]
+
+  defp builtin_type_bases_classes(_),
+    do: [{:class, "object", [], %{"__name__" => "object"}}]
+
+  @doc false
+  @spec module_attr(String.t(), map(), String.t()) :: {:ok, pyvalue()} | :error
+  def module_attr(name, attrs, attr) do
+    cond do
+      attr == "__name__" ->
+        {:ok, Map.get(attrs, "__name__", name)}
+
+      attr == "__class__" ->
+        {:ok, {:class, "module", [], %{"__name__" => "module"}}}
+
+      attr == "__dict__" ->
+        pairs = Enum.map(attrs, fn {k, v} -> {k, v} end)
+        {:ok, PyDict.from_pairs(pairs)}
+
+      attr == "__doc__" ->
+        {:ok, Map.get(attrs, "__doc__", nil)}
+
+      true ->
+        Map.fetch(attrs, attr)
+    end
+  end
+
+  @doc false
+  @spec forward_method_to_wrapped(map(), String.t()) :: {:ok, pyvalue()} | :not_found
+  def forward_method_to_wrapped(inst_attrs, attr) when is_map(inst_attrs) do
+    case Map.fetch(inst_attrs, "__wrapped__") do
+      {:ok, wrapped} ->
+        case Methods.resolve(wrapped, attr) do
+          {:ok, method} -> {:ok, method}
+          :error -> :not_found
+        end
+
+      :error ->
+        :not_found
+    end
+  end
+
+  def forward_method_to_wrapped(_, _), do: :not_found
+
+  @spec builtin_type_base_class(pyvalue()) :: pyvalue()
+  defp builtin_type_base_class({:builtin_type, name, factory}) do
+    # `dict` alone among builtin types accepts kwargs; its factory has a
+    # 2-arity signature.  Route it through `builtin_dict/2`.
+    init_fn =
+      case name do
+        "dict" ->
+          {:builtin_kw,
+           fn
+             [{:instance, cls, attrs} | rest], kwargs ->
+               case Builtins.builtin_dict(rest, kwargs) do
+                 {:exception, _} = exc ->
+                   exc
+
+                 wrapped ->
+                   {:mutate, {:instance, cls, Map.put(attrs, "__wrapped__", wrapped)}, nil}
+               end
+           end}
+
+        _ ->
+          {:builtin,
+           fn
+             [{:instance, cls, attrs}] ->
+               wrapped = factory.([])
+               {:mutate, {:instance, cls, Map.put(attrs, "__wrapped__", wrapped)}, nil}
+
+             [{:instance, cls, attrs} | rest] ->
+               case factory.(rest) do
+                 {:exception, _} = exc ->
+                   exc
+
+                 wrapped ->
+                   {:mutate, {:instance, cls, Map.put(attrs, "__wrapped__", wrapped)}, nil}
+               end
+           end}
+      end
+
+    {:class, name, [],
+     %{
+       "__name__" => name,
+       "__qualname__" => name,
+       "__module__" => "builtins",
+       "__init__" => init_fn
+     }}
+  end
+
+  @spec subclass_method_override(pyvalue(), String.t()) ::
+          {:ok, pyvalue(), pyvalue()} | :not_found
+  defp subclass_method_override({:class, _, _, _} = class, attr) do
+    # Walk the class in C3-linearization order so diamond inheritance
+    # resolves to the correct override.  We only return user-defined
+    # Python functions (`{:function, ...}`); stdlib-baked methods live
+    # in inst_attrs and are found separately.
+    class
+    |> ClassLookup.c3_linearize()
+    |> Enum.find_value(:not_found, fn
+      {:class, _, _, attrs} = cls ->
+        case Map.fetch(attrs, attr) do
+          {:ok, {:function, _, _, _, _} = func} -> {:ok, func, cls}
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  @spec exception_class_mro(String.t()) :: [pyvalue()]
+  defp exception_class_mro(name) do
+    walk = fn n, walk_ref ->
+      case Pyex.ExceptionsHierarchy.parent(n) do
+        nil -> [{:exception_class, n}]
+        parent -> [{:exception_class, n} | walk_ref.(parent, walk_ref)]
+      end
+    end
+
+    mro = walk.(name, walk)
+
+    # Append `object` to match CPython.
+    mro ++ [{:class, "object", [], %{"__name__" => "object"}}]
+  end
+
+  @spec exception_class_bases(String.t()) :: [pyvalue()]
+  defp exception_class_bases(name) do
+    case Pyex.ExceptionsHierarchy.parent(name) do
+      nil -> [{:class, "object", [], %{"__name__" => "object"}}]
+      parent -> [{:exception_class, parent}]
+    end
+  end
+
+  @spec canonicalize_map_key(Ctx.t(), pyvalue(), pyvalue()) :: pyvalue()
+  defp canonicalize_map_key(ctx, key, {:py_dict, _, _}), do: Ctx.deep_deref(ctx, key)
+  defp canonicalize_map_key(ctx, key, obj) when is_map(obj), do: Ctx.deep_deref(ctx, key)
+  defp canonicalize_map_key(_ctx, key, _obj), do: key
+
   @spec eval_subscript(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
   defp eval_subscript(object, key, env, ctx) do
     object = Ctx.deref(ctx, object)
+    # Canonicalize keys for hash-based lookup so heap-backed instances with
+    # matching `__eq__`/`__hash__` resolve to the correct dict/map entry.
+    key = canonicalize_map_key(ctx, key, object)
 
     case object do
       {:py_dict, %{^key => _}, _} ->
@@ -2170,7 +2670,7 @@ defmodule Pyex.Interpreter do
         {{:exception, "TypeError: 'function' object is not subscriptable"}, env, ctx}
 
       _ ->
-        {{:exception, "KeyError: #{inspect(key)}"}, env, ctx}
+        {{:exception, "KeyError: #{Builtins.py_repr_quoted(Ctx.deep_deref(ctx, key))}"}, env, ctx}
     end
   end
 

@@ -66,8 +66,7 @@ defmodule Pyex.CapabilitiesTest do
       result =
         Pyex.run!("""
         import sql
-        m = sql
-        "query" in m
+        hasattr(sql, "query")
         """)
 
       assert result == true
@@ -90,8 +89,7 @@ defmodule Pyex.CapabilitiesTest do
       result =
         Pyex.run!("""
         import requests
-        m = requests
-        "get" in m
+        hasattr(requests, "get")
         """)
 
       assert result == true

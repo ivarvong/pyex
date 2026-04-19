@@ -6,6 +6,11 @@ defmodule Pyex.Interpreter.Import do
   the stdlib registry, custom modules, and the pluggable filesystem.
   Supports dotted module names (e.g. `os.path`) and caches imported
   filesystem modules in `ctx.imported_modules`.
+
+  Modules are represented as `{:module, name, attrs_map}` pyvalues so
+  that `type(m)` returns `"module"` and `repr(m)` renders as
+  `<module 'name'>`.  The attrs map may contain nested `{:module, ...}`
+  values to expose submodules (e.g. `os.path`).
   """
 
   alias Pyex.{Builtins, Ctx, Env, Interpreter}
@@ -49,11 +54,13 @@ defmodule Pyex.Interpreter.Import do
           {nil, Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
   def eval_from_import(module_name, names, env, ctx) do
     case resolve_module(module_name, env, ctx) do
-      {:ok, module_value, ctx} when is_map(module_value) ->
+      {:ok, module, ctx} ->
+        attrs = module_attrs(module)
+
         Enum.reduce_while(names, {nil, env, ctx}, fn {name, alias_name}, {_, env, ctx} ->
           bind_as = alias_name || name
 
-          case Map.fetch(module_value, name) do
+          case Map.fetch(attrs, name) do
             {:ok, value} ->
               {:cont, {nil, Env.put(env, bind_as, value), ctx}}
 
@@ -72,6 +79,14 @@ defmodule Pyex.Interpreter.Import do
          env, ctx}
     end
   end
+
+  @doc """
+  Returns the attribute map for a module value, regardless of whether
+  it is a `{:module, ...}` pyvalue or a bare map (legacy shape).
+  """
+  @spec module_attrs(Interpreter.pyvalue() | map()) :: map()
+  def module_attrs({:module, _name, attrs}), do: attrs
+  def module_attrs(attrs) when is_map(attrs), do: attrs
 
   @doc """
   Returns a helpful error suffix for unknown module names.
@@ -98,7 +113,13 @@ defmodule Pyex.Interpreter.Import do
     |> hd()
   end
 
-  @spec binding_value(String.t(), String.t() | nil, map(), Env.t(), Ctx.t()) :: map()
+  @spec binding_value(
+          String.t(),
+          String.t() | nil,
+          Interpreter.pyvalue(),
+          Env.t(),
+          Ctx.t()
+        ) :: Interpreter.pyvalue()
   defp binding_value(module_name, alias_name, module_value, env, ctx) do
     cond do
       alias_name != nil ->
@@ -115,13 +136,13 @@ defmodule Pyex.Interpreter.Import do
   end
 
   @doc """
-  Resolves a module name to its value map.
+  Resolves a module name to its `{:module, name, attrs}` pyvalue.
 
-  Returns `{:ok, module_value, ctx}`, `{:unknown_module, ctx}`,
+  Returns `{:ok, module_pyvalue, ctx}`, `{:unknown_module, ctx}`,
   or `{:import_error, message, ctx}`.
   """
   @spec resolve_module(String.t(), Env.t(), Ctx.t()) ::
-          {:ok, Pyex.Stdlib.Module.module_value(), Ctx.t()}
+          {:ok, Interpreter.pyvalue(), Ctx.t()}
           | {:unknown_module, Ctx.t()}
           | {:import_error, String.t(), Ctx.t()}
   def resolve_module(name, env, ctx) do
@@ -131,11 +152,11 @@ defmodule Pyex.Interpreter.Import do
 
       [root | parts] ->
         # Dotted names have two possible meanings:
-        #   1. A nested attribute walk on a module (e.g. `os.path`) — this
-        #      is how the stdlib exposes submodules as map fields.
+        #   1. A nested submodule walk on a module (e.g. `os.path`) — this
+        #      is how the stdlib exposes submodules.
         #   2. A file in a package directory on the virtual filesystem
         #      (e.g. `pkg.math_utils` → `pkg/math_utils.py`).
-        # Try the attribute walk first to preserve stdlib precedence,
+        # Try the submodule walk first to preserve stdlib precedence,
         # then fall back to a direct filesystem lookup so user code can
         # organize modules into package directories.
         case resolve_single_module(root, env, ctx) do
@@ -155,18 +176,18 @@ defmodule Pyex.Interpreter.Import do
   end
 
   @spec resolve_single_module(String.t(), Env.t(), Ctx.t()) ::
-          {:ok, Pyex.Stdlib.Module.module_value(), Ctx.t()}
+          {:ok, Interpreter.pyvalue(), Ctx.t()}
           | {:unknown_module, Ctx.t()}
           | {:import_error, String.t(), Ctx.t()}
   defp resolve_single_module(name, env, ctx) do
     case Map.fetch(ctx.modules, name) do
       {:ok, value} ->
-        {:ok, value, ctx}
+        {:ok, to_module_value(name, value), ctx}
 
       :error ->
         case resolve_builtin_module(name, ctx) do
           {:ok, value} ->
-            {:ok, value, ctx}
+            {:ok, to_module_value(name, value), ctx}
 
           :unknown_module ->
             resolve_filesystem_module(name, env, ctx)
@@ -174,22 +195,36 @@ defmodule Pyex.Interpreter.Import do
     end
   end
 
-  @spec resolve_dotted_parts(map(), [String.t()], String.t(), Ctx.t()) ::
-          {:ok, Pyex.Stdlib.Module.module_value(), Ctx.t()} | {:unknown_module, Ctx.t()}
+  @spec to_module_value(String.t(), Interpreter.pyvalue() | map()) :: Interpreter.pyvalue()
+  defp to_module_value(_name, {:module, _, _} = mod), do: mod
+  defp to_module_value(name, attrs) when is_map(attrs), do: {:module, name, attrs}
+
+  @spec resolve_dotted_parts(
+          {:module, String.t(), %{optional(String.t()) => Interpreter.pyvalue()}},
+          [String.t()],
+          String.t(),
+          Ctx.t()
+        ) ::
+          {:ok, Interpreter.pyvalue(), Ctx.t()} | {:unknown_module, Ctx.t()}
   defp resolve_dotted_parts(value, [], _full_name, ctx), do: {:ok, value, ctx}
 
-  defp resolve_dotted_parts(value, [part | rest], full_name, ctx) do
-    case Map.fetch(value, part) do
-      {:ok, sub} when is_map(sub) -> resolve_dotted_parts(sub, rest, full_name, ctx)
-      {:ok, _} -> {:unknown_module, ctx}
-      :error -> {:unknown_module, ctx}
+  defp resolve_dotted_parts({:module, _, attrs}, [part | rest], full_name, ctx) do
+    case Map.fetch(attrs, part) do
+      {:ok, {:module, _, _} = sub} ->
+        resolve_dotted_parts(sub, rest, full_name, ctx)
+
+      {:ok, _} ->
+        {:unknown_module, ctx}
+
+      :error ->
+        {:unknown_module, ctx}
     end
   end
 
   @spec resolve_builtin_module(String.t(), Ctx.t()) ::
-          {:ok, Pyex.Stdlib.Module.module_value()} | :unknown_module
+          {:ok, Interpreter.pyvalue()} | :unknown_module
   defp resolve_builtin_module("os", ctx) do
-    path_module = %{
+    path_attrs = %{
       "join" => {:builtin, &os_path_join/1},
       "exists" => {:builtin, &os_path_exists/1},
       "basename" => {:builtin, &os_path_basename/1},
@@ -199,18 +234,22 @@ defmodule Pyex.Interpreter.Import do
       "isdir" => {:builtin, &os_path_isdir/1}
     }
 
-    {:ok,
-     %{
-       "environ" => ctx.env,
-       "path" => path_module,
-       "makedirs" => {:builtin, &os_makedirs/1},
-       "listdir" => {:builtin, &os_listdir/1},
-       "walk" => {:builtin, &os_walk/1}
-     }}
+    attrs = %{
+      "environ" => ctx.env,
+      "path" => {:module, "os.path", path_attrs},
+      "makedirs" => {:builtin, &os_makedirs/1},
+      "listdir" => {:builtin, &os_listdir/1},
+      "walk" => {:builtin, &os_walk/1}
+    }
+
+    {:ok, {:module, "os", attrs}}
   end
 
   defp resolve_builtin_module(name, _ctx) do
-    Pyex.Stdlib.fetch(name)
+    case Pyex.Stdlib.fetch(name) do
+      {:ok, attrs} -> {:ok, {:module, name, attrs}}
+      :unknown_module -> :unknown_module
+    end
   end
 
   @spec os_listdir([Interpreter.pyvalue()]) ::
@@ -286,7 +325,7 @@ defmodule Pyex.Interpreter.Import do
   defp os_walk(_args), do: {:exception, "TypeError: walk expected exactly 1 argument"}
 
   @spec resolve_filesystem_module(String.t(), Env.t(), Ctx.t()) ::
-          {:ok, Pyex.Stdlib.Module.module_value(), Ctx.t()}
+          {:ok, Interpreter.pyvalue(), Ctx.t()}
           | {:unknown_module, Ctx.t()}
           | {:import_error, String.t(), Ctx.t()}
   defp resolve_filesystem_module(_name, _env, %{filesystem: nil} = ctx) do
@@ -296,7 +335,7 @@ defmodule Pyex.Interpreter.Import do
   defp resolve_filesystem_module(name, _env, ctx) do
     case Map.fetch(ctx.imported_modules, name) do
       {:ok, cached} ->
-        {:ok, cached, ctx}
+        {:ok, to_module_value(name, cached), ctx}
 
       :error ->
         path = String.replace(name, ".", "/") <> ".py"
@@ -315,14 +354,15 @@ defmodule Pyex.Interpreter.Import do
                     {:import_error, "ImportError: error in '#{name}': #{msg}", ctx}
 
                   {_val, mod_env, ctx} ->
-                    module_value = collect_module_bindings(mod_env)
+                    attrs = collect_module_bindings(mod_env)
+                    module = {:module, name, attrs}
 
                     ctx = %{
                       ctx
-                      | imported_modules: Map.put(ctx.imported_modules, name, module_value)
+                      | imported_modules: Map.put(ctx.imported_modules, name, module)
                     }
 
-                    {:ok, module_value, ctx}
+                    {:ok, module, ctx}
                 end
 
               {:error, msg} ->
@@ -335,7 +375,7 @@ defmodule Pyex.Interpreter.Import do
     end
   end
 
-  @spec collect_module_bindings(Env.t()) :: Pyex.Stdlib.Module.module_value()
+  @spec collect_module_bindings(Env.t()) :: %{optional(String.t()) => Interpreter.pyvalue()}
   defp collect_module_bindings(env) do
     env
     |> Env.all_bindings()

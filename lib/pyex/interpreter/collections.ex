@@ -67,7 +67,13 @@ defmodule Pyex.Interpreter.Collections do
         {signal, env, ctx}
 
       {values, env, ctx} ->
-        {ref, ctx} = Ctx.heap_alloc(ctx, {:set, MapSet.new(Enum.reverse(values))})
+        # Sets store by-value semantics in Python: two equal objects with equal
+        # hashes are deduped. Because class instances live on the heap behind
+        # `{:ref, N}` pointers, we deref here so structural Elixir-level
+        # equality (which MapSet uses) matches Python-level equality for
+        # immutable value-classes.
+        derefed = Enum.map(Enum.reverse(values), &Ctx.deep_deref(ctx, &1))
+        {ref, ctx} = Ctx.heap_alloc(ctx, {:set, MapSet.new(derefed)})
         {ref, env, ctx}
     end
   end
@@ -320,16 +326,21 @@ defmodule Pyex.Interpreter.Collections do
             {:halt, {signal, env, ctx}}
 
           {key, env, ctx} ->
-            derefed_key = Ctx.deref(ctx, key)
+            # Deep-deref the key so class instances with `__eq__`/`__hash__`
+            # compare by structural content rather than by heap ref.
+            canonical_key = Ctx.deep_deref(ctx, key)
 
-            if unhashable?(derefed_key) do
+            if unhashable?(canonical_key) do
               {:halt,
-               {{:exception, "TypeError: unhashable type: '#{Helpers.py_type(derefed_key)}'"},
+               {{:exception, "TypeError: unhashable type: '#{Helpers.py_type(canonical_key)}'"},
                 env, ctx}}
             else
               case Interpreter.eval(val_expr, env, ctx) do
-                {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
-                {val, env, ctx} -> {:cont, {PyDict.put(map, key, val), env, ctx}}
+                {{:exception, _} = signal, env, ctx} ->
+                  {:halt, {signal, env, ctx}}
+
+                {val, env, ctx} ->
+                  {:cont, {PyDict.put(map, canonical_key, val), env, ctx}}
               end
             end
         end

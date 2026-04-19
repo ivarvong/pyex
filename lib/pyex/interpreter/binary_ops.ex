@@ -484,6 +484,13 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:eq, l, {:py_list, reversed, _}) when is_list(l),
     do: l == Enum.reverse(reversed)
 
+  # Synthetic classes returned by `type(x)` compare equal to their
+  # corresponding `{:builtin_type, _, _}` singleton.
+  defp dispatch(:eq, {:class, name, _, _}, {:builtin_type, name, _}), do: true
+  defp dispatch(:eq, {:builtin_type, name, _}, {:class, name, _, _}), do: true
+  defp dispatch(:eq, {:class, name, _, _}, {:exception_class, name}), do: true
+  defp dispatch(:eq, {:exception_class, name}, {:class, name, _, _}), do: true
+
   defp dispatch(:eq, {:instance, {:class, "type", _, _}, attrs}, {:builtin_type, name, _}),
     do: builtin_type_instance_name(attrs) == name
 
@@ -516,6 +523,11 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   defp dispatch(:neq, l, {:py_list, reversed, _}) when is_list(l),
     do: l != Enum.reverse(reversed)
+
+  defp dispatch(:neq, {:class, name, _, _}, {:builtin_type, name, _}), do: false
+  defp dispatch(:neq, {:builtin_type, name, _}, {:class, name, _, _}), do: false
+  defp dispatch(:neq, {:class, name, _, _}, {:exception_class, name}), do: false
+  defp dispatch(:neq, {:exception_class, name}, {:class, name, _, _}), do: false
 
   defp dispatch(:neq, {:instance, {:class, "type", _, _}, attrs}, {:builtin_type, name, _}),
     do: builtin_type_instance_name(attrs) != name
@@ -573,6 +585,17 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   # -- identity -------------------------------------------------------
 
+  # Synthetic classes returned by `type(x)` for primitives compare
+  # identity-equal to the corresponding `{:builtin_type, name, _}`
+  # singleton (`int`, `str`, etc.).  Matches CPython's `type(42) is int`.
+  defp dispatch(:is, {:class, name, _, _}, {:builtin_type, name, _}), do: true
+  defp dispatch(:is, {:builtin_type, name, _}, {:class, name, _, _}), do: true
+
+  defp dispatch(:is, {:class, name, _, _}, {:exception_class, name}), do: true
+  defp dispatch(:is, {:exception_class, name}, {:class, name, _, _}), do: true
+
+  # Legacy clauses for any remaining `{:instance, {:class, "type", ...}, ...}`
+  # pyvalues (now rare — builtin_type_of returns real classes).
   defp dispatch(:is, {:instance, {:class, "type", _, _}, attrs}, {:builtin_type, name, _}),
     do: builtin_type_instance_name(attrs) == name
 
@@ -587,19 +610,9 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   defp dispatch(:is, l, r), do: l === r
 
-  defp dispatch(:is_not, {:instance, {:class, "type", _, _}, attrs}, {:builtin_type, name, _}),
-    do: builtin_type_instance_name(attrs) != name
-
-  defp dispatch(:is_not, {:builtin_type, name, _}, {:instance, {:class, "type", _, _}, attrs}),
-    do: name != builtin_type_instance_name(attrs)
-
-  defp dispatch(:is_not, {:instance, {:class, "type", _, _}, attrs}, {:class, class_name, _, _}),
-    do: builtin_type_instance_name(attrs) != class_name
-
-  defp dispatch(:is_not, {:class, class_name, _, _}, {:instance, {:class, "type", _, _}, attrs}),
-    do: class_name != builtin_type_instance_name(attrs)
-
-  defp dispatch(:is_not, l, r), do: l !== r
+  defp dispatch(:is_not, l, r) do
+    not dispatch(:is, l, r)
+  end
 
   # -- not_in ---------------------------------------------------------
 

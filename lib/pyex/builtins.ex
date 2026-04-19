@@ -75,7 +75,13 @@ defmodule Pyex.Builtins do
 
     env = Enum.reduce(exception_class_names(), env, &Env.put(&2, &1, {:exception_class, &1}))
 
-    Env.put(env, "Ellipsis", :ellipsis)
+    env = Env.put(env, "Ellipsis", :ellipsis)
+
+    # `type` is simultaneously a class and a callable. We bind it to
+    # `type_class()` so `type(x) is type` holds for class arguments, and
+    # the class-call dispatch in `invocation.ex` intercepts it to run
+    # `builtin_type/1`.
+    Env.put(env, "type", type_class())
   end
 
   @doc """
@@ -95,7 +101,10 @@ defmodule Pyex.Builtins do
       {"len", &builtin_len/1},
       {"range", &builtin_range/1},
       {"print", {:kw, &builtin_print/2}},
-      {"type", &builtin_type/1},
+      # "type" is bound to `type_class()` in `build_env/0` so that
+      # `type(x) is type` holds via structural class identity. The
+      # class-call dispatch in `invocation.ex` routes `type(x)` to
+      # `builtin_type/1`.
       {"abs", &builtin_abs/1},
       {"min", {:kw, &builtin_min/2}},
       {"max", {:kw, &builtin_max/2}},
@@ -436,13 +445,33 @@ defmodule Pyex.Builtins do
       {:exception,
        "TypeError: float() argument must be a string or a number, not '#{pytype(val)}'"}
 
-  @spec builtin_type([Interpreter.pyvalue()]) ::
-          {:instance, {:class, String.t(), [], map()}, map()}
-  defp builtin_type([val]) do
-    name = pytype(val)
+  @doc """
+  The canonical `type` class singleton.  Equal structurally to any other
+  `type_class()` call, so `type(x) is type` and `type(X) is type(Y)` for
+  classes X, Y work via structural identity.
+  """
+  @spec type_class() :: Interpreter.pyvalue()
+  def type_class do
+    {:class, "type", [], %{"__name__" => "type", "__qualname__" => "type"}}
+  end
 
-    {:instance, {:class, "type", [], %{}},
-     %{"__name__" => name, "__repr__" => "<class '#{name}'>"}}
+  @doc """
+  Returns the Python class/type of a value.
+
+  Used by the class-call dispatch when `type(x)` is invoked
+  (`type` itself is the type-class singleton rather than a callable).
+  """
+  @spec builtin_type_of(Interpreter.pyvalue()) :: Interpreter.pyvalue()
+  def builtin_type_of({:class, _, _, _}), do: type_class()
+  def builtin_type_of({:builtin_type, _, _}), do: type_class()
+  def builtin_type_of({:exception_class, _}), do: type_class()
+  def builtin_type_of({:instance, {:class, _, _, _} = class, _}), do: class
+
+  def builtin_type_of(val) do
+    # Primitive pyvalues don't carry a real class.  Synthesize one so
+    # structural equality makes `type(1) is type(2)` hold.
+    name = pytype(val)
+    {:class, name, [], %{"__name__" => name, "__qualname__" => name}}
   end
 
   @spec builtin_abs([Interpreter.pyvalue()]) ::
@@ -949,8 +978,26 @@ defmodule Pyex.Builtins do
   defp builtin_isinstance([val, {:builtin_type, type_name, _}]) do
     actual = pytype(val)
 
-    actual == type_name or
-      (type_name == "int" and actual == "bool")
+    cond do
+      actual == type_name ->
+        true
+
+      type_name == "int" and actual == "bool" ->
+        true
+
+      # `class MyList(list)` — instance's class has the built-in in its MRO.
+      match?({:instance, {:class, _, _, _}, _}, val) ->
+        {:instance, {:class, name, bases, _}, _} = val
+        name == type_name or check_bases(bases, type_name)
+
+      true ->
+        false
+    end
+  end
+
+  # `isinstance(x, type)` — true iff x is a class-like value.
+  defp builtin_isinstance([val, {:class, "type", [], _}]) do
+    class_like?(val)
   end
 
   defp builtin_isinstance([{:instance, {:class, name, bases, _}, _}, {:class, target_name, _, _}]) do
@@ -970,6 +1017,12 @@ defmodule Pyex.Builtins do
 
   defp builtin_isinstance([val, {:exception_class, _}]) when not is_tuple(val), do: false
   defp builtin_isinstance([_, _]), do: false
+
+  @spec class_like?(Interpreter.pyvalue()) :: boolean()
+  defp class_like?({:class, _, _, _}), do: true
+  defp class_like?({:builtin_type, _, _}), do: true
+  defp class_like?({:exception_class, _}), do: true
+  defp class_like?(_), do: false
 
   @spec builtin_issubclass([Interpreter.pyvalue()]) :: boolean() | {:exception, String.t()}
   defp builtin_issubclass([{:class, name, bases, _}, {:class, target_name, _, _}]) do
@@ -1653,6 +1706,64 @@ defmodule Pyex.Builtins do
       has_class_attr?(class, "__getattr__")
   end
 
+  defp builtin_hasattr([{:class, _, _, _} = class, attr])
+       when is_binary(attr) do
+    attr in [
+      "__mro__",
+      "__bases__",
+      "__name__",
+      "__qualname__",
+      "__module__",
+      "__doc__",
+      "__dict__",
+      "__class__"
+    ] or
+      has_class_attr?(class, attr)
+  end
+
+  defp builtin_hasattr([{:module, _, attrs}, attr]) when is_binary(attr) do
+    attr in ["__name__", "__class__", "__dict__", "__doc__"] or Map.has_key?(attrs, attr)
+  end
+
+  defp builtin_hasattr([{:builtin_type, _, _}, attr]) when is_binary(attr) do
+    attr in [
+      "__name__",
+      "__qualname__",
+      "__module__",
+      "__class__",
+      "__doc__",
+      "__mro__",
+      "__bases__"
+    ]
+  end
+
+  defp builtin_hasattr([{:function, _, _, _, _}, attr]) when is_binary(attr) do
+    attr in [
+      "__name__",
+      "__qualname__",
+      "__module__",
+      "__doc__",
+      "__defaults__",
+      "__kwdefaults__",
+      "__annotations__",
+      "__class__"
+    ]
+  end
+
+  defp builtin_hasattr([{:func_with_attrs, _, attrs}, attr]) when is_binary(attr) do
+    Map.has_key?(attrs, attr) or
+      attr in [
+        "__name__",
+        "__qualname__",
+        "__module__",
+        "__doc__",
+        "__defaults__",
+        "__kwdefaults__",
+        "__annotations__",
+        "__class__"
+      ]
+  end
+
   defp builtin_hasattr([{:py_dict, _, _} = dict, attr]) when is_binary(attr) do
     PyDict.has_key?(dict, attr)
   end
@@ -1672,6 +1783,23 @@ defmodule Pyex.Builtins do
     Map.has_key?(class_attrs, attr) or Enum.any?(bases, &has_class_attr?(&1, attr))
   end
 
+  defp has_class_attr?({:exception_class, _name}, attr) do
+    # Standard dunders that every exception instance exposes.
+    attr in [
+      "args",
+      "__init__",
+      "__str__",
+      "__repr__",
+      "__cause__",
+      "__context__",
+      "__traceback__",
+      "__suppress_context__",
+      "__class__"
+    ]
+  end
+
+  defp has_class_attr?(_, _), do: false
+
   @spec find_class_attr(Interpreter.pyvalue(), String.t()) ::
           {:ok, Interpreter.pyvalue()} | :error
   defp find_class_attr({:class, _, bases, class_attrs}, attr) do
@@ -1679,6 +1807,69 @@ defmodule Pyex.Builtins do
       {:ok, _val} = found -> found
       :error -> Enum.find_value(bases, :error, &find_class_attr(&1, attr))
     end
+  end
+
+  defp find_class_attr(_, _), do: :error
+
+  @spec class_getattr(Interpreter.pyvalue(), String.t()) ::
+          {:ok, Interpreter.pyvalue()} | :error
+  defp class_getattr({:class, _, _, _} = class, "__mro__") do
+    mro = Pyex.Interpreter.ClassLookup.c3_linearize(class)
+    object_class = {:class, "object", [], %{"__name__" => "object"}}
+
+    mro_with_object =
+      if Enum.any?(mro, fn {:class, n, _, _} -> n == "object" end) do
+        mro
+      else
+        mro ++ [object_class]
+      end
+
+    {:ok, {:tuple, mro_with_object}}
+  end
+
+  defp class_getattr({:class, _, bases, _}, "__bases__"), do: {:ok, {:tuple, bases}}
+
+  defp class_getattr({:class, name, _, class_attrs}, "__name__") do
+    case Map.fetch(class_attrs, "__name__") do
+      {:ok, _} = ok -> ok
+      :error -> {:ok, name}
+    end
+  end
+
+  defp class_getattr({:class, _, _, _}, "__class__") do
+    {:ok, type_class()}
+  end
+
+  defp class_getattr({:class, _, _, class_attrs}, "__dict__") do
+    {:ok, PyDict.from_pairs(Enum.map(class_attrs, fn {k, v} -> {k, v} end))}
+  end
+
+  defp class_getattr({:class, _, _, _} = class, attr) do
+    case Pyex.Interpreter.ClassLookup.resolve_class_attr_with_owner(class, attr) do
+      {:ok, {:function, _, _, _, _} = func, _owner} ->
+        {:ok, {:bound_method, class, func}}
+
+      {:ok, {:builtin_kw, _} = bkw, _owner} ->
+        {:ok, {:bound_method, class, bkw}}
+
+      {:ok, {:staticmethod, func}, _owner} ->
+        {:ok, func}
+
+      {:ok, {:classmethod, func}, _owner} ->
+        {:ok, {:bound_method, class, func}}
+
+      {:ok, value, _owner} ->
+        {:ok, value}
+
+      :error ->
+        :error
+    end
+  end
+
+  @spec module_getattr(Interpreter.pyvalue(), String.t()) ::
+          {:ok, Interpreter.pyvalue()} | :error
+  defp module_getattr({:module, name, attrs}, attr) do
+    Pyex.Interpreter.module_attr(name, attrs, attr)
   end
 
   @spec builtin_getattr([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
@@ -1706,6 +1897,97 @@ defmodule Pyex.Builtins do
 
       val ->
         val
+    end
+  end
+
+  defp builtin_getattr([{:class, _, _, _} = class, attr]) when is_binary(attr) do
+    case class_getattr(class, attr) do
+      {:ok, val} ->
+        val
+
+      :error ->
+        {:class, class_name, _, _} = class
+        {:exception, "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"}
+    end
+  end
+
+  defp builtin_getattr([{:class, _, _, _} = class, attr, default]) when is_binary(attr) do
+    case class_getattr(class, attr) do
+      {:ok, val} -> val
+      :error -> default
+    end
+  end
+
+  defp builtin_getattr([{:module, _, attrs} = mod, attr]) when is_binary(attr) do
+    case module_getattr(mod, attr) do
+      {:ok, val} ->
+        val
+
+      :error ->
+        {:module, name, _} = mod
+        _ = attrs
+        {:exception, "AttributeError: module '#{name}' has no attribute '#{attr}'"}
+    end
+  end
+
+  defp builtin_getattr([{:module, _, _} = mod, attr, default]) when is_binary(attr) do
+    case module_getattr(mod, attr) do
+      {:ok, val} -> val
+      :error -> default
+    end
+  end
+
+  defp builtin_getattr([{:builtin_type, name, _}, attr]) when is_binary(attr) do
+    case Pyex.Interpreter.builtin_type_attr(name, attr) do
+      {:ok, val} -> val
+      :error -> {:exception, "AttributeError: type object '#{name}' has no attribute '#{attr}'"}
+    end
+  end
+
+  defp builtin_getattr([{:builtin_type, name, _}, attr, default]) when is_binary(attr) do
+    case Pyex.Interpreter.builtin_type_attr(name, attr) do
+      {:ok, val} -> val
+      :error -> default
+    end
+  end
+
+  defp builtin_getattr([{:function, _, _, _, _} = f, attr]) when is_binary(attr) do
+    case Pyex.Interpreter.Helpers.function_attr(f, attr) do
+      {:ok, val} -> val
+      :error -> {:exception, "AttributeError: function has no attribute '#{attr}'"}
+    end
+  end
+
+  defp builtin_getattr([{:function, _, _, _, _} = f, attr, default]) when is_binary(attr) do
+    case Pyex.Interpreter.Helpers.function_attr(f, attr) do
+      {:ok, val} -> val
+      :error -> default
+    end
+  end
+
+  defp builtin_getattr([{:func_with_attrs, _, attrs} = f, attr]) when is_binary(attr) do
+    case Map.fetch(attrs, attr) do
+      {:ok, val} ->
+        val
+
+      :error ->
+        case Pyex.Interpreter.Helpers.function_attr(f, attr) do
+          {:ok, val} -> val
+          :error -> {:exception, "AttributeError: function has no attribute '#{attr}'"}
+        end
+    end
+  end
+
+  defp builtin_getattr([{:func_with_attrs, _, attrs} = f, attr, default]) when is_binary(attr) do
+    case Map.fetch(attrs, attr) do
+      {:ok, val} ->
+        val
+
+      :error ->
+        case Pyex.Interpreter.Helpers.function_attr(f, attr) do
+          {:ok, val} -> val
+          :error -> default
+        end
     end
   end
 
@@ -1776,6 +2058,10 @@ defmodule Pyex.Builtins do
     all_keys |> Enum.uniq() |> Enum.sort()
   end
 
+  defp builtin_dir([{:module, _, attrs}]) do
+    attrs |> Map.keys() |> Enum.sort()
+  end
+
   defp builtin_dir([{:py_dict, _, _} = dict]) do
     own_keys = dict |> PyDict.keys() |> Enum.filter(&is_binary/1)
     methods = Pyex.Methods.method_names(dict)
@@ -1814,6 +2100,8 @@ defmodule Pyex.Builtins do
   defp builtin_vars([{:instance, _class, attrs}]), do: attrs
 
   defp builtin_vars([{:class, _, _bases, attrs}]), do: attrs
+
+  defp builtin_vars([{:module, _, attrs}]), do: attrs
 
   defp builtin_vars([{:py_dict, _, _} = dict]), do: dict
   defp builtin_vars([val]) when is_map(val), do: val
@@ -2180,6 +2468,28 @@ defmodule Pyex.Builtins do
   defp pytype({:bytes, _}), do: "bytes"
   defp pytype({:bytearray, _}), do: "bytearray"
   defp pytype({:complex, _, _}), do: "complex"
+  defp pytype({:module, _, _}), do: "module"
+  defp pytype({:generator, _}), do: "generator"
+  defp pytype({:generator_error, _, _}), do: "generator"
+  defp pytype({:iterator, _}), do: "iterator"
+  defp pytype({:pandas_series, _}), do: "Series"
+  defp pytype({:pandas_rolling, _, _}), do: "Rolling"
+  defp pytype({:pandas_dataframe, _}), do: "DataFrame"
+  defp pytype({:pyex_decimal, _}), do: "Decimal"
+  defp pytype({:property, _, _, _}), do: "property"
+  defp pytype({:staticmethod, _}), do: "staticmethod"
+  defp pytype({:classmethod, _}), do: "classmethod"
+  defp pytype({:partial, _, _, _}), do: "partial"
+  defp pytype({:lru_cached_function, _, _}), do: "function"
+  defp pytype({:cached_property, _}), do: "cached_property"
+  defp pytype({:exception_class, _}), do: "type"
+  defp pytype({:super_proxy, _, _}), do: "super"
+  defp pytype({:stringio, _}), do: "StringIO"
+  defp pytype({:builtin_raw, _}), do: "builtin_function_or_method"
+  defp pytype({:builtin_type, _, _}), do: "type"
+  defp pytype({:func_with_attrs, _, _}), do: "function"
+  defp pytype({:file_handle, _}), do: "file"
+  defp pytype(_), do: "object"
 
   @doc """
   Converts a Python value to its `str()` representation.
@@ -2259,6 +2569,7 @@ defmodule Pyex.Builtins do
 
   def py_repr({:instance, {:class, name, _, _}, _}), do: "<#{name} instance>"
   def py_repr({:class, name, _, _}), do: "<class '#{name}'>"
+  def py_repr({:module, name, _}), do: "<module '#{name}'>"
   def py_repr({:exception_class, name}), do: "<class '#{name}'>"
   def py_repr({:builtin_type, name, _}), do: "<class '#{name}'>"
   def py_repr({:bytes, b}), do: Pyex.Interpreter.Helpers.bytes_repr(b, "b")
@@ -2274,8 +2585,15 @@ defmodule Pyex.Builtins do
   def py_repr({:pyex_decimal, d}), do: Decimal.to_string(d)
   def py_repr(_), do: "<object>"
 
+  @doc """
+  Python `repr()` that quotes strings (unlike `py_repr/1` which leaves them bare).
+
+  `py_repr("y")` returns `"y"` but `py_repr_quoted("y")` returns `"'y'"`.
+  Use this for error messages that embed user-facing values (`KeyError`,
+  `IndexError`, etc.) so string keys match CPython.
+  """
   @spec py_repr_quoted(Interpreter.pyvalue()) :: String.t()
-  defp py_repr_quoted(val) when is_binary(val) do
+  def py_repr_quoted(val) when is_binary(val) do
     if String.contains?(val, "'") and not String.contains?(val, "\"") do
       "\"#{escape_string(val, "\"")}\""
     else
@@ -2283,7 +2601,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp py_repr_quoted(val), do: py_repr(val)
+  def py_repr_quoted(val), do: py_repr(val)
 
   @spec escape_string(String.t(), String.t()) :: String.t()
   defp escape_string(s, quote_char) do

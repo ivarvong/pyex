@@ -581,17 +581,117 @@ defmodule Pyex.Interpreter.Assignments do
 
   @doc false
   @spec setattr(Parser.ast_node(), Interpreter.pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  @spec fallback_instance_attr_assign(
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue(),
+          String.t(),
+          String.t(),
+          Interpreter.pyvalue(),
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp fallback_instance_attr_assign(inst, raw, var_name, attr, value, env, ctx) do
+    updated = put_elem(inst, 2, Map.put(elem(inst, 2), attr, value))
+
+    case raw do
+      {:ref, id} -> {nil, env, Ctx.heap_put(ctx, id, updated)}
+      _ -> {nil, Env.put_at_source(env, var_name, updated), ctx}
+    end
+  end
+
+  @spec check_slots_and_assign(
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue(),
+          String.t(),
+          String.t(),
+          Interpreter.pyvalue(),
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp check_slots_and_assign({:instance, class, _} = inst, raw, var_name, attr, value, env, ctx) do
+    case slot_names(class) do
+      {:ok, slots} ->
+        if attr in slots do
+          fallback_instance_attr_assign(inst, raw, var_name, attr, value, env, ctx)
+        else
+          {:class, class_name, _, _} = class
+
+          {{:exception, "AttributeError: '#{class_name}' object has no attribute '#{attr}'"}, env,
+           ctx}
+        end
+
+      :no_slots ->
+        fallback_instance_attr_assign(inst, raw, var_name, attr, value, env, ctx)
+    end
+  end
+
+  @spec slot_names(Interpreter.pyvalue()) :: {:ok, [String.t()]} | :no_slots
+  defp slot_names({:class, _, bases, class_attrs}) do
+    case Map.fetch(class_attrs, "__slots__") do
+      {:ok, slots_val} ->
+        {:ok, slots_to_names(slots_val) ++ inherited_slots(bases)}
+
+      :error ->
+        # __slots__ enforcement only kicks in when *some* class in the MRO
+        # defines it AND every class in the MRO either defines __slots__ or
+        # is a known-safe base (`object`).  If any class lacks __slots__ and
+        # isn't `object`, the instance has a __dict__ and accepts any attr.
+        if bases == [] do
+          :no_slots
+        else
+          case inherited_slots_all(bases) do
+            :partial -> :no_slots
+            :unrestricted -> :no_slots
+            names -> if names == [], do: :no_slots, else: {:ok, names}
+          end
+        end
+    end
+  end
+
+  defp slot_names(_), do: :no_slots
+
+  @spec slots_to_names(Interpreter.pyvalue()) :: [String.t()]
+  defp slots_to_names({:tuple, items}), do: Enum.filter(items, &is_binary/1)
+
+  defp slots_to_names({:py_list, reversed, _}),
+    do: reversed |> Enum.reverse() |> Enum.filter(&is_binary/1)
+
+  defp slots_to_names(list) when is_list(list), do: Enum.filter(list, &is_binary/1)
+  defp slots_to_names(s) when is_binary(s), do: [s]
+  defp slots_to_names(_), do: []
+
+  @spec inherited_slots([Interpreter.pyvalue()]) :: [String.t()]
+  defp inherited_slots(bases) do
+    Enum.flat_map(bases, fn base ->
+      case slot_names(base) do
+        {:ok, names} -> names
+        :no_slots -> []
+      end
+    end)
+  end
+
+  @spec inherited_slots_all([Interpreter.pyvalue()]) :: [String.t()] | :partial | :unrestricted
+  defp inherited_slots_all([]), do: :unrestricted
+
+  defp inherited_slots_all(bases) do
+    Enum.reduce_while(bases, [], fn base, acc ->
+      case slot_names(base) do
+        {:ok, names} -> {:cont, acc ++ names}
+        :no_slots -> {:halt, :partial}
+      end
+    end)
+  end
+
   def setattr({:getattr, _, [{:var, _, [var_name]}, attr]}, value, env, ctx) do
     case Env.get(env, var_name) do
       {:ok, raw} ->
         case Ctx.deref(ctx, raw) do
           {:instance, class, _attrs} = inst ->
+            self_arg = if match?({:ref, _}, raw), do: raw, else: inst
+
             # Check if the class has a property descriptor with a setter for this attr
             case ClassLookup.resolve_class_attr_with_owner(class, attr) do
               {:ok, {:property, _fget, fset, _fdel}, _owner} when fset != nil ->
-                # Pass the ref (not the derefed instance) so __setattr__ writes back correctly
-                self_arg = if match?({:ref, _}, raw), do: raw, else: inst
-
                 case Interpreter.call_function(fset, [self_arg, value], %{}, env, ctx) do
                   {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
                   # call_function may return a 4-tuple with updated_func
@@ -605,14 +705,18 @@ defmodule Pyex.Interpreter.Assignments do
                 {{:exception,
                   "AttributeError: can't set attribute '#{attr}' — no setter defined"}, env, ctx}
 
-              _ ->
-                # Regular instance attribute assignment
-                updated = put_elem(inst, 2, Map.put(elem(inst, 2), attr, value))
+              {:ok, {:instance, _, _} = descriptor, _owner} ->
+                # Generic data descriptor with __set__.
+                case Interpreter.invoke_descriptor_set(descriptor, self_arg, value, env, ctx) do
+                  {:ok, env, ctx} ->
+                    {nil, env, ctx}
 
-                case raw do
-                  {:ref, id} -> {nil, env, Ctx.heap_put(ctx, id, updated)}
-                  _ -> {nil, Env.put_at_source(env, var_name, updated), ctx}
+                  :no_descriptor ->
+                    check_slots_and_assign(inst, raw, var_name, attr, value, env, ctx)
                 end
+
+              _ ->
+                check_slots_and_assign(inst, raw, var_name, attr, value, env, ctx)
             end
 
           {:class, name, bases, class_attrs} ->
@@ -621,6 +725,10 @@ defmodule Pyex.Interpreter.Assignments do
 
           {:py_dict, _, _} = dict ->
             {nil, Env.put_at_source(env, var_name, PyDict.put(dict, attr, value)), ctx}
+
+          {:module, mod_name, attrs} ->
+            updated = {:module, mod_name, Map.put(attrs, attr, value)}
+            {nil, Env.put_at_source(env, var_name, updated), ctx}
 
           other when is_map(other) ->
             {nil, Env.put_at_source(env, var_name, Map.put(other, attr, value)), ctx}
@@ -687,7 +795,7 @@ defmodule Pyex.Interpreter.Assignments do
           {:ok, {:builtin_type, _, func}} -> func.([])
           {:ok, {:builtin, func}} -> func.([])
           {:ok, {:function, _, _, _, _} = func} -> {:defaultdict_call_needed, func}
-          _ -> {:exception, "KeyError: #{inspect(key)}"}
+          _ -> {:exception, "KeyError: #{Pyex.Builtins.py_repr_quoted(key)}"}
         end
     end
   end
@@ -702,7 +810,7 @@ defmodule Pyex.Interpreter.Assignments do
           {:ok, {:builtin_type, _, func}} -> func.([])
           {:ok, {:builtin, func}} -> func.([])
           {:ok, {:function, _, _, _, _} = func} -> {:defaultdict_call_needed, func}
-          _ -> {:exception, "KeyError: #{inspect(key)}"}
+          _ -> {:exception, "KeyError: #{Pyex.Builtins.py_repr_quoted(key)}"}
         end
     end
   end
