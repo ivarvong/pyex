@@ -402,6 +402,10 @@ defmodule Pyex.Stdlib.Requests do
 
   @spec to_jason_compatible(Pyex.Interpreter.pyvalue()) :: term()
   defp to_jason_compatible({:tuple, items}), do: Enum.map(items, &to_jason_compatible/1)
+
+  defp to_jason_compatible({:py_list, reversed, _len}),
+    do: reversed |> Enum.reverse() |> Enum.map(&to_jason_compatible/1)
+
   defp to_jason_compatible(list) when is_list(list), do: Enum.map(list, &to_jason_compatible/1)
 
   defp to_jason_compatible({:py_dict, _, _} = dict) do
