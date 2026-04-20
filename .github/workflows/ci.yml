@@ -16,11 +16,14 @@ jobs:
     strategy:
       matrix:
         include:
-          - otp: "28.1"
-            elixir: "1.19"
+          - otp: "26.2"
+            elixir: "1.19.5"
             experimental: false
           - otp: "28.1"
-            elixir: "1.20.0-rc.2"
+            elixir: "1.19.5"
+            experimental: false
+          - otp: "29.0"
+            elixir: "1.20.0-rc.4"
             experimental: true
 
     services:
@@ -97,28 +100,28 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28.1"
-          elixir-version: "1.19"
+          elixir-version: "1.19.5"
 
       - name: Restore dependencies cache
         uses: actions/cache@v4
         with:
           path: deps
-          key: deps-${{ runner.os }}-28.1-1.19-${{ hashFiles('**/mix.lock') }}
-          restore-keys: deps-${{ runner.os }}-28.1-1.19-
+          key: deps-${{ runner.os }}-28.1-1.19.5-${{ hashFiles('**/mix.lock') }}
+          restore-keys: deps-${{ runner.os }}-28.1-1.19.5-
 
       - name: Restore build cache
         uses: actions/cache@v4
         with:
           path: _build
-          key: build-${{ runner.os }}-28.1-1.19-${{ hashFiles('**/mix.lock') }}
-          restore-keys: build-${{ runner.os }}-28.1-1.19-
+          key: build-${{ runner.os }}-28.1-1.19.5-${{ hashFiles('**/mix.lock') }}
+          restore-keys: build-${{ runner.os }}-28.1-1.19.5-
 
       - name: Restore PLT cache
         uses: actions/cache@v4
         with:
           path: _build/dev/*.plt*
-          key: plt-${{ runner.os }}-28.1-1.19-${{ hashFiles('**/mix.lock') }}
-          restore-keys: plt-${{ runner.os }}-28.1-1.19-
+          key: plt-${{ runner.os }}-28.1-1.19.5-${{ hashFiles('**/mix.lock') }}
+          restore-keys: plt-${{ runner.os }}-28.1-1.19.5-
 
       - name: Install dependencies
         run: mix deps.get
@@ -133,10 +136,10 @@ jobs:
       matrix:
         include:
           - otp: "28.1"
-            elixir: "1.19"
+            elixir: "1.19.5"
             experimental: false
-          - otp: "28.1"
-            elixir: "1.20.0-rc.2"
+          - otp: "29.0"
+            elixir: "1.20.0-rc.4"
             experimental: true
 
     steps:
