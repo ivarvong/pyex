@@ -187,6 +187,41 @@ defmodule Pyex.Stdlib.RequestsTest do
       assert result == [201, true]
     end
 
+    test "posts JSON body containing nested py_list values", %{bypass: bypass} do
+      Bypass.expect_once(bypass, "POST", "/api/nested", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        payload = Jason.decode!(body)
+
+        assert payload == %{
+                 "items" => [%{"key" => "value"}],
+                 "tags" => ["a", "b"],
+                 "nested" => %{"nums" => [1, 2, 3]}
+               }
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, ~s({"ok": true}))
+      end)
+
+      port = bypass.port
+
+      result =
+        Pyex.run!(
+          """
+          import requests
+          response = requests.post("http://localhost:#{port}/api/nested", json={
+              "items": [{"key": "value"}],
+              "tags": ["a", "b"],
+              "nested": {"nums": [1, 2, 3]}
+          })
+          response.status_code
+          """,
+          network: @network
+        )
+
+      assert result == 200
+    end
+
     test "posts with custom headers", %{bypass: bypass} do
       Bypass.expect_once(bypass, "POST", "/api/auth", fn conn ->
         [auth] = Plug.Conn.get_req_header(conn, "x-api-key")
