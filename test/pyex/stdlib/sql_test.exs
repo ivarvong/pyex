@@ -1,4 +1,4 @@
-defmodule Pyex.Stdlib.SqlTest do
+defmodule Pyex.Stdlib.SQLTest do
   use ExUnit.Case, async: false
 
   @moduletag :postgres

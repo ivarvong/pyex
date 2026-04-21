@@ -516,7 +516,7 @@ defmodule Pyex.ClassesTest do
 
     test "multiple inheritance with mixin" do
       code = """
-      class JsonMixin:
+      class JSONMixin:
           def to_json(self):
               return "{name: " + self.name + "}"
 
@@ -526,7 +526,7 @@ defmodule Pyex.ClassesTest do
           def speak(self):
               return self.name + " speaks"
 
-      class Dog(JsonMixin, Animal):
+      class Dog(JSONMixin, Animal):
           def speak(self):
               return self.name + " barks"
 

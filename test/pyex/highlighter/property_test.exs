@@ -25,12 +25,12 @@ defmodule Pyex.Highlighter.PropertyTest do
   # so it can be interpolated inside `property` macros.
   @lexers [
     {Pyex.Highlighter.Lexers.Python, "Python"},
-    {Pyex.Highlighter.Lexers.Json, "Json"},
+    {Pyex.Highlighter.Lexers.JSON, "JSON"},
     {Pyex.Highlighter.Lexers.Bash, "Bash"},
     {Pyex.Highlighter.Lexers.Javascript, "Javascript"},
     {Pyex.Highlighter.Lexers.Typescript, "Typescript"},
-    {Pyex.Highlighter.Lexers.Jsx, "Jsx"},
-    {Pyex.Highlighter.Lexers.Tsx, "Tsx"},
+    {Pyex.Highlighter.Lexers.JSX, "JSX"},
+    {Pyex.Highlighter.Lexers.TSX, "TSX"},
     {Pyex.Highlighter.Lexers.Elixir, "Elixir"}
   ]
 

@@ -4,17 +4,17 @@ defmodule Pyex.Stdlib.Pygments do
 
       from pygments import highlight
       from pygments.lexers import PythonLexer, get_lexer_by_name
-      from pygments.formatters import HtmlFormatter
+      from pygments.formatters import HTMLFormatter
       from pygments.styles import get_style_by_name, get_all_styles
 
-      html = highlight(code, PythonLexer(), HtmlFormatter(style="monokai"))
-      css  = HtmlFormatter(style="monokai").get_style_defs(".highlight")
+      html = highlight(code, PythonLexer(), HTMLFormatter(style="monokai"))
+      css  = HTMLFormatter(style="monokai").get_style_defs(".highlight")
 
   Lexer and formatter instances are plain dicts tagged with a
   `__pygments_*__` marker so `highlight/3` can dispatch on them without
   needing full Python class semantics.
 
-  A user-defined theme can be passed to `HtmlFormatter` as:
+  A user-defined theme can be passed to `HTMLFormatter` as:
 
     * a string — built-in name (`"monokai"`, `"github-light"`, …)
     * a dict — `{"Keyword": "bold #8b5cf6", "Comment": "italic #6b7280"}`
@@ -27,7 +27,7 @@ defmodule Pyex.Stdlib.Pygments do
   @behaviour Pyex.Stdlib.Module
 
   alias Pyex.Highlighter
-  alias Pyex.Highlighter.Formatters.Html
+  alias Pyex.Highlighter.Formatters.HTML
   alias Pyex.Highlighter.{Lexer, Style, Styles}
   alias Pyex.Interpreter
 
@@ -49,7 +49,7 @@ defmodule Pyex.Stdlib.Pygments do
     with {:ok, lexer_mod} <- resolve_lexer(lexer),
          {:ok, opts} <- resolve_formatter(formatter) do
       tokens = Lexer.tokenize(lexer_mod, code)
-      Html.format(tokens, opts)
+      HTML.format(tokens, opts)
     else
       {:error, msg} -> {:exception, "ValueError: " <> msg}
     end
@@ -65,11 +65,11 @@ defmodule Pyex.Stdlib.Pygments do
     %{
       "PythonLexer" => {:builtin_kw, &lexer_ctor("python", &1, &2)},
       "BashLexer" => {:builtin_kw, &lexer_ctor("bash", &1, &2)},
-      "JsonLexer" => {:builtin_kw, &lexer_ctor("json", &1, &2)},
+      "JSONLexer" => {:builtin_kw, &lexer_ctor("json", &1, &2)},
       "JavascriptLexer" => {:builtin_kw, &lexer_ctor("javascript", &1, &2)},
       "TypescriptLexer" => {:builtin_kw, &lexer_ctor("typescript", &1, &2)},
-      "JsxLexer" => {:builtin_kw, &lexer_ctor("jsx", &1, &2)},
-      "TsxLexer" => {:builtin_kw, &lexer_ctor("tsx", &1, &2)},
+      "JSXLexer" => {:builtin_kw, &lexer_ctor("jsx", &1, &2)},
+      "TSXLexer" => {:builtin_kw, &lexer_ctor("tsx", &1, &2)},
       "ElixirLexer" => {:builtin_kw, &lexer_ctor("elixir", &1, &2)},
       "get_lexer_by_name" => {:builtin_kw, &get_lexer_by_name/2},
       "get_all_lexers" => {:builtin, &get_all_lexers/1}
@@ -111,7 +111,7 @@ defmodule Pyex.Stdlib.Pygments do
 
   defp formatters_module do
     %{
-      "HtmlFormatter" => {:builtin_kw, &html_formatter_ctor/2},
+      "HTMLFormatter" => {:builtin_kw, &html_formatter_ctor/2},
       "get_formatter_by_name" => {:builtin_kw, &get_formatter_by_name/2}
     }
   end
@@ -122,7 +122,7 @@ defmodule Pyex.Stdlib.Pygments do
       |> normalize_kwargs()
       |> convert_style_value()
 
-    case Html.build_opts(opts_map) do
+    case HTML.build_opts(opts_map) do
       {:ok, opts} ->
         build_formatter_instance(opts)
 
@@ -153,8 +153,8 @@ defmodule Pyex.Stdlib.Pygments do
       "get_style_defs" =>
         {:builtin,
          fn
-           [] -> Html.style_defs(opts.style, ".#{opts.cssclass}")
-           [selector] when is_binary(selector) -> Html.style_defs(opts.style, selector)
+           [] -> HTML.style_defs(opts.style, ".#{opts.cssclass}")
+           [selector] when is_binary(selector) -> HTML.style_defs(opts.style, selector)
            _ -> {:exception, "TypeError: get_style_defs([selector])"}
          end}
     }
@@ -206,7 +206,7 @@ defmodule Pyex.Stdlib.Pygments do
   defp resolve_formatter(%{"__pygments_formatter__" => _} = f) do
     # A formatter instance without cached opts — shouldn't happen for
     # our built-in constructors. Rebuild defaults.
-    Html.build_opts(Map.drop(f, ["__pygments_formatter__"]))
+    HTML.build_opts(Map.drop(f, ["__pygments_formatter__"]))
   end
 
   defp resolve_formatter(_), do: {:error, "formatter argument is not a Formatter instance"}

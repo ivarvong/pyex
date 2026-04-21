@@ -7,10 +7,10 @@ defmodule Pyex.Stdlib.PygmentsTest do
         Pyex.run!(~S"""
         from pygments import highlight
         from pygments.lexers import PythonLexer
-        from pygments.formatters import HtmlFormatter
+        from pygments.formatters import HTMLFormatter
 
         code = "def f(): return 1"
-        highlight(code, PythonLexer(), HtmlFormatter(style="monokai"))
+        highlight(code, PythonLexer(), HTMLFormatter(style="monokai"))
         """)
 
       assert is_binary(result)
@@ -19,11 +19,11 @@ defmodule Pyex.Stdlib.PygmentsTest do
       assert result =~ ~s(<span class="k">return</span>)
     end
 
-    test "HtmlFormatter.get_style_defs returns CSS scoped to selector" do
+    test "HTMLFormatter.get_style_defs returns CSS scoped to selector" do
       result =
         Pyex.run!(~S"""
-        from pygments.formatters import HtmlFormatter
-        fmt = HtmlFormatter(style="monokai")
+        from pygments.formatters import HTMLFormatter
+        fmt = HTMLFormatter(style="monokai")
         fmt.get_style_defs(".highlight")
         """)
 
@@ -34,11 +34,11 @@ defmodule Pyex.Stdlib.PygmentsTest do
       assert result =~ ".highlight .c"
     end
 
-    test "HtmlFormatter.get_style_defs() without args uses cssclass" do
+    test "HTMLFormatter.get_style_defs() without args uses cssclass" do
       result =
         Pyex.run!(~S"""
-        from pygments.formatters import HtmlFormatter
-        fmt = HtmlFormatter(style="monokai", cssclass="my-code")
+        from pygments.formatters import HTMLFormatter
+        fmt = HTMLFormatter(style="monokai", cssclass="my-code")
         fmt.get_style_defs()
         """)
 
@@ -51,9 +51,9 @@ defmodule Pyex.Stdlib.PygmentsTest do
         Pyex.run!(~S"""
         from pygments import highlight
         from pygments.lexers import get_lexer_by_name
-        from pygments.formatters import HtmlFormatter
+        from pygments.formatters import HTMLFormatter
 
-        highlight("print(1)", get_lexer_by_name("python"), HtmlFormatter())
+        highlight("print(1)", get_lexer_by_name("python"), HTMLFormatter())
         """)
 
       assert result =~ ~s(<span class="nb">print</span>)
@@ -74,12 +74,12 @@ defmodule Pyex.Stdlib.PygmentsTest do
   describe "all supported languages work through the Pygments API" do
     for {lang, ctor, code, expected_class} <- [
           {"python", "PythonLexer", "def f(): pass", "k"},
-          {"json", "JsonLexer", ~s({"n": 1}), "nt"},
+          {"json", "JSONLexer", ~s({"n": 1}), "nt"},
           {"bash", "BashLexer", "echo hi", "nb"},
           {"javascript", "JavascriptLexer", "const x = 1", "k"},
           {"typescript", "TypescriptLexer", "type X = number", "kd"},
-          {"jsx", "JsxLexer", "<div>hi</div>", "nt"},
-          {"tsx", "TsxLexer", "const El = () => <div />", "k"},
+          {"jsx", "JSXLexer", "<div>hi</div>", "nt"},
+          {"tsx", "TSXLexer", "const El = () => <div />", "k"},
           {"elixir", "ElixirLexer", "def foo(), do: :ok", "kd"}
         ] do
       test "#{lang} highlights with class .#{expected_class}" do
@@ -87,8 +87,8 @@ defmodule Pyex.Stdlib.PygmentsTest do
           Pyex.run!(~s"""
           from pygments import highlight
           from pygments.lexers import #{unquote(ctor)}
-          from pygments.formatters import HtmlFormatter
-          highlight(#{inspect(unquote(code))}, #{unquote(ctor)}(), HtmlFormatter(style="github-light"))
+          from pygments.formatters import HTMLFormatter
+          highlight(#{inspect(unquote(code))}, #{unquote(ctor)}(), HTMLFormatter(style="github-light"))
           """)
 
         assert result =~ ~s(class="#{unquote(expected_class)}"),
@@ -98,19 +98,19 @@ defmodule Pyex.Stdlib.PygmentsTest do
   end
 
   describe "custom themes" do
-    test "HtmlFormatter accepts a dict as style" do
+    test "HTMLFormatter accepts a dict as style" do
       result =
         Pyex.run!(~S"""
         from pygments import highlight
         from pygments.lexers import PythonLexer
-        from pygments.formatters import HtmlFormatter
+        from pygments.formatters import HTMLFormatter
 
         my_theme = {
             "Keyword": "bold #ff00ff",
             "Comment": "italic #888888",
             "Name.Function": "#00aaff"
         }
-        fmt = HtmlFormatter(style=my_theme)
+        fmt = HTMLFormatter(style=my_theme)
         fmt.get_style_defs(".demo")
         """)
 
@@ -124,10 +124,10 @@ defmodule Pyex.Stdlib.PygmentsTest do
         Pyex.run!(~S"""
         from pygments import highlight
         from pygments.lexers import PythonLexer
-        from pygments.formatters import HtmlFormatter
+        from pygments.formatters import HTMLFormatter
 
         theme = {"Keyword": "bold #ff0000"}
-        highlight("def f(): pass", PythonLexer(), HtmlFormatter(style=theme))
+        highlight("def f(): pass", PythonLexer(), HTMLFormatter(style=theme))
         """)
 
       # The output HTML should wrap 'def' in a span with class 'k'
@@ -141,9 +141,9 @@ defmodule Pyex.Stdlib.PygmentsTest do
         Pyex.run!(~S"""
         from pygments import highlight
         from pygments.lexers import PythonLexer
-        from pygments.formatters import HtmlFormatter
+        from pygments.formatters import HTMLFormatter
 
-        highlight("x = 1", PythonLexer(), HtmlFormatter(cssclass="post-code"))
+        highlight("x = 1", PythonLexer(), HTMLFormatter(cssclass="post-code"))
         """)
 
       assert result =~ ~s(<div class="post-code">)
@@ -154,9 +154,9 @@ defmodule Pyex.Stdlib.PygmentsTest do
         Pyex.run!(~S"""
         from pygments import highlight
         from pygments.lexers import PythonLexer
-        from pygments.formatters import HtmlFormatter
+        from pygments.formatters import HTMLFormatter
 
-        highlight("a = 1\nb = 2", PythonLexer(), HtmlFormatter(linenos="inline"))
+        highlight("a = 1\nb = 2", PythonLexer(), HTMLFormatter(linenos="inline"))
         """)
 
       assert result =~ ~s(<span class="lineno">)
@@ -176,8 +176,8 @@ defmodule Pyex.Stdlib.PygmentsTest do
     test "unknown style name" do
       assert_raise RuntimeError, ~r/unknown style/, fn ->
         Pyex.run!(~S"""
-        from pygments.formatters import HtmlFormatter
-        HtmlFormatter(style="unknown-style")
+        from pygments.formatters import HTMLFormatter
+        HTMLFormatter(style="unknown-style")
         """)
       end
     end
@@ -189,10 +189,10 @@ defmodule Pyex.Stdlib.PygmentsTest do
         Pyex.run!(~S"""
         from pygments import highlight
         from pygments.lexers import PythonLexer
-        from pygments.formatters import HtmlFormatter
+        from pygments.formatters import HTMLFormatter
 
         snippet = "def greet(name):\n    return f'Hello, {name}'"
-        fmt = HtmlFormatter(style="github-light", cssclass="highlight")
+        fmt = HTMLFormatter(style="github-light", cssclass="highlight")
         code_html = highlight(snippet, PythonLexer(), fmt)
         css = fmt.get_style_defs(".highlight")
 

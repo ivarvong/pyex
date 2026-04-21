@@ -1,6 +1,6 @@
-defmodule Pyex.Stdlib.Yaml do
+defmodule Pyex.Stdlib.YAML do
   @moduledoc """
-  Python `yaml` module backed by `Pyex.Stdlib.YamlParser`.
+  Python `yaml` module backed by `Pyex.Stdlib.YAMLParser`.
 
   Provides `yaml.safe_load(string)` for parsing YAML documents into
   Python values. Keys are always returned as strings -- atoms are
@@ -18,7 +18,7 @@ defmodule Pyex.Stdlib.Yaml do
   @behaviour Pyex.Stdlib.Module
 
   alias Pyex.PyDict
-  alias Pyex.Stdlib.YamlParser
+  alias Pyex.Stdlib.YAMLParser
 
   @max_bytes 1_000_000
 
@@ -39,7 +39,7 @@ defmodule Pyex.Stdlib.Yaml do
     if byte_size(string) > @max_bytes do
       {:exception, "ValueError: yaml.safe_load input exceeds maximum size of #{@max_bytes} bytes"}
     else
-      case YamlParser.parse(string) do
+      case YAMLParser.parse(string) do
         {:ok, value} -> to_python(value)
         {:error, reason} -> {:exception, "yaml.YAMLError: #{reason}"}
       end
@@ -50,7 +50,7 @@ defmodule Pyex.Stdlib.Yaml do
     {:exception, "TypeError: yaml.safe_load() argument must be a string"}
   end
 
-  @spec to_python(YamlParser.yaml_value()) :: Pyex.Interpreter.pyvalue()
+  @spec to_python(YAMLParser.yaml_value()) :: Pyex.Interpreter.pyvalue()
   defp to_python(nil), do: nil
   defp to_python(true), do: true
   defp to_python(false), do: false

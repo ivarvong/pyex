@@ -1,4 +1,4 @@
-defmodule Pyex.Highlighter.Lexers.Tsx do
+defmodule Pyex.Highlighter.Lexers.TSX do
   @moduledoc "TSX lexer — TypeScript + JSX."
 
   @behaviour Pyex.Highlighter.Lexer
@@ -9,5 +9,5 @@ defmodule Pyex.Highlighter.Lexers.Tsx do
   def mimetypes, do: ["text/tsx"]
 
   @impl true
-  def rules, do: Pyex.Highlighter.Lexers.Ecma.rules(types: true, jsx: true)
+  def rules, do: Pyex.Highlighter.Lexers.ECMA.rules(types: true, jsx: true)
 end

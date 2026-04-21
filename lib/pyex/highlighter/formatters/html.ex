@@ -1,4 +1,4 @@
-defmodule Pyex.Highlighter.Formatters.Html do
+defmodule Pyex.Highlighter.Formatters.HTML do
   @moduledoc """
   HTML formatter. Produces `<div class="highlight"><pre>...</pre></div>`
   wrapping the tokenized source, with each token in a `<span class="…">`

@@ -1,20 +1,20 @@
-defmodule Pyex.Highlighter.Formatters.HtmlTest do
+defmodule Pyex.Highlighter.Formatters.HTMLTest do
   use ExUnit.Case, async: true
 
   alias Pyex.Highlighter
-  alias Pyex.Highlighter.Formatters.Html
+  alias Pyex.Highlighter.Formatters.HTML
   alias Pyex.Highlighter.Lexer
   alias Pyex.Highlighter.Lexers.Python
   alias Pyex.Highlighter.Style
 
   defp build(opts) do
-    {:ok, o} = Html.build_opts(opts)
+    {:ok, o} = HTML.build_opts(opts)
     o
   end
 
   defp render(src, opts) do
     tokens = Lexer.tokenize(Python, src)
-    Html.format(tokens, build(opts))
+    HTML.format(tokens, build(opts))
   end
 
   test "wraps tokens in spans with Pygments short classes" do
@@ -158,9 +158,9 @@ defmodule Pyex.Highlighter.Formatters.HtmlTest do
     test "works end-to-end via the Python-facing API" do
       result =
         Pyex.run!(~S"""
-        from pygments.formatters import HtmlFormatter
+        from pygments.formatters import HTMLFormatter
         theme = {"background": "#112233", "Keyword": "bold #abcdef"}
-        HtmlFormatter(style=theme).get_style_defs(".demo")
+        HTMLFormatter(style=theme).get_style_defs(".demo")
         """)
 
       assert result =~ ".demo { background: #112233"

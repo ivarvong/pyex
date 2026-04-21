@@ -1,4 +1,4 @@
-defmodule Pyex.Stdlib.Uuid do
+defmodule Pyex.Stdlib.UUID do
   @moduledoc """
   Python `uuid` module for generating universally unique identifiers.
 

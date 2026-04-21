@@ -1,4 +1,4 @@
-defmodule Pyex.Conformance.HtmlTest do
+defmodule Pyex.Conformance.HTMLTest do
   @moduledoc """
   Live CPython conformance tests for the `html` module.
   """

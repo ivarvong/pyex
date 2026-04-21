@@ -1,8 +1,8 @@
-defmodule Pyex.Highlighter.Lexers.EcmaTest do
+defmodule Pyex.Highlighter.Lexers.ECMATest do
   use ExUnit.Case, async: true
 
   alias Pyex.Highlighter.Lexer
-  alias Pyex.Highlighter.Lexers.{Javascript, Typescript, Jsx, Tsx}
+  alias Pyex.Highlighter.Lexers.{Javascript, Typescript, JSX, TSX}
 
   defp tok(mod, src), do: Lexer.tokenize(mod, src)
 
@@ -126,18 +126,18 @@ defmodule Pyex.Highlighter.Lexers.EcmaTest do
 
   describe "JSX" do
     test "simple tag" do
-      tokens = tok(Jsx, "const x = <div>hi</div>")
+      tokens = tok(JSX, "const x = <div>hi</div>")
       assert Enum.any?(tokens, fn {t, s} -> t == :name_tag and s == "<div" end)
     end
 
     test "self-closing tag" do
-      tokens = tok(Jsx, "<img />")
+      tokens = tok(JSX, "<img />")
       assert Enum.any?(tokens, fn {t, s} -> t == :name_tag and s == "<img" end)
       assert Enum.any?(tokens, fn {t, _} -> t == :punctuation end)
     end
 
     test "attribute with string value" do
-      tokens = tok(Jsx, ~s(<div className="foo">))
+      tokens = tok(JSX, ~s(<div className="foo">))
 
       assert Enum.any?(tokens, fn {t, s} -> t == :name_attribute and s == "className" end)
 
@@ -147,7 +147,7 @@ defmodule Pyex.Highlighter.Lexers.EcmaTest do
     end
 
     test "attribute with expression interpolation" do
-      tokens = tok(Jsx, "<div onClick={handler} />")
+      tokens = tok(JSX, "<div onClick={handler} />")
 
       assert Enum.any?(tokens, fn {t, s} ->
                t == :name_attribute and s == "onClick"
@@ -161,12 +161,12 @@ defmodule Pyex.Highlighter.Lexers.EcmaTest do
     end
 
     test "capitalized component name" do
-      tokens = tok(Jsx, "<MyComponent prop={x} />")
+      tokens = tok(JSX, "<MyComponent prop={x} />")
       assert Enum.any?(tokens, fn {t, s} -> t == :name_tag and s == "<MyComponent" end)
     end
 
     test "closing tags tokenize as a single :name_tag, not operator + name" do
-      tokens = tok(Jsx, "<div>hi</div>")
+      tokens = tok(JSX, "<div>hi</div>")
       assert {:name_tag, "<div"} in tokens
       assert {:name_tag, "</div"} in tokens
 
@@ -176,13 +176,13 @@ defmodule Pyex.Highlighter.Lexers.EcmaTest do
 
     test "fragments" do
       # Opening fragment
-      assert Enum.any?(tok(Jsx, "<>hi</>"), fn {_, s} -> s == "<>" end)
+      assert Enum.any?(tok(JSX, "<>hi</>"), fn {_, s} -> s == "<>" end)
       # Closing fragment
-      assert Enum.any?(tok(Jsx, "<>hi</>"), fn {_, s} -> s == "</>" end)
+      assert Enum.any?(tok(JSX, "<>hi</>"), fn {_, s} -> s == "</>" end)
     end
 
     test "dotted component tags (e.g. <Router.Route>)" do
-      tokens = tok(Jsx, "<Router.Route path=\"/\" />")
+      tokens = tok(JSX, "<Router.Route path=\"/\" />")
 
       assert Enum.any?(tokens, fn {t, s} ->
                t == :name_tag and s == "<Router.Route"
@@ -193,7 +193,7 @@ defmodule Pyex.Highlighter.Lexers.EcmaTest do
   describe "TSX" do
     test "combines TS + JSX" do
       src = ~S"const El: React.FC<{n: number}> = ({n}) => <span>{n}</span>"
-      tokens = tok(Tsx, src)
+      tokens = tok(TSX, src)
 
       # TS features
       assert Enum.any?(tokens, fn {t, s} ->

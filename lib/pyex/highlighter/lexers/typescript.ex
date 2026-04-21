@@ -9,5 +9,5 @@ defmodule Pyex.Highlighter.Lexers.Typescript do
   def mimetypes, do: ["application/typescript", "text/typescript"]
 
   @impl true
-  def rules, do: Pyex.Highlighter.Lexers.Ecma.rules(types: true, jsx: false)
+  def rules, do: Pyex.Highlighter.Lexers.ECMA.rules(types: true, jsx: false)
 end

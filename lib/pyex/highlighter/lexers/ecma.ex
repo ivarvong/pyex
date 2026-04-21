@@ -1,4 +1,4 @@
-defmodule Pyex.Highlighter.Lexers.Ecma do
+defmodule Pyex.Highlighter.Lexers.ECMA do
   @moduledoc """
   Shared rule builder for the ECMAScript language family:
   JavaScript, TypeScript, JSX, TSX.
@@ -6,10 +6,10 @@ defmodule Pyex.Highlighter.Lexers.Ecma do
   `rules/1` takes a keyword list of feature flags and returns a
   state-machine rule map:
 
-      Pyex.Highlighter.Lexers.Ecma.rules(types: false, jsx: false)  # JS
-      Pyex.Highlighter.Lexers.Ecma.rules(types: true,  jsx: false)  # TS
-      Pyex.Highlighter.Lexers.Ecma.rules(types: false, jsx: true)   # JSX
-      Pyex.Highlighter.Lexers.Ecma.rules(types: true,  jsx: true)   # TSX
+      Pyex.Highlighter.Lexers.ECMA.rules(types: false, jsx: false)  # JS
+      Pyex.Highlighter.Lexers.ECMA.rules(types: true,  jsx: false)  # TS
+      Pyex.Highlighter.Lexers.ECMA.rules(types: false, jsx: true)   # JSX
+      Pyex.Highlighter.Lexers.ECMA.rules(types: true,  jsx: true)   # TSX
 
   Features:
 

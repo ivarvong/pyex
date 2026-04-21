@@ -9,5 +9,5 @@ defmodule Pyex.Highlighter.Lexers.Javascript do
   def mimetypes, do: ["application/javascript", "text/javascript"]
 
   @impl true
-  def rules, do: Pyex.Highlighter.Lexers.Ecma.rules(types: false, jsx: false)
+  def rules, do: Pyex.Highlighter.Lexers.ECMA.rules(types: false, jsx: false)
 end

@@ -10,8 +10,8 @@ defmodule Pyex.Highlighter do
 
       lexer = Pyex.Highlighter.lexer_for_name("python")
       tokens = Pyex.Highlighter.Lexer.tokenize(lexer, source)
-      {:ok, opts} = Pyex.Highlighter.Formatters.Html.build_opts(style: "monokai")
-      Pyex.Highlighter.Formatters.Html.format(tokens, opts)
+      {:ok, opts} = Pyex.Highlighter.Formatters.HTML.build_opts(style: "monokai")
+      Pyex.Highlighter.Formatters.HTML.format(tokens, opts)
 
   ## Supported languages
 
@@ -37,7 +37,7 @@ defmodule Pyex.Highlighter do
     "py" => Pyex.Highlighter.Lexers.Python,
     "py3" => Pyex.Highlighter.Lexers.Python,
     "python3" => Pyex.Highlighter.Lexers.Python,
-    "json" => Pyex.Highlighter.Lexers.Json,
+    "json" => Pyex.Highlighter.Lexers.JSON,
     "bash" => Pyex.Highlighter.Lexers.Bash,
     "sh" => Pyex.Highlighter.Lexers.Bash,
     "shell" => Pyex.Highlighter.Lexers.Bash,
@@ -46,8 +46,8 @@ defmodule Pyex.Highlighter do
     "js" => Pyex.Highlighter.Lexers.Javascript,
     "typescript" => Pyex.Highlighter.Lexers.Typescript,
     "ts" => Pyex.Highlighter.Lexers.Typescript,
-    "jsx" => Pyex.Highlighter.Lexers.Jsx,
-    "tsx" => Pyex.Highlighter.Lexers.Tsx,
+    "jsx" => Pyex.Highlighter.Lexers.JSX,
+    "tsx" => Pyex.Highlighter.Lexers.TSX,
     "elixir" => Pyex.Highlighter.Lexers.Elixir,
     "ex" => Pyex.Highlighter.Lexers.Elixir,
     "exs" => Pyex.Highlighter.Lexers.Elixir
@@ -57,7 +57,7 @@ defmodule Pyex.Highlighter do
   Highlights `source` in the given `lang` and returns an HTML string.
 
   Options are passed through to the HTML formatter — see
-  `Pyex.Highlighter.Formatters.Html` for the full list. Most important:
+  `Pyex.Highlighter.Formatters.HTML` for the full list. Most important:
 
     * `:style` — built-in name (`"monokai"`), dict, or `%Style{}`
     * `:cssclass` — outer div class
@@ -67,9 +67,9 @@ defmodule Pyex.Highlighter do
           {:ok, String.t()} | {:error, String.t()}
   def highlight(source, lang, opts \\ []) do
     with {:ok, lexer} <- lexer_for_name(lang),
-         {:ok, resolved} <- Formatters.Html.build_opts(opts) do
+         {:ok, resolved} <- Formatters.HTML.build_opts(opts) do
       tokens = Lexer.tokenize(lexer, source)
-      {:ok, Formatters.Html.format(tokens, resolved)}
+      {:ok, Formatters.HTML.format(tokens, resolved)}
     end
   end
 
@@ -93,7 +93,7 @@ defmodule Pyex.Highlighter do
           {:ok, String.t()} | {:error, String.t()}
   def css(style_input, selector \\ ".highlight") do
     case Style.resolve(style_input) do
-      {:ok, style} -> {:ok, Formatters.Html.style_defs(style, selector)}
+      {:ok, style} -> {:ok, Formatters.HTML.style_defs(style, selector)}
       {:error, _} = err -> err
     end
   end

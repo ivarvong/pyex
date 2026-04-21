@@ -1,4 +1,4 @@
-defmodule Pyex.Stdlib.Html do
+defmodule Pyex.Stdlib.HTML do
   @moduledoc """
   Python `html` module for HTML entity escaping.
 

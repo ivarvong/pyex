@@ -1,4 +1,4 @@
-defmodule Pyex.Highlighter.Lexers.Json do
+defmodule Pyex.Highlighter.Lexers.JSON do
   @moduledoc """
   JSON lexer. Tokenizes strict RFC 8259 JSON plus common extensions
   (leading/trailing whitespace, nested objects and arrays).

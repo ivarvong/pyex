@@ -1,4 +1,4 @@
-defmodule Pyex.Stdlib.CsvTest do
+defmodule Pyex.Stdlib.CSVTest do
   use ExUnit.Case, async: true
 
   describe "csv.reader" do

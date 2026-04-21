@@ -1,4 +1,4 @@
-defmodule Pyex.Stdlib.HtmlTest do
+defmodule Pyex.Stdlib.HTMLTest do
   use ExUnit.Case, async: true
 
   describe "html.escape" do

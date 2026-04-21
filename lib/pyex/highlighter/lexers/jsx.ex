@@ -1,4 +1,4 @@
-defmodule Pyex.Highlighter.Lexers.Jsx do
+defmodule Pyex.Highlighter.Lexers.JSX do
   @moduledoc "JSX lexer — JavaScript with embedded XML-like tags."
 
   @behaviour Pyex.Highlighter.Lexer
@@ -9,5 +9,5 @@ defmodule Pyex.Highlighter.Lexers.Jsx do
   def mimetypes, do: ["text/jsx"]
 
   @impl true
-  def rules, do: Pyex.Highlighter.Lexers.Ecma.rules(types: false, jsx: true)
+  def rules, do: Pyex.Highlighter.Lexers.ECMA.rules(types: false, jsx: true)
 end
