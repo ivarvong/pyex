@@ -55,7 +55,8 @@ defmodule Pyex.Stdlib do
     "crypto" => Pyex.Stdlib.Crypto,
     "zoneinfo" => Pyex.Stdlib.Zoneinfo,
     "operator" => Pyex.Stdlib.Operator,
-    "bisect" => Pyex.Stdlib.Bisect
+    "bisect" => Pyex.Stdlib.Bisect,
+    "pygments" => Pyex.Stdlib.Pygments
   }
 
   @doc """
