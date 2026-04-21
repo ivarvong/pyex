@@ -57,6 +57,18 @@ defmodule Pyex.Highlighter.Lexers.Python do
     WindowsError ZeroDivisionError
   )
 
+  # Keyword-family patterns are compiled once at module-load time
+  # rather than on every `rules/0` call.
+  @keyword_constants_re Regex.compile!(
+                          "(?<![\\w.])(?:" <> Enum.join(@keyword_constants, "|") <> ")\\b"
+                        )
+  @keyword_operators_re Regex.compile!(
+                          "(?<![\\w.])(?:" <> Enum.join(@keyword_operators, "|") <> ")\\b"
+                        )
+  @keywords_re Regex.compile!("(?<![\\w.])(?:" <> Enum.join(@keywords, "|") <> ")\\b")
+  @exceptions_re Regex.compile!("(?<![\\w.])(?:" <> Enum.join(@exceptions, "|") <> ")\\b")
+  @builtins_re Regex.compile!("(?<![\\w.])(?:" <> Enum.join(@builtins, "|") <> ")\\b")
+
   @impl Pyex.Highlighter.Lexer
   def rules do
     %{
@@ -99,16 +111,11 @@ defmodule Pyex.Highlighter.Lexers.Python do
         {~r/\d(?:_?\d)*/, :number_integer, :none},
 
         # Keywords before generic identifiers. Word boundaries matter.
-        {Regex.compile!("(?<![\\w.])(?:" <> Enum.join(@keyword_constants, "|") <> ")\\b"),
-         :keyword_constant, :none},
-        {Regex.compile!("(?<![\\w.])(?:" <> Enum.join(@keyword_operators, "|") <> ")\\b"),
-         :operator_word, :none},
-        {Regex.compile!("(?<![\\w.])(?:" <> Enum.join(@keywords, "|") <> ")\\b"), :keyword,
-         :none},
-        {Regex.compile!("(?<![\\w.])(?:" <> Enum.join(@exceptions, "|") <> ")\\b"),
-         :name_exception, :none},
-        {Regex.compile!("(?<![\\w.])(?:" <> Enum.join(@builtins, "|") <> ")\\b"), :name_builtin,
-         :none},
+        {@keyword_constants_re, :keyword_constant, :none},
+        {@keyword_operators_re, :operator_word, :none},
+        {@keywords_re, :keyword, :none},
+        {@exceptions_re, :name_exception, :none},
+        {@builtins_re, :name_builtin, :none},
 
         # self and cls are pseudo-builtins
         {~r/(?<![\w.])(?:self|cls)\b/, :name_builtin_pseudo, :none},

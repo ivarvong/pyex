@@ -62,6 +62,23 @@ defmodule Pyex.Highlighter.Lexers.ECMA do
     string number boolean any unknown never void object bigint symbol undefined
   )
 
+  # Compile keyword/builtin alternation patterns once at module-load
+  # rather than on every `rules/1` call.
+  @js_keywords_re Regex.compile!("\\b(?:" <> Enum.join(@js_keywords, "|") <> ")\\b")
+  @js_reserved_re Regex.compile!("\\b(?:" <> Enum.join(@js_reserved, "|") <> ")\\b")
+  @js_constants_re Regex.compile!("\\b(?:" <> Enum.join(@js_constants, "|") <> ")\\b")
+  @js_builtins_re Regex.compile!("\\b(?:" <> Enum.join(@js_builtins, "|") <> ")\\b")
+  @ts_keywords_re Regex.compile!("\\b(?:" <> Enum.join(@ts_keywords, "|") <> ")\\b")
+  @ts_primitive_types_re Regex.compile!("\\b(?:" <> Enum.join(@ts_primitive_types, "|") <> ")\\b")
+
+  # Regex-literal disambiguation patterns (see `regex_rule/0`).
+  @regex_body ~S"\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^\/\\\n])+\/[gimsuvy]*"
+  @regex_after_op Regex.compile!("([=(,;:!&|?+\\-*%{}])(\\s*)(" <> @regex_body <> ")")
+  @regex_after_kw Regex.compile!(
+                    "(\\breturn\\b|\\btypeof\\b|\\bin\\b|\\bof\\b)(\\s+)(" <> @regex_body <> ")"
+                  )
+  @regex_at_start Regex.compile!("\\A(" <> @regex_body <> ")")
+
   @doc """
   Builds a rule map for an ECMAScript variant.
 
@@ -130,25 +147,21 @@ defmodule Pyex.Highlighter.Lexers.ECMA do
 
   defp keyword_rules do
     [
-      {Regex.compile!("\\b(?:" <> Enum.join(@js_keywords, "|") <> ")\\b"), :keyword, :none},
-      {Regex.compile!("\\b(?:" <> Enum.join(@js_reserved, "|") <> ")\\b"), :keyword_reserved,
-       :none}
+      {@js_keywords_re, :keyword, :none},
+      {@js_reserved_re, :keyword_reserved, :none}
     ]
   end
 
   defp constant_rules do
     [
-      {Regex.compile!("\\b(?:" <> Enum.join(@js_constants, "|") <> ")\\b"), :keyword_constant,
-       :none}
+      {@js_constants_re, :keyword_constant, :none}
     ]
   end
 
   defp type_keyword_rules do
     [
-      {Regex.compile!("\\b(?:" <> Enum.join(@ts_keywords, "|") <> ")\\b"), :keyword_declaration,
-       :none},
-      {Regex.compile!("\\b(?:" <> Enum.join(@ts_primitive_types, "|") <> ")\\b"), :keyword_type,
-       :none}
+      {@ts_keywords_re, :keyword_declaration, :none},
+      {@ts_primitive_types_re, :keyword_type, :none}
     ]
   end
 
@@ -166,7 +179,7 @@ defmodule Pyex.Highlighter.Lexers.ECMA do
       {~r/#[A-Za-z_$][\w$]*/, :name_variable_instance, :none},
 
       # Built-in globals
-      {Regex.compile!("\\b(?:" <> Enum.join(@js_builtins, "|") <> ")\\b"), :name_builtin, :none},
+      {@js_builtins_re, :name_builtin, :none},
 
       # Decorators
       {~r/@[A-Za-z_$][\w$]*/, :name_decorator, :none},
@@ -214,18 +227,14 @@ defmodule Pyex.Highlighter.Lexers.ECMA do
   #   2. after `return` / `typeof` / `in` / `of` keywords
   #   3. at the very start of input
   defp regex_rule do
-    body = ~S"\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^\/\\\n])+\/[gimsuvy]*"
-
     [
       # (1) After an operator. We match the operator char, optional ws,
       # then the regex. Emit as three tokens.
-      {Regex.compile!("([=(,;:!&|?+\\-*%{}])(\\s*)(" <> body <> ")"),
-       {:bygroups, [:operator, :whitespace, :string_regex]}, :none},
+      {@regex_after_op, {:bygroups, [:operator, :whitespace, :string_regex]}, :none},
       # (2) After a keyword.
-      {Regex.compile!("(\\breturn\\b|\\btypeof\\b|\\bin\\b|\\bof\\b)(\\s+)(" <> body <> ")"),
-       {:bygroups, [:keyword, :whitespace, :string_regex]}, :none},
+      {@regex_after_kw, {:bygroups, [:keyword, :whitespace, :string_regex]}, :none},
       # (3) At the start of input.
-      {Regex.compile!("\\A(" <> body <> ")"), {:bygroups, [:string_regex]}, :none}
+      {@regex_at_start, {:bygroups, [:string_regex]}, :none}
     ]
   end
 
