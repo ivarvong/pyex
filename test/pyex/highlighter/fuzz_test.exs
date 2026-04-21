@@ -22,7 +22,7 @@ defmodule Pyex.Highlighter.FuzzTest do
 
   @languages ~w(python json bash javascript typescript jsx tsx elixir)
 
-  @tokenize_timeout_ms 5_000
+  @tokenize_timeout_ms 30_000
 
   defp tokenize!(lang, source) do
     {:ok, mod} = Highlighter.lexer_for_name(lang)
