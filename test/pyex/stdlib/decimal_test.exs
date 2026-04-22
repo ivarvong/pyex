@@ -42,14 +42,14 @@ defmodule Pyex.Stdlib.DecimalTest do
       assert result == "5"
     end
 
-    test "invalid Decimal literal returns Python error" do
+    test "invalid Decimal literal returns InvalidOperation" do
       assert {:error, %Pyex.Error{message: msg}} =
                Pyex.run("""
                from decimal import Decimal
                Decimal("abc")
                """)
 
-      assert msg =~ "ValueError"
+      assert msg =~ "InvalidOperation"
       assert msg =~ "Decimal"
     end
   end
@@ -320,24 +320,24 @@ defmodule Pyex.Stdlib.DecimalTest do
   end
 
   describe "Decimal repr" do
-    test "repr of Decimal returns string form" do
+    test "repr of Decimal wraps in Decimal('...') per CPython" do
       result =
         Pyex.run!("""
         from decimal import Decimal
         repr(Decimal("3.14"))
         """)
 
-      assert result == "3.14"
+      assert result == "Decimal('3.14')"
     end
 
-    test "Decimal in list repr" do
+    test "Decimal in list repr is wrapped per CPython" do
       result =
         Pyex.run!("""
         from decimal import Decimal
         str([Decimal("3.14")])
         """)
 
-      assert result == "[3.14]"
+      assert result == "[Decimal('3.14')]"
     end
   end
 

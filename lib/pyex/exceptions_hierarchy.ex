@@ -74,7 +74,21 @@ defmodule Pyex.ExceptionsHierarchy do
     "ImportWarning" => "Warning",
     "UnicodeWarning" => "Warning",
     "BytesWarning" => "Warning",
-    "ResourceWarning" => "Warning"
+    "ResourceWarning" => "Warning",
+    "DecimalException" => "ArithmeticError",
+    "Clamped" => "DecimalException",
+    "InvalidOperation" => "ArithmeticError",
+    "ConversionSyntax" => "InvalidOperation",
+    "DivisionByZero" => "ArithmeticError",
+    "DivisionImpossible" => "InvalidOperation",
+    "DivisionUndefined" => "InvalidOperation",
+    "Inexact" => "DecimalException",
+    "InvalidContext" => "InvalidOperation",
+    "Rounded" => "DecimalException",
+    "Subnormal" => "DecimalException",
+    "Overflow" => "DecimalException",
+    "Underflow" => "Inexact",
+    "FloatOperation" => "DecimalException"
   }
 
   @doc """

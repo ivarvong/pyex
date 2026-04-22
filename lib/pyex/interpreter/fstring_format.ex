@@ -465,8 +465,9 @@ defmodule Pyex.Interpreter.FstringFormat do
   @spec format_decimal_fixed(Decimal.t(), non_neg_integer()) :: String.t()
   defp format_decimal_fixed(d, precision) do
     d
-    |> Decimal.round(precision)
-    |> Decimal.to_string()
+    |> Decimal.round(precision, :half_even)
+    |> Decimal.to_string(:normal)
+    |> ensure_decimal_places(precision)
   end
 
   @spec format_float_rounded(float(), non_neg_integer()) :: String.t()

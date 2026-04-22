@@ -174,6 +174,14 @@ defmodule Pyex.Methods do
     pandas_dataframe_property(object, attr)
   end
 
+  def resolve({:pyex_decimal, _} = object, attr) do
+    case decimal_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      {:ok_kw, method_fn} -> {:ok, {:builtin_kw, bound_kw(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
   def resolve(_object, _attr), do: :error
 
   @doc """
@@ -187,7 +195,16 @@ defmodule Pyex.Methods do
   def method_names(val) when is_map(val), do: @dict_methods
   def method_names({:set, _}), do: @set_methods
   def method_names({:frozenset, _}), do: @frozenset_methods
+  @decimal_methods ~w(
+    adjusted as_tuple compare conjugate copy_abs copy_negate copy_sign
+    exp is_finite is_infinite is_nan is_normal is_qnan is_signed is_snan
+    is_subnormal is_zero ln log10 max min normalize number_class quantize
+    same_quantum sqrt to_eng_string to_integral to_integral_exact
+    to_integral_value
+  )
+
   def method_names({:tuple, _}), do: @tuple_methods
+  def method_names({:pyex_decimal, _}), do: @decimal_methods
   def method_names(_), do: []
 
   @spec bound(
@@ -304,6 +321,415 @@ defmodule Pyex.Methods do
   defp int_method("__abs__"), do: {:ok, fn n, [] -> abs(n) end}
   defp int_method("__neg__"), do: {:ok, fn n, [] -> -n end}
   defp int_method(_), do: :error
+
+  # -- Decimal methods -------------------------------------------------
+
+  @spec decimal_method(String.t()) ::
+          {:ok, ({:pyex_decimal, Decimal.t()}, [Interpreter.pyvalue()] -> term())}
+          | {:ok_kw, ({:pyex_decimal, Decimal.t()}, [Interpreter.pyvalue()], map() -> term())}
+          | :error
+  defp decimal_method("quantize"), do: {:ok_kw, &decimal_quantize/3}
+  defp decimal_method("as_tuple"), do: {:ok, &decimal_as_tuple/2}
+  defp decimal_method("is_finite"), do: {:ok, &decimal_is_finite/2}
+  defp decimal_method("is_infinite"), do: {:ok, &decimal_is_infinite/2}
+  defp decimal_method("is_nan"), do: {:ok, &decimal_is_nan/2}
+  defp decimal_method("is_qnan"), do: {:ok, &decimal_is_nan/2}
+  defp decimal_method("is_snan"), do: {:ok, fn _d, [] -> false end}
+  defp decimal_method("is_signed"), do: {:ok, &decimal_is_signed/2}
+  defp decimal_method("is_zero"), do: {:ok, &decimal_is_zero/2}
+  defp decimal_method("is_normal"), do: {:ok, &decimal_is_normal/2}
+  defp decimal_method("is_subnormal"), do: {:ok, fn _d, _args -> false end}
+  defp decimal_method("copy_abs"), do: {:ok, &decimal_copy_abs/2}
+  defp decimal_method("copy_negate"), do: {:ok, &decimal_copy_negate/2}
+  defp decimal_method("copy_sign"), do: {:ok, &decimal_copy_sign/2}
+  defp decimal_method("sqrt"), do: {:ok, &decimal_sqrt/2}
+  defp decimal_method("ln"), do: {:ok, &decimal_ln/2}
+  defp decimal_method("log10"), do: {:ok, &decimal_log10/2}
+  defp decimal_method("exp"), do: {:ok, &decimal_exp/2}
+  defp decimal_method("to_integral_value"), do: {:ok_kw, &decimal_to_integral_value/3}
+  defp decimal_method("to_integral_exact"), do: {:ok_kw, &decimal_to_integral_value/3}
+  defp decimal_method("to_integral"), do: {:ok_kw, &decimal_to_integral_value/3}
+  defp decimal_method("to_eng_string"), do: {:ok, &decimal_to_eng_string/2}
+  defp decimal_method("normalize"), do: {:ok, &decimal_normalize/2}
+  defp decimal_method("adjusted"), do: {:ok, &decimal_adjusted/2}
+  defp decimal_method("compare"), do: {:ok, &decimal_compare/2}
+  defp decimal_method("max"), do: {:ok, &decimal_max/2}
+  defp decimal_method("min"), do: {:ok, &decimal_min/2}
+  defp decimal_method("same_quantum"), do: {:ok, &decimal_same_quantum/2}
+  defp decimal_method("number_class"), do: {:ok, &decimal_number_class/2}
+  defp decimal_method("conjugate"), do: {:ok, fn d, [] -> d end}
+  defp decimal_method("__abs__"), do: {:ok, &decimal_copy_abs/2}
+  defp decimal_method("__neg__"), do: {:ok, &decimal_copy_negate/2}
+  defp decimal_method("__pos__"), do: {:ok, fn d, [] -> d end}
+  defp decimal_method("__hash__"), do: {:ok, fn {:pyex_decimal, d}, [] -> :erlang.phash2(d) end}
+  defp decimal_method(_), do: :error
+
+  @spec decimal_quantize(
+          {:pyex_decimal, Decimal.t()},
+          [Interpreter.pyvalue()],
+          map()
+        ) :: term()
+  defp decimal_quantize({:pyex_decimal, d}, args, kwargs) do
+    {target, rounding_arg} =
+      case args do
+        [t] -> {t, Map.get(kwargs, "rounding")}
+        [t, r] -> {t, r}
+        _ -> {nil, nil}
+      end
+
+    cond do
+      target == nil ->
+        {:exception, "TypeError: quantize() requires a target Decimal"}
+
+      true ->
+        case quantize_target_exp(target) do
+          {:ok, target_exp} ->
+            mode = resolve_rounding(rounding_arg)
+            do_quantize(d, target_exp, mode)
+
+          {:nan, nan_target} ->
+            # CPython: quantising any value against a NaN template
+            # produces NaN. Propagate the target's NaN.
+            {:pyex_decimal, nan_target}
+
+          {:error, msg} ->
+            {:exception, msg}
+        end
+    end
+  end
+
+  # Quantize target: extract the exponent. Inf targets are surfaced as
+  # the atom `:inf` so do_quantize can dispatch on them.
+  defp quantize_target_exp({:pyex_decimal, %Decimal{coef: :NaN} = d}), do: {:nan, d}
+  defp quantize_target_exp({:pyex_decimal, %Decimal{coef: :inf}}), do: {:ok, :inf}
+  defp quantize_target_exp({:pyex_decimal, %Decimal{exp: exp}}), do: {:ok, exp}
+  defp quantize_target_exp(n) when is_integer(n), do: {:ok, n}
+
+  defp quantize_target_exp(_),
+    do:
+      {:error,
+       "TypeError: quantize() target must be a Decimal or int (representing the exponent)"}
+
+  # Wide return type so Dialyzer doesn't narrow to `Decimal.rounding()` --
+  # the caller dispatches `:round_05up` explicitly, which is not part of
+  # the `Decimal.rounding()` union.
+  @spec resolve_rounding(any()) :: atom()
+  defp resolve_rounding(nil), do: Decimal.Context.get().rounding
+
+  defp resolve_rounding(name) when is_binary(name) do
+    case Pyex.Stdlib.DecimalModule.rounding_to_atom(name) do
+      nil -> Decimal.Context.get().rounding
+      atom -> atom
+    end
+  end
+
+  defp resolve_rounding(_), do: Decimal.Context.get().rounding
+
+  defp do_quantize(%Decimal{coef: :NaN} = d, _target_exp, _mode),
+    do: {:pyex_decimal, d}
+
+  defp do_quantize(%Decimal{coef: :inf} = d, target_exp, _mode) do
+    # CPython: `quantize(Inf, Inf)` returns Infinity (with the input's
+    # sign). `quantize(Inf, finite)` and `quantize(finite, Inf)` raise
+    # InvalidOperation. We dispatch on whether the target is itself Inf.
+    if target_exp == :inf do
+      {:pyex_decimal, d}
+    else
+      {:exception, "InvalidOperation: cannot quantize infinity to a finite scale"}
+    end
+  end
+
+  defp do_quantize(_d, :inf, _mode),
+    do: {:exception, "InvalidOperation: cannot quantize a finite to Infinity"}
+
+  defp do_quantize(d, target_exp, mode) do
+    # Decimal.round(num, places, mode) rounds to `places` digits after the
+    # decimal point. The CPython quantize exponent is the exponent of the
+    # result (negative for digits after the point), so places = -target_exp.
+    #
+    # We compute the round under elevated precision so the active context
+    # doesn't pre-round the input -- otherwise we get the classic
+    # "double-round" bug (e.g. `1234.987647 quantize 1e-4` would round
+    # the input to 9 sig figs first, producing 1234.98765, then rounding
+    # to 4 places promotes the half to 1234.9877 instead of CPython's
+    # correct 1234.9876).
+    places = -target_exp
+    user_ctx = Decimal.Context.get()
+    high_prec_ctx = %{user_ctx | precision: max(user_ctx.precision, 1000)}
+
+    result =
+      Decimal.Context.with(high_prec_ctx, fn ->
+        decimal_round_with_mode(d, places, mode)
+      end)
+
+    forced = force_exp(result, target_exp)
+
+    # CPython rule: if the quantized coefficient would need more digits
+    # than the active precision allows, the operation is invalid.
+    prec = Decimal.Context.get().precision
+    coef_digits = quantize_digit_count(forced)
+
+    if coef_digits > prec do
+      {:exception, "InvalidOperation: quantize result exceeds precision"}
+    else
+      {:pyex_decimal, forced}
+    end
+  end
+
+  defp quantize_digit_count(%Decimal{coef: :NaN}), do: 0
+  defp quantize_digit_count(%Decimal{coef: :inf}), do: 0
+  defp quantize_digit_count(%Decimal{coef: 0}), do: 1
+  defp quantize_digit_count(%Decimal{coef: c}), do: length(Integer.digits(abs(c)))
+
+  # `mode` can be any of the canonical Decimal.rounding atoms OR our
+  # internal `:round_05up` sentinel for CPython's ROUND_05UP. We declare
+  # a wide type so Dialyzer doesn't infer the narrower `Decimal.rounding`
+  # and reject the `:round_05up` clause as unreachable.
+  @spec decimal_round_with_mode(Decimal.t(), integer(), atom()) :: Decimal.t()
+  defp decimal_round_with_mode(d, places, mode) when mode == :round_05up do
+    # CPython's ROUND_05UP ("round zero or five away from zero"): first
+    # truncate toward zero; if the last digit of the truncated coefficient
+    # is 0 or 5 AND the discarded part was non-zero, round away from zero.
+    truncated = Decimal.round(d, places, :down)
+
+    if Decimal.equal?(Decimal.abs(truncated), Decimal.abs(d)) do
+      truncated
+    else
+      last = rem(truncated.coef, 10)
+
+      if last == 0 or last == 5 do
+        %{truncated | coef: truncated.coef + 1}
+      else
+        truncated
+      end
+    end
+  end
+
+  defp decimal_round_with_mode(d, places, mode), do: Decimal.round(d, places, mode)
+
+  # Adjust a Decimal so its exponent equals `target_exp`. When the current
+  # exponent is higher (less precise) we shift digits up (multiply coef);
+  # when lower we leave as-is (round() already reduced precision).
+  defp force_exp(%Decimal{} = d, target_exp) do
+    cond do
+      d.exp == target_exp ->
+        d
+
+      d.exp > target_exp ->
+        diff = d.exp - target_exp
+        coef = if d.coef == :inf or d.coef == :NaN, do: d.coef, else: d.coef * pow10(diff)
+        %{d | coef: coef, exp: target_exp}
+
+      true ->
+        d
+    end
+  end
+
+  defp pow10(0), do: 1
+  defp pow10(n) when n > 0, do: 10 * pow10(n - 1)
+
+  @spec decimal_as_tuple({:pyex_decimal, Decimal.t()}, [Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue()
+  defp decimal_as_tuple({:pyex_decimal, %Decimal{sign: sign, coef: coef, exp: exp}}, []) do
+    sign_int = if sign == 1, do: 0, else: 1
+
+    digits =
+      cond do
+        coef == :NaN -> []
+        coef == :inf -> []
+        coef == 0 -> [0]
+        true -> Integer.digits(coef)
+      end
+
+    exp_value =
+      case coef do
+        :NaN -> "n"
+        :inf -> "F"
+        _ -> exp
+      end
+
+    {:tuple, [sign_int, {:tuple, digits}, exp_value]}
+  end
+
+  defp decimal_is_finite({:pyex_decimal, %Decimal{coef: :NaN}}, []), do: false
+  defp decimal_is_finite({:pyex_decimal, %Decimal{coef: :inf}}, []), do: false
+  defp decimal_is_finite({:pyex_decimal, _}, []), do: true
+
+  defp decimal_is_infinite({:pyex_decimal, %Decimal{coef: :inf}}, []), do: true
+  defp decimal_is_infinite({:pyex_decimal, _}, []), do: false
+
+  defp decimal_is_nan({:pyex_decimal, %Decimal{coef: :NaN}}, []), do: true
+  defp decimal_is_nan({:pyex_decimal, _}, []), do: false
+
+  defp decimal_is_signed({:pyex_decimal, %Decimal{sign: -1}}, []), do: true
+  defp decimal_is_signed({:pyex_decimal, _}, []), do: false
+
+  defp decimal_is_zero({:pyex_decimal, %Decimal{coef: 0}}, []), do: true
+  defp decimal_is_zero({:pyex_decimal, _}, []), do: false
+
+  defp decimal_is_normal({:pyex_decimal, %Decimal{coef: :NaN}}, _), do: false
+  defp decimal_is_normal({:pyex_decimal, %Decimal{coef: :inf}}, _), do: false
+  defp decimal_is_normal({:pyex_decimal, %Decimal{coef: 0}}, _), do: false
+  defp decimal_is_normal({:pyex_decimal, _}, _), do: true
+
+  defp decimal_copy_abs({:pyex_decimal, d}, []), do: {:pyex_decimal, %{d | sign: 1}}
+
+  defp decimal_copy_negate({:pyex_decimal, %Decimal{coef: :NaN} = d}, []), do: {:pyex_decimal, d}
+
+  defp decimal_copy_negate({:pyex_decimal, %Decimal{sign: sign} = d}, []),
+    do: {:pyex_decimal, %{d | sign: -sign}}
+
+  defp decimal_copy_sign({:pyex_decimal, d}, [{:pyex_decimal, %Decimal{sign: sign}}]) do
+    {:pyex_decimal, %{d | sign: sign}}
+  end
+
+  defp decimal_copy_sign(_d, _args),
+    do: {:exception, "TypeError: copy_sign() requires a Decimal argument"}
+
+  defp decimal_sqrt({:pyex_decimal, d}, []) do
+    {:pyex_decimal, Decimal.sqrt(d)}
+  end
+
+  defp decimal_ln({:pyex_decimal, d}, []) do
+    cond do
+      Decimal.equal?(d, Decimal.new(0)) ->
+        {:pyex_decimal, %Decimal{sign: -1, coef: :inf, exp: 0}}
+
+      Decimal.negative?(d) ->
+        {:exception, "InvalidOperation: ln of a negative value"}
+
+      true ->
+        try do
+          val = Decimal.to_float(d)
+          {:pyex_decimal, Decimal.from_float(:math.log(val))}
+        rescue
+          ArithmeticError -> {:exception, "InvalidOperation: ln overflow"}
+        end
+    end
+  end
+
+  defp decimal_log10({:pyex_decimal, d}, []) do
+    cond do
+      Decimal.equal?(d, Decimal.new(0)) ->
+        {:pyex_decimal, %Decimal{sign: -1, coef: :inf, exp: 0}}
+
+      Decimal.negative?(d) ->
+        {:exception, "InvalidOperation: log10 of a negative value"}
+
+      true ->
+        try do
+          val = Decimal.to_float(d)
+          {:pyex_decimal, Decimal.from_float(:math.log10(val))}
+        rescue
+          ArithmeticError -> {:exception, "InvalidOperation: log10 overflow"}
+        end
+    end
+  end
+
+  defp decimal_exp({:pyex_decimal, d}, []) do
+    try do
+      val = Decimal.to_float(d)
+      {:pyex_decimal, Decimal.from_float(:math.exp(val))}
+    rescue
+      ArithmeticError -> {:exception, "Overflow: exp overflow"}
+    end
+  end
+
+  defp decimal_to_integral_value({:pyex_decimal, d}, args, kwargs) do
+    rounding_arg =
+      case args do
+        [r] -> r
+        _ -> Map.get(kwargs, "rounding")
+      end
+
+    mode = resolve_rounding(rounding_arg)
+
+    case d do
+      %Decimal{coef: c} when c in [:NaN, :inf] -> {:pyex_decimal, d}
+      _ -> {:pyex_decimal, Decimal.round(d, 0, mode)}
+    end
+  end
+
+  defp decimal_to_eng_string({:pyex_decimal, d}, []) do
+    Decimal.to_string(d, :scientific)
+  end
+
+  defp decimal_normalize({:pyex_decimal, d}, []), do: {:pyex_decimal, Decimal.normalize(d)}
+
+  defp decimal_adjusted({:pyex_decimal, %Decimal{coef: c, exp: exp}}, []) do
+    cond do
+      c == :NaN -> 0
+      c == :inf -> 0
+      # CPython: adjusted() on a zero Decimal returns the exponent
+      # directly (e.g. Decimal('0.00').adjusted() == -2). The "length - 1"
+      # rule would give -1 which is wrong for zero coefficients.
+      c == 0 -> exp
+      true -> exp + length(Integer.digits(c)) - 1
+    end
+  end
+
+  defp decimal_compare({:pyex_decimal, d}, [{:pyex_decimal, other}]) do
+    cond do
+      Decimal.nan?(d) or Decimal.nan?(other) ->
+        {:pyex_decimal, %Decimal{sign: 1, coef: :NaN, exp: 0}}
+
+      Decimal.lt?(d, other) ->
+        {:pyex_decimal, Decimal.new(-1)}
+
+      Decimal.gt?(d, other) ->
+        {:pyex_decimal, Decimal.new(1)}
+
+      true ->
+        {:pyex_decimal, Decimal.new(0)}
+    end
+  end
+
+  defp decimal_compare({:pyex_decimal, d}, [n]) when is_integer(n) do
+    decimal_compare({:pyex_decimal, d}, [{:pyex_decimal, Decimal.new(n)}])
+  end
+
+  defp decimal_compare(_d, _args),
+    do: {:exception, "TypeError: compare() requires a Decimal or int"}
+
+  defp decimal_max({:pyex_decimal, d}, [{:pyex_decimal, other}]),
+    do: {:pyex_decimal, Decimal.max(d, other)}
+
+  defp decimal_max({:pyex_decimal, d}, [n]) when is_integer(n),
+    do: {:pyex_decimal, Decimal.max(d, Decimal.new(n))}
+
+  defp decimal_max(_d, _),
+    do: {:exception, "TypeError: max() requires a Decimal or int argument"}
+
+  defp decimal_min({:pyex_decimal, d}, [{:pyex_decimal, other}]),
+    do: {:pyex_decimal, Decimal.min(d, other)}
+
+  defp decimal_min({:pyex_decimal, d}, [n]) when is_integer(n),
+    do: {:pyex_decimal, Decimal.min(d, Decimal.new(n))}
+
+  defp decimal_min(_d, _),
+    do: {:exception, "TypeError: min() requires a Decimal or int argument"}
+
+  defp decimal_same_quantum(
+         {:pyex_decimal, %Decimal{exp: e1}},
+         [{:pyex_decimal, %Decimal{exp: e2}}]
+       ),
+       do: e1 == e2
+
+  defp decimal_same_quantum(_d, _),
+    do: {:exception, "TypeError: same_quantum() requires a Decimal argument"}
+
+  defp decimal_number_class({:pyex_decimal, %Decimal{coef: :NaN}}, []), do: "NaN"
+
+  defp decimal_number_class({:pyex_decimal, %Decimal{coef: :inf, sign: 1}}, []),
+    do: "+Infinity"
+
+  defp decimal_number_class({:pyex_decimal, %Decimal{coef: :inf, sign: -1}}, []),
+    do: "-Infinity"
+
+  defp decimal_number_class({:pyex_decimal, %Decimal{coef: 0, sign: 1}}, []), do: "+Zero"
+  defp decimal_number_class({:pyex_decimal, %Decimal{coef: 0, sign: -1}}, []), do: "-Zero"
+  defp decimal_number_class({:pyex_decimal, %Decimal{sign: 1}}, []), do: "+Normal"
+  defp decimal_number_class({:pyex_decimal, %Decimal{sign: -1}}, []), do: "-Normal"
 
   # -- Bytes methods ---------------------------------------------------
 

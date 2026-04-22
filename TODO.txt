@@ -154,3 +154,28 @@ Known limitations:
   In Pyex they return bounded lists/ranges (works with `list()`, `for`,
   `islice`, etc., just not `next()` directly).
 
+## Bugs
+
+### Parser: nested-tuple unpacking in `for` is rejected
+
+CPython lets a `for` target use parenthesised inner tuples to destructure
+nested sequences:
+
+    for i, (a, b) in enumerate([(1, 2), (3, 4)]):
+        ...
+
+Pyex's `parse_for` rejects this with "expected variable name in for loop".
+Surfaced when porting a portfolio-rebalancer Python script in
+`test/pyex/stdlib/rebalancer_parity_test.exs` -- the script had to be
+rewritten with index-based access (`p[0]`, `p[1]`) to compile.
+
+Reproduction (any of these fails):
+
+    for i, (a, b) in enumerate(items): ...
+    for k, (v, w) in pairs: ...
+    for (a, b), c in nested: ...
+
+Flat unpacking (`for a, b, c in items:`) and single-name targets work
+fine. The fix is to extend `Parser.parse_for_target` to recursively
+accept a parenthesised target inside the comma-separated list.
+
