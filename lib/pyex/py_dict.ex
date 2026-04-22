@@ -51,11 +51,42 @@ defmodule Pyex.PyDict do
   end
 
   @doc """
+  Returns the canonical numeric form of a key for cross-type lookup.
+
+  CPython's dicts treat `1`, `True`, `1.0`, and `Decimal('1')` as the same
+  key (they are `==` and share `hash`).  Erlang maps use structural
+  equality, so we canonicalize integer-valued numeric keys to the int
+  form before storing or looking up.
+  """
+  @spec canonical_key(term()) :: term()
+  def canonical_key(true), do: 1
+  def canonical_key(false), do: 0
+
+  def canonical_key({:pyex_decimal, %Decimal{} = d}) do
+    cond do
+      Decimal.nan?(d) -> {:pyex_decimal, d}
+      Decimal.inf?(d) -> {:pyex_decimal, d}
+      Decimal.integer?(d) -> Decimal.to_integer(d)
+      true -> {:pyex_decimal, d}
+    end
+  end
+
+  def canonical_key(val) when is_float(val) do
+    cond do
+      val != val -> val
+      val == Float.floor(val) and val >= -1.0e18 and val <= 1.0e18 -> trunc(val)
+      true -> val
+    end
+  end
+
+  def canonical_key(val), do: val
+
+  @doc """
   Returns the value for `key`, or `default` if not found.
   """
   @spec get(t(), term(), term()) :: term()
   def get({:py_dict, map, _keys}, key, default \\ nil) do
-    Map.get(map, key, default)
+    Map.get(map, canonical_key(key), default)
   end
 
   @doc """
@@ -63,7 +94,7 @@ defmodule Pyex.PyDict do
   """
   @spec fetch(t(), term()) :: {:ok, term()} | :error
   def fetch({:py_dict, map, _keys}, key) do
-    Map.fetch(map, key)
+    Map.fetch(map, canonical_key(key))
   end
 
   @doc """
@@ -71,7 +102,7 @@ defmodule Pyex.PyDict do
   """
   @spec has_key?(t(), term()) :: boolean()
   def has_key?({:py_dict, map, _keys}, key) do
-    Map.has_key?(map, key)
+    Map.has_key?(map, canonical_key(key))
   end
 
   @doc """
@@ -80,10 +111,12 @@ defmodule Pyex.PyDict do
   """
   @spec put(t(), term(), term()) :: t()
   def put({:py_dict, map, keys}, key, value) do
-    if Map.has_key?(map, key) do
-      {:py_dict, Map.put(map, key, value), keys}
+    canon = canonical_key(key)
+
+    if Map.has_key?(map, canon) do
+      {:py_dict, Map.put(map, canon, value), keys}
     else
-      {:py_dict, Map.put(map, key, value), keys ++ [key]}
+      {:py_dict, Map.put(map, canon, value), keys ++ [canon]}
     end
   end
 
@@ -92,7 +125,8 @@ defmodule Pyex.PyDict do
   """
   @spec delete(t(), term()) :: t()
   def delete({:py_dict, map, keys}, key) do
-    {:py_dict, Map.delete(map, key), List.delete(keys, key)}
+    canon = canonical_key(key)
+    {:py_dict, Map.delete(map, canon), List.delete(keys, canon)}
   end
 
   @doc """

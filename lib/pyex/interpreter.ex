@@ -1308,6 +1308,10 @@ defmodule Pyex.Interpreter do
             {:complex, r, i} = val
             {{:complex, -r, -i}, env, ctx}
 
+          match?({:pyex_decimal, _}, val) ->
+            {:pyex_decimal, d} = val
+            {{:pyex_decimal, Decimal.negate(d)}, env, ctx}
+
           match?({:instance, _, _}, val) ->
             case Dunder.call_dunder(val, "__neg__", [], env, ctx) do
               {:ok, result, env, ctx} ->
@@ -1336,6 +1340,10 @@ defmodule Pyex.Interpreter do
         cond do
           is_number(val) ->
             {val, env, ctx}
+
+          match?({:pyex_decimal, _}, val) ->
+            {:pyex_decimal, d} = val
+            {{:pyex_decimal, Decimal.apply_context(d)}, env, ctx}
 
           match?({:instance, _, _}, val) ->
             case Dunder.call_dunder(val, "__pos__", [], env, ctx) do
@@ -2519,8 +2527,12 @@ defmodule Pyex.Interpreter do
   end
 
   @spec canonicalize_map_key(Ctx.t(), pyvalue(), pyvalue()) :: pyvalue()
-  defp canonicalize_map_key(ctx, key, {:py_dict, _, _}), do: Ctx.deep_deref(ctx, key)
-  defp canonicalize_map_key(ctx, key, obj) when is_map(obj), do: Ctx.deep_deref(ctx, key)
+  defp canonicalize_map_key(ctx, key, {:py_dict, _, _}),
+    do: ctx |> Ctx.deep_deref(key) |> PyDict.canonical_key()
+
+  defp canonicalize_map_key(ctx, key, obj) when is_map(obj),
+    do: ctx |> Ctx.deep_deref(key) |> PyDict.canonical_key()
+
   defp canonicalize_map_key(_ctx, key, _obj), do: key
 
   @spec eval_subscript(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()

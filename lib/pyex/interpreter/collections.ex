@@ -71,8 +71,14 @@ defmodule Pyex.Interpreter.Collections do
         # hashes are deduped. Because class instances live on the heap behind
         # `{:ref, N}` pointers, we deref here so structural Elixir-level
         # equality (which MapSet uses) matches Python-level equality for
-        # immutable value-classes.
-        derefed = Enum.map(Enum.reverse(values), &Ctx.deep_deref(ctx, &1))
+        # immutable value-classes. We also canonicalize numeric members so
+        # `{1, True, Decimal('1'), 1.0}` collapses to `{1}` per CPython.
+        derefed =
+          values
+          |> Enum.reverse()
+          |> Enum.map(&Ctx.deep_deref(ctx, &1))
+          |> Enum.map(&Pyex.PyDict.canonical_key/1)
+
         {ref, ctx} = Ctx.heap_alloc(ctx, {:set, MapSet.new(derefed)})
         {ref, env, ctx}
     end

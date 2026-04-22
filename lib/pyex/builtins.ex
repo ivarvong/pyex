@@ -359,6 +359,17 @@ defmodule Pyex.Builtins do
   defp builtin_int([true]), do: 1
   defp builtin_int([false]), do: 0
 
+  defp builtin_int([{:pyex_decimal, %Decimal{coef: :NaN}}]),
+    do: {:exception, "ValueError: cannot convert NaN to integer"}
+
+  defp builtin_int([{:pyex_decimal, %Decimal{coef: :inf}}]),
+    do: {:exception, "OverflowError: cannot convert Infinity to integer"}
+
+  defp builtin_int([{:pyex_decimal, d}]) do
+    # CPython int(Decimal) truncates toward zero.
+    Decimal.round(d, 0, :down) |> Decimal.to_integer()
+  end
+
   defp builtin_int([val]),
     do:
       {:exception, "TypeError: int() argument must be a string or a number, not '#{pytype(val)}'"}
@@ -440,6 +451,11 @@ defmodule Pyex.Builtins do
     end
   end
 
+  defp builtin_float([{:pyex_decimal, %Decimal{coef: :NaN}}]), do: :nan
+  defp builtin_float([{:pyex_decimal, %Decimal{coef: :inf, sign: 1}}]), do: :infinity
+  defp builtin_float([{:pyex_decimal, %Decimal{coef: :inf, sign: -1}}]), do: :neg_infinity
+  defp builtin_float([{:pyex_decimal, d}]), do: Decimal.to_float(d)
+
   defp builtin_float([val]),
     do:
       {:exception,
@@ -479,6 +495,7 @@ defmodule Pyex.Builtins do
   defp builtin_abs([true]), do: 1
   defp builtin_abs([false]), do: 0
   defp builtin_abs([val]) when is_number(val), do: abs(val)
+  defp builtin_abs([{:pyex_decimal, d}]), do: {:pyex_decimal, Decimal.abs(d)}
 
   defp builtin_abs([{:instance, {:class, _name, _bases, class_attrs}, inst_attrs} = inst]) do
     abs_fn = Map.get(inst_attrs, "__abs__") || Map.get(class_attrs, "__abs__")
@@ -645,6 +662,19 @@ defmodule Pyex.Builtins do
   defp sum_step(x, acc) when is_list(x) and is_list(acc), do: acc ++ x
   defp sum_step({:tuple, x}, {:tuple, acc}), do: {:tuple, acc ++ x}
   defp sum_step(x, acc) when is_binary(x) and is_binary(acc), do: acc <> x
+
+  # Decimal accumulation. The default `start=0` is an int, but Decimal
+  # arithmetic with ints is supported (the int gets coerced), so once the
+  # first Decimal arrives the accumulator becomes a Decimal and stays that
+  # way. This preserves financial-grade precision through long sums.
+  defp sum_step({:pyex_decimal, x}, acc) when is_integer(acc),
+    do: {:pyex_decimal, Decimal.add(Decimal.new(acc), x)}
+
+  defp sum_step({:pyex_decimal, x}, {:pyex_decimal, acc}),
+    do: {:pyex_decimal, Decimal.add(acc, x)}
+
+  defp sum_step(x, {:pyex_decimal, acc}) when is_integer(x),
+    do: {:pyex_decimal, Decimal.add(acc, Decimal.new(x))}
 
   @spec builtin_sorted([Interpreter.pyvalue()], %{optional(String.t()) => Interpreter.pyvalue()}) ::
           {:sort_call, [Interpreter.pyvalue()], Interpreter.pyvalue() | nil, boolean()}
@@ -1205,6 +1235,29 @@ defmodule Pyex.Builtins do
     end
   end
 
+  # round(Decimal[, ndigits]) returns another Decimal, rounding with banker's
+  # to match Python's default. Without ndigits, returns the integer-valued
+  # Decimal; CPython actually returns a Python int here.
+  defp builtin_round([{:pyex_decimal, %Decimal{coef: :NaN}}]),
+    do: {:exception, "ValueError: cannot convert NaN to integer"}
+
+  defp builtin_round([{:pyex_decimal, %Decimal{coef: :inf}}]),
+    do: {:exception, "OverflowError: cannot round Infinity"}
+
+  defp builtin_round([{:pyex_decimal, d}]) do
+    Decimal.round(d, 0, :half_even) |> Decimal.to_integer()
+  end
+
+  defp builtin_round([{:pyex_decimal, %Decimal{coef: :NaN}} = d, _]),
+    do: d
+
+  defp builtin_round([{:pyex_decimal, %Decimal{coef: :inf}} = d, _]),
+    do: d
+
+  defp builtin_round([{:pyex_decimal, d}, ndigits]) when is_integer(ndigits) do
+    {:pyex_decimal, Decimal.round(d, ndigits, :half_even)}
+  end
+
   defp builtin_round([_]),
     do: {:exception, "TypeError: type has no __round__ method"}
 
@@ -1675,6 +1728,27 @@ defmodule Pyex.Builtins do
     q = Float.floor(a / b)
     r = a - q * b
     {:tuple, [q, r]}
+  end
+
+  defp builtin_divmod([{:pyex_decimal, _} = a, b]) when is_integer(b),
+    do: builtin_divmod([a, {:pyex_decimal, Decimal.new(b)}])
+
+  defp builtin_divmod([a, {:pyex_decimal, _} = b]) when is_integer(a),
+    do: builtin_divmod([{:pyex_decimal, Decimal.new(a)}, b])
+
+  defp builtin_divmod([{:pyex_decimal, da}, {:pyex_decimal, db}]) do
+    if Decimal.equal?(db, Decimal.new(0)) do
+      {:exception, "ZeroDivisionError: integer division or modulo by zero"}
+    else
+      try do
+        q = Decimal.div(da, db) |> Decimal.round(0, :floor)
+        r = Decimal.sub(da, Decimal.mult(q, db))
+        {:tuple, [{:pyex_decimal, q}, {:pyex_decimal, r}]}
+      rescue
+        Decimal.Error ->
+          {:exception, "InvalidOperation: invalid divmod operation"}
+      end
+    end
   end
 
   @spec builtin_repr([Interpreter.pyvalue()]) ::
@@ -2164,6 +2238,22 @@ defmodule Pyex.Builtins do
   defp builtin_hash([{:frozenset, s}]), do: :erlang.phash2(MapSet.to_list(s))
   defp builtin_hash([{:object, id}]), do: id
 
+  defp builtin_hash([{:pyex_decimal, %Decimal{coef: :NaN}}]),
+    do: {:exception, "TypeError: Cannot hash a NaN value"}
+
+  defp builtin_hash([{:pyex_decimal, d}]) do
+    # CPython requires hash(Decimal(n)) == hash(n) for any integer-valued
+    # Decimal n, so dict/set lookups interoperate across the int / Decimal
+    # / bool boundary. For non-integer Decimals we hash a normalized form
+    # so that hash(Decimal('1.5')) == hash(Decimal('1.500')).
+    if Decimal.integer?(d) do
+      Decimal.to_integer(d)
+    else
+      n = Decimal.normalize(d)
+      :erlang.phash2({n.sign, n.coef, n.exp})
+    end
+  end
+
   defp builtin_hash([{:py_list, _, _}]),
     do: {:exception, "TypeError: unhashable type: 'list'"}
 
@@ -2600,6 +2690,8 @@ defmodule Pyex.Builtins do
       "'#{escape_string(val, "'")}'"
     end
   end
+
+  def py_repr_quoted({:pyex_decimal, d}), do: "Decimal('#{Decimal.to_string(d)}')"
 
   def py_repr_quoted(val), do: py_repr(val)
 

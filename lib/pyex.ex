@@ -116,6 +116,10 @@ defmodule Pyex do
 
     ctx = %{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
 
+    # Match CPython's default decimal context (precision 28, banker's rounding).
+    # The Elixir Decimal library defaults to :half_up; CPython uses :half_even.
+    Decimal.Context.set(%Decimal.Context{precision: 28, rounding: :half_even})
+
     env = Builtins.runtime_env(ctx)
 
     result = Interpreter.run_with_ctx_result(ast, env, ctx)

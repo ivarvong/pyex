@@ -51,6 +51,13 @@ defmodule Pyex.Interpreter.BinaryOps do
     end
   end
 
+  # Membership (`in` / `not in`) on a Decimal LHS must dispatch on the
+  # container, not the Decimal — fall through to the generic dispatch so
+  # `Decimal('1') in {1}` works (set/list/dict membership uses hash equality
+  # and our Decimal hash matches int hash for integer-valued Decimals).
+  def safe_binop(op, {:pyex_decimal, _} = l, r) when op in [:in, :not_in],
+    do: dispatch(op, l, r)
+
   def safe_binop(op, {:pyex_decimal, _} = l, r), do: decimal_dispatch(op, l, r)
   def safe_binop(op, l, {:pyex_decimal, _} = r), do: decimal_dispatch(op, l, r)
   def safe_binop(op, l, r), do: dispatch(op, l, r)
@@ -554,9 +561,9 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   # -- membership -----------------------------------------------------
 
-  defp dispatch(:in, l, {:tuple, items}), do: l in items
-  defp dispatch(:in, l, {:py_list, reversed, _}), do: l in reversed
-  defp dispatch(:in, l, r) when is_list(r), do: l in r
+  defp dispatch(:in, l, {:tuple, items}), do: py_member?(l, items)
+  defp dispatch(:in, l, {:py_list, reversed, _}), do: py_member?(l, reversed)
+  defp dispatch(:in, l, r) when is_list(r), do: py_member?(l, r)
 
   defp dispatch(:in, l, r) when is_binary(l) and is_binary(r),
     do: String.contains?(r, l)
@@ -565,10 +572,10 @@ defmodule Pyex.Interpreter.BinaryOps do
     do: PyDict.has_key?(Pyex.Builtins.visible_dict(dict), l)
 
   defp dispatch(:in, l, r) when is_map(r),
-    do: Map.has_key?(Pyex.Builtins.visible_dict(r), l)
+    do: Map.has_key?(Pyex.Builtins.visible_dict(r), PyDict.canonical_key(l))
 
-  defp dispatch(:in, l, {:set, s}), do: MapSet.member?(s, l)
-  defp dispatch(:in, l, {:frozenset, s}), do: MapSet.member?(s, l)
+  defp dispatch(:in, l, {:set, s}), do: MapSet.member?(s, PyDict.canonical_key(l))
+  defp dispatch(:in, l, {:frozenset, s}), do: MapSet.member?(s, PyDict.canonical_key(l))
 
   defp dispatch(:in, l, {:range, start, stop, step}) when is_integer(l) do
     cond do
@@ -712,6 +719,19 @@ defmodule Pyex.Interpreter.BinaryOps do
      "TypeError: unsupported operand type(s) for #{op_str}: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
   end
 
+  # Python `in` for ordered containers (list/tuple) compares element-wise
+  # with `==`, which means `1 in [True]`, `1 in [1.0]`, and
+  # `Decimal('1') in [1]` all hold. We canonicalize numeric values so the
+  # structural comparison matches.
+  defp py_member?(needle, haystack) do
+    if needle in haystack do
+      true
+    else
+      canon = PyDict.canonical_key(needle)
+      Enum.any?(haystack, fn item -> PyDict.canonical_key(item) == canon end)
+    end
+  end
+
   defp ord_cmp(:lt, l, r), do: l < r
   defp ord_cmp(:gt, l, r), do: l > r
   defp ord_cmp(:lte, l, r), do: l <= r
@@ -743,10 +763,27 @@ defmodule Pyex.Interpreter.BinaryOps do
     dr = to_decimal(r)
 
     case {dl, dr} do
+      # Equality across incompatible types must return false / true (CPython
+      # never raises from `==` between Decimal and float). Ordering still
+      # raises (you cannot meaningfully compare a Decimal to a float).
+      {{:error, _}, _} when op == :eq -> false
+      {{:error, _}, _} when op == :neq -> true
+      {_, {:error, _}} when op == :eq -> false
+      {_, {:error, _}} when op == :neq -> true
       {{:error, _}, _} -> type_error(op_str(op), l, r)
       {_, {:error, _}} -> type_error(op_str(op), l, r)
-      {dl, dr} -> decimal_op(op, dl, dr, l, r)
+      {dl, dr} -> safe_decimal_op(op, dl, dr, l, r)
     end
+  end
+
+  # Wraps decimal_op so that the Elixir Decimal library's traps (e.g.
+  # InvalidOperation on Inf*0, Inf-Inf, Inf/Inf) become Python-style
+  # exceptions instead of Erlang errors that would crash the interpreter.
+  defp safe_decimal_op(op, dl, dr, l, r) do
+    decimal_op(op, dl, dr, l, r)
+  rescue
+    Decimal.Error ->
+      {:exception, "InvalidOperation: invalid operation in Decimal arithmetic"}
   end
 
   defp decimal_op(:plus, dl, dr, _l, _r), do: {:pyex_decimal, Decimal.add(dl, dr)}
@@ -761,6 +798,34 @@ defmodule Pyex.Interpreter.BinaryOps do
     end
   end
 
+  defp decimal_op(:floor_div, dl, dr, _l, _r) do
+    if Decimal.equal?(dr, Decimal.new(0)) do
+      {:exception, "ZeroDivisionError: division by zero"}
+    else
+      # CPython Decimal // floors toward negative infinity for the integer
+      # quotient (matches int //), but Elixir's Decimal.div_int truncates
+      # toward zero. Compute via floor of the true quotient.
+      q = Decimal.div(dl, dr) |> Decimal.round(0, :floor)
+      {:pyex_decimal, q}
+    end
+  end
+
+  defp decimal_op(:percent, dl, dr, _l, _r) do
+    if Decimal.equal?(dr, Decimal.new(0)) do
+      {:exception, "ZeroDivisionError: integer division or modulo by zero"}
+    else
+      # Python's % follows the floor-division identity:  a == (a // b) * b + (a % b)
+      # so the sign of the result matches the divisor. Elixir's Decimal.rem
+      # returns sign-of-dividend, so we derive % from dl - (dl // dr) * dr.
+      q = Decimal.div(dl, dr) |> Decimal.round(0, :floor)
+      {:pyex_decimal, Decimal.sub(dl, Decimal.mult(q, dr))}
+    end
+  end
+
+  defp decimal_op(:double_star, dl, dr, _l, _r) do
+    decimal_pow(dl, dr)
+  end
+
   defp decimal_op(:eq, dl, dr, _l, _r), do: Decimal.equal?(dl, dr)
   defp decimal_op(:neq, dl, dr, _l, _r), do: not Decimal.equal?(dl, dr)
   defp decimal_op(:lt, dl, dr, _l, _r), do: Decimal.lt?(dl, dr)
@@ -769,14 +834,65 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp decimal_op(:gte, dl, dr, _l, _r), do: not Decimal.lt?(dl, dr)
   defp decimal_op(op, _dl, _dr, l, r), do: type_error(op_str(op), l, r)
 
+  # Decimal exponentiation. Supports integer exponents directly via repeated
+  # multiplication (preserves exactness); falls back to ln/exp via floats for
+  # fractional or negative non-integer exponents.
+  defp decimal_pow(dl, dr) do
+    cond do
+      Decimal.integer?(dr) ->
+        exp = Decimal.to_integer(dr)
+
+        cond do
+          exp == 0 ->
+            {:pyex_decimal, Decimal.new(1)}
+
+          exp > 0 ->
+            {:pyex_decimal, integer_pow_decimal(dl, exp)}
+
+          # Negative integer exponent: 1 / (base ** |exp|)
+          exp < 0 ->
+            if Decimal.equal?(dl, Decimal.new(0)) do
+              {:exception, "ZeroDivisionError: 0.0 cannot be raised to a negative power"}
+            else
+              {:pyex_decimal, Decimal.div(Decimal.new(1), integer_pow_decimal(dl, -exp))}
+            end
+        end
+
+      true ->
+        # Non-integer exponent: use float math, preserve as Decimal.
+        try do
+          base = Decimal.to_float(dl)
+          exp = Decimal.to_float(dr)
+          result = :math.pow(base, exp)
+          {:pyex_decimal, Decimal.from_float(result)}
+        rescue
+          ArithmeticError -> {:exception, "ValueError: math domain error"}
+        end
+    end
+  end
+
+  defp integer_pow_decimal(_base, 0), do: Decimal.new(1)
+  defp integer_pow_decimal(base, 1), do: base
+
+  defp integer_pow_decimal(base, n) when n > 1 do
+    half = integer_pow_decimal(base, div(n, 2))
+    sq = Decimal.mult(half, half)
+    if rem(n, 2) == 0, do: sq, else: Decimal.mult(sq, base)
+  end
+
   defp to_decimal({:pyex_decimal, d}), do: d
   defp to_decimal(n) when is_integer(n), do: Decimal.new(n)
+  defp to_decimal(true), do: Decimal.new(1)
+  defp to_decimal(false), do: Decimal.new(0)
   defp to_decimal(_), do: {:error, :not_decimal}
 
   defp op_str(:plus), do: "+"
   defp op_str(:minus), do: "-"
   defp op_str(:star), do: "*"
   defp op_str(:slash), do: "/"
+  defp op_str(:floor_div), do: "//"
+  defp op_str(:percent), do: "%"
+  defp op_str(:double_star), do: "**"
   defp op_str(:eq), do: "=="
   defp op_str(:neq), do: "!="
   defp op_str(:lt), do: "<"
