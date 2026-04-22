@@ -410,6 +410,10 @@ defmodule Pyex.Methods do
       {:error,
        "TypeError: quantize() target must be a Decimal or int (representing the exponent)"}
 
+  # Wide return type so Dialyzer doesn't narrow to `Decimal.rounding()` --
+  # the caller dispatches `:round_05up` explicitly, which is not part of
+  # the `Decimal.rounding()` union.
+  @spec resolve_rounding(any()) :: atom()
   defp resolve_rounding(nil), do: Decimal.Context.get().rounding
 
   defp resolve_rounding(name) when is_binary(name) do
@@ -477,11 +481,15 @@ defmodule Pyex.Methods do
   defp quantize_digit_count(%Decimal{coef: 0}), do: 1
   defp quantize_digit_count(%Decimal{coef: c}), do: length(Integer.digits(abs(c)))
 
-  # CPython's ROUND_05UP ("round zero or five away from zero"): first
-  # truncate toward zero; if the last digit of the truncated coefficient
-  # is 0 or 5 AND the discarded part was non-zero, round away from zero.
-  # Otherwise just keep the truncated value.
-  defp decimal_round_with_mode(d, places, :round_05up) do
+  # `mode` can be any of the canonical Decimal.rounding atoms OR our
+  # internal `:round_05up` sentinel for CPython's ROUND_05UP. We declare
+  # a wide type so Dialyzer doesn't infer the narrower `Decimal.rounding`
+  # and reject the `:round_05up` clause as unreachable.
+  @spec decimal_round_with_mode(Decimal.t(), integer(), atom()) :: Decimal.t()
+  defp decimal_round_with_mode(d, places, mode) when mode == :round_05up do
+    # CPython's ROUND_05UP ("round zero or five away from zero"): first
+    # truncate toward zero; if the last digit of the truncated coefficient
+    # is 0 or 5 AND the discarded part was non-zero, round away from zero.
     truncated = Decimal.round(d, places, :down)
 
     if Decimal.equal?(Decimal.abs(truncated), Decimal.abs(d)) do

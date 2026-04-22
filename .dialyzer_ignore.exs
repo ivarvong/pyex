@@ -56,5 +56,12 @@
   # Defensive fallback patterns in json encoding: format_decode_error's
   # catch-all and indent_at's non-integer indent branch are unreachable
   # given the current call sites, but kept as guards for future inputs.
-  {"lib/pyex/stdlib/json.ex", :pattern_match_cov}
+  {"lib/pyex/stdlib/json.ex", :pattern_match_cov},
+  # `decimal_round_with_mode/3` accepts `:round_05up` for CPython's
+  # ROUND_05UP behaviour, but Dialyzer infers the mode argument as the
+  # narrower `Decimal.rounding()` union (which excludes `:round_05up`)
+  # because it traces through `Decimal.Context.get().rounding`. The
+  # `:round_05up` clause IS reached at runtime via the user-supplied
+  # rounding-mode string.
+  {"lib/pyex/methods.ex", :guard_fail}
 ]
