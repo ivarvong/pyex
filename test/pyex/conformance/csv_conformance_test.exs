@@ -1,4 +1,4 @@
-defmodule Pyex.Conformance.CsvTest do
+defmodule Pyex.Conformance.CSVTest do
   @moduledoc """
   Live CPython conformance tests for the `csv` module.
 

@@ -1,4 +1,4 @@
-defmodule Pyex.Stdlib.Sql do
+defmodule Pyex.Stdlib.SQL do
   @moduledoc """
   Python `sql` module backed by Postgrex.
 

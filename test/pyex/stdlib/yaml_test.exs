@@ -1,4 +1,4 @@
-defmodule Pyex.Stdlib.YamlTest do
+defmodule Pyex.Stdlib.YAMLTest do
   use ExUnit.Case, async: true
 
   alias Pyex.{Builtins, Env, Error, Interpreter}

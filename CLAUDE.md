@@ -11,6 +11,12 @@ Pyex is a Python interpreter written in Elixir. Follow idiomatic Elixir conventi
 ## General Guidelines
 
 - Use snake_case for variables/functions, PascalCase for modules
+- **Acronyms stay uppercase in identifiers:** `HTML` not `Html`, `JSON`
+  not `Json`, `JSX` not `Jsx`, `URL` not `Url`, `API` not `Api`,
+  `HTTP` not `Http`, `CSS` not `Css`, `SQL` not `Sql`, `UUID` not
+  `Uuid`, `YAML` not `Yaml`, `CSV` not `Csv`. This applies to module
+  names (`Pyex.Stdlib.JSON`), type names, and any PascalCase
+  identifier — never title-case an acronym.
 - Return tagged tuples: `{:ok, result}` or `{:error, reason}`
 - Use pattern matching over conditional logic when possible
 - Use pipe operators (`|>`) for multi-step transformations

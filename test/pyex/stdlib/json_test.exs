@@ -1,4 +1,4 @@
-defmodule Pyex.Stdlib.JsonTest do
+defmodule Pyex.Stdlib.JSONTest do
   use ExUnit.Case, async: true
 
   alias Pyex.Error

@@ -1,4 +1,4 @@
-defmodule Pyex.Conformance.JsonTest do
+defmodule Pyex.Conformance.JSONTest do
   @moduledoc """
   Live CPython conformance tests for the `json` module.
 

@@ -1,4 +1,4 @@
-defmodule Pyex.Stdlib.Json do
+defmodule Pyex.Stdlib.JSON do
   @moduledoc """
   Python `json` module.
 

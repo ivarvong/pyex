@@ -1,4 +1,4 @@
-defmodule Pyex.Conformance.UuidTest do
+defmodule Pyex.Conformance.UUIDTest do
   @moduledoc """
   Conformance tests for the `uuid` module.
 

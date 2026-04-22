@@ -1,4 +1,4 @@
-defmodule Pyex.Stdlib.Csv do
+defmodule Pyex.Stdlib.CSV do
   @moduledoc """
   Python `csv` module for reading and writing CSV data.
 

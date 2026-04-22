@@ -10,7 +10,7 @@ defmodule Pyex.Stdlib do
 
   @modules %{
     "requests" => Pyex.Stdlib.Requests,
-    "json" => Pyex.Stdlib.Json,
+    "json" => Pyex.Stdlib.JSON,
     "math" => Pyex.Stdlib.Math,
     "fastapi" => Pyex.Stdlib.FastAPI,
     "random" => Pyex.Stdlib.Random,
@@ -18,14 +18,14 @@ defmodule Pyex.Stdlib do
     "time" => Pyex.Stdlib.Time,
     "datetime" => Pyex.Stdlib.Datetime,
     "collections" => Pyex.Stdlib.Collections,
-    "csv" => Pyex.Stdlib.Csv,
-    "html" => Pyex.Stdlib.Html,
+    "csv" => Pyex.Stdlib.CSV,
+    "html" => Pyex.Stdlib.HTML,
     "itertools" => Pyex.Stdlib.Itertools,
     "jinja2" => Pyex.Stdlib.Jinja2,
     "markdown" => Pyex.Stdlib.Markdown,
     "unittest" => Pyex.Stdlib.Unittest,
-    "uuid" => Pyex.Stdlib.Uuid,
-    "sql" => Pyex.Stdlib.Sql,
+    "uuid" => Pyex.Stdlib.UUID,
+    "sql" => Pyex.Stdlib.SQL,
     "pydantic" => Pyex.Stdlib.Pydantic,
     "boto3" => Pyex.Stdlib.Boto3,
     "hashlib" => Pyex.Stdlib.Hashlib,
@@ -33,7 +33,7 @@ defmodule Pyex.Stdlib do
     "base64" => Pyex.Stdlib.Base64,
     "secrets" => Pyex.Stdlib.Secrets,
     "pandas" => Pyex.Stdlib.Pandas,
-    "yaml" => Pyex.Stdlib.Yaml,
+    "yaml" => Pyex.Stdlib.YAML,
     "decimal" => Pyex.Stdlib.DecimalModule,
     "glob" => Pyex.Stdlib.Glob,
     "pathlib" => Pyex.Stdlib.Pathlib,
@@ -55,7 +55,8 @@ defmodule Pyex.Stdlib do
     "crypto" => Pyex.Stdlib.Crypto,
     "zoneinfo" => Pyex.Stdlib.Zoneinfo,
     "operator" => Pyex.Stdlib.Operator,
-    "bisect" => Pyex.Stdlib.Bisect
+    "bisect" => Pyex.Stdlib.Bisect,
+    "pygments" => Pyex.Stdlib.Pygments
   }
 
   @doc """
