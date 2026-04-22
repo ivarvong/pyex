@@ -58,7 +58,10 @@ defmodule Pyex.Stdlib.DecimalModule do
     "ROUND_FLOOR" => :floor,
     "ROUND_HALF_DOWN" => :half_down,
     "ROUND_UP" => :up,
-    "ROUND_05UP" => :half_up
+    # Elixir Decimal does not natively support ROUND_05UP ("round zero or
+    # five away from zero"), so we pass a sentinel atom that quantize/
+    # round call sites recognise and implement in user code.
+    "ROUND_05UP" => :round_05up
   }
 
   @rounding_atom_to_string %{
@@ -202,7 +205,12 @@ defmodule Pyex.Stdlib.DecimalModule do
         {:error, "InvalidOperation: invalid literal for Decimal: '#{val}'"}
 
       true ->
-        case strip_digit_underscores(trimmed) do
+        # Strip a NaN diagnostic payload ("NaN42", "-sNaN001") -- pyex's
+        # underlying Decimal lib does not retain the payload, but the
+        # value "NaN" round-trips through arithmetic just like CPython's.
+        normalised = strip_nan_payload(trimmed)
+
+        case strip_digit_underscores(normalised) do
           {:ok, cleaned} ->
             try do
               {:ok, Decimal.new(cleaned)}
@@ -214,6 +222,13 @@ defmodule Pyex.Stdlib.DecimalModule do
           :error ->
             {:error, "InvalidOperation: invalid literal for Decimal: '#{val}'"}
         end
+    end
+  end
+
+  defp strip_nan_payload(val) do
+    case Regex.run(~r/^([+-]?)(s?nan)(\d+)$/i, val) do
+      [_, sign, nan, _payload] -> sign <> nan
+      _ -> val
     end
   end
 

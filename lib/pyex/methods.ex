@@ -387,12 +387,21 @@ defmodule Pyex.Methods do
             mode = resolve_rounding(rounding_arg)
             do_quantize(d, target_exp, mode)
 
+          {:nan, nan_target} ->
+            # CPython: quantising any value against a NaN template
+            # produces NaN. Propagate the target's NaN.
+            {:pyex_decimal, nan_target}
+
           {:error, msg} ->
             {:exception, msg}
         end
     end
   end
 
+  # Quantize target: extract the exponent. Inf targets are surfaced as
+  # the atom `:inf` so do_quantize can dispatch on them.
+  defp quantize_target_exp({:pyex_decimal, %Decimal{coef: :NaN} = d}), do: {:nan, d}
+  defp quantize_target_exp({:pyex_decimal, %Decimal{coef: :inf}}), do: {:ok, :inf}
   defp quantize_target_exp({:pyex_decimal, %Decimal{exp: exp}}), do: {:ok, exp}
   defp quantize_target_exp(n) when is_integer(n), do: {:ok, n}
 
@@ -412,24 +421,83 @@ defmodule Pyex.Methods do
 
   defp resolve_rounding(_), do: Decimal.Context.get().rounding
 
-  defp do_quantize(%Decimal{coef: :NaN} = d, _exp, _mode),
+  defp do_quantize(%Decimal{coef: :NaN} = d, _target_exp, _mode),
     do: {:pyex_decimal, d}
 
-  defp do_quantize(%Decimal{coef: :inf}, _exp, _mode),
-    do: {:exception, "InvalidOperation: cannot quantize infinity"}
+  defp do_quantize(%Decimal{coef: :inf} = d, target_exp, _mode) do
+    # CPython: `quantize(Inf, Inf)` returns Infinity (with the input's
+    # sign). `quantize(Inf, finite)` and `quantize(finite, Inf)` raise
+    # InvalidOperation. We dispatch on whether the target is itself Inf.
+    if target_exp == :inf do
+      {:pyex_decimal, d}
+    else
+      {:exception, "InvalidOperation: cannot quantize infinity to a finite scale"}
+    end
+  end
+
+  defp do_quantize(_d, :inf, _mode),
+    do: {:exception, "InvalidOperation: cannot quantize a finite to Infinity"}
 
   defp do_quantize(d, target_exp, mode) do
     # Decimal.round(num, places, mode) rounds to `places` digits after the
     # decimal point. The CPython quantize exponent is the exponent of the
     # result (negative for digits after the point), so places = -target_exp.
+    #
+    # We compute the round under elevated precision so the active context
+    # doesn't pre-round the input -- otherwise we get the classic
+    # "double-round" bug (e.g. `1234.987647 quantize 1e-4` would round
+    # the input to 9 sig figs first, producing 1234.98765, then rounding
+    # to 4 places promotes the half to 1234.9877 instead of CPython's
+    # correct 1234.9876).
     places = -target_exp
-    result = Decimal.round(d, places, mode)
+    user_ctx = Decimal.Context.get()
+    high_prec_ctx = %{user_ctx | precision: max(user_ctx.precision, 1000)}
 
-    # Force the exponent to exactly match the target by either padding
-    # trailing zeros (when the result has a higher exponent) or by trusting
-    # round (which already lowers/raises as needed).
-    {:pyex_decimal, force_exp(result, target_exp)}
+    result =
+      Decimal.Context.with(high_prec_ctx, fn ->
+        decimal_round_with_mode(d, places, mode)
+      end)
+
+    forced = force_exp(result, target_exp)
+
+    # CPython rule: if the quantized coefficient would need more digits
+    # than the active precision allows, the operation is invalid.
+    prec = Decimal.Context.get().precision
+    coef_digits = quantize_digit_count(forced)
+
+    if coef_digits > prec do
+      {:exception, "InvalidOperation: quantize result exceeds precision"}
+    else
+      {:pyex_decimal, forced}
+    end
   end
+
+  defp quantize_digit_count(%Decimal{coef: :NaN}), do: 0
+  defp quantize_digit_count(%Decimal{coef: :inf}), do: 0
+  defp quantize_digit_count(%Decimal{coef: 0}), do: 1
+  defp quantize_digit_count(%Decimal{coef: c}), do: length(Integer.digits(abs(c)))
+
+  # CPython's ROUND_05UP ("round zero or five away from zero"): first
+  # truncate toward zero; if the last digit of the truncated coefficient
+  # is 0 or 5 AND the discarded part was non-zero, round away from zero.
+  # Otherwise just keep the truncated value.
+  defp decimal_round_with_mode(d, places, :round_05up) do
+    truncated = Decimal.round(d, places, :down)
+
+    if Decimal.equal?(Decimal.abs(truncated), Decimal.abs(d)) do
+      truncated
+    else
+      last = rem(truncated.coef, 10)
+
+      if last == 0 or last == 5 do
+        %{truncated | coef: truncated.coef + 1}
+      else
+        truncated
+      end
+    end
+  end
+
+  defp decimal_round_with_mode(d, places, mode), do: Decimal.round(d, places, mode)
 
   # Adjust a Decimal so its exponent equals `target_exp`. When the current
   # exponent is higher (less precise) we shift digits up (multiply coef);
@@ -584,7 +652,10 @@ defmodule Pyex.Methods do
     cond do
       c == :NaN -> 0
       c == :inf -> 0
-      c == 0 -> 0
+      # CPython: adjusted() on a zero Decimal returns the exponent
+      # directly (e.g. Decimal('0.00').adjusted() == -2). The "length - 1"
+      # rule would give -1 which is wrong for zero coefficients.
+      c == 0 -> exp
       true -> exp + length(Integer.digits(c)) - 1
     end
   end

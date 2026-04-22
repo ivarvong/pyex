@@ -786,44 +786,125 @@ defmodule Pyex.Interpreter.BinaryOps do
       {:exception, "InvalidOperation: invalid operation in Decimal arithmetic"}
   end
 
-  defp decimal_op(:plus, dl, dr, _l, _r), do: {:pyex_decimal, Decimal.add(dl, dr)}
-  defp decimal_op(:minus, dl, dr, _l, _r), do: {:pyex_decimal, Decimal.sub(dl, dr)}
-  defp decimal_op(:star, dl, dr, _l, _r), do: {:pyex_decimal, Decimal.mult(dl, dr)}
+  defp decimal_op(:plus, dl, dr, _l, _r) do
+    case nan_passthrough(dl, dr) do
+      nil -> {:pyex_decimal, Decimal.add(dl, dr) |> clip_coef_to_precision()}
+      nan -> {:pyex_decimal, nan}
+    end
+  end
+
+  defp decimal_op(:minus, dl, dr, _l, _r) do
+    case nan_passthrough(dl, dr) do
+      nil -> {:pyex_decimal, Decimal.sub(dl, dr) |> clip_coef_to_precision()}
+      nan -> {:pyex_decimal, nan}
+    end
+  end
+
+  defp decimal_op(:star, dl, dr, _l, _r) do
+    case nan_passthrough(dl, dr) do
+      nil -> {:pyex_decimal, Decimal.mult(dl, dr) |> clip_coef_to_precision()}
+      nan -> {:pyex_decimal, nan}
+    end
+  end
 
   defp decimal_op(:slash, dl, dr, _l, _r) do
-    if Decimal.equal?(dr, Decimal.new(0)) do
-      {:exception, "ZeroDivisionError: division by zero"}
-    else
-      {:pyex_decimal, Decimal.div(dl, dr)}
+    case nan_passthrough(dl, dr) do
+      nan when not is_nil(nan) ->
+        {:pyex_decimal, nan}
+
+      _ ->
+        cond do
+          # Inf/Inf is undefined (InvalidOperation).
+          Decimal.inf?(dl) and Decimal.inf?(dr) ->
+            {:exception, "InvalidOperation: Infinity / Infinity is undefined"}
+
+          # Inf / finite = signed Infinity (does NOT raise even if divisor is 0).
+          Decimal.inf?(dl) ->
+            sign = if dl.sign == dr.sign, do: 1, else: -1
+            {:pyex_decimal, %Decimal{sign: sign, coef: :inf, exp: 0}}
+
+          # finite / Inf = signed zero.
+          Decimal.inf?(dr) ->
+            sign = if dl.sign == dr.sign, do: 1, else: -1
+            {:pyex_decimal, %Decimal{sign: sign, coef: 0, exp: 0}}
+
+          Decimal.equal?(dl, Decimal.new(0)) and Decimal.equal?(dr, Decimal.new(0)) ->
+            {:exception, "InvalidOperation: 0/0 is undefined"}
+
+          Decimal.equal?(dr, Decimal.new(0)) ->
+            {:exception, "ZeroDivisionError: division by zero"}
+
+          true ->
+            {:pyex_decimal, decimal_div_correctly_rounded(dl, dr) |> clip_coef_to_precision()}
+        end
     end
   end
 
   defp decimal_op(:floor_div, dl, dr, _l, _r) do
-    if Decimal.equal?(dr, Decimal.new(0)) do
-      {:exception, "ZeroDivisionError: division by zero"}
-    else
-      # CPython Decimal // floors toward negative infinity for the integer
-      # quotient (matches int //), but Elixir's Decimal.div_int truncates
-      # toward zero. Compute via floor of the true quotient.
-      q = Decimal.div(dl, dr) |> Decimal.round(0, :floor)
-      {:pyex_decimal, q}
+    case nan_passthrough(dl, dr) do
+      nan when not is_nil(nan) ->
+        {:pyex_decimal, nan}
+
+      _ ->
+        cond do
+          # Inf // Inf is undefined; Inf // finite is signed Infinity;
+          # finite // Inf is zero with sign determined by both operands.
+          Decimal.inf?(dl) and Decimal.inf?(dr) ->
+            {:exception, "InvalidOperation: Infinity // Infinity is undefined"}
+
+          Decimal.inf?(dl) ->
+            sign = if dl.sign == dr.sign, do: 1, else: -1
+            {:pyex_decimal, %Decimal{sign: sign, coef: :inf, exp: 0}}
+
+          Decimal.inf?(dr) ->
+            sign = if dl.sign == dr.sign, do: 1, else: -1
+            {:pyex_decimal, %Decimal{sign: sign, coef: 0, exp: 0}}
+
+          Decimal.equal?(dl, Decimal.new(0)) and Decimal.equal?(dr, Decimal.new(0)) ->
+            {:exception, "InvalidOperation: 0//0 is undefined"}
+
+          Decimal.equal?(dr, Decimal.new(0)) ->
+            {:exception, "ZeroDivisionError: division by zero"}
+
+          true ->
+            decimal_floor_div(dl, dr)
+        end
     end
   end
 
   defp decimal_op(:percent, dl, dr, _l, _r) do
-    if Decimal.equal?(dr, Decimal.new(0)) do
-      {:exception, "ZeroDivisionError: integer division or modulo by zero"}
-    else
-      # Python's % follows the floor-division identity:  a == (a // b) * b + (a % b)
-      # so the sign of the result matches the divisor. Elixir's Decimal.rem
-      # returns sign-of-dividend, so we derive % from dl - (dl // dr) * dr.
-      q = Decimal.div(dl, dr) |> Decimal.round(0, :floor)
-      {:pyex_decimal, Decimal.sub(dl, Decimal.mult(q, dr))}
+    case nan_passthrough(dl, dr) do
+      nan when not is_nil(nan) ->
+        {:pyex_decimal, nan}
+
+      _ ->
+        cond do
+          # Inf as dividend: undefined per IEEE, signal InvalidOperation.
+          Decimal.inf?(dl) ->
+            {:exception, "InvalidOperation: Infinity remainder is undefined"}
+
+          # finite % Infinity returns the dividend unchanged (the only
+          # integer multiple of Inf that fits inside |finite| is zero).
+          Decimal.inf?(dr) ->
+            {:pyex_decimal, dl}
+
+          Decimal.equal?(dr, Decimal.new(0)) ->
+            # CPython-specific: `Decimal % 0` is ALWAYS InvalidOperation,
+            # never DivisionByZero (unlike `/` and `//`). See
+            # `IBM decimal-arithmetic spec -> remainder: divisor is zero`.
+            {:exception, "InvalidOperation: modulo undefined for zero divisor"}
+
+          true ->
+            decimal_percent(dl, dr)
+        end
     end
   end
 
   defp decimal_op(:double_star, dl, dr, _l, _r) do
-    decimal_pow(dl, dr)
+    case nan_passthrough(dl, dr) do
+      nan when not is_nil(nan) -> {:pyex_decimal, nan}
+      _ -> decimal_pow(dl, dr)
+    end
   end
 
   defp decimal_op(:eq, dl, dr, _l, _r), do: Decimal.equal?(dl, dr)
@@ -844,17 +925,56 @@ defmodule Pyex.Interpreter.BinaryOps do
 
         cond do
           exp == 0 ->
-            {:pyex_decimal, Decimal.new(1)}
+            # CPython signals InvalidOperation for `0 ** 0` on Decimal
+            # (unlike int's `0 ** 0 == 1`). Non-zero base to the zeroth
+            # power is always 1.
+            if Decimal.equal?(dl, Decimal.new(0)) do
+              {:exception, "InvalidOperation: 0 ** 0 is undefined"}
+            else
+              {:pyex_decimal, Decimal.new(1)}
+            end
 
           exp > 0 ->
-            {:pyex_decimal, integer_pow_decimal(dl, exp)}
+            if Decimal.equal?(dl, Decimal.new(0)) do
+              # CPython normalises zero**n to exp 0 with sign derived from
+              # the base's sign and the exponent's parity. E.g.
+              # `-0.00 ** 7 = -0`, `-0.00 ** 10 = 0`.
+              sign = if dl.sign == -1 and rem(exp, 2) == 1, do: -1, else: 1
+              {:pyex_decimal, %Decimal{sign: sign, coef: 0, exp: 0}}
+            else
+              # Compute under elevated precision so the chain of multiplies
+              # doesn't accumulate half-even rounding errors, then round once
+              # under the user context. This matches CPython's result to the
+              # last digit for typical 28-digit precision.
+              {:pyex_decimal, integer_pow_decimal_rounded(dl, exp)}
+            end
 
           # Negative integer exponent: 1 / (base ** |exp|)
           exp < 0 ->
-            if Decimal.equal?(dl, Decimal.new(0)) do
-              {:exception, "ZeroDivisionError: 0.0 cannot be raised to a negative power"}
-            else
-              {:pyex_decimal, Decimal.div(Decimal.new(1), integer_pow_decimal(dl, -exp))}
+            cond do
+              Decimal.equal?(dl, Decimal.new(0)) ->
+                # CPython returns +/- Infinity (not ZeroDivisionError) for
+                # `0 ** negative`. Sign follows the base when the exponent
+                # is odd; flips to positive when it is even.
+                sign = if dl.sign == -1 and rem(-exp, 2) == 1, do: -1, else: 1
+                {:pyex_decimal, %Decimal{sign: sign, coef: :inf, exp: 0}}
+
+              true ->
+                # Exact power at elevated precision, then correctly-rounded division.
+                ctx = Decimal.Context.get()
+                high_prec = %{ctx | precision: ctx.precision * 2 + 5}
+
+                full_power =
+                  Decimal.Context.with(high_prec, fn ->
+                    integer_pow_decimal(dl, -exp)
+                  end)
+
+                full =
+                  Decimal.Context.with(high_prec, fn ->
+                    Decimal.div(Decimal.new(1), full_power)
+                  end)
+
+                {:pyex_decimal, Decimal.apply_context(full)}
             end
         end
 
@@ -880,11 +1000,183 @@ defmodule Pyex.Interpreter.BinaryOps do
     if rem(n, 2) == 0, do: sq, else: Decimal.mult(sq, base)
   end
 
+  # Positive integer power, correctly rounded under the user context:
+  # compute the exact (or near-exact) product at elevated precision, then
+  # round once. A single deferred rounding step is what CPython does for
+  # `Decimal ** positive_int`.
+  defp integer_pow_decimal_rounded(base, n) do
+    ctx = Decimal.Context.get()
+    high_prec = %{ctx | precision: ctx.precision * 2 + 5}
+
+    full =
+      Decimal.Context.with(high_prec, fn ->
+        integer_pow_decimal(base, n)
+      end)
+
+    Decimal.apply_context(full)
+  end
+
   defp to_decimal({:pyex_decimal, d}), do: d
   defp to_decimal(n) when is_integer(n), do: Decimal.new(n)
   defp to_decimal(true), do: Decimal.new(1)
   defp to_decimal(false), do: Decimal.new(0)
   defp to_decimal(_), do: {:error, :not_decimal}
+
+  # Elixir's `Decimal.div` keeps only the first N digits of the quotient
+  # plus one extra rounding digit, then signals `:rounded`. That works for
+  # `:half_up` / `:half_down` (which only need the next digit) but
+  # produces an off-by-one error under `:half_even` (CPython's default)
+  # when the next digit is exactly `5` and any of the *further* discarded
+  # digits are non-zero -- the half-even tie-break depends on knowing the
+  # sticky bit, but the Elixir lib has already dropped it.
+  #
+  # CPython's mpdec preserves a sticky indicator. We approximate the same
+  # behaviour by computing the quotient at much higher precision, then
+  # letting `apply_context` round under the user's actual context. The
+  # extra precision gives `precision/3` enough surviving digits to make
+  # the correct half-even decision.
+  defp decimal_div_correctly_rounded(dl, dr) do
+    ctx = Decimal.Context.get()
+    high_prec = %{ctx | precision: ctx.precision * 2 + 5}
+    full = Decimal.Context.with(high_prec, fn -> Decimal.div(dl, dr) end)
+    Decimal.apply_context(full)
+  end
+
+  # Elixir's Decimal sometimes leaves a coefficient with (precision + 1)
+  # digits after a rounding carry (e.g. `70 - 10000e+9` at prec=9 yields a
+  # 10-digit `1000000000` coef). CPython / IEEE require the coefficient
+  # to contain exactly `precision` digits; when a carry pushes us to
+  # `precision + 1` the trailing zero is dropped and the exponent bumped.
+  defp clip_coef_to_precision(%Decimal{coef: :NaN} = d), do: d
+  defp clip_coef_to_precision(%Decimal{coef: :inf} = d), do: d
+  defp clip_coef_to_precision(%Decimal{coef: 0} = d), do: d
+
+  defp clip_coef_to_precision(%Decimal{coef: coef, exp: exp} = d) do
+    prec = Decimal.Context.get().precision
+    digit_count = length(Integer.digits(coef))
+
+    if digit_count > prec and rem(coef, 10) == 0 do
+      clip_coef_to_precision(%{d | coef: div(coef, 10), exp: exp + 1})
+    else
+      d
+    end
+  end
+
+  # CPython's Decimal arithmetic on NaN returns the NaN operand unchanged
+  # (with its original sign). Elixir's Decimal.sub/mul/etc. sometimes flip
+  # the NaN's sign when the NaN is the right-hand operand of a
+  # sign-flipping op -- so we intercept before that happens.
+  defp nan_passthrough(%Decimal{coef: :NaN} = dl, _dr), do: dl
+  defp nan_passthrough(_dl, %Decimal{coef: :NaN} = dr), do: dr
+  defp nan_passthrough(_, _), do: nil
+
+  # CPython's Decimal remainder is always exact (never rounds), but
+  # Elixir's Decimal.rem computes `a - (trunc(a/b) * b)` under the active
+  # context's precision -- which rounds the `q * b` step when the divisor
+  # has more decimal digits than the precision permits. Run the whole
+  # computation under a context tall enough to cover the sum of both
+  # operand widths so the subtraction is exact.
+  defp decimal_rem_exact(dl, dr) do
+    digits_l = integer_digit_count(dl.coef) + max(-dl.exp, 0)
+    digits_r = integer_digit_count(dr.coef) + max(-dr.exp, 0)
+    needed = digits_l + digits_r + 10
+    ctx = Decimal.Context.get()
+    high_prec = %{ctx | precision: max(ctx.precision, needed)}
+    Decimal.Context.with(high_prec, fn -> Decimal.rem(dl, dr) end)
+  end
+
+  # CPython's rule: the integer part of a // or % quotient must fit in
+  # the current precision, otherwise signal `DivisionImpossible` (a
+  # subclass of InvalidOperation). Elixir's Decimal.div_int enforces this
+  # at the active precision and raises `Decimal.Error` when the quotient
+  # overflows -- so we first probe at user precision to catch the error,
+  # then compute the real result at elevated precision (for the `%` path)
+  # or at user precision (for `//`, which is bounded).
+  defp decimal_floor_div(dl, dr) do
+    try do
+      q = Decimal.div_int(dl, dr) |> rescale_exponent(0)
+
+      if quotient_fits_precision?(q) do
+        {:pyex_decimal, q}
+      else
+        {:exception, "InvalidOperation: quotient too large for current precision"}
+      end
+    rescue
+      Decimal.Error ->
+        {:exception, "InvalidOperation: quotient too large for current precision"}
+    end
+  end
+
+  defp decimal_percent(dl, dr) do
+    try do
+      q_check = Decimal.div_int(dl, dr) |> rescale_exponent(0)
+
+      unless quotient_fits_precision?(q_check) do
+        throw({:division_impossible})
+      end
+
+      target_exp = min(dl.exp, dr.exp)
+
+      r =
+        decimal_rem_exact(dl, dr)
+        |> rescale_exponent(target_exp)
+        # CPython rounds the remainder to fit the user's current precision
+        # (the IBM `Rounded` / `Inexact` flags surface here). Apply the
+        # active context so our result matches.
+        |> Decimal.apply_context()
+        |> clip_coef_to_precision()
+
+      # CPython preserves the sign of the dividend even when the
+      # remainder is zero, so `-1 % 1` yields `-0`. Elixir's Decimal.rem
+      # returns positive zero for exactly-divisible cases; we restore the
+      # dividend's sign on a zero result.
+      r = if r.coef == 0, do: %{r | sign: dl.sign}, else: r
+
+      {:pyex_decimal, r}
+    rescue
+      Decimal.Error ->
+        {:exception, "InvalidOperation: quotient too large for current precision"}
+    catch
+      {:division_impossible} ->
+        {:exception, "InvalidOperation: quotient too large for current precision"}
+    end
+  end
+
+  # CPython's `//` and `%` require the integer quotient to fit in the
+  # current precision. Elixir's `Decimal.div_int` silently returns more
+  # digits than the context allows, so we enforce the bound ourselves.
+  defp quotient_fits_precision?(%Decimal{coef: :NaN}), do: true
+  defp quotient_fits_precision?(%Decimal{coef: :inf}), do: true
+  defp quotient_fits_precision?(%Decimal{coef: 0}), do: true
+
+  defp quotient_fits_precision?(%Decimal{coef: coef}) do
+    length(Integer.digits(abs(coef))) <= Decimal.Context.get().precision
+  end
+
+  defp integer_digit_count(:NaN), do: 0
+  defp integer_digit_count(:inf), do: 0
+  defp integer_digit_count(0), do: 1
+  defp integer_digit_count(n) when is_integer(n), do: length(Integer.digits(abs(n)))
+
+  # Scale a Decimal to a target exponent without changing its value.
+  # Only safe when the current exponent is >= target (we shift the
+  # coefficient left). For finite Decimals only; NaN / Inf pass through.
+  defp rescale_exponent(%Decimal{coef: :NaN} = d, _), do: d
+  defp rescale_exponent(%Decimal{coef: :inf} = d, _), do: d
+  defp rescale_exponent(%Decimal{exp: e} = d, target) when e == target, do: d
+
+  defp rescale_exponent(%Decimal{sign: s, coef: 0}, target),
+    do: %Decimal{sign: s, coef: 0, exp: target}
+
+  defp rescale_exponent(%Decimal{sign: s, coef: coef, exp: e}, target) when e > target do
+    diff = e - target
+    %Decimal{sign: s, coef: coef * pow10_int(diff), exp: target}
+  end
+
+  defp rescale_exponent(d, _target), do: d
+
+  defp pow10_int(0), do: 1
+  defp pow10_int(n) when n > 0, do: 10 * pow10_int(n - 1)
 
   defp op_str(:plus), do: "+"
   defp op_str(:minus), do: "-"

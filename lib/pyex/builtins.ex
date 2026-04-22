@@ -454,6 +454,9 @@ defmodule Pyex.Builtins do
   defp builtin_float([{:pyex_decimal, %Decimal{coef: :NaN}}]), do: :nan
   defp builtin_float([{:pyex_decimal, %Decimal{coef: :inf, sign: 1}}]), do: :infinity
   defp builtin_float([{:pyex_decimal, %Decimal{coef: :inf, sign: -1}}]), do: :neg_infinity
+  # `Decimal.to_float/1` drops the sign on a zero coefficient, but CPython
+  # preserves `-0.0` across `float(Decimal('-0'))`. Restore it explicitly.
+  defp builtin_float([{:pyex_decimal, %Decimal{coef: 0, sign: -1}}]), do: -0.0
   defp builtin_float([{:pyex_decimal, d}]), do: Decimal.to_float(d)
 
   defp builtin_float([val]),
@@ -1737,19 +1740,60 @@ defmodule Pyex.Builtins do
     do: builtin_divmod([{:pyex_decimal, Decimal.new(a)}, b])
 
   defp builtin_divmod([{:pyex_decimal, da}, {:pyex_decimal, db}]) do
-    if Decimal.equal?(db, Decimal.new(0)) do
-      {:exception, "ZeroDivisionError: integer division or modulo by zero"}
-    else
-      try do
-        q = Decimal.div(da, db) |> Decimal.round(0, :floor)
-        r = Decimal.sub(da, Decimal.mult(q, db))
-        {:tuple, [{:pyex_decimal, q}, {:pyex_decimal, r}]}
-      rescue
-        Decimal.Error ->
-          {:exception, "InvalidOperation: invalid divmod operation"}
-      end
+    cond do
+      # CPython: `divmod(a, 0)` always raises InvalidOperation, never
+      # DivisionByZero, because the remainder half of the pair signals
+      # InvalidOperation on a zero divisor.
+      Decimal.equal?(db, Decimal.new(0)) ->
+        {:exception, "InvalidOperation: divmod undefined for zero divisor"}
+
+      true ->
+        try do
+          # Decimal divmod uses truncation + sign-of-dividend remainder
+          # (IEEE / IBM decimal-arithmetic spec), matching CPython.
+          # CPython normalises the integer quotient to exp 0, and the
+          # remainder to min(exp_a, exp_b). We mirror via rescale, and
+          # compute the remainder under a tall context so `q * b` does
+          # not drop trailing digits.
+          q = Decimal.div_int(da, db) |> normalize_exp(0)
+
+          digits_a = integer_digit_count(da.coef) + max(-da.exp, 0)
+          digits_b = integer_digit_count(db.coef) + max(-db.exp, 0)
+          needed = digits_a + digits_b + 10
+          ctx = Decimal.Context.get()
+          high_prec = %{ctx | precision: max(ctx.precision, needed)}
+          r_raw = Decimal.Context.with(high_prec, fn -> Decimal.rem(da, db) end)
+
+          target_exp = min(da.exp, db.exp)
+          r = normalize_exp(r_raw, target_exp)
+
+          {:tuple, [{:pyex_decimal, q}, {:pyex_decimal, r}]}
+        rescue
+          Decimal.Error ->
+            {:exception, "InvalidOperation: invalid divmod operation"}
+        end
     end
   end
+
+  defp integer_digit_count(:NaN), do: 0
+  defp integer_digit_count(:inf), do: 0
+  defp integer_digit_count(0), do: 1
+  defp integer_digit_count(n) when is_integer(n), do: length(Integer.digits(abs(n)))
+
+  defp normalize_exp(%Decimal{coef: :NaN} = d, _), do: d
+  defp normalize_exp(%Decimal{coef: :inf} = d, _), do: d
+  defp normalize_exp(%Decimal{exp: e} = d, target) when e == target, do: d
+
+  defp normalize_exp(%Decimal{sign: s, coef: 0}, target),
+    do: %Decimal{sign: s, coef: 0, exp: target}
+
+  defp normalize_exp(%Decimal{sign: s, coef: coef, exp: e}, target) when e > target do
+    diff = e - target
+    factor = :erlang.round(:math.pow(10, diff))
+    %Decimal{sign: s, coef: coef * factor, exp: target}
+  end
+
+  defp normalize_exp(d, _), do: d
 
   @spec builtin_repr([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()

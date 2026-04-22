@@ -98,20 +98,25 @@ defmodule Pyex.Stdlib.DecimalConformanceTest do
   # Floor division and modulo - Python semantics (sign of result == sign of divisor)
   # =========================================================================
 
-  describe "// (floor division) follows Python semantics" do
+  # Decimal `//` and `%` follow the IEEE / IBM decimal-arithmetic spec --
+  # NOT Python's int semantics. `//` truncates toward zero (so `-7 // 3 == -2`,
+  # not `-3`), and `%` returns the sign of the *dividend* (so `-7 % 3 == -1`,
+  # not `2`). The pair satisfies `(a // b) * b + (a % b) == a`. This is an
+  # explicit CPython choice for Decimal -- see the decimal module docs.
+  describe "// (floor division) -- CPython truncation semantics" do
     test "positive // positive truncates toward zero" do
       assert run!(~s|str(Decimal("10") // Decimal("3"))|) == "3"
       assert run!(~s|str(Decimal("100") // Decimal("7"))|) == "14"
     end
 
-    test "negative dividend floors toward negative infinity" do
-      # CPython:  -7 // 3 == -3 (NOT -2 like C-style truncation)
-      assert run!(~s|str(Decimal("-7") // Decimal("3"))|) == "-3"
-      assert run!(~s|str(Decimal("-10") // Decimal("3"))|) == "-4"
+    test "negative dividend truncates toward zero (not floor!)" do
+      # CPython Decimal truncates: -7 // 3 == -2, NOT -3.
+      assert run!(~s|str(Decimal("-7") // Decimal("3"))|) == "-2"
+      assert run!(~s|str(Decimal("-10") // Decimal("3"))|) == "-3"
     end
 
-    test "negative divisor flips the floor direction" do
-      assert run!(~s|str(Decimal("7") // Decimal("-3"))|) == "-3"
+    test "negative divisor still truncates toward zero" do
+      assert run!(~s|str(Decimal("7") // Decimal("-3"))|) == "-2"
       assert run!(~s|str(Decimal("-7") // Decimal("-3"))|) == "2"
     end
 
@@ -120,9 +125,10 @@ defmodule Pyex.Stdlib.DecimalConformanceTest do
       assert run!(~s|str(Decimal("-12") // Decimal("4"))|) == "-3"
     end
 
-    test "fractional dividend is floored" do
+    test "fractional dividend is truncated" do
       assert run!(~s|str(Decimal("3.7") // Decimal("1"))|) == "3"
-      assert run!(~s|str(Decimal("-3.7") // Decimal("1"))|) == "-4"
+      # -3.7 truncated toward zero = -3 (NOT -4)
+      assert run!(~s|str(Decimal("-3.7") // Decimal("1"))|) == "-3"
     end
 
     test "zero divisor raises ZeroDivisionError" do
@@ -131,21 +137,28 @@ defmodule Pyex.Stdlib.DecimalConformanceTest do
 
       assert msg =~ "ZeroDivisionError"
     end
+
+    test "0 // 0 raises InvalidOperation (not ZeroDivisionError)" do
+      assert {:error, %Pyex.Error{message: msg}} =
+               run("Decimal('0') // Decimal('0')")
+
+      assert msg =~ "InvalidOperation"
+    end
   end
 
-  describe "% (modulo) follows Python's sign-of-divisor rule" do
+  describe "% (modulo) -- CPython sign-of-dividend semantics" do
     test "positive operands give positive remainder" do
       assert run!(~s|str(Decimal("10") % Decimal("3"))|) == "1"
     end
 
-    test "negative dividend, positive divisor gives positive remainder" do
-      # CPython: -7 % 3 == 2 (NOT -1)
-      assert run!(~s|str(Decimal("-7") % Decimal("3"))|) == "2"
+    test "negative dividend, positive divisor gives negative remainder" do
+      # CPython Decimal: -7 % 3 == -1, NOT 2 (Python int's behaviour).
+      assert run!(~s|str(Decimal("-7") % Decimal("3"))|) == "-1"
     end
 
-    test "positive dividend, negative divisor gives negative remainder" do
-      # CPython: 7 % -3 == -2
-      assert run!(~s|str(Decimal("7") % Decimal("-3"))|) == "-2"
+    test "positive dividend, negative divisor gives positive remainder" do
+      # CPython Decimal: 7 % -3 == 1, NOT -2.
+      assert run!(~s|str(Decimal("7") % Decimal("-3"))|) == "1"
     end
 
     test "both negative gives negative remainder" do
@@ -156,11 +169,22 @@ defmodule Pyex.Stdlib.DecimalConformanceTest do
       assert run!(~s|str(Decimal("10.5") % Decimal("3"))|) == "1.5"
     end
 
-    test "modulo by zero raises ZeroDivisionError" do
+    test "modulo by zero raises InvalidOperation (NOT ZeroDivisionError)" do
+      # CPython quirk: while `Decimal / 0` and `Decimal // 0` raise
+      # DivisionByZero, `Decimal % 0` raises InvalidOperation. The
+      # remainder of "x divided by nothing" isn't a single divergent
+      # value -- it's undefined.
       assert {:error, %Pyex.Error{message: msg}} =
                run("Decimal('5') % Decimal('0')")
 
-      assert msg =~ "ZeroDivisionError"
+      assert msg =~ "InvalidOperation"
+    end
+
+    test "0 % 0 raises InvalidOperation" do
+      assert {:error, %Pyex.Error{message: msg}} =
+               run("Decimal('0') % Decimal('0')")
+
+      assert msg =~ "InvalidOperation"
     end
   end
 
@@ -176,10 +200,16 @@ defmodule Pyex.Stdlib.DecimalConformanceTest do
       assert run!(~s|str(Decimal("1.1") ** Decimal("3"))|) == "1.331"
     end
 
-    test "any base to the zero power is one" do
+    test "non-zero base to the zero power is one; 0**0 raises InvalidOperation" do
       assert run!(~s|str(Decimal("1.5") ** Decimal("0"))|) == "1"
       assert run!(~s|str(Decimal("-1.5") ** Decimal("0"))|) == "1"
-      assert run!(~s|str(Decimal("0") ** Decimal("0"))|) == "1"
+
+      # CPython: `Decimal('0') ** Decimal('0')` is undefined, raises
+      # InvalidOperation (unlike `int(0) ** int(0) == 1`).
+      assert {:error, %Pyex.Error{message: msg}} =
+               run("Decimal('0') ** Decimal('0')")
+
+      assert msg =~ "InvalidOperation"
     end
 
     test "negative integer exponent is reciprocal" do
@@ -187,11 +217,14 @@ defmodule Pyex.Stdlib.DecimalConformanceTest do
       assert run!(~s|str(Decimal("10") ** Decimal("-2"))|) == "0.01"
     end
 
-    test "zero raised to negative power raises ZeroDivisionError" do
-      assert {:error, %Pyex.Error{message: msg}} =
-               run("Decimal('0') ** Decimal('-1')")
-
-      assert msg =~ "ZeroDivisionError"
+    test "zero raised to negative power returns Infinity (NOT ZeroDivisionError)" do
+      # CPython treats `Decimal(0) ** Decimal(-n)` as a converging
+      # arithmetic identity: the result is +/- Infinity, with the sign
+      # following the base when the exponent is odd.
+      assert run!("str(Decimal('0') ** Decimal('-1'))") == "Infinity"
+      assert run!("str(Decimal('0') ** Decimal('-2'))") == "Infinity"
+      assert run!("str(Decimal('-0') ** Decimal('-1'))") == "-Infinity"
+      assert run!("str(Decimal('-0') ** Decimal('-2'))") == "Infinity"
     end
 
     test "** with integer right-hand side coerces" do
@@ -509,9 +542,18 @@ defmodule Pyex.Stdlib.DecimalConformanceTest do
       assert run!(~s|Decimal("0").is_signed()|) == false
     end
 
-    test "negation of zero flips sign" do
-      assert run!(~s|(-Decimal("0")).is_signed()|) == true
+    test "unary minus / plus on zero clears sign (CPython context normalisation)" do
+      # CPython's unary `-` and `+` go through context, which normalises
+      # signed zero to +0. To preserve the sign on zero, use `copy_negate`.
+      assert run!(~s|(-Decimal("0")).is_signed()|) == false
       assert run!(~s|(-Decimal("-0")).is_signed()|) == false
+      assert run!(~s|(+Decimal("-0")).is_signed()|) == false
+    end
+
+    test "copy_negate preserves zero sign manipulation" do
+      # The way to actually flip the sign of zero is `copy_negate`.
+      assert run!(~s|Decimal("0").copy_negate().is_signed()|) == true
+      assert run!(~s|Decimal("-0").copy_negate().is_signed()|) == false
     end
 
     test "abs of negative zero produces non-negative zero" do
@@ -963,16 +1005,20 @@ defmodule Pyex.Stdlib.DecimalConformanceTest do
                {:tuple, [{:pyex_decimal, Decimal.new("3")}, {:pyex_decimal, Decimal.new("1")}]}
     end
 
-    test "divmod with negative dividend follows floor-div sign rule" do
-      assert run!("str(divmod(Decimal('-7'), Decimal('3'))[0])") == "-3"
-      assert run!("str(divmod(Decimal('-7'), Decimal('3'))[1])") == "2"
+    test "divmod with negative dividend uses Decimal truncation semantics" do
+      # CPython: divmod(Decimal('-7'), Decimal('3')) == (-2, -1), NOT (-3, 2)
+      assert run!("str(divmod(Decimal('-7'), Decimal('3'))[0])") == "-2"
+      assert run!("str(divmod(Decimal('-7'), Decimal('3'))[1])") == "-1"
     end
 
-    test "divmod by zero raises ZeroDivisionError" do
+    test "divmod by zero raises InvalidOperation (matches CPython)" do
+      # divmod returns (q, r), and `r` would signal InvalidOperation for
+      # a zero divisor -- so the whole pair raises InvalidOperation,
+      # not DivisionByZero.
       assert {:error, %Pyex.Error{message: msg}} =
                run("divmod(Decimal('5'), Decimal('0'))")
 
-      assert msg =~ "ZeroDivisionError"
+      assert msg =~ "InvalidOperation"
     end
 
     test "round(Decimal, n) returns a Decimal with banker's rounding" do
