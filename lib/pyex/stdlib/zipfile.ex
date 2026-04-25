@@ -890,8 +890,8 @@ defmodule Pyex.Stdlib.Zipfile do
     end
   end
 
-  defp ensure_binary(b) when is_binary(b), do: b
-  defp ensure_binary(l) when is_list(l), do: :binary.list_to_bin(l)
+  # `:zip.zip_get` returns iodata; coerce to a flat binary regardless of shape.
+  defp ensure_binary(data), do: IO.iodata_to_binary(data)
 
   # `:zip.table` may return either a byte-charlist or a Unicode-codepoint
   # charlist depending on whether the EFS bit was set.  Normalize to a
@@ -1108,9 +1108,10 @@ defmodule Pyex.Stdlib.Zipfile do
     {inst_ref, env, ctx}
   end
 
+  # Only `:r` and `:w` are reachable here — append mode short-circuits with
+  # NotImplementedError before state is ever constructed.
   defp state_mode_str(:r), do: "r"
   defp state_mode_str(:w), do: "w"
-  defp state_mode_str(:a), do: "a"
 
   defp zipfile_class do
     {:class, "ZipFile", [],
