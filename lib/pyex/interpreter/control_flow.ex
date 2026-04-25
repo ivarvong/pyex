@@ -442,11 +442,32 @@ defmodule Pyex.Interpreter.ControlFlow do
   defp exception_matches?("BaseException", _message, _env, _ctx), do: true
 
   defp exception_matches?(exc_name, message, env, ctx) do
-    if message == exc_name or String.starts_with?(message, exc_name <> ":") do
-      true
-    else
-      raised_name = extract_raised_name(message)
-      raised_name != nil and class_is_subclass?(raised_name, exc_name, env, ctx)
+    cond do
+      message == exc_name ->
+        true
+
+      String.starts_with?(message, exc_name <> ":") ->
+        true
+
+      true ->
+        raised_name = extract_raised_name(message)
+
+        cond do
+          raised_name != nil and class_is_subclass?(raised_name, exc_name, env, ctx) ->
+            true
+
+          # `except some_module.SomeExc as e:` also matches when the raised
+          # class is the final segment — module-qualified handlers resolve
+          # against the unqualified exception class name in the hierarchy.
+          String.contains?(exc_name, ".") ->
+            short = exc_name |> String.split(".") |> List.last()
+
+            (raised_name != nil and class_is_subclass?(raised_name, short, env, ctx)) or
+              String.starts_with?(message, short <> ":") or message == short
+
+          true ->
+            false
+        end
     end
   end
 
