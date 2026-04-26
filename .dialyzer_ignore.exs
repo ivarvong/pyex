@@ -12,6 +12,12 @@
   # Dialyzer cannot see {:exception, _} in the pyvalue() type since it is a
   # control-flow signal, not a Python value. The pattern match is reachable at runtime.
   {"lib/pyex/lambda.ex", :pattern_match},
+  # drain_streaming_chunks receives the response body as term(), pattern-matches
+  # {:iterator, id}, and passes id to drain_generator_iter(non_neg_integer(), ...).
+  # Dialyzer cannot narrow id from any() to non_neg_integer() through the pattern
+  # match alone; at runtime id is always a non_neg_integer() as produced by the
+  # iterator pool. This is a false positive.
+  {"lib/pyex/lambda.ex", :call},
   # MapSet is an opaque type. Dialyzer complains when it appears in struct fields
   # because it cannot see through the opaque boundary. The capabilities MapSet is
   # used correctly via MapSet.member?/2 and MapSet.new/1 -- these are false positives.
