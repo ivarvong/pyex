@@ -50,7 +50,26 @@ defmodule Pyex.Interpreter.Iterables do
 
   def to_iterable({:generator_error, items, _msg}, env, ctx), do: {:ok, items, env, ctx}
 
-  def to_iterable({:iterator, id}, env, ctx), do: {:ok, Ctx.iter_items(ctx, id), env, ctx}
+  def to_iterable({:iterator, id}, env, ctx) do
+    case Ctx.iter_entry(ctx, id) do
+      {:gen_pending, _val, _cont, _gen_env} ->
+        drain_generator_iter(id, env, ctx)
+
+      :gen_done ->
+        {:ok, [], env, ctx}
+
+      _ ->
+        {:ok, Ctx.iter_items(ctx, id), env, ctx}
+    end
+  end
+
+  def to_iterable({:generator_suspended, val, cont, gen_env}, env, ctx) do
+    # An unbound suspended generator (legacy `:defer` mode result, or
+    # a generator passed through internal paths). Drain by stepping
+    # `resume_generator` until done. Used by materialisers like
+    # `list(gen())`.
+    drain_generator(val, cont, gen_env, [val], env, ctx)
+  end
 
   def to_iterable({:instance, _, attrs} = inst, env, ctx) do
     case Dunder.call_dunder(inst, "__iter__", [], env, ctx) do
@@ -80,6 +99,50 @@ defmodule Pyex.Interpreter.Iterables do
 
   def to_iterable(val, _env, _ctx) do
     {:exception, "TypeError: '#{Helpers.py_type(val)}' object is not iterable"}
+  end
+
+  @doc false
+  @spec drain_generator_iter(non_neg_integer(), Env.t(), Ctx.t()) ::
+          {:ok, [Interpreter.pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
+  def drain_generator_iter(id, env, ctx) do
+    case Ctx.iter_entry(ctx, id) do
+      {:gen_pending, val, cont, gen_env} ->
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        drain_generator(val, cont, gen_env, [val], env, ctx)
+
+      :gen_done ->
+        {:ok, [], env, ctx}
+
+      nil ->
+        {:ok, [], env, ctx}
+    end
+  end
+
+  @spec drain_generator(
+          Interpreter.pyvalue(),
+          [term()],
+          Env.t(),
+          [Interpreter.pyvalue()],
+          Env.t(),
+          Ctx.t()
+        ) :: {:ok, [Interpreter.pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
+  defp drain_generator(_first_val, cont, gen_env, acc, env, ctx) do
+    # Resume must run with `:defer_inner` so internal `yield` reaches
+    # its proper handler. The outer mode is restored after.
+    saved_mode = ctx.generator_mode
+    inner_ctx = %{ctx | generator_mode: :defer_inner}
+
+    case Interpreter.resume_generator(cont, gen_env, inner_ctx) do
+      {{:yielded, val, next_cont}, next_env, ctx} ->
+        drain_generator(val, next_cont, next_env, [val | acc], env, ctx)
+
+      {:done, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        {:ok, Enum.reverse(acc), env, ctx}
+
+      {{:exception, _} = signal, _gen_env, _ctx} ->
+        signal
+    end
   end
 
   @doc false

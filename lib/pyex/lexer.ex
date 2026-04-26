@@ -55,6 +55,7 @@ defmodule Pyex.Lexer do
           | :caret_assign
           | :lshift_assign
           | :rshift_assign
+          | :semicolon
 
   @type line :: pos_integer()
 
@@ -386,6 +387,7 @@ defmodule Pyex.Lexer do
   tilde = string("~") |> replace(:tilde)
   assign = string("=") |> replace(:assign)
   at = string("@") |> replace(:at)
+  semicolon = string(";") |> replace(:semicolon)
 
   operator =
     choice([
@@ -432,7 +434,8 @@ defmodule Pyex.Lexer do
       ellipsis,
       dot,
       assign,
-      at
+      at,
+      semicolon
     ])
     |> unwrap_and_tag(:op)
 
@@ -480,7 +483,6 @@ defmodule Pyex.Lexer do
 
       with {:ok, source} <- strip_comments(source),
            source = join_continued_lines(source),
-           {:ok, source} <- replace_semicolons(source),
            source = String.trim_trailing(source) do
         case tokenize_raw(source) do
           {:ok, raw_tokens, "", _, _, _} ->
@@ -515,143 +517,6 @@ defmodule Pyex.Lexer do
   defp join_continued_lines(source) do
     String.replace(source, "\\\n", "")
   end
-
-  @spec replace_semicolons(String.t()) :: {:ok, String.t()} | {:error, String.t()}
-  defp replace_semicolons(source), do: replace_semicolons(source, <<>>)
-
-  @spec replace_semicolons(String.t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
-  defp replace_semicolons(<<>>, acc), do: {:ok, acc}
-
-  defp replace_semicolons(<<"r\"", rest::binary>>, acc) do
-    case consume_string(rest, ?") do
-      {:ok, rest, content} ->
-        replace_semicolons(rest, <<acc::binary, "r\"", content::binary, ?">>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated string literal"}
-    end
-  end
-
-  defp replace_semicolons(<<"r'", rest::binary>>, acc) do
-    case consume_string(rest, ?') do
-      {:ok, rest, content} ->
-        replace_semicolons(rest, <<acc::binary, "r'", content::binary, ?'>>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated string literal"}
-    end
-  end
-
-  defp replace_semicolons(<<"f\"\"\"", rest::binary>>, acc) do
-    case consume_triple(rest, ?") do
-      {:ok, rest, content} ->
-        replace_semicolons(rest, <<acc::binary, "f\"\"\"", content::binary, "\"\"\"">>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated triple-quoted string literal"}
-    end
-  end
-
-  defp replace_semicolons(<<"f'''", rest::binary>>, acc) do
-    case consume_triple(rest, ?') do
-      {:ok, rest, content} ->
-        replace_semicolons(rest, <<acc::binary, "f'''", content::binary, "'''">>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated triple-quoted string literal"}
-    end
-  end
-
-  defp replace_semicolons(<<"f\"", rest::binary>>, acc) do
-    case consume_string(rest, ?") do
-      {:ok, rest, content} ->
-        replace_semicolons(rest, <<acc::binary, "f\"", content::binary, ?">>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated string literal"}
-    end
-  end
-
-  defp replace_semicolons(<<"f'", rest::binary>>, acc) do
-    case consume_string(rest, ?') do
-      {:ok, rest, content} ->
-        replace_semicolons(rest, <<acc::binary, "f'", content::binary, ?'>>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated string literal"}
-    end
-  end
-
-  defp replace_semicolons(<<"\"\"\"", rest::binary>>, acc) do
-    case consume_triple(rest, ?") do
-      {:ok, rest, content} ->
-        replace_semicolons(rest, <<acc::binary, "\"\"\"", content::binary, "\"\"\"">>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated triple-quoted string literal"}
-    end
-  end
-
-  defp replace_semicolons(<<"'''", rest::binary>>, acc) do
-    case consume_triple(rest, ?') do
-      {:ok, rest, content} ->
-        replace_semicolons(rest, <<acc::binary, "'''", content::binary, "'''">>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated triple-quoted string literal"}
-    end
-  end
-
-  defp replace_semicolons(<<?", rest::binary>>, acc) do
-    case consume_string(rest, ?") do
-      {:ok, rest, content} ->
-        replace_semicolons(rest, <<acc::binary, ?", content::binary, ?">>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated string literal"}
-    end
-  end
-
-  defp replace_semicolons(<<?', rest::binary>>, acc) do
-    case consume_string(rest, ?') do
-      {:ok, rest, content} ->
-        replace_semicolons(rest, <<acc::binary, ?', content::binary, ?'>>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated string literal"}
-    end
-  end
-
-  defp replace_semicolons(<<?;, rest::binary>>, acc) do
-    indent = current_line_indent(acc)
-    replace_semicolons(skip_horizontal_whitespace(rest), <<acc::binary, ?\n, indent::binary>>)
-  end
-
-  defp replace_semicolons(<<ch, rest::binary>>, acc) do
-    replace_semicolons(rest, <<acc::binary, ch>>)
-  end
-
-  @spec current_line_indent(String.t()) :: String.t()
-  defp current_line_indent(acc) do
-    acc
-    |> String.split("\n")
-    |> List.last("")
-    |> extract_leading_whitespace()
-  end
-
-  @spec extract_leading_whitespace(String.t()) :: String.t()
-  defp extract_leading_whitespace(<<?\s, rest::binary>>),
-    do: <<?\s, extract_leading_whitespace(rest)::binary>>
-
-  defp extract_leading_whitespace(<<?\t, rest::binary>>),
-    do: <<?\t, extract_leading_whitespace(rest)::binary>>
-
-  defp extract_leading_whitespace(_), do: <<>>
-
-  @spec skip_horizontal_whitespace(String.t()) :: String.t()
-  defp skip_horizontal_whitespace(<<?\s, rest::binary>>), do: skip_horizontal_whitespace(rest)
-  defp skip_horizontal_whitespace(<<?\t, rest::binary>>), do: skip_horizontal_whitespace(rest)
-  defp skip_horizontal_whitespace(rest), do: rest
 
   @spec strip_comments(String.t()) :: {:ok, String.t()} | {:error, String.t()}
   defp strip_comments(source) do

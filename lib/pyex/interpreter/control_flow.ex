@@ -71,14 +71,225 @@ defmodule Pyex.Interpreter.ControlFlow do
           {_, env, ctx} -> {{:exception, exception_msg}, env, ctx}
         end
 
-      {iterable, env, ctx} ->
-        case Interpreter.to_iterable(iterable, env, ctx) do
-          {:ok, items, env, ctx} ->
-            eval_for_items(var_name, items, body, else_body, env, ctx, source_var)
+      {{:iterator, id}, env, ctx} ->
+        # Lazy path: when the iterable is a generator iterator, step
+        # one yield at a time and execute the for body between yields.
+        # This is the difference between observing CPython-conformant
+        # interleaving (gen-before, body, gen-after, gen-before, ...)
+        # and eager materialisation (which mis-orders side effects).
+        case Pyex.Ctx.iter_entry(ctx, id) do
+          {:gen_pending, _val, _cont, _gen_env} ->
+            eval_for_generator_iter(var_name, id, body, else_body, env, ctx)
 
-          {:exception, msg} ->
-            {{:exception, msg}, env, ctx}
+          :gen_done ->
+            eval_loop_else(else_body, env, ctx)
+
+          _ ->
+            iterable_to_for({:iterator, id}, var_name, body, else_body, env, ctx, source_var)
         end
+
+      {iterable, env, ctx} ->
+        iterable_to_for(iterable, var_name, body, else_body, env, ctx, source_var)
+    end
+  end
+
+  @spec iterable_to_for(
+          Interpreter.pyvalue(),
+          String.t() | [String.t()],
+          [Parser.ast_node()],
+          [Parser.ast_node()] | nil,
+          Env.t(),
+          Ctx.t(),
+          String.t() | nil
+        ) :: eval_result()
+  defp iterable_to_for(iterable, var_name, body, else_body, env, ctx, source_var) do
+    case Interpreter.to_iterable(iterable, env, ctx) do
+      {:ok, items, env, ctx} ->
+        eval_for_items(var_name, items, body, else_body, env, ctx, source_var)
+
+      {:exception, msg} ->
+        {{:exception, msg}, env, ctx}
+    end
+  end
+
+  @spec eval_for_generator_iter(
+          String.t() | [String.t()],
+          non_neg_integer(),
+          [Parser.ast_node()],
+          [Parser.ast_node()] | nil,
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp eval_for_generator_iter(var_name, id, body, else_body, env, ctx) do
+    case Pyex.Ctx.iter_entry(ctx, id) do
+      {:gen_pending, val, cont, gen_env} ->
+        case Pyex.Ctx.check_step(ctx) do
+          {:exceeded, msg} ->
+            {{:exception, msg}, env, ctx}
+
+          {:ok, ctx} ->
+            ctx = Pyex.Ctx.record(ctx, :loop, nil)
+            env = bind_loop_var(var_name, val, env)
+
+            case env do
+              {:exception, _} = signal ->
+                {signal, env, ctx}
+
+              env ->
+                step_generator_body(var_name, id, cont, gen_env, body, else_body, env, ctx)
+            end
+        end
+
+      :gen_done ->
+        eval_loop_else(else_body, env, ctx)
+
+      _ ->
+        eval_loop_else(else_body, env, ctx)
+    end
+  end
+
+  @spec step_generator_body(
+          String.t() | [String.t()],
+          non_neg_integer(),
+          [term()],
+          Env.t(),
+          [Parser.ast_node()],
+          [Parser.ast_node()] | nil,
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp step_generator_body(var_name, id, cont, gen_env, body, else_body, env, ctx) do
+    # `cont` and `gen_env` are the *generator's* current continuation
+    # state; we hold them so that on resume we keep stepping. They
+    # don't change between yields of the *for-loop body* itself.
+    _ = cont
+    _ = gen_env
+
+    case Interpreter.eval_statements(body, env, ctx) do
+      {{:returned, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {{:break}, env, ctx} ->
+        ctx = Pyex.Ctx.mark_iter_exhausted(ctx, id)
+        {nil, env, ctx}
+
+      {{:exception, _} = signal, env, ctx} ->
+        ctx = Pyex.Ctx.mark_iter_exhausted(ctx, id)
+        {signal, env, ctx}
+
+      {{:yielded, val, inner_cont}, env, ctx} ->
+        # Body yielded — we are inside a generator whose body is itself
+        # a `for x in gen():` loop. Defer the rest of *this* loop into
+        # a continuation frame so the outer consumer can advance us
+        # through `resume_generator`.
+        cont_frame = {:cont_for_gen_iter, var_name, id, body, else_body}
+        {{:yielded, val, inner_cont ++ [cont_frame]}, env, ctx}
+
+      {{:continue}, env, ctx} ->
+        advance_generator_iter(var_name, id, cont, gen_env, body, else_body, env, ctx)
+
+      {_, env, ctx} ->
+        advance_generator_iter(var_name, id, cont, gen_env, body, else_body, env, ctx)
+    end
+  end
+
+  @doc """
+  Resumes a `for x in gen_iter:` loop inside a generator after a
+  body yield. Called by `Pyex.Interpreter.resume_generator/3` when
+  it sees a `:cont_for_gen_iter` frame.
+  """
+  @spec resume_for_gen_iter(
+          String.t() | [String.t()],
+          non_neg_integer(),
+          [Parser.ast_node()],
+          [Parser.ast_node()] | nil,
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  def resume_for_gen_iter(var_name, id, body, else_body, env, ctx) do
+    case Pyex.Ctx.iter_entry(ctx, id) do
+      {:gen_pending, _, _, _} ->
+        case Pyex.Ctx.iter_next(ctx, id) do
+          {:gen_pending, val, cont, gen_env} ->
+            advance_after_body_yield(var_name, id, val, cont, gen_env, body, else_body, env, ctx)
+        end
+
+      :gen_done ->
+        eval_loop_else(else_body, env, ctx)
+
+      _ ->
+        eval_loop_else(else_body, env, ctx)
+    end
+  end
+
+  # After the for-body yielded, we still hold the *current* iterator
+  # value (already consumed by the previous body invocation). Resume by
+  # advancing one step, then re-entering the loop body.
+  @spec advance_after_body_yield(
+          String.t() | [String.t()],
+          non_neg_integer(),
+          term(),
+          [term()],
+          Env.t(),
+          [Parser.ast_node()],
+          [Parser.ast_node()] | nil,
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp advance_after_body_yield(var_name, id, _val, cont, gen_env, body, else_body, env, ctx) do
+    saved_mode = ctx.generator_mode
+    inner_ctx = %{ctx | generator_mode: :defer_inner}
+
+    case Interpreter.resume_generator(cont, gen_env, inner_ctx) do
+      {{:yielded, next_val, next_cont}, next_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Pyex.Ctx.set_gen_pending(ctx, id, next_val, next_cont, next_gen_env)
+        eval_for_generator_iter(var_name, id, body, else_body, env, ctx)
+
+      {:done, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Pyex.Ctx.mark_iter_exhausted(ctx, id)
+        eval_loop_else(else_body, env, ctx)
+
+      {{:exception, _} = signal, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Pyex.Ctx.mark_iter_exhausted(ctx, id)
+        {signal, env, ctx}
+    end
+  end
+
+  @spec advance_generator_iter(
+          String.t() | [String.t()],
+          non_neg_integer(),
+          [term()],
+          Env.t(),
+          [Parser.ast_node()],
+          [Parser.ast_node()] | nil,
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp advance_generator_iter(var_name, id, cont, gen_env, body, else_body, env, ctx) do
+    # `resume_generator` re-enters the generator's body, so `yield`
+    # must reach its `:defer_inner` handler — not the outer caller's
+    # `:lazy_iter` mode (which would treat yield as a syntax error).
+    saved_mode = ctx.generator_mode
+    inner_ctx = %{ctx | generator_mode: :defer_inner}
+
+    case Interpreter.resume_generator(cont, gen_env, inner_ctx) do
+      {{:yielded, val, next_cont}, next_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Pyex.Ctx.set_gen_pending(ctx, id, val, next_cont, next_gen_env)
+        eval_for_generator_iter(var_name, id, body, else_body, env, ctx)
+
+      {:done, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Pyex.Ctx.mark_iter_exhausted(ctx, id)
+        eval_loop_else(else_body, env, ctx)
+
+      {{:exception, _} = signal, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Pyex.Ctx.mark_iter_exhausted(ctx, id)
+        {signal, env, ctx}
     end
   end
 

@@ -117,8 +117,13 @@ defmodule Pyex.Stdlib.FastAPI do
   end
 
   @spec extract_chunks(Interpreter.pyvalue()) ::
-          [String.t()] | {:generator_suspended, term(), term(), Pyex.Env.t()}
+          [String.t()]
+          | {:generator_suspended, term(), term(), Pyex.Env.t()}
+          | {:iterator, non_neg_integer()}
   defp extract_chunks({:generator_suspended, _, _, _} = suspended), do: suspended
+  # Lazy-mode generator iterators pass through; the consumer drains
+  # them when finalising the response (in `Lambda.handle/2`).
+  defp extract_chunks({:iterator, _id} = iter), do: iter
   defp extract_chunks({:generator, items}), do: Enum.map(items, &to_string/1)
 
   defp extract_chunks({:py_list, reversed, _}),

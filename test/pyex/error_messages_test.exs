@@ -248,18 +248,37 @@ defmodule Pyex.ErrorMessagesTest do
   # ── Generator/iterator errors are actionable ─────────────────
 
   describe "generator error messages" do
-    test "next() on raw generator suggests iter()" do
-      {:error, %Error{message: msg}} =
+    test "next() on raw generator advances it directly (CPython parity)" do
+      # Generators are now lazy iterators — `next(gen())` works without
+      # an intermediate `iter()` call, matching CPython.
+      {:ok, result, _ctx} =
+        Pyex.run("""
+        def gen():
+            yield 1
+            yield 2
+        g = gen()
+        [next(g), next(g)]
+        """)
+
+      assert result == [1, 2]
+    end
+
+    test "next() past exhaustion raises StopIteration" do
+      {:ok, result, _ctx} =
         Pyex.run("""
         def gen():
             yield 1
         g = gen()
         next(g)
+        try:
+            next(g)
+            stopped = False
+        except StopIteration:
+            stopped = True
+        stopped
         """)
 
-      assert msg =~ "TypeError"
-      assert msg =~ "iter()"
-      refute msg =~ "not an iterator"
+      assert result == true
     end
 
     test "iter() then next() works correctly" do

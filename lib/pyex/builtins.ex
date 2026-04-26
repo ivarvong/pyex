@@ -95,6 +95,29 @@ defmodule Pyex.Builtins do
   @spec exception_class_names() :: [String.t()]
   def exception_class_names, do: Pyex.ExceptionsHierarchy.all_names()
 
+  @doc """
+  Set of builtin function captures that must receive a generator
+  iterator *as itself* — not its drained contents. Anything that
+  reflects on identity, type, or treats the iterator as opaque
+  (`iter`, `next`, `type`, `isinstance`, `id`, `repr`, `len`).
+
+  Used by the builtin call path to suppress eager drain for these.
+  """
+  @spec no_drain_builtin_funcs() :: MapSet.t(function())
+  def no_drain_builtin_funcs do
+    names = ~w(iter next type isinstance id repr len)
+
+    captures =
+      for {name, fun} <- all(), name in names do
+        case fun do
+          {:kw, f} -> f
+          f -> f
+        end
+      end
+
+    MapSet.new(captures)
+  end
+
   @spec all() :: [{String.t(), ([Interpreter.pyvalue()] -> Interpreter.pyvalue())}]
   defp all do
     [
@@ -966,6 +989,15 @@ defmodule Pyex.Builtins do
 
     {:ok,
      Enum.reduce(list, PyDict.new(), fn
+       {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
+       [k, v], acc -> PyDict.put(acc, k, v)
+       _, acc -> acc
+     end)}
+  end
+
+  defp builtin_dict_positional([{:generator, items}]) do
+    {:ok,
+     Enum.reduce(items, PyDict.new(), fn
        {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
        [k, v], acc -> PyDict.put(acc, k, v)
        _, acc -> acc

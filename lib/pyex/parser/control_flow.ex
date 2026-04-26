@@ -27,10 +27,10 @@ defmodule Pyex.Parser.ControlFlow do
           end
 
         [{:op, _, :colon} | inline_rest] ->
-          with {:ok, stmt, rest} <- Parser.parse_inline_body(inline_rest),
+          with {:ok, stmts, rest} <- Parser.parse_inline_body(inline_rest),
                {:ok, else_clauses, rest} <- parse_elif_else(rest) do
             line = Parser.node_line(condition)
-            {:ok, {:if, [line: line], [{condition, [stmt]} | else_clauses]}, drop_newline(rest)}
+            {:ok, {:if, [line: line], [{condition, stmts} | else_clauses]}, drop_newline(rest)}
           end
 
         _ ->
@@ -109,9 +109,9 @@ defmodule Pyex.Parser.ControlFlow do
           end
 
         [{:op, _, :colon} | inline_rest] ->
-          with {:ok, stmt, rest} <- Parser.parse_inline_body(inline_rest),
+          with {:ok, stmts, rest} <- Parser.parse_inline_body(inline_rest),
                {:ok, more, rest} <- parse_elif_else(rest) do
-            {:ok, [{condition, [stmt]} | more], rest}
+            {:ok, [{condition, stmts} | more], rest}
           end
 
         _ ->
@@ -129,7 +129,7 @@ defmodule Pyex.Parser.ControlFlow do
 
   defp parse_elif_else([{:keyword, _, "else"}, {:op, _, :colon} | rest]) do
     case Parser.parse_inline_body(rest) do
-      {:ok, stmt, rest} -> {:ok, [{:else, [stmt]}], rest}
+      {:ok, stmts, rest} -> {:ok, [{:else, stmts}], rest}
       {:error, _} = error -> error
     end
   end
@@ -147,7 +147,7 @@ defmodule Pyex.Parser.ControlFlow do
 
   defp parse_loop_else([{:keyword, _, "else"}, {:op, _, :colon} | rest]) do
     case Parser.parse_inline_body(rest) do
-      {:ok, stmt, rest} -> {:ok, [stmt], rest}
+      {:ok, stmts, rest} -> {:ok, stmts, rest}
       {:error, _} = error -> error
     end
   end
@@ -162,7 +162,7 @@ defmodule Pyex.Parser.ControlFlow do
 
   defp parse_loop_body([{:op, _, :colon} | rest], _context) do
     case Parser.parse_inline_body(rest) do
-      {:ok, stmt, rest} -> {:ok, [stmt], rest}
+      {:ok, stmts, rest} -> {:ok, stmts, rest}
       {:error, _} = error -> error
     end
   end

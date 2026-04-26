@@ -572,24 +572,20 @@ defmodule Pyex.Interpreter do
             {{:exception, "SyntaxError: 'yield from' outside function"}, env, ctx}
         end
 
-      {iterable, env, ctx} ->
-        case to_iterable(iterable, env, ctx) do
-          {:ok, items, env, ctx} ->
-            case ctx.generator_mode do
-              mode when mode in [:defer, :defer_inner] ->
-                yield_from_deferred(items, env, ctx)
+      {{:iterator, id} = iter, env, ctx} ->
+        case Pyex.Ctx.iter_entry(ctx, id) do
+          {:gen_pending, _, _, _} when ctx.generator_mode in [:defer, :defer_inner] ->
+            yield_from_gen_iter(id, env, ctx)
 
-              :accumulate ->
-                ctx = %{ctx | generator_acc: Enum.reverse(items) ++ ctx.generator_acc}
-                {nil, env, ctx}
+          :gen_done when ctx.generator_mode in [:defer, :defer_inner] ->
+            {nil, env, ctx}
 
-              nil ->
-                {{:exception, "SyntaxError: 'yield from' outside function"}, env, ctx}
-            end
-
-          {:exception, msg} ->
-            {{:exception, msg}, env, ctx}
+          _ ->
+            yield_from_general(iter, env, ctx)
         end
+
+      {iterable, env, ctx} ->
+        yield_from_general(iterable, env, ctx)
     end
   end
 
@@ -3431,6 +3427,47 @@ defmodule Pyex.Interpreter do
     {{:yielded, item, [{:cont_yield_from, rest}]}, env, ctx}
   end
 
+  @spec yield_from_general(pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp yield_from_general(iterable, env, ctx) do
+    case to_iterable(iterable, env, ctx) do
+      {:ok, items, env, ctx} ->
+        case ctx.generator_mode do
+          mode when mode in [:defer, :defer_inner] ->
+            yield_from_deferred(items, env, ctx)
+
+          :accumulate ->
+            ctx = %{ctx | generator_acc: Enum.reverse(items) ++ ctx.generator_acc}
+            {nil, env, ctx}
+
+          nil ->
+            {{:exception, "SyntaxError: 'yield from' outside function"}, env, ctx}
+        end
+
+      {:exception, msg} ->
+        {{:exception, msg}, env, ctx}
+    end
+  end
+
+  @doc """
+  Lazy `yield from` over a generator iterator. Yields the first
+  pending value, then attaches a `:cont_yield_from_iter` frame so the
+  generator advances one step at a time on resumption — preserving
+  side-effect ordering and partial-yield-then-error semantics.
+  """
+  @spec yield_from_gen_iter(non_neg_integer(), Env.t(), Ctx.t()) :: eval_result()
+  def yield_from_gen_iter(id, env, ctx) do
+    case Pyex.Ctx.iter_entry(ctx, id) do
+      {:gen_pending, val, _cont, _gen_env} ->
+        {{:yielded, val, [{:cont_yield_from_iter, id}]}, env, ctx}
+
+      :gen_done ->
+        {nil, env, ctx}
+
+      _ ->
+        {nil, env, ctx}
+    end
+  end
+
   @type cont_frame ::
           {:cont_stmts, [Parser.ast_node()]}
           | {:cont_for, String.t() | [String.t()], [pyvalue()], [Parser.ast_node()],
@@ -3507,6 +3544,61 @@ defmodule Pyex.Interpreter do
         {{:yielded, val, inner_cont ++ rest}, env, ctx}
 
       {_, env, ctx} ->
+        resume_generator(rest, env, ctx)
+    end
+  end
+
+  def resume_generator(
+        [{:cont_for_gen_iter, var_name, id, body, else_body} | rest],
+        env,
+        ctx
+      ) do
+    case ControlFlow.resume_for_gen_iter(var_name, id, body, else_body, env, ctx) do
+      {{:yielded, val, inner_cont}, env, ctx} ->
+        {{:yielded, val, inner_cont ++ rest}, env, ctx}
+
+      {{:returned, _}, env, ctx} ->
+        {:done, env, ctx}
+
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {_, env, ctx} ->
+        resume_generator(rest, env, ctx)
+    end
+  end
+
+  def resume_generator([{:cont_yield_from_iter, id} | rest], env, ctx) do
+    # Advance the source generator one step. On yield, propagate. On
+    # done, fall through to the rest of the outer continuation. On
+    # exception, surface it (this is how `yield from gen()` exposes
+    # exceptions raised mid-stream).
+    saved_mode = ctx.generator_mode
+    inner_ctx = %{ctx | generator_mode: :defer_inner}
+
+    case Pyex.Ctx.iter_entry(ctx, id) do
+      {:gen_pending, _val, cont, gen_env} ->
+        case resume_generator(cont, gen_env, inner_ctx) do
+          {{:yielded, val, next_cont}, next_gen_env, ctx} ->
+            ctx = %{ctx | generator_mode: saved_mode}
+            ctx = Pyex.Ctx.set_gen_pending(ctx, id, val, next_cont, next_gen_env)
+            {{:yielded, val, [{:cont_yield_from_iter, id}] ++ rest}, env, ctx}
+
+          {:done, _gen_env, ctx} ->
+            ctx = %{ctx | generator_mode: saved_mode}
+            ctx = Pyex.Ctx.mark_iter_exhausted(ctx, id)
+            resume_generator(rest, env, ctx)
+
+          {{:exception, _} = signal, _gen_env, ctx} ->
+            ctx = %{ctx | generator_mode: saved_mode}
+            ctx = Pyex.Ctx.mark_iter_exhausted(ctx, id)
+            {signal, env, ctx}
+        end
+
+      :gen_done ->
+        resume_generator(rest, env, ctx)
+
+      _ ->
         resume_generator(rest, env, ctx)
     end
   end

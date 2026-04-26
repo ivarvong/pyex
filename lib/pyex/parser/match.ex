@@ -51,8 +51,8 @@ defmodule Pyex.Parser.Match do
 
         [{:op, _, :colon} | inline_rest] ->
           # Single-line `case p: expr` (matches CPython).
-          with {:ok, stmt, rest} <- Parser.parse_inline_body(inline_rest) do
-            parse_match_cases(rest, [{pattern, guard, [stmt]} | acc])
+          with {:ok, stmts, rest} <- Parser.parse_inline_body(inline_rest) do
+            parse_match_cases(rest, [{pattern, guard, stmts} | acc])
           end
 
         _ ->

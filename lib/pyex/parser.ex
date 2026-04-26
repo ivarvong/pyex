@@ -114,6 +114,7 @@ defmodule Pyex.Parser do
   defp parse_block([], acc), do: {:ok, Enum.reverse(acc), []}
   defp parse_block([:dedent | rest], acc), do: {:ok, Enum.reverse(acc), rest}
   defp parse_block([:newline | rest], acc), do: parse_block(rest, acc)
+  defp parse_block([{:op, _, :semicolon} | rest], acc), do: parse_block(rest, acc)
 
   defp parse_block(tokens, acc) do
     case parse_statement(tokens) do
@@ -756,11 +757,51 @@ defmodule Pyex.Parser do
     {:error, "expected ':' after #{ctx} at #{token_line(tokens)}"}
   end
 
-  @doc false
-  @spec parse_inline_body([Lexer.token()]) :: parse_result()
+  @doc """
+  Parses the inline body of a compound statement (e.g. the part after
+  `:` on the same line in `def f(): a; b; c` or `if cond: a`).
+
+  Consumes one or more `;`-separated small statements. Terminates at
+  the first non-`;` token following a parsed statement. Returns a
+  *list* of statements so `def f(): a; b` and the multi-line form
+  share an AST shape.
+
+  Statement parsers internally strip a trailing `:newline` via
+  `drop_newline`, so we cannot use the absence of a newline to detect
+  end-of-line. Instead, we rely on `;` being the only valid separator
+  *between* small statements on a single physical line.
+  """
+  @spec parse_inline_body([Lexer.token()]) ::
+          {:ok, [ast_node()], [Lexer.token()]} | {:error, String.t()}
   def parse_inline_body(tokens) do
-    parse_statement(tokens)
+    case parse_statement(tokens) do
+      {:ok, stmt, rest} -> parse_inline_body_rest(rest, [stmt])
+      {:error, _} = error -> error
+    end
   end
+
+  @spec parse_inline_body_rest([Lexer.token()], [ast_node()]) ::
+          {:ok, [ast_node()], [Lexer.token()]} | {:error, String.t()}
+  defp parse_inline_body_rest([{:op, _, :semicolon} | rest], acc) do
+    case rest do
+      [:newline | _] ->
+        {:ok, Enum.reverse(acc), rest}
+
+      [:dedent | _] ->
+        {:ok, Enum.reverse(acc), rest}
+
+      [] ->
+        {:ok, Enum.reverse(acc), []}
+
+      _ ->
+        case parse_statement(rest) do
+          {:ok, stmt, rest} -> parse_inline_body_rest(rest, [stmt | acc])
+          {:error, _} = error -> error
+        end
+    end
+  end
+
+  defp parse_inline_body_rest(rest, acc), do: {:ok, Enum.reverse(acc), rest}
 
   @doc false
   @spec parse_or([Lexer.token()]) :: parse_result()

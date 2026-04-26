@@ -540,10 +540,10 @@ defmodule Pyex.Interpreter.Assignments do
                   {signal, env, ctx}
 
                 {default_val, env, ctx, _updated_func} ->
-                  do_aug_subscript(obj, key, op, val, default_val, var_name, env, ctx)
+                  do_aug_subscript(raw_obj, obj, key, op, val, default_val, var_name, env, ctx)
 
                 {default_val, env, ctx} ->
-                  do_aug_subscript(obj, key, op, val, default_val, var_name, env, ctx)
+                  do_aug_subscript(raw_obj, obj, key, op, val, default_val, var_name, env, ctx)
               end
 
             current_val ->
@@ -553,7 +553,8 @@ defmodule Pyex.Interpreter.Assignments do
 
                 new_val ->
                   new_obj = set_subscript_value(obj, key, new_val)
-                  {new_val, Env.put_at_source(env, var_name, new_obj), ctx}
+                  {env, ctx} = ref_write_back(raw_obj, new_obj, var_name, env, ctx)
+                  {new_val, env, ctx}
               end
           end
         else
@@ -565,7 +566,7 @@ defmodule Pyex.Interpreter.Assignments do
     end
   end
 
-  defp do_aug_subscript(obj, key, op, val, default_val, var_name, env, ctx) do
+  defp do_aug_subscript(raw_obj, obj, key, op, val, default_val, var_name, env, ctx) do
     # Insert default into dict first (auto-insert), then apply aug op
     obj = set_subscript_value(obj, key, default_val)
 
@@ -575,7 +576,8 @@ defmodule Pyex.Interpreter.Assignments do
 
       new_val ->
         new_obj = set_subscript_value(obj, key, new_val)
-        {new_val, Env.put_at_source(env, var_name, new_obj), ctx}
+        {env, ctx} = ref_write_back(raw_obj, new_obj, var_name, env, ctx)
+        {new_val, env, ctx}
     end
   end
 
