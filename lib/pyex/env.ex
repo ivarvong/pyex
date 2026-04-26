@@ -143,26 +143,48 @@ defmodule Pyex.Env do
   end
 
   @doc """
-  Replaces the bottom (module-level) scope with `new_bottom`.
-  """
-  @spec put_global_scope(t(), scope(), reference()) :: t()
-  def put_global_scope(%__MODULE__{scopes: [_]} = env, new_bottom, new_bottom_id) do
-    %{env | scopes: [new_bottom], scope_ids: [new_bottom_id], global: new_bottom}
-  end
+  Builds a fresh environment for a closure call: every captured scope
+  whose ID matches a scope in the caller is replaced with the caller's
+  *current* version of that scope. Captured scopes that no longer
+  appear in the caller (e.g. a closure returned from a function that
+  has already exited) are left as their original snapshots.
 
-  def put_global_scope(
-        %__MODULE__{scopes: scopes, scope_ids: scope_ids} = env,
-        new_bottom,
-        new_bottom_id
+  The bottom (module-level) scope is always replaced with the caller's
+  current global, even if the IDs differ — globals are conceptually
+  shared, and the caller's view is always the source of truth.
+
+  Without this, calling a closure from inside a loop or any post-`def`
+  mutation in the enclosing function would propagate a *stale* snapshot
+  of the enclosing scope back to the caller after the call, wiping any
+  bindings the caller had added since `def` (e.g. for-loop variables).
+  """
+  @spec refresh_from_caller(t(), t()) :: t()
+  def refresh_from_caller(
+        %__MODULE__{scopes: closure_scopes, scope_ids: closure_scope_ids} = closure_env,
+        %__MODULE__{} = caller_env
       ) do
-    upper = Enum.drop(scopes, -1)
-    upper_ids = Enum.drop(scope_ids, -1)
+    caller_global = global_scope(caller_env)
+    caller_global_id = global_scope_id(caller_env)
+
+    caller_by_id =
+      caller_env.scope_ids
+      |> Enum.zip(caller_env.scopes)
+      |> Map.new()
+
+    upper_pairs =
+      closure_scope_ids
+      |> Enum.zip(closure_scopes)
+      |> Enum.drop(-1)
+      |> Enum.map(fn {id, scope} -> {id, Map.get(caller_by_id, id, scope)} end)
+
+    {refreshed_ids, refreshed_scopes} =
+      Enum.unzip(upper_pairs ++ [{caller_global_id, caller_global}])
 
     %{
-      env
-      | scopes: upper ++ [new_bottom],
-        scope_ids: upper_ids ++ [new_bottom_id],
-        global: new_bottom
+      closure_env
+      | scopes: refreshed_scopes,
+        scope_ids: refreshed_ids,
+        global: caller_global
     }
   end
 

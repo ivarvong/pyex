@@ -49,7 +49,7 @@ defmodule Pyex.Ctx do
 
   @type capability :: :boto3 | :sql | atom()
 
-  @type generator_mode :: :accumulate | :defer | :defer_inner | nil
+  @type generator_mode :: :accumulate | :defer | :defer_inner | :lazy_iter | nil
 
   @type t :: %__MODULE__{
           filesystem: term(),
@@ -98,7 +98,7 @@ defmodule Pyex.Ctx do
             file_ops: 0,
             compute_started_at: nil,
             profile: nil,
-            generator_mode: nil,
+            generator_mode: :lazy_iter,
             generator_acc: nil,
             iterators: %{},
             next_iterator_id: 0,
@@ -942,10 +942,64 @@ defmodule Pyex.Ctx do
   end
 
   @doc """
+  Creates a new generator iterator, returning the iterator token and
+  updated context.
+
+  The generator has been pre-run to its first yield. The pool entry
+  carries the *queued* yield value (returned by the first `next` /
+  first for-loop iteration without resuming) plus the continuation
+  needed to advance to subsequent yields.
+  """
+  @spec new_generator_iterator(t(), term(), [term()], term()) ::
+          {{:iterator, non_neg_integer()}, t()}
+  def new_generator_iterator(
+        %__MODULE__{iterators: iters, next_iterator_id: id} = ctx,
+        first_val,
+        cont,
+        gen_env
+      ) do
+    entry = {:gen_pending, first_val, cont, gen_env}
+    ctx = %{ctx | iterators: Map.put(iters, id, entry), next_iterator_id: id + 1}
+    {{:iterator, id}, ctx}
+  end
+
+  @doc """
+  Inspects an iterator's stored entry without mutating state.
+  Returns `nil` for unknown ids.
+  """
+  @spec iter_entry(t(), non_neg_integer()) :: term() | nil
+  def iter_entry(%__MODULE__{iterators: iters}, id), do: Map.get(iters, id)
+
+  @doc """
+  Marks a generator iterator as exhausted.
+  """
+  @spec mark_iter_exhausted(t(), non_neg_integer()) :: t()
+  def mark_iter_exhausted(%__MODULE__{iterators: iters} = ctx, id) do
+    %{ctx | iterators: Map.put(iters, id, :gen_done)}
+  end
+
+  @doc """
+  Updates a generator iterator's pending entry after a successful resume.
+  """
+  @spec set_gen_pending(t(), non_neg_integer(), term(), [term()], term()) :: t()
+  def set_gen_pending(%__MODULE__{iterators: iters} = ctx, id, val, cont, gen_env) do
+    %{ctx | iterators: Map.put(iters, id, {:gen_pending, val, cont, gen_env})}
+  end
+
+  @doc """
   Advances a plain list iterator, returning the next item
   or `:exhausted` if the iterator is empty.
+
+  For generator iterators, returns the queued yield value plus the
+  continuation needed to advance further. The caller resumes the
+  generator (using `Pyex.Interpreter.resume_generator/3`) and updates
+  the pool via `set_gen_pending/5` or `mark_iter_exhausted/2`.
   """
-  @spec iter_next(t(), non_neg_integer()) :: {:ok, term(), t()} | :exhausted | {:instance, term()}
+  @spec iter_next(t(), non_neg_integer()) ::
+          {:ok, term(), t()}
+          | :exhausted
+          | {:instance, term()}
+          | {:gen_pending, term(), [term()], term()}
   def iter_next(%__MODULE__{iterators: iters} = ctx, id) do
     case Map.get(iters, id) do
       {:list, [item | rest]} ->
@@ -957,6 +1011,12 @@ defmodule Pyex.Ctx do
 
       {:instance, inst} ->
         {:instance, inst}
+
+      {:gen_pending, val, cont, gen_env} ->
+        {:gen_pending, val, cont, gen_env}
+
+      :gen_done ->
+        :exhausted
 
       nil ->
         :exhausted

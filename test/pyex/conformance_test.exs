@@ -1707,6 +1707,42 @@ defmodule Pyex.ConformanceTest do
           print(repr("deleted"))
       """)
     end
+
+    test "nested for-loops survive closure call in inner body" do
+      # Regression: closure invocation rebuilt the closure's env from a
+      # snapshot taken at `def` time, then propagated that env back to
+      # the caller — wiping loop variables (`i`, `x`) that the for-loops
+      # had bound in the enclosing function's scope. Required all of:
+      # nested loops, an actual closure (not a top-level function), and
+      # the closure called from the inner loop body.
+      assert_conforms("""
+      def outer():
+          captured = 1
+          def inner():
+              return captured
+          for i in [1, 2]:
+              for x in ['a', 'b']:
+                  print(str(i) + ':' + str(x) + ':' + str(inner()))
+      outer()
+      """)
+    end
+
+    test "loop variables persist after closure call mutates caller scope" do
+      # Tighter variant: the inner-loop body reads `i` and `x` *after* a
+      # closure returns. A bare reference on the next line is enough to
+      # raise NameError if the caller's scope was clobbered.
+      assert_conforms("""
+      def outer():
+          val = 10
+          def get():
+              return val
+          for i in range(2):
+              for x in range(2):
+                  y = get()
+                  print(repr((i, x, y)))
+      outer()
+      """)
+    end
   end
 
   # ── Complex programs (extended) ────────────────────────────

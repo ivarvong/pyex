@@ -69,6 +69,7 @@ defmodule Pyex.Interpreter.BuiltinResults do
           {:ok, item, ctx} -> {item, env, ctx}
           :exhausted -> {{:exception, "StopIteration"}, env, ctx}
           {:instance, inst} -> Interpreter.eval_instance_next(inst, id, :no_default, env, ctx)
+          {:gen_pending, val, cont, gen_env} -> step_generator(id, val, cont, gen_env, env, ctx)
         end
 
       {:iter_next_default, id, default} ->
@@ -81,6 +82,12 @@ defmodule Pyex.Interpreter.BuiltinResults do
 
           {:instance, inst} ->
             Interpreter.eval_instance_next(inst, id, {:default, default}, env, ctx)
+
+          {:gen_pending, val, cont, gen_env} ->
+            case step_generator(id, val, cont, gen_env, env, ctx) do
+              {{:exception, "StopIteration"}, env, ctx} -> {default, env, ctx}
+              other -> other
+            end
         end
 
       {:next_instance_iter, id, default_opt} ->
@@ -310,4 +317,32 @@ defmodule Pyex.Interpreter.BuiltinResults do
   defp sum_step(x, acc) when is_list(x) and is_list(acc), do: acc ++ x
   defp sum_step({:tuple, x}, {:tuple, acc}), do: {:tuple, acc ++ x}
   defp sum_step(x, acc) when is_binary(x) and is_binary(acc), do: acc <> x
+
+  # Pop the queued yield value, then resume the generator (with the
+  # interpreter back in `:defer_inner` mode) so the next `next()` call
+  # finds the new pending value. Mirrors what `eval_for_generator_iter`
+  # does for the for-loop path.
+  @spec step_generator(non_neg_integer(), term(), [term()], Env.t(), Env.t(), Ctx.t()) ::
+          eval_result()
+  defp step_generator(id, val, cont, gen_env, env, ctx) do
+    saved_mode = ctx.generator_mode
+    inner_ctx = %{ctx | generator_mode: :defer_inner}
+
+    case Interpreter.resume_generator(cont, gen_env, inner_ctx) do
+      {{:yielded, next_val, next_cont}, next_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.set_gen_pending(ctx, id, next_val, next_cont, next_gen_env)
+        {val, env, ctx}
+
+      {:done, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {val, env, ctx}
+
+      {{:exception, _} = signal, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {signal, env, ctx}
+    end
+  end
 end

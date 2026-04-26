@@ -38,8 +38,7 @@ defmodule Pyex.Interpreter.Invocation do
     else
       ctx = %{ctx | call_depth: ctx.call_depth + 1}
 
-      fresh_closure =
-        Env.put_global_scope(closure_env, Env.global_scope(env), Env.global_scope_id(env))
+      fresh_closure = Env.refresh_from_caller(closure_env, env)
 
       # Bind `name` to the caller's current binding when available so
       # decorators (like @lru_cache) that wrap this function are visible
@@ -96,8 +95,7 @@ defmodule Pyex.Interpreter.Invocation do
       ) do
     method_args = [instance | args]
 
-    fresh_closure =
-      Env.put_global_scope(closure_env, Env.global_scope(env), Env.global_scope_id(env))
+    fresh_closure = Env.refresh_from_caller(closure_env, env)
 
     func = {:function, fname, params, body, closure_env}
     base_env = Env.push_scope(Env.put(fresh_closure, fname, func))
@@ -130,25 +128,92 @@ defmodule Pyex.Interpreter.Invocation do
     end
   end
 
+  defp no_drain_builtins do
+    case :persistent_term.get({__MODULE__, :no_drain_builtins}, nil) do
+      nil ->
+        set = Pyex.Builtins.no_drain_builtin_funcs()
+        :persistent_term.put({__MODULE__, :no_drain_builtins}, set)
+        set
+
+      set ->
+        set
+    end
+  end
+
   @doc false
   @spec call_builtin((list() -> term()), [Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
           Interpreter.call_result()
   def call_builtin(fun, args, env, ctx) do
-    derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
+    case maybe_drain_args(fun, args, env, ctx) do
+      {:exception, _} = signal ->
+        {signal, env, ctx}
 
-    result =
-      try do
-        fun.(derefed_args)
-      rescue
-        FunctionClauseError ->
-          {:exception, "TypeError: invalid arguments"}
+      {drained_args, env, ctx} ->
+        derefed_args = Enum.map(drained_args, &Ctx.deep_deref(ctx, &1))
 
-        e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
-          {:exception, "TypeError: #{Exception.message(e)}"}
-      end
+        result =
+          try do
+            fun.(derefed_args)
+          rescue
+            FunctionClauseError ->
+              {:exception, "TypeError: invalid arguments"}
 
-    BuiltinResults.handle_builtin_result(result, env, ctx)
+            e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
+              {:exception, "TypeError: #{Exception.message(e)}"}
+          end
+
+        BuiltinResults.handle_builtin_result(result, env, ctx)
+    end
   end
+
+  @spec maybe_drain_args(
+          (list() -> term()),
+          [Interpreter.pyvalue()],
+          Env.t(),
+          Ctx.t()
+        ) :: {[Interpreter.pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
+  defp maybe_drain_args(fun, args, env, ctx) do
+    if MapSet.member?(no_drain_builtins(), fun) do
+      {args, env, ctx}
+    else
+      drain_gen_args(args, env, ctx)
+    end
+  end
+
+  @spec drain_gen_args([Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
+          {[Interpreter.pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
+  defp drain_gen_args(args, env, ctx) do
+    Enum.reduce_while(args, {[], env, ctx}, fn arg, {acc, env, ctx} ->
+      case maybe_drain_gen_iter(arg, env, ctx) do
+        {:exception, _} = signal -> {:halt, signal}
+        {coerced, env, ctx} -> {:cont, {[coerced | acc], env, ctx}}
+      end
+    end)
+    |> case do
+      {:exception, _} = signal -> signal
+      {acc, env, ctx} -> {Enum.reverse(acc), env, ctx}
+    end
+  end
+
+  @spec maybe_drain_gen_iter(Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
+          {Interpreter.pyvalue(), Env.t(), Ctx.t()} | {:exception, String.t()}
+  defp maybe_drain_gen_iter({:iterator, id} = iter, env, ctx) do
+    case Ctx.iter_entry(ctx, id) do
+      {:gen_pending, _, _, _} ->
+        case Pyex.Interpreter.Iterables.drain_generator_iter(id, env, ctx) do
+          {:ok, items, env, ctx} -> {{:generator, items}, env, ctx}
+          {:exception, _} = signal -> signal
+        end
+
+      :gen_done ->
+        {{:generator, []}, env, ctx}
+
+      _ ->
+        {iter, env, ctx}
+    end
+  end
+
+  defp maybe_drain_gen_iter(arg, env, ctx), do: {arg, env, ctx}
 
   @doc false
   @spec call_builtin_raw((list() -> term()), [Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
@@ -177,21 +242,27 @@ defmodule Pyex.Interpreter.Invocation do
           Ctx.t()
         ) :: Interpreter.call_result()
   def call_builtin_kw(fun, args, kwargs, env, ctx) do
-    derefed_args = Enum.map(args, &Ctx.deep_deref(ctx, &1))
-    derefed_kwargs = Map.new(kwargs, fn {k, v} -> {k, Ctx.deep_deref(ctx, v)} end)
+    case drain_gen_args(args, env, ctx) do
+      {:exception, _} = signal ->
+        {signal, env, ctx}
 
-    result =
-      try do
-        fun.(derefed_args, derefed_kwargs)
-      rescue
-        FunctionClauseError ->
-          {:exception, "TypeError: invalid arguments"}
+      {drained_args, env, ctx} ->
+        derefed_args = Enum.map(drained_args, &Ctx.deep_deref(ctx, &1))
+        derefed_kwargs = Map.new(kwargs, fn {k, v} -> {k, Ctx.deep_deref(ctx, v)} end)
 
-        e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
-          {:exception, "TypeError: #{Exception.message(e)}"}
-      end
+        result =
+          try do
+            fun.(derefed_args, derefed_kwargs)
+          rescue
+            FunctionClauseError ->
+              {:exception, "TypeError: invalid arguments"}
 
-    BuiltinResults.handle_builtin_kw_result(result, env, ctx)
+            e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
+              {:exception, "TypeError: #{Exception.message(e)}"}
+          end
+
+        BuiltinResults.handle_builtin_kw_result(result, env, ctx)
+    end
   end
 
   @doc false
@@ -454,6 +525,37 @@ defmodule Pyex.Interpreter.Invocation do
             {{:generator, []}, env, ctx}
         end
 
+      mode when mode in [:lazy_iter, :defer_inner] ->
+        # Wrap the suspended generator into an iterator-pool entry so
+        # `g = gen()` produces a stateful, identity-preserving handle —
+        # the same way CPython returns a generator object. Subsequent
+        # `next(g)` / `for x in g` calls advance the same state.
+        #
+        # `:defer_inner` callers are themselves generator bodies: when
+        # an outer generator calls `inner()`, that inner *must* also
+        # behave lazily so `yield from inner()` interleaves yields
+        # rather than running inner to completion eagerly.
+        gen_ctx = %{ctx | generator_mode: :defer_inner}
+
+        case Interpreter.eval_statements(body, call_env, gen_ctx) do
+          {{:yielded, val, cont}, gen_env, gen_ctx} ->
+            ctx = sync_generator_ctx(ctx, gen_ctx)
+            {iter_token, ctx} = Ctx.new_generator_iterator(ctx, val, cont, gen_env)
+            {iter_token, env, ctx}
+
+          {{:exception, _} = signal, _post_env, gen_ctx} ->
+            ctx = sync_generator_ctx(ctx, gen_ctx)
+            {signal, env, ctx}
+
+          {_, _post_env, gen_ctx} ->
+            ctx = sync_generator_ctx(ctx, gen_ctx)
+            # Generator that never yields — return an exhausted iterator
+            # so consumers see zero items via the same code path.
+            {iter_token, ctx} = Ctx.new_generator_iterator(ctx, nil, [], call_env)
+            ctx = Ctx.mark_iter_exhausted(ctx, elem(iter_token, 1))
+            {iter_token, env, ctx}
+        end
+
       _ ->
         prev_acc = ctx.generator_acc
         gen_ctx = %{ctx | generator_mode: :accumulate, generator_acc: []}
@@ -529,7 +631,14 @@ defmodule Pyex.Interpreter.Invocation do
         file_ops: gen_ctx.file_ops,
         heap: gen_ctx.heap,
         next_heap_id: gen_ctx.next_heap_id,
-        output_buffer: gen_ctx.output_buffer
+        output_buffer: gen_ctx.output_buffer,
+        # Propagate iterator-pool mutations: a generator running in
+        # `:defer_inner` may have allocated nested generator iterators
+        # (e.g. `yield from inner()` — inner gets a pool slot before
+        # this generator wraps itself). Without copying these back, the
+        # next allocation collides with inner's id and overwrites it.
+        iterators: gen_ctx.iterators,
+        next_iterator_id: gen_ctx.next_iterator_id
     }
   end
 
@@ -559,8 +668,7 @@ defmodule Pyex.Interpreter.Invocation do
        ) do
     init_args = [instance | args]
 
-    fresh_closure =
-      Env.put_global_scope(closure_env, Env.global_scope(env), Env.global_scope_id(env))
+    fresh_closure = Env.refresh_from_caller(closure_env, env)
 
     init_fn = {:function, init_name, params, body, closure_env}
     base_env = Env.push_scope(Env.put(fresh_closure, init_name, init_fn))

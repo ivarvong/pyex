@@ -34,8 +34,8 @@ defmodule Pyex.Parser.Definitions do
 
           [{:op, _, :colon} | inline_rest] ->
             case Parser.parse_inline_body(inline_rest) do
-              {:ok, stmt, rest} ->
-                {:ok, {:def, [line: line], [name, params, [stmt]]}, drop_newline(rest)}
+              {:ok, stmts, rest} ->
+                {:ok, {:def, [line: line], [name, params, stmts]}, drop_newline(rest)}
 
               {:error, _} = error ->
                 error
@@ -139,8 +139,8 @@ defmodule Pyex.Parser.Definitions do
 
           [{:op, _, :colon} | inline_rest] ->
             case Parser.parse_inline_body(inline_rest) do
-              {:ok, stmt, rest} ->
-                {:ok, {:class, [line: line], [name, bases, [stmt]]}, drop_newline(rest)}
+              {:ok, stmts, rest} ->
+                {:ok, {:class, [line: line], [name, bases, stmts]}, drop_newline(rest)}
 
               {:error, _} = error ->
                 error
@@ -167,8 +167,8 @@ defmodule Pyex.Parser.Definitions do
 
   def parse_class_def([{:name, line, name}, {:op, _, :colon} | inline_rest]) do
     case Parser.parse_inline_body(inline_rest) do
-      {:ok, stmt, rest} ->
-        {:ok, {:class, [line: line], [name, [], [stmt]]}, drop_newline(rest)}
+      {:ok, stmts, rest} ->
+        {:ok, {:class, [line: line], [name, [], stmts]}, drop_newline(rest)}
 
       {:error, _} = error ->
         error

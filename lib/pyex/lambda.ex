@@ -388,8 +388,8 @@ defmodule Pyex.Lambda do
   end
 
   @spec unwrap_response(Interpreter.pyvalue(), Ctx.t()) :: response()
-  defp unwrap_response(%{"__response__" => true, "__streaming__" => true} = resp, _ctx) do
-    chunks = Map.get(resp, "body", [])
+  defp unwrap_response(%{"__response__" => true, "__streaming__" => true} = resp, ctx) do
+    chunks = drain_streaming_chunks(Map.get(resp, "body", []), ctx)
 
     %{
       status: Map.get(resp, "status_code", 200),
@@ -417,6 +417,20 @@ defmodule Pyex.Lambda do
       body: Interpreter.Helpers.to_python_view(derefed)
     }
   end
+
+  # In `Lambda.handle/2` (non-streaming), the response body may be a
+  # generator iterator (lazy-mode generators are now the default). Drain
+  # it here so the chunks are concrete strings ready to concatenate.
+  @spec drain_streaming_chunks(term(), Ctx.t()) :: [String.t()]
+  defp drain_streaming_chunks({:iterator, id}, ctx) do
+    case Pyex.Interpreter.Iterables.drain_generator_iter(id, %Pyex.Env{}, ctx) do
+      {:ok, items, _env, _ctx} -> Enum.map(items, &to_string/1)
+      {:exception, _} -> []
+    end
+  end
+
+  defp drain_streaming_chunks(chunks, _ctx) when is_list(chunks), do: chunks
+  defp drain_streaming_chunks(chunks, _ctx), do: List.wrap(chunks)
 
   @spec unwrap_stream_response(Interpreter.pyvalue(), Ctx.t()) :: stream_response()
   defp unwrap_stream_response(%{"__response__" => true, "__streaming__" => true} = resp, _ctx) do
