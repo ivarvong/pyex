@@ -237,6 +237,8 @@ defmodule Pyex.Interpreter.Import do
     attrs = %{
       "environ" => ctx.env,
       "path" => {:module, "os.path", path_attrs},
+      "getcwd" => {:builtin, &os_getcwd/1},
+      "chdir" => {:builtin, &os_chdir/1},
       "makedirs" => {:builtin, &os_makedirs/1},
       "listdir" => {:builtin, &os_listdir/1},
       "walk" => {:builtin, &os_walk/1}
@@ -497,6 +499,21 @@ defmodule Pyex.Interpreter.Import do
         {:exception, "TypeError: makedirs() got an unexpected keyword argument '#{name}'"}
     end
   end
+
+  @spec os_getcwd([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp os_getcwd([]), do: "/"
+
+  defp os_getcwd(_args), do: {:exception, "TypeError: getcwd() takes no arguments"}
+
+  @spec os_chdir([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp os_chdir([path]) do
+    case Pyex.Path.coerce(path) do
+      {:ok, _path} -> nil
+      :error -> {:exception, "TypeError: chdir: path should be string"}
+    end
+  end
+
+  defp os_chdir(_args), do: {:exception, "TypeError: chdir() takes exactly 1 argument"}
 
   @spec coerce_paths([Interpreter.pyvalue()]) :: {:ok, [String.t()]} | {:error, String.t()}
   defp coerce_paths(paths) do

@@ -2,7 +2,7 @@ Pyex TODO — bugs and missing features to fix
 =============================================
 
 All tests pass (3213+ tests, 0 failures, 0 skipped).
-All 5 fixtures pass (csv_stats, elixir_highlight, lru_cache, web_crawler, sanity).
+All 16 fixtures pass.
 
 Heap-based reference system is complete for lists, dicts, sets, and
 class instances.  Aliasing works: `b = a; b.val = 99` → `a.val == 99`.
@@ -137,6 +137,46 @@ Intrusive linked lists work: `node.prev.next = node.next`.
 - String `repr()` uses double quotes when string contains single quotes
 - Function/lambda default args are evaluated at definition time, not call time
 
+## Recently fixed (conformance pass — LLM code patterns)
+
+- `Counter(gen_expr)` — Counter constructor now accepts generator expressions
+  and `Counter.update(gen_expr)` also accepts generators
+- `Counter[missing_key]` and `Counter[k] += 1` — missing keys return 0 in
+  all subscript positions (read, augmented assign, nested subscript)
+- `csv.DictReader(io.StringIO(...))` — DictReader and reader now accept
+  StringIO objects as input (not just file handles and lists)
+- `csv.DictReader` row mutation — `list()` on a sequence of dicts now
+  heap-allocates each dict so for-loop mutations persist through the list
+- Dict/set literal conditional expressions — `{"k": v if c else d}`,
+  `{"a" if c else "b": v}`, `{x if c else y}`, `{x if c else y for ...}` all
+  parse correctly; the parser now uses `parse_expression` for all dict/set
+  element and key positions
+- `list()` first element — `parse_list_literal` now uses `parse_expression`
+  so `[walrus := val, ...]` and `[x if c else y, ...]` parse correctly
+- `os.getcwd()` / `os.chdir()` — added to the `os` module
+- `statistics` module — `mean`, `fmean`, `geometric_mean`, `harmonic_mean`,
+  `median`, `median_low`, `median_high`, `median_grouped`, `mode`,
+  `multimode`, `pstdev`, `pvariance`, `stdev`, `variance`, `quantiles`
+- Walrus operator `:=` in function call arguments — `len(data := [1,2,3])`
+  now parses (was silently rejected; `parse_args` used `parse_or` instead
+  of `parse_expression`)
+- Walrus operator `:=` in list literals — `[y := 10, y + 1]` now parses
+  (same root cause as call-arg walrus)
+- `str.removeprefix(prefix)` / `str.removesuffix(suffix)` — Python 3.9
+  string methods added
+- Nested tuple unpacking in `for` loops — `for i, (a, b) in items:`,
+  `for (a, b) in items:`, `for i, (a, (b, c)) in nested:` all work;
+  also works in list/set/dict comprehensions and generator expressions
+- `generator.send(value)` / `v = yield expr` — full coroutine-style
+  generators: `yield` as an expression, `.send(v)`, `.close()`, `.throw()`;
+  `v = yield expr` correctly receives the sent value when the generator
+  is resumed via `send()`
+- Chained method mutation on complex receivers — `d.setdefault("k", []).append(v)`,
+  `sys.path.insert(0, p)`, `d["key"].append(v)` all propagate mutations
+  correctly back to the container via a two-phase receiver evaluation
+- `str.removeprefix(prefix)` / `str.removesuffix(suffix)` — Python 3.9
+  string methods added
+
 ## Remaining features
 
 See the commented-out `# TODO:` lines in
@@ -154,28 +194,14 @@ Known limitations:
   In Pyex they return bounded lists/ranges (works with `list()`, `for`,
   `islice`, etc., just not `next()` directly).
 
-## Bugs
+## Known limitations
 
-### Parser: nested-tuple unpacking in `for` is rejected
-
-CPython lets a `for` target use parenthesised inner tuples to destructure
-nested sequences:
-
-    for i, (a, b) in enumerate([(1, 2), (3, 4)]):
-        ...
-
-Pyex's `parse_for` rejects this with "expected variable name in for loop".
-Surfaced when porting a portfolio-rebalancer Python script in
-`test/pyex/stdlib/rebalancer_parity_test.exs` -- the script had to be
-rewritten with index-based access (`p[0]`, `p[1]`) to compile.
-
-Reproduction (any of these fails):
-
-    for i, (a, b) in enumerate(items): ...
-    for k, (v, w) in pairs: ...
-    for (a, b), c in nested: ...
-
-Flat unpacking (`for a, b, c in items:`) and single-name targets work
-fine. The fix is to extend `Parser.parse_for_target` to recursively
-accept a parenthesised target inside the comma-separated list.
+- Walrus in comprehension does not leak to enclosing scope (PEP 572):
+  `[last := x for x in range(5)]` produces the correct list but `last`
+  is not visible outside. Fix requires comprehension eval to write walrus
+  bindings to the enclosing env frame rather than the comprehension frame.
+- `async`/`await` and `asyncio` not yet implemented
+- `bytes`/`bytearray` types not yet implemented
+- `datetime.now()` always returns UTC (not local time)
+- `str.format_map()` not yet implemented
 

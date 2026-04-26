@@ -798,9 +798,8 @@ check("round_builtin", round(1.5) == 2)
 check("pow_three_arg", pow(2, 10, 1000) == 24)  # modular exponentiation
 
 # ── 41. Walrus Operator ──────────────────────────────────────────────────────
-# TODO: needs walrus operator (:=) support
-# _walrus = [y := 10, y + 1, y + 2]
-# check("walrus_operator", _walrus == [10, 11, 12] and y == 10)
+_walrus = [y := 10, y + 1, y + 2]
+check("walrus_operator", _walrus == [10, 11, 12] and y == 10)
 
 # ── 42. Match/Case ───────────────────────────────────────────────────────────
 # TODO: needs match/case (structural pattern matching)
@@ -881,12 +880,11 @@ check("date_iso", datetime.date(2024, 3, 14).isoformat() == "2024-03-14")
 # check("new_class", ...)
 
 # ── 55. Walrus in loops ──────────────────────────────────────────────────────
-# TODO: needs walrus operator (:=) support
-# _walrus_results = []
-# _walrus_data = iter([1, 2, 3, None, 5])
-# while (val := next(_walrus_data, None)) is not None:
-#     _walrus_results.append(val)
-# check("walrus_loop", _walrus_results == [1, 2, 3])
+_walrus_results = []
+_walrus_data = iter([1, 2, 3, None, 5])
+while (val := next(_walrus_data, None)) is not None:
+    _walrus_results.append(val)
+check("walrus_loop", _walrus_results == [1, 2, 3])
 
 # ── 56. Multiple Assignment / Swap ───────────────────────────────────────────
 _ma, _mb = 1, 2
@@ -916,9 +914,9 @@ check("global_keyword", _g_val == 99)
 # check("dict_unpack_literal", {**{'a':1}, **{'b':2}} == {'a':1,'b':2})
 
 # ── 59. Assignment Expressions in Comprehensions ─────────────────────────────
-# TODO: needs walrus operator (:=) support
+# TODO: walrus in comprehension should bind to enclosing scope (PEP 572)
 # _ae = [last := x for x in range(5)]
-# check("walrus_in_comp", _ae == [0,1,2,3,4] and last == 4)
+# check("walrus_in_comp", _ae == [0, 1, 2, 3, 4] and last == 4)
 
 # ── 60. F-String Expressions ─────────────────────────────────────────────────
 check("fstring_expr", f"{'hello':>10}" == "     hello")

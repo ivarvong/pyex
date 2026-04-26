@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-04-26T21:13:36.563555Z",
+  "sha256": "e1f0c74867b4585dbc37fa1ee3e57ba14ed7d6198b90bb782692e4c69a3a2408",
+  "source_file": "main.py",
+  "stdout": "1 2\n3 4\n10 20\n30 40\nalice 90 A\nbob 75 B\ncarol 85 A\n0 3\n1 7\n2 11\n[3, 9]\n[6, 20]\n0 1 2 3\n1 4 5 6\n"
+}

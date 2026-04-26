@@ -57,7 +57,8 @@ defmodule Pyex.Stdlib do
     "operator" => Pyex.Stdlib.Operator,
     "bisect" => Pyex.Stdlib.Bisect,
     "pygments" => Pyex.Stdlib.Pygments,
-    "zipfile" => Pyex.Stdlib.Zipfile
+    "zipfile" => Pyex.Stdlib.Zipfile,
+    "statistics" => Pyex.Stdlib.Statistics
   }
 
   @doc """

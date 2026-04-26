@@ -58,6 +58,31 @@ defmodule Pyex.Stdlib.CSV do
     parse_lines(lines, delimiter, quotechar)
   end
 
+  defp do_reader([{:stringio, content}], kwargs) do
+    delimiter = Map.get(kwargs, "delimiter", ",")
+    quotechar = Map.get(kwargs, "quotechar", "\"")
+    parse_lines(split_file_lines(content), delimiter, quotechar)
+  end
+
+  defp do_reader([{:ref, id}], kwargs) do
+    delimiter = Map.get(kwargs, "delimiter", ",")
+    quotechar = Map.get(kwargs, "quotechar", "\"")
+
+    {:ctx_call,
+     fn env, ctx ->
+       case Pyex.Ctx.deref(ctx, {:ref, id}) do
+         {:stringio, content} ->
+           lines = split_file_lines(content)
+           {parse_lines(lines, delimiter, quotechar), env, ctx}
+
+         _ ->
+           {{:exception,
+             "TypeError: csv.reader() argument 1 must be an iterable of strings or a file object"},
+            env, ctx}
+       end
+     end}
+  end
+
   defp do_reader([{:file_handle, id}], kwargs) do
     delimiter = Map.get(kwargs, "delimiter", ",")
     quotechar = Map.get(kwargs, "quotechar", "\"")
@@ -93,7 +118,53 @@ defmodule Pyex.Stdlib.CSV do
     fieldnames = Map.get(kwargs, "fieldnames")
     restkey = Map.get(kwargs, "restkey")
     restval = Map.get(kwargs, "restval")
-    build_dict_reader(lines, delimiter, quotechar, fieldnames, restkey, restval)
+
+    {:ctx_call,
+     fn env, ctx ->
+       rows = build_dict_reader(lines, delimiter, quotechar, fieldnames, restkey, restval)
+       {result, ctx} = heap_alloc_rows(rows, ctx)
+       {result, env, ctx}
+     end}
+  end
+
+  defp do_dict_reader([{:stringio, content}], kwargs) do
+    delimiter = Map.get(kwargs, "delimiter", ",")
+    quotechar = Map.get(kwargs, "quotechar", "\"")
+    fieldnames = Map.get(kwargs, "fieldnames")
+    restkey = Map.get(kwargs, "restkey")
+    restval = Map.get(kwargs, "restval")
+    lines = split_file_lines(content)
+
+    {:ctx_call,
+     fn env, ctx ->
+       rows = build_dict_reader(lines, delimiter, quotechar, fieldnames, restkey, restval)
+       {result, ctx} = heap_alloc_rows(rows, ctx)
+       {result, env, ctx}
+     end}
+  end
+
+  defp do_dict_reader([{:ref, id}], kwargs) do
+    delimiter = Map.get(kwargs, "delimiter", ",")
+    quotechar = Map.get(kwargs, "quotechar", "\"")
+    fieldnames = Map.get(kwargs, "fieldnames")
+    restkey = Map.get(kwargs, "restkey")
+    restval = Map.get(kwargs, "restval")
+
+    {:ctx_call,
+     fn env, ctx ->
+       case Pyex.Ctx.deref(ctx, {:ref, id}) do
+         {:stringio, content} ->
+           lines = split_file_lines(content)
+           rows = build_dict_reader(lines, delimiter, quotechar, fieldnames, restkey, restval)
+           {result, ctx} = heap_alloc_rows(rows, ctx)
+           {result, env, ctx}
+
+         _ ->
+           {{:exception,
+             "TypeError: csv.DictReader() argument 1 must be an iterable of strings or a file object"},
+            env, ctx}
+       end
+     end}
   end
 
   defp do_dict_reader([{:file_handle, id}], kwargs) do
@@ -108,9 +179,9 @@ defmodule Pyex.Stdlib.CSV do
        case Pyex.Ctx.read_handle(ctx, id) do
          {:ok, content, ctx} ->
            lines = split_file_lines(content)
-
-           {build_dict_reader(lines, delimiter, quotechar, fieldnames, restkey, restval), env,
-            ctx}
+           rows = build_dict_reader(lines, delimiter, quotechar, fieldnames, restkey, restval)
+           {result, ctx} = heap_alloc_rows(rows, ctx)
+           {result, env, ctx}
 
          {:error, msg} ->
            {{:exception, msg}, env, ctx}
@@ -121,6 +192,27 @@ defmodule Pyex.Stdlib.CSV do
   defp do_dict_reader(_, _kwargs) do
     {:exception,
      "TypeError: csv.DictReader() argument 1 must be an iterable of strings or a file object"}
+  end
+
+  @spec heap_alloc_rows(
+          [Pyex.Interpreter.pyvalue()] | {:exception, String.t()},
+          Pyex.Ctx.t()
+        ) :: {Pyex.Interpreter.pyvalue(), Pyex.Ctx.t()}
+  defp heap_alloc_rows({:exception, _} = err, ctx), do: {err, ctx}
+
+  defp heap_alloc_rows(rows, ctx) when is_list(rows) do
+    Enum.reduce_while(rows, {[], ctx}, fn
+      {:exception, _} = err, {_acc, ctx} ->
+        {:halt, {err, ctx}}
+
+      row, {acc, ctx} ->
+        {ref, ctx} = Pyex.Ctx.heap_alloc(ctx, row)
+        {:cont, {[ref | acc], ctx}}
+    end)
+    |> case do
+      {{:exception, _} = err, ctx} -> {err, ctx}
+      {refs, ctx} -> {Enum.reverse(refs), ctx}
+    end
   end
 
   @spec build_dict_reader(

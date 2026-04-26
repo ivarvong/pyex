@@ -731,6 +731,7 @@ defmodule Pyex.Ctx do
   @spec deep_deref(t(), term()) :: term()
   def deep_deref(ctx, value), do: deep_deref(ctx, value, MapSet.new())
 
+  @dialyzer {:no_opaque, deep_deref: 3}
   @spec deep_deref(t(), term(), MapSet.t()) :: term()
   def deep_deref(%__MODULE__{} = ctx, {:ref, id} = ref, visited) do
     cond do
@@ -987,6 +988,17 @@ defmodule Pyex.Ctx do
   end
 
   @doc """
+  Records that the generator has yielded `val` via a yield-expression
+  (`v = yield val`) and is now waiting for a sent value before continuing.
+  Unlike `set_gen_pending/5`, the continuation is NOT run eagerly — it
+  will be driven by the next `next()` or `send()` call.
+  """
+  @spec set_gen_awaiting_send(t(), non_neg_integer(), term(), [term()], term()) :: t()
+  def set_gen_awaiting_send(%__MODULE__{iterators: iters} = ctx, id, val, cont, gen_env) do
+    %{ctx | iterators: Map.put(iters, id, {:gen_awaiting_send, val, cont, gen_env})}
+  end
+
+  @doc """
   Advances a plain list iterator, returning the next item
   or `:exhausted` if the iterator is empty.
 
@@ -1000,6 +1012,7 @@ defmodule Pyex.Ctx do
           | :exhausted
           | {:instance, term()}
           | {:gen_pending, term(), [term()], term()}
+          | {:gen_awaiting_send, term(), [term()], term()}
   def iter_next(%__MODULE__{iterators: iters} = ctx, id) do
     case Map.get(iters, id) do
       {:list, [item | rest]} ->
@@ -1014,6 +1027,9 @@ defmodule Pyex.Ctx do
 
       {:gen_pending, val, cont, gen_env} ->
         {:gen_pending, val, cont, gen_env}
+
+      {:gen_awaiting_send, val, cont, gen_env} ->
+        {:gen_awaiting_send, val, cont, gen_env}
 
       :gen_done ->
         :exhausted

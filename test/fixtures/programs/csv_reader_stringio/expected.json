@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-04-26T20:53:17.248815Z",
+  "sha256": "6b142af1270e3ed295c694993b6083765c353fc2d81aca6beae1415d5fb031b7",
+  "source_file": "main.py",
+  "stdout": "['name', 'age', 'city']\n['Alice', '30', 'NYC']\n['Bob', '25', 'LA']\n3\n59.9\n37.5\nWidget\n['a', 'b', 'c']\n['1', '2', '3']\n"
+}

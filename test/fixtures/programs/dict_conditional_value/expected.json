@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-04-26T20:53:17.195118Z",
+  "sha256": "b2ae086a2020cd93ea641cf6ac54491abeecc8da15060f3305c2015dd3e2c4fd",
+  "source_file": "main.py",
+  "stdout": "{'a': None}\n84\nTrue\n{'on': 1}\n20\nFalse\n[1, 3]\n[-3, -1, 0, 2, 4]\nTrue\n1\n3\n"
+}

@@ -66,10 +66,21 @@ defmodule Pyex.Interpreter.BuiltinResults do
 
       {:iter_next, id} ->
         case Ctx.iter_next(ctx, id) do
-          {:ok, item, ctx} -> {item, env, ctx}
-          :exhausted -> {{:exception, "StopIteration"}, env, ctx}
-          {:instance, inst} -> Interpreter.eval_instance_next(inst, id, :no_default, env, ctx)
-          {:gen_pending, val, cont, gen_env} -> step_generator(id, val, cont, gen_env, env, ctx)
+          {:ok, item, ctx} ->
+            {item, env, ctx}
+
+          :exhausted ->
+            {{:exception, "StopIteration"}, env, ctx}
+
+          {:instance, inst} ->
+            Interpreter.eval_instance_next(inst, id, :no_default, env, ctx)
+
+          {:gen_pending, val, cont, gen_env} ->
+            step_generator(id, val, cont, gen_env, env, ctx)
+
+          {:gen_awaiting_send, _val, cont, gen_env} ->
+            # next(g) == send(None): advance continuation with nil sent value
+            advance_with_sent_value(id, cont, gen_env, nil, env, ctx)
         end
 
       {:iter_next_default, id, default} ->
@@ -85,6 +96,12 @@ defmodule Pyex.Interpreter.BuiltinResults do
 
           {:gen_pending, val, cont, gen_env} ->
             case step_generator(id, val, cont, gen_env, env, ctx) do
+              {{:exception, "StopIteration"}, env, ctx} -> {default, env, ctx}
+              other -> other
+            end
+
+          {:gen_awaiting_send, _val, cont, gen_env} ->
+            case advance_with_sent_value(id, cont, gen_env, nil, env, ctx) do
               {{:exception, "StopIteration"}, env, ctx} -> {default, env, ctx}
               other -> other
             end
@@ -324,11 +341,23 @@ defmodule Pyex.Interpreter.BuiltinResults do
   # does for the for-loop path.
   @spec step_generator(non_neg_integer(), term(), [term()], Env.t(), Env.t(), Ctx.t()) ::
           eval_result()
+  defp step_generator(id, val, [{:cont_bind_sent, _name} | _] = cont, gen_env, env, ctx) do
+    # The continuation expects a sent value before proceeding.
+    # Save as awaiting-send so next()/send() can supply the value lazily.
+    ctx = Ctx.set_gen_awaiting_send(ctx, id, val, cont, gen_env)
+    {val, env, ctx}
+  end
+
   defp step_generator(id, val, cont, gen_env, env, ctx) do
     saved_mode = ctx.generator_mode
     inner_ctx = %{ctx | generator_mode: :defer_inner}
 
     case Interpreter.resume_generator(cont, gen_env, inner_ctx) do
+      {{:yielded, next_val, [{:cont_bind_sent, _name} | _] = next_cont}, next_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.set_gen_awaiting_send(ctx, id, next_val, next_cont, next_gen_env)
+        {val, env, ctx}
+
       {{:yielded, next_val, next_cont}, next_gen_env, ctx} ->
         ctx = %{ctx | generator_mode: saved_mode}
         ctx = Ctx.set_gen_pending(ctx, id, next_val, next_cont, next_gen_env)
@@ -338,6 +367,61 @@ defmodule Pyex.Interpreter.BuiltinResults do
         ctx = %{ctx | generator_mode: saved_mode}
         ctx = Ctx.mark_iter_exhausted(ctx, id)
         {val, env, ctx}
+
+      {{:exception, _} = signal, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {signal, env, ctx}
+    end
+  end
+
+  @doc false
+  @spec send_to_awaiting_generator(
+          non_neg_integer(),
+          [term()],
+          Env.t(),
+          term(),
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  def send_to_awaiting_generator(id, cont, gen_env, sent_value, env, ctx) do
+    advance_with_sent_value(id, cont, gen_env, sent_value, env, ctx)
+  end
+
+  @spec advance_with_sent_value(
+          non_neg_integer(),
+          [term()],
+          Env.t(),
+          term(),
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp advance_with_sent_value(id, cont, gen_env, sent_value, env, ctx) do
+    saved_mode = ctx.generator_mode
+    inner_ctx = %{ctx | generator_mode: :defer_inner}
+
+    case Interpreter.resume_generator_with_send(cont, gen_env, inner_ctx, sent_value) do
+      {{:yielded, next_val, [{:cont_bind_sent, _} | _] = next_cont}, next_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.set_gen_awaiting_send(ctx, id, next_val, next_cont, next_gen_env)
+        {next_val, env, ctx}
+
+      {{:yielded, next_val, []}, _next_gen_env, ctx} ->
+        # Empty continuation: generator will be done after this yield.
+        # Mark as exhausted now so the next next()/send() raises StopIteration.
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {next_val, env, ctx}
+
+      {{:yielded, next_val, next_cont}, next_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.set_gen_pending(ctx, id, next_val, next_cont, next_gen_env)
+        {next_val, env, ctx}
+
+      {:done, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {{:exception, "StopIteration"}, env, ctx}
 
       {{:exception, _} = signal, _gen_env, ctx} ->
         ctx = %{ctx | generator_mode: saved_mode}

@@ -73,6 +73,31 @@ defmodule Pyex.Parser.ControlFlow do
     end
   end
 
+  def parse_for([{:op, line, :lparen} | rest]) do
+    with {:ok, pattern, rest} <- collect_nested_for_pattern(rest, []) do
+      case rest do
+        [{:keyword, _, "in"} | rest] ->
+          with {:ok, iterable, rest} <- Parser.parse_expression(rest),
+               {:ok, body, rest} <- parse_loop_body(rest, "for"),
+               {:ok, else_body, rest} <- parse_loop_else(rest) do
+            {:ok, {:for, [line: line], [pattern, iterable, body, else_body]}, drop_newline(rest)}
+          end
+
+        [{:op, _, :comma} | rest] ->
+          with {:ok, var_names, rest} <- collect_for_vars(rest, [pattern]),
+               {:ok, iterable, rest} <- Parser.parse_expression(rest),
+               {:ok, body, rest} <- parse_loop_body(rest, "for"),
+               {:ok, else_body, rest} <- parse_loop_else(rest) do
+            {:ok, {:for, [line: line], [var_names, iterable, body, else_body]},
+             drop_newline(rest)}
+          end
+
+        _ ->
+          {:error, "expected 'in' after for-loop target at #{token_line(rest)}"}
+      end
+    end
+  end
+
   def parse_for(tokens) do
     {:error, "expected variable name after 'for' at #{token_line(tokens)}"}
   end
@@ -171,8 +196,10 @@ defmodule Pyex.Parser.ControlFlow do
     {:error, "expected ':' after #{context} at #{token_line(tokens)}"}
   end
 
-  @spec collect_for_vars([Lexer.token()], [String.t()]) ::
-          {:ok, [String.t()], [Lexer.token()]} | {:error, String.t()}
+  @type for_target :: String.t() | [for_target()]
+
+  @spec collect_for_vars([Lexer.token()], [for_target()]) ::
+          {:ok, [for_target()], [Lexer.token()]} | {:error, String.t()}
   defp collect_for_vars([{:name, _, name}, {:keyword, _, "in"} | rest], acc) do
     {:ok, Enum.reverse([name | acc]), rest}
   end
@@ -181,8 +208,42 @@ defmodule Pyex.Parser.ControlFlow do
     collect_for_vars(rest, [name | acc])
   end
 
+  defp collect_for_vars([{:op, _, :lparen} | rest], acc) do
+    with {:ok, pattern, rest} <- collect_nested_for_pattern(rest, []) do
+      case rest do
+        [{:keyword, _, "in"} | rest] -> {:ok, Enum.reverse([pattern | acc]), rest}
+        [{:op, _, :comma} | rest] -> collect_for_vars(rest, [pattern | acc])
+        _ -> {:error, "expected 'in' or ',' in for loop at #{token_line(rest)}"}
+      end
+    end
+  end
+
   defp collect_for_vars(tokens, _acc) do
     {:error, "expected variable name in for loop at #{token_line(tokens)}"}
+  end
+
+  @spec collect_nested_for_pattern([Lexer.token()], [for_target()]) ::
+          {:ok, [for_target()], [Lexer.token()]} | {:error, String.t()}
+  defp collect_nested_for_pattern([{:name, _, name}, {:op, _, :rparen} | rest], acc) do
+    {:ok, Enum.reverse([name | acc]), rest}
+  end
+
+  defp collect_nested_for_pattern([{:name, _, name}, {:op, _, :comma} | rest], acc) do
+    collect_nested_for_pattern(rest, [name | acc])
+  end
+
+  defp collect_nested_for_pattern([{:op, _, :lparen} | rest], acc) do
+    with {:ok, nested, rest} <- collect_nested_for_pattern(rest, []) do
+      case rest do
+        [{:op, _, :rparen} | rest] -> {:ok, Enum.reverse([nested | acc]), rest}
+        [{:op, _, :comma} | rest] -> collect_nested_for_pattern(rest, [nested | acc])
+        _ -> {:error, "expected ')' or ',' in nested for target at #{token_line(rest)}"}
+      end
+    end
+  end
+
+  defp collect_nested_for_pattern(tokens, _acc) do
+    {:error, "expected variable name in nested for target at #{token_line(tokens)}"}
   end
 
   @spec parse_try_else([Lexer.token()]) ::

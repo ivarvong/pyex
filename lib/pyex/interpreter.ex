@@ -1465,6 +1465,10 @@ defmodule Pyex.Interpreter do
   defp callable?({:io_call, _}), do: true
   defp callable?(_), do: false
 
+  @doc false
+  @spec eval_value_attr(pyvalue(), String.t(), Env.t(), Ctx.t()) :: eval_result()
+  def eval_value_attr(object, attr, env, ctx), do: eval_getattr_on_value(object, attr, env, ctx)
+
   @spec eval_getattr_on_value(pyvalue(), String.t(), Env.t(), Ctx.t()) :: eval_result()
   defp eval_getattr_on_value(object, attr, env, ctx) do
     object = Ctx.deref(ctx, object)
@@ -1855,6 +1859,9 @@ defmodule Pyex.Interpreter do
             {{:exception, "AttributeError: 'super' object has no attribute '#{attr}'"}, env, ctx}
         end
 
+      {:iterator, id} ->
+        iter_attr_for_generator(id, attr, env, ctx)
+
       _ ->
         case Methods.resolve(object, attr) do
           {:ok, method} ->
@@ -1865,6 +1872,79 @@ defmodule Pyex.Interpreter do
               "AttributeError: '#{Helpers.py_type(object)}' object has no attribute '#{attr}'"},
              env, ctx}
         end
+    end
+  end
+
+  @spec iter_attr_for_generator(non_neg_integer(), String.t(), Env.t(), Ctx.t()) :: eval_result()
+  defp iter_attr_for_generator(id, attr, env, ctx) do
+    iter_token = {:iterator, id}
+
+    case attr do
+      a when a in ["__iter__", "__next__"] ->
+        {{:builtin,
+          fn
+            [] -> {:iter_next, id}
+            [_self] -> {:iter_next, id}
+          end}, env, ctx}
+
+      "send" ->
+        {{:builtin,
+          fn
+            [sent_value] ->
+              {:ctx_call,
+               fn env, ctx ->
+                 case Ctx.iter_entry(ctx, id) do
+                   {:gen_awaiting_send, _val, cont, gen_env} ->
+                     # Generator is waiting for a sent value to advance.
+                     Pyex.Interpreter.BuiltinResults.send_to_awaiting_generator(
+                       id,
+                       cont,
+                       gen_env,
+                       sent_value,
+                       env,
+                       ctx
+                     )
+
+                   {:gen_pending, _val, _cont, _gen_env} ->
+                     {{:exception,
+                       "TypeError: can't send non-None value to a just-started generator"}, env,
+                      ctx}
+
+                   :gen_done ->
+                     {{:exception, "StopIteration"}, env, ctx}
+
+                   _ ->
+                     {{:exception, "TypeError: can only send to a generator"}, env, ctx}
+                 end
+               end}
+
+            _ ->
+              {:exception, "TypeError: send() takes exactly one argument"}
+          end}, env, ctx}
+
+      "close" ->
+        {{:builtin,
+          fn _ ->
+            {:ctx_call,
+             fn env, ctx ->
+               ctx = Ctx.mark_iter_exhausted(ctx, id)
+               {nil, env, ctx}
+             end}
+          end}, env, ctx}
+
+      "throw" ->
+        {{:builtin,
+          fn
+            [exc_type | _rest] ->
+              {:exception, Helpers.py_type(exc_type)}
+
+            _ ->
+              {:exception, "TypeError: throw() requires an exception type"}
+          end}, env, ctx}
+
+      _ ->
+        _ = iter_token
+        {{:exception, "AttributeError: 'generator' object has no attribute '#{attr}'"}, env, ctx}
     end
   end
 
@@ -3490,6 +3570,12 @@ defmodule Pyex.Interpreter do
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
   def resume_generator([], env, ctx), do: {:done, env, ctx}
 
+  def resume_generator([{:cont_bind_sent, name} | rest], env, ctx) do
+    # next() resumes with sent_value = nil (Python semantics)
+    env = Env.smart_put(env, name, nil)
+    resume_generator(rest, env, ctx)
+  end
+
   def resume_generator([{:cont_stmts, stmts} | rest], env, ctx) do
     case eval_statements(stmts, env, ctx) do
       {{:yielded, val, inner_cont}, env, ctx} ->
@@ -3601,6 +3687,20 @@ defmodule Pyex.Interpreter do
       _ ->
         resume_generator(rest, env, ctx)
     end
+  end
+
+  @doc false
+  @spec resume_generator_with_send([cont_frame()], Env.t(), Ctx.t(), pyvalue()) ::
+          {{:yielded, pyvalue(), [cont_frame()]}, Env.t(), Ctx.t()}
+          | {:done, Env.t(), Ctx.t()}
+          | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  def resume_generator_with_send([{:cont_bind_sent, name} | rest], env, ctx, sent_value) do
+    env = Env.smart_put(env, name, sent_value)
+    resume_generator(rest, env, ctx)
+  end
+
+  def resume_generator_with_send(cont, env, ctx, _sent_value) do
+    resume_generator(cont, env, ctx)
   end
 
   @doc false

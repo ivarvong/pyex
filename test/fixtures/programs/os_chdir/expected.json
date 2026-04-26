@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-04-26T20:22:39.325083Z",
+  "sha256": "c7de227d052b322182b3006a665f65ef46edd2a954c6cd6972797c9bd8b7c4ba",
+  "source_file": "main.py",
+  "stdout": "True\nTrue\nTrue\nTrue\nbar.txt\n/foo\n"
+}
