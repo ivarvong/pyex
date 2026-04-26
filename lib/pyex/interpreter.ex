@@ -549,7 +549,7 @@ defmodule Pyex.Interpreter do
             ctx = %{ctx | generator_acc: [value | ctx.generator_acc]}
             {nil, env, ctx}
 
-          nil ->
+          _ ->
             {{:exception, "SyntaxError: 'yield' outside function"}, env, ctx}
         end
     end
