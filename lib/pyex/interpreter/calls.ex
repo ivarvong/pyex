@@ -192,6 +192,10 @@ defmodule Pyex.Interpreter.Calls do
     {env, Ctx.heap_put(ctx, id, new_object)}
   end
 
+  defp write_back_to_receiver({:super_proxy, {:ref, id}, _}, _func_expr, new_object, env, ctx) do
+    {env, Ctx.heap_put(ctx, id, new_object)}
+  end
+
   defp write_back_to_receiver(_receiver, func_expr, new_object, env, ctx) do
     mutate_target(func_expr, new_object, env, ctx)
   end

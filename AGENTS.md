@@ -176,8 +176,13 @@ values are collected. This is by design.
 1. `mix test` -- all tests must pass
 2. `mix compile --warnings-as-errors` -- zero Elixir warnings
 3. `mix format` -- code must be formatted
-4. `mix dialyzer` -- zero warnings (15 intentionally suppressed in `.dialyzer_ignore.exs`)
-5. Update the TODO below to mark the item completed
+4. `mix dialyzer` -- zero warnings (suppressed list in `.dialyzer_ignore.exs`).
+   The ignore file contains entries for both Elixir 1.19.x (CI) and 1.20.x (local).
+   "Unnecessary Skips" warnings in the output are expected and do **not** cause
+   failure unless you pass `--list-unused-filters`.
+5. After opening a PR, check that all CI jobs pass with `gh pr checks <PR>`.
+   CI runs Elixir 1.19.5 / OTP 27+28; fix any failures before merging.
+6. Update TODO.txt to mark the item completed
 
 ## Procedure for adding a Python feature
 Each feature touches up to 3 layers. Work through them in order:

@@ -1,5 +1,6 @@
 defmodule Pyex.Methods do
   @moduledoc """
+
   Method dispatch for Python built-in types.
 
   Resolves attribute access on strings and lists to bound

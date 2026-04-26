@@ -1,5 +1,6 @@
 defmodule Pyex.Interpreter do
   @moduledoc """
+
   Tree-walking evaluator for the Pyex AST.
 
   Functions are first-class values stored in the environment.
@@ -1852,11 +1853,46 @@ defmodule Pyex.Interpreter do
           {:ok, {:function, _, _, _, _} = func, owner_class} ->
             {{:bound_method, instance, func, owner_class}, env, ctx}
 
+          {:ok, {:builtin, _} = b, _owner} ->
+            {{:bound_method, instance, b}, env, ctx}
+
+          {:ok, {:builtin_kw, _} = bkw, _owner} ->
+            {{:bound_method, instance, bkw}, env, ctx}
+
           {:ok, value, _owner} ->
             {value, env, ctx}
 
           :error ->
-            {{:exception, "AttributeError: 'super' object has no attribute '#{attr}'"}, env, ctx}
+            # Fall back to instance attrs or forwarded stdlib methods.
+            # Stdlib subclasses (e.g. class MyDT(datetime.datetime)) bake
+            # the parent's builtin methods directly into inst_attrs at
+            # construction time, so super().isoformat() must find them there.
+            obj = Ctx.deref(ctx, instance)
+            inst_attrs = if is_tuple(obj) and tuple_size(obj) == 3, do: elem(obj, 2), else: %{}
+
+            # Stdlib subclass instances (e.g. datetime subclasses) store
+            # parent methods as pre-bound closures in inst_attrs. Return them
+            # directly without re-binding, since the closure already captures
+            # the concrete value (e.g. `fn [] -> "2024-01-15T00:00:00" end`).
+            cond do
+              match?({:ok, {:builtin, _}}, Map.fetch(inst_attrs, attr)) ->
+                {:ok, val} = Map.fetch(inst_attrs, attr)
+                {val, env, ctx}
+
+              match?({:ok, {:builtin_kw, _}}, Map.fetch(inst_attrs, attr)) ->
+                {:ok, val} = Map.fetch(inst_attrs, attr)
+                {val, env, ctx}
+
+              true ->
+                case forward_method_to_wrapped(inst_attrs, attr) do
+                  {:ok, method} ->
+                    {method, env, ctx}
+
+                  :not_found ->
+                    {{:exception, "AttributeError: 'super' object has no attribute '#{attr}'"},
+                     env, ctx}
+                end
+            end
         end
 
       {:iterator, id} ->
