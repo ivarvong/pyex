@@ -912,10 +912,19 @@ defmodule Pyex.Builtins do
   defp builtin_bool([val]), do: truthy?(val)
 
   @spec builtin_list([Interpreter.pyvalue()]) ::
-          [Interpreter.pyvalue()] | {:iter_to_list, Interpreter.pyvalue()}
+          [Interpreter.pyvalue()]
+          | {:iter_to_list, Interpreter.pyvalue()}
+          | {:ctx_call, (Env.t(), Ctx.t() -> {Interpreter.pyvalue(), Env.t(), Ctx.t()})}
   defp builtin_list([]), do: []
-  defp builtin_list([{:py_list, reversed, _}]), do: Enum.reverse(reversed)
-  defp builtin_list([list]) when is_list(list), do: list
+
+  defp builtin_list([{:py_list, reversed, _}]) do
+    items = Enum.reverse(reversed)
+    heap_alloc_list_if_mutable(items)
+  end
+
+  defp builtin_list([list]) when is_list(list) do
+    heap_alloc_list_if_mutable(list)
+  end
 
   defp builtin_list([string]) when is_binary(string) do
     String.codepoints(string)
@@ -945,6 +954,39 @@ defmodule Pyex.Builtins do
   defp builtin_list([map]) when is_map(map), do: map |> visible_dict() |> Map.keys()
   defp builtin_list([{:instance, _, _} = inst]), do: {:iter_to_list, inst}
   defp builtin_list([{:iterator, _} = it]), do: {:iter_to_list, it}
+
+  @spec mutable_element?(Interpreter.pyvalue()) :: boolean()
+  defp mutable_element?({:py_dict, _, _}), do: true
+  defp mutable_element?({:py_list, _, _}), do: true
+  defp mutable_element?({:instance, _, _}), do: true
+  defp mutable_element?({:set, _}), do: true
+  defp mutable_element?(_), do: false
+
+  @spec heap_alloc_list_if_mutable([Interpreter.pyvalue()]) ::
+          [Interpreter.pyvalue()]
+          | {:ctx_call, (Env.t(), Ctx.t() -> {Interpreter.pyvalue(), Env.t(), Ctx.t()})}
+  defp heap_alloc_list_if_mutable(items) do
+    if Enum.any?(items, &mutable_element?/1) do
+      {:ctx_call,
+       fn env, ctx ->
+         {item_refs, ctx} =
+           Enum.reduce(items, {[], ctx}, fn item, {acc, ctx} ->
+             if mutable_element?(item) do
+               {ref, ctx} = Ctx.heap_alloc(ctx, item)
+               {[ref | acc], ctx}
+             else
+               {[item | acc], ctx}
+             end
+           end)
+
+         item_refs = Enum.reverse(item_refs)
+         {ref, ctx} = Ctx.heap_alloc(ctx, {:py_list, Enum.reverse(item_refs), length(item_refs)})
+         {ref, env, ctx}
+       end}
+    else
+      items
+    end
+  end
 
   @doc false
   @spec builtin_dict([Interpreter.pyvalue()], %{optional(String.t()) => Interpreter.pyvalue()}) ::

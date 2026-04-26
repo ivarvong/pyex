@@ -787,6 +787,13 @@ defmodule Pyex.Interpreter.Assignments do
   @doc false
   @spec get_subscript_value(Interpreter.pyvalue(), Interpreter.pyvalue()) ::
           Interpreter.pyvalue() | {:exception, String.t()}
+  def get_subscript_value({:py_dict, %{"__counter__" => true}, _} = dict, key) do
+    case PyDict.fetch(dict, key) do
+      {:ok, val} when is_integer(val) -> val
+      _ -> 0
+    end
+  end
+
   def get_subscript_value({:py_dict, _, _} = dict, key) do
     case PyDict.fetch(dict, key) do
       {:ok, val} ->

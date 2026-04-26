@@ -819,6 +819,30 @@ defmodule Pyex.Parser do
     end
   end
 
+  def parse_expression([{:keyword, line, "yield"}, {:keyword, _, "from"} | rest]) do
+    with {:ok, expr, rest} <- parse_expression(rest) do
+      {:ok, {:yield_from, [line: line], [expr]}, rest}
+    end
+  end
+
+  def parse_expression([{:keyword, line, "yield"} | rest]) do
+    case rest do
+      [] ->
+        {:ok, {:yield, [line: line], [{:lit, [line: line], [nil]}]}, rest}
+
+      [token | _] when token in [:newline, :dedent, :indent] ->
+        {:ok, {:yield, [line: line], [{:lit, [line: line], [nil]}]}, rest}
+
+      [{:op, _, op} | _] when op in [:rparen, :comma, :rbracket, :rbrace, :semicolon] ->
+        {:ok, {:yield, [line: line], [{:lit, [line: line], [nil]}]}, rest}
+
+      _ ->
+        with {:ok, expr, rest} <- parse_expression(rest) do
+          {:ok, {:yield, [line: line], [expr]}, rest}
+        end
+    end
+  end
+
   def parse_expression(tokens) do
     with {:ok, expr, rest} <- parse_or(tokens) do
       parse_ternary(expr, rest)
@@ -1242,7 +1266,7 @@ defmodule Pyex.Parser do
   end
 
   defp parse_args(tokens, acc) do
-    with {:ok, expr, rest} <- parse_or(tokens) do
+    with {:ok, expr, rest} <- parse_expression(tokens) do
       case rest do
         [{:keyword, _, "for"} | for_rest] ->
           line = node_line(expr)
@@ -1256,28 +1280,6 @@ defmodule Pyex.Parser do
 
             {:error, _} = error ->
               error
-          end
-
-        [{:keyword, _, "if"} | _] = if_rest ->
-          with {:ok, full_expr, rest} <- parse_ternary(expr, if_rest) do
-            case rest do
-              [{:keyword, _, "for"} | for_rest] ->
-                line = node_line(full_expr)
-
-                case Comprehensions.parse_gen_expr_body(full_expr, for_rest, line) do
-                  {:ok, gen_expr, [{:op, _, :rparen} | rest]} ->
-                    {:ok, Enum.reverse([gen_expr | acc]), rest}
-
-                  {:ok, _gen_expr, rest} ->
-                    {:error, "expected ')' after generator expression at #{token_line(rest)}"}
-
-                  {:error, _} = error ->
-                    error
-                end
-
-              _ ->
-                parse_args(rest, [full_expr | acc])
-            end
           end
 
         _ ->

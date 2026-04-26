@@ -49,6 +49,15 @@ defmodule Pyex.Stdlib.Collections do
     counter_with_methods(counts)
   end
 
+  defp counter([{:generator, items}], _kwargs) do
+    counts =
+      Enum.reduce(items, %{}, fn item, acc ->
+        Map.update(acc, item, 1, &(&1 + 1))
+      end)
+
+    counter_with_methods(counts)
+  end
+
   defp counter([list], _kwargs) when is_list(list) do
     counts =
       Enum.reduce(list, %{}, fn item, acc ->
@@ -143,6 +152,9 @@ defmodule Pyex.Stdlib.Collections do
       case arg do
         {:py_list, reversed, _} ->
           Enum.reverse(reversed)
+
+        {:generator, items} ->
+          items
 
         list when is_list(list) ->
           list

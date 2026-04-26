@@ -1,5 +1,6 @@
 defmodule Pyex.Methods do
   @moduledoc """
+
   Method dispatch for Python built-in types.
 
   Resolves attribute access on strings and lists to bound
@@ -232,6 +233,8 @@ defmodule Pyex.Methods do
   defp string_method("strip"), do: {:ok, &str_strip/2}
   defp string_method("lstrip"), do: {:ok, &str_lstrip/2}
   defp string_method("rstrip"), do: {:ok, &str_rstrip/2}
+  defp string_method("removeprefix"), do: {:ok, &str_removeprefix/2}
+  defp string_method("removesuffix"), do: {:ok, &str_removesuffix/2}
   defp string_method("split"), do: {:ok, &str_split/2}
   defp string_method("join"), do: {:ok, &str_join/2}
   defp string_method("replace"), do: {:ok, &str_replace/2}
@@ -963,6 +966,24 @@ defmodule Pyex.Methods do
   defp str_rstrip(s, [chars]) when is_binary(chars) do
     trim_trailing_chars(s, String.codepoints(chars))
   end
+
+  @spec str_removeprefix(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  defp str_removeprefix(s, [prefix]) when is_binary(prefix) do
+    if String.starts_with?(s, prefix),
+      do: binary_part(s, byte_size(prefix), byte_size(s) - byte_size(prefix)),
+      else: s
+  end
+
+  defp str_removeprefix(s, _), do: s
+
+  @spec str_removesuffix(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  defp str_removesuffix(s, [suffix]) when is_binary(suffix) do
+    if String.ends_with?(s, suffix),
+      do: binary_part(s, 0, byte_size(s) - byte_size(suffix)),
+      else: s
+  end
+
+  defp str_removesuffix(s, _), do: s
 
   @spec trim_leading_chars(String.t(), [String.t()]) :: String.t()
   defp trim_leading_chars("", _chars), do: ""

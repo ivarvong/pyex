@@ -69,6 +69,71 @@ defmodule Pyex.Interpreter.Calls do
   Evaluates a general call expression.
   """
   @spec eval_call_expr(Parser.ast_node(), [Parser.ast_node()], Env.t(), Ctx.t()) :: eval_result()
+  def eval_call_expr(
+        {:getattr, _, [receiver_expr, method_name]} = func_expr,
+        arg_exprs,
+        env,
+        ctx
+      )
+      when not is_tuple(receiver_expr) or elem(receiver_expr, 0) != :var do
+    # Two-phase evaluation for method calls on non-variable receivers.
+    # We evaluate the receiver separately so that if the method returns
+    # {:mutate, new_obj, ret}, we can write new_obj back to the receiver
+    # ref (e.g. `d.setdefault("k", []).append(v)` — the list returned by
+    # setdefault is a heap ref; append's mutation must update that ref).
+    case Interpreter.eval(receiver_expr, env, ctx) do
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {raw_receiver, env, ctx} ->
+        case Interpreter.eval_value_attr(raw_receiver, method_name, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {signal, env, ctx}
+
+          {func, env, ctx} ->
+            case Interpreter.eval_call_args(arg_exprs, env, ctx) do
+              {{:exception, _} = signal, env, ctx} ->
+                {signal, env, ctx}
+
+              {args, kwargs, env, ctx} ->
+                case Interpreter.call_function(func, args, kwargs, env, ctx) do
+                  {:mutate, new_object, return_value, new_env, ctx} ->
+                    {new_env, ctx} =
+                      write_back_to_receiver(raw_receiver, func_expr, new_object, new_env, ctx)
+
+                    {return_value, new_env, ctx}
+
+                  {:mutate, new_object, return_value, ctx} ->
+                    {env, ctx} =
+                      write_back_to_receiver(raw_receiver, func_expr, new_object, env, ctx)
+
+                    {return_value, env, ctx}
+
+                  {:mutate_arg, index, new_object, return_value, new_env, ctx} ->
+                    {new_env, ctx} =
+                      mutate_target(Enum.at(arg_exprs, index), new_object, new_env, ctx)
+
+                    {return_value, new_env, ctx}
+
+                  {:mutate_arg, index, new_object, return_value, ctx} ->
+                    {env, ctx} = mutate_target(Enum.at(arg_exprs, index), new_object, env, ctx)
+                    {return_value, env, ctx}
+
+                  {{:exception, _} = signal, env, ctx} ->
+                    {signal, env, ctx}
+
+                  {result, env, ctx, updated_func} ->
+                    env = Helpers.rebind_var(env, func_expr, updated_func)
+                    {result, env, ctx}
+
+                  {result, env, ctx} ->
+                    {result, env, ctx}
+                end
+            end
+        end
+    end
+  end
+
   def eval_call_expr(func_expr, arg_exprs, env, ctx) do
     case Interpreter.eval(func_expr, env, ctx) do
       {{:exception, _} = signal, env, ctx} ->
@@ -113,6 +178,26 @@ defmodule Pyex.Interpreter.Calls do
             end
         end
     end
+  end
+
+  @spec write_back_to_receiver(
+          Interpreter.pyvalue(),
+          Parser.ast_node(),
+          Interpreter.pyvalue(),
+          Env.t(),
+          Ctx.t()
+        ) ::
+          {Env.t(), Ctx.t()}
+  defp write_back_to_receiver({:ref, id}, _func_expr, new_object, env, ctx) do
+    {env, Ctx.heap_put(ctx, id, new_object)}
+  end
+
+  defp write_back_to_receiver({:super_proxy, {:ref, id}, _}, _func_expr, new_object, env, ctx) do
+    {env, Ctx.heap_put(ctx, id, new_object)}
+  end
+
+  defp write_back_to_receiver(_receiver, func_expr, new_object, env, ctx) do
+    mutate_target(func_expr, new_object, env, ctx)
   end
 
   @doc false

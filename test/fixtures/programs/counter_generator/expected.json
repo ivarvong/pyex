@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-04-26T20:55:18.572420Z",
+  "sha256": "f0ed40cd3763ab1b5fcdc74c75eaddb5e47f8c1d39764a60c6e53f50afc20d99",
+  "source_file": "main.py",
+  "stdout": "5\n2\n2\n0\n2\n1\n0\n3\n2\n1\n0\n4\n2\n4\n3\nc 3\na 2\n"
+}

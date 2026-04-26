@@ -61,21 +61,10 @@ defmodule Pyex.Parser.Comprehensions do
   end
 
   def parse_list_literal(tokens, line) do
-    with {:ok, expr, rest} <- Parser.parse_or(tokens) do
+    with {:ok, expr, rest} <- Parser.parse_expression(tokens) do
       case rest do
         [{:keyword, _, "for"} | for_rest] ->
           parse_list_comp(expr, for_rest, line)
-
-        [{:keyword, _, "if"} | _] ->
-          with {:ok, full_expr, rest} <- Parser.parse_expression(tokens) do
-            case rest do
-              [{:keyword, _, "for"} | for_rest] ->
-                parse_list_comp(full_expr, for_rest, line)
-
-              _ ->
-                parse_list_elements_rest(rest, line, [full_expr])
-            end
-          end
 
         _ ->
           parse_list_elements_rest(rest, line, [expr])
@@ -132,6 +121,16 @@ defmodule Pyex.Parser.Comprehensions do
          {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
       clauses = [{:comp_for, var_name, iterable} | clauses]
       {:ok, {:gen_expr, [line: line], [expr, clauses]}, rest}
+    end
+  end
+
+  def parse_gen_expr_body(expr, [{:op, _, :lparen} | rest], line) do
+    with {:ok, target, rest} <- parse_paren_for_target_and_in(rest) do
+      with {:ok, iterable, rest} <- Parser.parse_or(rest),
+           {:ok, clauses, rest} <- parse_comp_clauses(rest, []) do
+        clauses = [{:comp_for, target, iterable} | clauses]
+        {:ok, {:gen_expr, [line: line], [expr, clauses]}, rest}
+      end
     end
   end
 
@@ -285,10 +284,10 @@ defmodule Pyex.Parser.Comprehensions do
   end
 
   defp parse_dict_entries(tokens, line, acc) do
-    with {:ok, key, rest} <- Parser.parse_or(tokens) do
+    with {:ok, key, rest} <- Parser.parse_expression(tokens) do
       case rest do
         [{:op, _, :colon} | rest] ->
-          with {:ok, value, rest} <- Parser.parse_or(rest) do
+          with {:ok, value, rest} <- Parser.parse_expression(rest) do
             case rest do
               [{:keyword, _, "for"} | comp_rest] when acc == [] ->
                 parse_dict_comp(key, value, comp_rest, line)
@@ -344,7 +343,7 @@ defmodule Pyex.Parser.Comprehensions do
   end
 
   defp parse_set_entries(tokens, line, acc) do
-    with {:ok, elem, rest} <- Parser.parse_or(tokens) do
+    with {:ok, elem, rest} <- Parser.parse_expression(tokens) do
       parse_set_entries_rest(rest, line, [elem | acc])
     end
   end
@@ -486,12 +485,40 @@ defmodule Pyex.Parser.Comprehensions do
     end
   end
 
+  defp parse_comp_for_clause([{:op, _, :lparen} | rest], acc) do
+    with {:ok, target, rest} <- parse_paren_for_target_and_in(rest),
+         {:ok, iterable, rest} <- Parser.parse_or(rest) do
+      parse_comp_clauses(rest, [{:comp_for, target, iterable} | acc])
+    end
+  end
+
   defp parse_comp_for_clause(tokens, _acc) do
     {:error, "expected variable name after 'for' in comprehension at #{token_line(tokens)}"}
   end
 
-  @spec collect_for_vars([Lexer.token()], [String.t()]) ::
-          {:ok, [String.t()], [Lexer.token()]} | {:error, String.t()}
+  @spec parse_paren_for_target_and_in([Lexer.token()]) ::
+          {:ok, for_target(), [Lexer.token()]} | {:error, String.t()}
+  defp parse_paren_for_target_and_in(rest) do
+    with {:ok, pattern, rest} <- collect_nested_for_pattern(rest, []) do
+      case rest do
+        [{:keyword, _, "in"} | rest] ->
+          {:ok, pattern, rest}
+
+        [{:op, _, :comma} | rest] ->
+          with {:ok, var_names, rest} <- collect_for_vars(rest, [pattern]) do
+            {:ok, var_names, rest}
+          end
+
+        _ ->
+          {:error, "expected 'in' after for-loop target at #{token_line(rest)}"}
+      end
+    end
+  end
+
+  @type for_target :: String.t() | [for_target()]
+
+  @spec collect_for_vars([Lexer.token()], [for_target()]) ::
+          {:ok, [for_target()], [Lexer.token()]} | {:error, String.t()}
   defp collect_for_vars([{:name, _, name}, {:keyword, _, "in"} | rest], acc) do
     {:ok, Enum.reverse([name | acc]), rest}
   end
@@ -500,8 +527,42 @@ defmodule Pyex.Parser.Comprehensions do
     collect_for_vars(rest, [name | acc])
   end
 
+  defp collect_for_vars([{:op, _, :lparen} | rest], acc) do
+    with {:ok, pattern, rest} <- collect_nested_for_pattern(rest, []) do
+      case rest do
+        [{:keyword, _, "in"} | rest] -> {:ok, Enum.reverse([pattern | acc]), rest}
+        [{:op, _, :comma} | rest] -> collect_for_vars(rest, [pattern | acc])
+        _ -> {:error, "expected 'in' or ',' in for loop at #{token_line(rest)}"}
+      end
+    end
+  end
+
   defp collect_for_vars(tokens, _acc) do
     {:error, "expected variable name in for loop at #{token_line(tokens)}"}
+  end
+
+  @spec collect_nested_for_pattern([Lexer.token()], [for_target()]) ::
+          {:ok, [for_target()], [Lexer.token()]} | {:error, String.t()}
+  defp collect_nested_for_pattern([{:name, _, name}, {:op, _, :rparen} | rest], acc) do
+    {:ok, Enum.reverse([name | acc]), rest}
+  end
+
+  defp collect_nested_for_pattern([{:name, _, name}, {:op, _, :comma} | rest], acc) do
+    collect_nested_for_pattern(rest, [name | acc])
+  end
+
+  defp collect_nested_for_pattern([{:op, _, :lparen} | rest], acc) do
+    with {:ok, nested, rest} <- collect_nested_for_pattern(rest, []) do
+      case rest do
+        [{:op, _, :rparen} | rest] -> {:ok, Enum.reverse([nested | acc]), rest}
+        [{:op, _, :comma} | rest] -> collect_nested_for_pattern(rest, [nested | acc])
+        _ -> {:error, "expected ')' or ',' in nested for target at #{token_line(rest)}"}
+      end
+    end
+  end
+
+  defp collect_nested_for_pattern(tokens, _acc) do
+    {:error, "expected variable name in nested for target at #{token_line(tokens)}"}
   end
 
   @spec token_line([Lexer.token()]) :: String.t()

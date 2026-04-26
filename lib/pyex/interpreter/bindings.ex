@@ -37,6 +37,12 @@ defmodule Pyex.Interpreter.Bindings do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
+      {{:yielded, val, cont}, env, ctx} ->
+        # yield fires inside an assignment: `x = yield val`.
+        # When the generator is resumed via .send(sent_value), `sent_value`
+        # becomes the result of the yield expression and is bound to `name`.
+        {{:yielded, val, [{:cont_bind_sent, name} | cont]}, env, ctx}
+
       {value, env, ctx} ->
         {value, Env.smart_put(env, name, value), ctx}
     end

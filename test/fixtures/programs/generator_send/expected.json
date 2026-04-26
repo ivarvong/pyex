@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-04-26T22:08:29.593960Z",
+  "sha256": "2a5e0c33aecf4b11fce9595eff658c4719a019f58e14b83f67376f55145d27fd",
+  "source_file": "main.py",
+  "stdout": "0\n10\n15\n18\necho: hello\necho: world\n1\n15\n120\ndone\n"
+}

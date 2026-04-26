@@ -48,7 +48,7 @@ defmodule Pyex.Interpreter.ControlFlow do
   Evaluates a `for` loop.
   """
   @spec eval_for(
-          String.t() | [String.t()],
+          String.t() | [term()],
           Parser.ast_node(),
           [Parser.ast_node()],
           [Parser.ast_node()] | nil,
@@ -95,7 +95,7 @@ defmodule Pyex.Interpreter.ControlFlow do
 
   @spec iterable_to_for(
           Interpreter.pyvalue(),
-          String.t() | [String.t()],
+          String.t() | [term()],
           [Parser.ast_node()],
           [Parser.ast_node()] | nil,
           Env.t(),
@@ -113,7 +113,7 @@ defmodule Pyex.Interpreter.ControlFlow do
   end
 
   @spec eval_for_generator_iter(
-          String.t() | [String.t()],
+          String.t() | [term()],
           non_neg_integer(),
           [Parser.ast_node()],
           [Parser.ast_node()] | nil,
@@ -149,7 +149,7 @@ defmodule Pyex.Interpreter.ControlFlow do
   end
 
   @spec step_generator_body(
-          String.t() | [String.t()],
+          String.t() | [term()],
           non_neg_integer(),
           [term()],
           Env.t(),
@@ -199,7 +199,7 @@ defmodule Pyex.Interpreter.ControlFlow do
   it sees a `:cont_for_gen_iter` frame.
   """
   @spec resume_for_gen_iter(
-          String.t() | [String.t()],
+          String.t() | [term()],
           non_neg_integer(),
           [Parser.ast_node()],
           [Parser.ast_node()] | nil,
@@ -226,7 +226,7 @@ defmodule Pyex.Interpreter.ControlFlow do
   # value (already consumed by the previous body invocation). Resume by
   # advancing one step, then re-entering the loop body.
   @spec advance_after_body_yield(
-          String.t() | [String.t()],
+          String.t() | [term()],
           non_neg_integer(),
           term(),
           [term()],
@@ -259,7 +259,7 @@ defmodule Pyex.Interpreter.ControlFlow do
   end
 
   @spec advance_generator_iter(
-          String.t() | [String.t()],
+          String.t() | [term()],
           non_neg_integer(),
           [term()],
           Env.t(),
@@ -299,7 +299,7 @@ defmodule Pyex.Interpreter.ControlFlow do
 
   @doc false
   @spec eval_for_items(
-          String.t() | [String.t()],
+          String.t() | [term()],
           [Interpreter.pyvalue()],
           [Parser.ast_node()],
           [Parser.ast_node()] | nil,
@@ -312,7 +312,7 @@ defmodule Pyex.Interpreter.ControlFlow do
   end
 
   @doc false
-  @spec bind_loop_var(String.t() | [String.t()], Interpreter.pyvalue(), Env.t()) ::
+  @spec bind_loop_var(String.t() | [term()], Interpreter.pyvalue(), Env.t()) ::
           Env.t() | {:exception, String.t()}
   def bind_loop_var(var_name, item, env) when is_binary(var_name) do
     Env.smart_put(env, var_name, item)
@@ -321,7 +321,16 @@ defmodule Pyex.Interpreter.ControlFlow do
   def bind_loop_var(var_names, item, env) when is_list(var_names) do
     case unpack_for_item(var_names, item) do
       {:ok, bindings} ->
-        Enum.reduce(bindings, env, fn {name, val}, acc -> Env.smart_put(acc, name, val) end)
+        Enum.reduce_while(bindings, env, fn
+          {name, val}, acc when is_binary(name) ->
+            {:cont, Env.smart_put(acc, name, val)}
+
+          {nested_names, val}, acc when is_list(nested_names) ->
+            case bind_loop_var(nested_names, val, acc) do
+              {:exception, _} = err -> {:halt, err}
+              updated_env -> {:cont, updated_env}
+            end
+        end)
 
       {:exception, _} = error ->
         error
@@ -428,7 +437,7 @@ defmodule Pyex.Interpreter.ControlFlow do
   end
 
   @spec do_eval_for_items(
-          String.t() | [String.t()],
+          String.t() | [term()],
           [Interpreter.pyvalue()],
           [Parser.ast_node()],
           [Parser.ast_node()] | nil,
@@ -451,11 +460,11 @@ defmodule Pyex.Interpreter.ControlFlow do
       {:ok, ctx} ->
         ctx = Ctx.record(ctx, :loop, nil)
 
-        case unpack_for_item(var_names, Ctx.deref(ctx, item)) do
-          {:ok, bindings} ->
-            env =
-              Enum.reduce(bindings, env, fn {name, val}, acc -> Env.smart_put(acc, name, val) end)
+        case bind_loop_var(var_names, Ctx.deref(ctx, item), env) do
+          {:exception, msg} ->
+            {{:exception, msg}, env, ctx}
 
+          env ->
             case Interpreter.eval_statements(body, env, ctx) do
               {{:returned, _} = signal, env, ctx} ->
                 {signal, env, ctx}
@@ -476,9 +485,6 @@ defmodule Pyex.Interpreter.ControlFlow do
               {_, env, ctx} ->
                 do_eval_for_items(var_names, rest, body, else_body, env, ctx, source_var, idx + 1)
             end
-
-          {:exception, msg} ->
-            {{:exception, msg}, env, ctx}
         end
     end
   end
@@ -559,8 +565,8 @@ defmodule Pyex.Interpreter.ControlFlow do
   defp eval_loop_else(nil, env, ctx), do: {nil, env, ctx}
   defp eval_loop_else(else_body, env, ctx), do: Interpreter.eval_statements(else_body, env, ctx)
 
-  @spec unpack_for_item([String.t()], Interpreter.pyvalue()) ::
-          {:ok, [{String.t(), Interpreter.pyvalue()}]} | {:exception, String.t()}
+  @spec unpack_for_item([term()], Interpreter.pyvalue()) ::
+          {:ok, [{term(), Interpreter.pyvalue()}]} | {:exception, String.t()}
   defp unpack_for_item(names, {:tuple, items}), do: unpack_for_list(names, items)
 
   defp unpack_for_item(names, {:py_list, reversed, _}),
@@ -572,8 +578,8 @@ defmodule Pyex.Interpreter.ControlFlow do
     {:exception, "TypeError: cannot unpack non-iterable #{Helpers.py_type(val)} object"}
   end
 
-  @spec unpack_for_list([String.t()], [Interpreter.pyvalue()]) ::
-          {:ok, [{String.t(), Interpreter.pyvalue()}]} | {:exception, String.t()}
+  @spec unpack_for_list([term()], [Interpreter.pyvalue()]) ::
+          {:ok, [{term(), Interpreter.pyvalue()}]} | {:exception, String.t()}
   defp unpack_for_list(names, items) do
     if length(names) == length(items) do
       {:ok, Enum.zip(names, items)}
@@ -600,7 +606,7 @@ defmodule Pyex.Interpreter.ControlFlow do
   end
 
   @spec match_handler(
-          [{String.t() | [String.t()] | nil, String.t() | nil, [Parser.ast_node()]}],
+          [{String.t() | [term()] | nil, String.t() | nil, [Parser.ast_node()]}],
           String.t(),
           Env.t(),
           Ctx.t()
