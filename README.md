@@ -351,6 +351,55 @@ Dialyzer runs on every change. All public functions have `@spec`
 annotations. The `.dialyzer_ignore.exs` file suppresses 30 known
 warnings from NimbleParsec-generated code; real warnings are zero.
 
+## Docker Eval Server
+
+If you don't have Elixir installed, you can run the HTTP eval server
+via Docker:
+
+```bash
+docker compose up
+```
+
+Then send Python to `POST /run`:
+
+```bash
+curl -s localhost:4000/run \
+  -H 'content-type: application/json' \
+  -d '{"source":"import json\nscores = [85, 92, 78, 95, 88]\navg = sum(scores) / len(scores)\nabove = [s for s in scores if s > avg]\nresult = {\"average\": avg, \"above_average\": above, \"count\": len(above)}\nprint(json.dumps(result, indent=2))\nresult\n"}' | jq
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "value": {
+    "above_average": [92, 95, 88],
+    "average": 87.6,
+    "count": 3
+  },
+  "output": "{\n  \"average\": 87.6,\n  \"above_average\": [\n    92,\n    95,\n    88\n  ],\n  \"count\": 3\n}\n"
+}
+```
+
+The server wraps `Pyex.run/2` with a 5-second compute timeout.
+Errors are returned as JSON with a `kind` field (`:syntax`,
+`:python`, `:timeout`, etc.):
+
+```bash
+curl -s localhost:4000/run \
+  -H 'content-type: application/json' \
+  -d '{"source":"1 / 0"}' | jq
+```
+
+```json
+{
+  "ok": false,
+  "kind": "python",
+  "message": "ZeroDivisionError: division by zero (line 1)"
+}
+```
+
 ## Development
 
 Requires Elixir ~> 1.19 and OTP 28.
