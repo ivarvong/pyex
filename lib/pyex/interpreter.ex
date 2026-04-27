@@ -375,7 +375,8 @@ defmodule Pyex.Interpreter do
       end)
       |> Enum.reject(&is_nil/1)
 
-    class_env = Env.push_scope(env)
+    class_env =
+      Env.push_scope_with(env, %{"__annotations__" => %{}, "__annotations_order__" => []})
 
     {class_env, ctx, error} =
       Enum.reduce_while(body, {class_env, ctx, nil}, fn stmt, {ce, c, _err} ->

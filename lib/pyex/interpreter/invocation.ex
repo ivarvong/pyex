@@ -108,22 +108,26 @@ defmodule Pyex.Interpreter.Invocation do
         {{:exception, msg}, env, ctx}
 
       {call_env, ctx} ->
-        {result, post_call_env, ctx} = Interpreter.eval_statements(body, call_env, ctx)
-        env = Env.propagate_scopes(env, fresh_closure, post_call_env)
-        return_val = Helpers.unwrap_function_result(result)
+        if Interpreter.contains_yield?(body) do
+          eval_generator_function(body, call_env, env, ctx)
+        else
+          {result, post_call_env, ctx} = Interpreter.eval_statements(body, call_env, ctx)
+          env = Env.propagate_scopes(env, fresh_closure, post_call_env)
+          return_val = Helpers.unwrap_function_result(result)
 
-        case instance do
-          {:ref, _} ->
-            {return_val, env, ctx}
+          case instance do
+            {:ref, _} ->
+              {return_val, env, ctx}
 
-          _ ->
-            updated_self =
-              case Env.get(post_call_env, "self") do
-                {:ok, {:instance, _, _} = updated} -> updated
-                _ -> instance
-              end
+            _ ->
+              updated_self =
+                case Env.get(post_call_env, "self") do
+                  {:ok, {:instance, _, _} = updated} -> updated
+                  _ -> instance
+                end
 
-            {:mutate, updated_self, return_val, env, ctx}
+              {:mutate, updated_self, return_val, env, ctx}
+          end
         end
     end
   end
@@ -401,6 +405,23 @@ defmodule Pyex.Interpreter.Invocation do
             rebound = rebind_to_subclass(new_instance, class)
             {ref, ctx} = Ctx.heap_alloc(ctx, rebound)
             {ref, env, ctx}
+
+          # Builtin __init__ that needs to call back into the interpreter
+          # (e.g. dataclass field with default_factory=lambda: ...).
+          {:ctx_call, ctx_fun} ->
+            case ctx_fun.(env, ctx) do
+              {{:instance, _, _} = updated_instance, env, ctx} ->
+                rebound = rebind_to_subclass(updated_instance, class)
+                {ref, ctx} = Ctx.heap_alloc(ctx, rebound)
+                {ref, env, ctx}
+
+              {{:exception, _} = signal, env, ctx} ->
+                {signal, env, ctx}
+
+              {_, env, ctx} ->
+                {ref, ctx} = Ctx.heap_alloc(ctx, instance)
+                {ref, env, ctx}
+            end
 
           {:exception, _} = signal ->
             {signal, env, ctx}

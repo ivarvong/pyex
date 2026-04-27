@@ -301,4 +301,65 @@ defmodule Pyex.GeneratorsTest do
       assert Pyex.run!("sorted(x % 3 for x in range(6))") == [0, 0, 1, 1, 2, 2]
     end
   end
+
+  describe "yield inside class methods" do
+    test "instance method generator" do
+      code = """
+      class Counter:
+          def __init__(self):
+              self.n = 0
+          def gen(self, k):
+              for i in range(k):
+                  yield i
+
+      list(Counter().gen(3))
+      """
+
+      assert Pyex.run!(code) == [0, 1, 2]
+    end
+
+    test "instance method generator yields self attribute" do
+      code = """
+      class Box:
+          def __init__(self, items):
+              self.items = items
+          def each(self):
+              for x in self.items:
+                  yield x
+
+      list(Box([10, 20, 30]).each())
+      """
+
+      assert Pyex.run!(code) == [10, 20, 30]
+    end
+
+    test "classmethod generator" do
+      code = """
+      class C:
+          @classmethod
+          def squares(cls, n):
+              for i in range(n):
+                  yield i * i
+
+      list(C.squares(4))
+      """
+
+      assert Pyex.run!(code) == [0, 1, 4, 9]
+    end
+
+    test "staticmethod generator" do
+      code = """
+      class C:
+          @staticmethod
+          def evens(n):
+              for i in range(n):
+                  if i % 2 == 0:
+                      yield i
+
+      list(C.evens(6))
+      """
+
+      assert Pyex.run!(code) == [0, 2, 4]
+    end
+  end
 end
