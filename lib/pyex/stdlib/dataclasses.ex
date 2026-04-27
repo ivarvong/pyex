@@ -122,9 +122,24 @@ defmodule Pyex.Stdlib.Dataclasses do
           nil ->
             case unknown_keyword(field_names, kwargs) do
               nil ->
-                case build_dataclass_attrs(field_names, defaults, positional, kwargs) do
-                  {:ok, values} -> {:instance, class, values}
-                  {:error, msg} -> {:exception, msg}
+                if needs_factory_dispatch?(field_names, defaults, positional, kwargs) do
+                  {:ctx_call,
+                   fn env, ctx ->
+                     build_dataclass_attrs_with_ctx(
+                       class,
+                       field_names,
+                       defaults,
+                       positional,
+                       kwargs,
+                       env,
+                       ctx
+                     )
+                   end}
+                else
+                  case build_dataclass_attrs(field_names, defaults, positional, kwargs) do
+                    {:ok, values} -> {:instance, class, values}
+                    {:error, msg} -> {:exception, msg}
+                  end
                 end
 
               key ->
@@ -139,6 +154,90 @@ defmodule Pyex.Stdlib.Dataclasses do
 
   defp dataclass_init(_args, _kwargs),
     do: {:exception, "TypeError: invalid dataclass initialization"}
+
+  @spec needs_factory_dispatch?([String.t()], map(), map(), map()) :: boolean()
+  defp needs_factory_dispatch?(field_names, defaults, positional, kwargs) do
+    Enum.any?(field_names, fn field ->
+      not Map.has_key?(positional, field) and not Map.has_key?(kwargs, field) and
+        case Map.get(defaults, field) do
+          %{@field_marker => true, "default_factory" => factory} when factory != :__missing__ ->
+            user_callable?(factory)
+
+          _ ->
+            false
+        end
+    end)
+  end
+
+  @spec user_callable?(Interpreter.pyvalue()) :: boolean()
+  defp user_callable?({:function, _, _, _, _}), do: true
+  defp user_callable?({:lambda, _, _, _}), do: true
+  defp user_callable?({:bound_method, _, _}), do: true
+  defp user_callable?({:bound_method, _, _, _}), do: true
+  defp user_callable?({:class, _, _, _}), do: true
+  defp user_callable?(_), do: false
+
+  @spec build_dataclass_attrs_with_ctx(
+          Interpreter.pyvalue(),
+          [String.t()],
+          map(),
+          map(),
+          map(),
+          Pyex.Env.t(),
+          Pyex.Ctx.t()
+        ) :: {Interpreter.pyvalue(), Pyex.Env.t(), Pyex.Ctx.t()}
+  defp build_dataclass_attrs_with_ctx(class, field_names, defaults, positional, kwargs, env, ctx) do
+    Enum.reduce_while(field_names, {:ok, %{}, env, ctx}, fn field, {:ok, acc, env, ctx} ->
+      cond do
+        Map.has_key?(positional, field) ->
+          {:cont, {:ok, Map.put(acc, field, Map.fetch!(positional, field)), env, ctx}}
+
+        Map.has_key?(kwargs, field) ->
+          {:cont, {:ok, Map.put(acc, field, Map.fetch!(kwargs, field)), env, ctx}}
+
+        Map.has_key?(defaults, field) ->
+          case resolve_default_with_ctx(Map.fetch!(defaults, field), env, ctx) do
+            {{:exception, _} = signal, env, ctx} ->
+              {:halt, {:error, signal, env, ctx}}
+
+            {value, env, ctx} ->
+              {:cont, {:ok, Map.put(acc, field, value), env, ctx}}
+          end
+
+        true ->
+          {:halt,
+           {:error, {:exception, "TypeError: missing required argument '#{field}'"}, env, ctx}}
+      end
+    end)
+    |> case do
+      {:ok, values, env, ctx} -> {{:instance, class, values}, env, ctx}
+      {:error, signal, env, ctx} -> {signal, env, ctx}
+    end
+  end
+
+  @spec resolve_default_with_ctx(Interpreter.pyvalue(), Pyex.Env.t(), Pyex.Ctx.t()) ::
+          {Interpreter.pyvalue(), Pyex.Env.t(), Pyex.Ctx.t()}
+  defp resolve_default_with_ctx(
+         %{@field_marker => true, "default_factory" => factory},
+         env,
+         ctx
+       )
+       when factory != :__missing__ do
+    if user_callable?(factory) do
+      # call_function may return either {val, env, ctx} or
+      # {val, env, ctx, updated_func} (closure-refresh path).
+      case Interpreter.call_function(factory, [], %{}, env, ctx) do
+        {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+        {{:exception, _} = signal, env, ctx, _func} -> {signal, env, ctx}
+        {value, env, ctx} -> {value, env, ctx}
+        {value, env, ctx, _updated_func} -> {value, env, ctx}
+      end
+    else
+      {run_default_factory(factory), env, ctx}
+    end
+  end
+
+  defp resolve_default_with_ctx(value, env, ctx), do: {resolve_default(value), env, ctx}
 
   @spec dataclass_repr([Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
   defp dataclass_repr([{:instance, {:class, name, _, attrs}, inst_attrs}]) do
