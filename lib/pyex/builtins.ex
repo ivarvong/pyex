@@ -2802,6 +2802,7 @@ defmodule Pyex.Builtins do
   def py_repr({:builtin, _}), do: "<built-in function>"
   def py_repr({:builtin_kw, _}), do: "<built-in function>"
   def py_repr({:pyex_decimal, d}), do: Decimal.to_string(d)
+  def py_repr({:deque, _, _, _, _} = d), do: Pyex.Interpreter.Helpers.py_str(d)
   def py_repr(_), do: "<object>"
 
   @doc """
