@@ -1,25 +1,34 @@
 # Pyex
 
-Run LLM-generated Python inside your Elixir app. No containers,
-no ports, no process isolation -- just a function call on the BEAM.
-
-> **Experimental.** Under active development. Not audited for production use.
+Run LLM-generated Python inside your Elixir app. No containers, no
+ports, no process isolation — the interpreter is a pure function on
+the BEAM.
 
 ```elixir
 Pyex.run!("sorted([3, 1, 2])")
 # => [1, 2, 3]
 ```
 
-## Why
+## Why this exists
 
-LLMs write Python. If your backend is Elixir, you need a way to execute
-it. The options are: spin up a Docker container per request, maintain a
-pool of Python processes, or interpret it directly.
+If your backend is Elixir and your product runs Python written by an
+LLM, you have three options: spin up a container per request, maintain
+a pool of CPython workers, or interpret the code directly.
 
-Pyex interprets it directly. The tradeoff is speed (12-70x slower than
-CPython on pure computation), but for most LLM workloads -- data
-transformation, API handlers, template rendering -- the interpreter
-isn't the bottleneck. Your database and network calls are.
+Containers and worker pools are heavy. They turn a function call into
+an orchestration problem — cold starts, pool sizing, IPC, log
+shipping, capability hardening per box. For LLM workloads that are
+mostly data shaping, template rendering, and HTTP handlers, the
+overhead dominates the work.
+
+Pyex interprets directly. A request becomes a function call. The
+sandbox boundary is the BEAM process boundary you already have.
+Capabilities are values you pass in.
+
+The tradeoff is raw compute speed: pure-CPU Python is roughly an
+order of magnitude slower than CPython. For workloads dominated by
+I/O, templating, JSON, and routing — which is most of what an LLM
+writes — that is not the bottleneck.
 
 ## Install
 
@@ -29,116 +38,92 @@ def deps do
 end
 ```
 
-Requires a C compiler for the [cmark](https://hex.pm/packages/cmark)
-Markdown NIF.
-
-## API
-
-Four public functions:
+## Usage
 
 ```elixir
-{:ok, ast} = Pyex.compile(source)
+{:ok, ast}        = Pyex.compile(source)
 {:ok, value, ctx} = Pyex.run(source_or_ast, opts)
-value = Pyex.run!(source_or_ast, opts)
-output_string = Pyex.output(ctx)
+value             = Pyex.run!(source_or_ast, opts)
+output            = Pyex.output(ctx)
 ```
 
-`run/2` accepts either a source string or a pre-compiled AST. The second
-argument is a `Pyex.Ctx` struct or a keyword list of options.
-
-## Getting Data In
-
-Everything flows through the context. Python code can only access what
-you explicitly provide.
-
-### Environment variables
+Everything the program can see flows through `opts`. Files, env vars,
+network, database, custom modules — explicit, capability-shaped, deny
+by default.
 
 ```elixir
-{:ok, result, _ctx} = Pyex.run(
-  "import os\nos.environ['API_KEY']",
-  env: %{"API_KEY" => "sk-..."}
-)
+Pyex.run(source,
+  filesystem: Pyex.Filesystem.Memory.new(%{"data.json" => json}),
+  env: %{"API_KEY" => key},
+  modules: %{"db" => %{"query" => {:builtin, &my_query/1}}},
+  network: [%{allowed_url_prefix: "https://api.example.com/"}],
+  limits: [timeout: 5_000, max_memory_bytes: 50_000_000])
 ```
 
-### Filesystem
+## Sandbox model
 
-```elixir
-alias Pyex.Filesystem.Memory
+Pyex is a tree-walking interpreter, not an `eval`. Python source never
+reaches a Python runtime; it reaches a function written in Elixir
+that decides what each AST node means.
 
-fs = Memory.new(%{"data.json" => ~s({"users": ["alice", "bob"]})})
-{:ok, result, _ctx} = Pyex.run(source, filesystem: fs)
+That makes the threat model unusually simple to reason about:
+
+- **No host filesystem.** `open()` reads and writes the
+  `Pyex.Filesystem` backend you pass in. Bring `Memory` (in-process
+  map), `S3`, or your own. Without a backend, file I/O fails.
+- **No subprocess, shell, or `os.exec`.** Not implemented. There is
+  no path from Python source to a host process.
+- **No native code.** No `ctypes`, no C extension loading, no
+  `compile()` of source-to-bytecode. Python's `exec()` and `eval()`
+  re-enter the Pyex interpreter — they cannot escape it.
+- **Network is allowlisted.** Denied by default. When configured,
+  matched by URL prefix and HTTP method, with optional header
+  injection so credentials never appear in the Python source.
+- **I/O capabilities are explicit.** SQL, S3, and other I/O are
+  guarded by named capabilities (`sql: true`, `boto3: true`). A
+  program that imports `sql` without the capability fails closed.
+- **Resource ceilings are enforced.** Compute time, step count,
+  estimated memory, and output bytes are checked at every step
+  boundary. I/O latency does not count against the compute budget.
+- **Errors are structured.** `%Pyex.Error{kind: :timeout | :python |
+  :syntax | :limit | ...}` so you can route on failure mode without
+  string matching.
+
+This is defense in depth, not a verdict. Pyex has not been through a
+third-party security audit. Treat it as a hardened library, not as
+isolation equivalent to a container or VM.
+
+## What it runs
+
+Most of the Python an LLM produces. Classes with inheritance and
+operator overloading. Generators and `yield from`. `match`/`case`.
+Decorators. Comprehensions. `*args`/`**kwargs`. F-strings. `try` /
+`except` / `finally`. `with` statements. Walrus operator. Type
+annotations (parsed, ignored at runtime, like CPython).
+
+Standard library, implemented in Elixir to match CPython semantics:
+
+```
+abc          datetime     html         pathlib     sql
+base64       decimal      hmac         pydantic    statistics
+bisect       enum         io           pygments    string
+boto3        fastapi      itertools    random      sys
+collections  fnmatch      jinja2       re          textwrap
+contextlib   functools    json         requests    time
+copy         glob         markdown     secrets     typing
+crypto       hashlib      math         shutil      unittest
+csv          heapq        operator     urllib      uuid
+dataclasses                                        yaml / zipfile / zoneinfo
 ```
 
-Two backends: `Memory` (in-memory map) and `S3` (S3-backed via Req).
+Pandas is partial but useful for tabular work. Decimal passes
+the IBM `dectest` conformance vectors. FastAPI is a list-based
+implementation of the route-decorator subset, with streaming
+generators.
 
-### Custom modules
+## HTTP handlers without a server
 
-Inject your app's capabilities as importable Python modules:
-
-```elixir
-Pyex.run!(source,
-  modules: %{
-    "auth" => %{"get_user" => {:builtin, fn [] -> "alice" end}},
-    "db"   => %{"query" => {:builtin, fn [sql] -> do_query(sql) end}}
-  })
-```
-
-The LLM writes `import auth` and calls `auth.get_user()`. You control
-what it can access.
-
-## Sandbox Controls
-
-### Compute budget
-
-```elixir
-Pyex.run(source, timeout_ms: 5_000)
-# => {:error, %Pyex.Error{kind: :timeout}}
-```
-
-### Network access
-
-All network access is denied by default:
-
-```elixir
-Pyex.run(source, network: [%{allowed_url_prefix: "https://api.example.com/"}])
-```
-
-### I/O capabilities
-
-SQL and S3 require explicit opt-in:
-
-```elixir
-Pyex.run(source, sql: true, env: %{"DATABASE_URL" => "postgres://..."})
-Pyex.run(source, boto3: true)
-```
-
-## Error Handling
-
-Errors are structured with a `kind` field for programmatic handling:
-
-```elixir
-case Pyex.run(source) do
-  {:ok, result, ctx} -> handle_result(result)
-  {:error, %Pyex.Error{kind: :timeout}} -> send_resp(504, "Timeout")
-  {:error, %Pyex.Error{kind: :python}} -> send_resp(500, "Runtime error")
-  {:error, %Pyex.Error{kind: :syntax}} -> send_resp(400, "Bad Python")
-end
-```
-
-Kinds: `:syntax`, `:python`, `:timeout`, `:import`, `:io`,
-`:route_not_found`, `:internal`.
-
-## Print Output
-
-```elixir
-{:ok, _val, ctx} = Pyex.run("for i in range(3):\n    print(i)")
-Pyex.output(ctx)
-# => "0\n1\n2"
-```
-
-## FastAPI / Lambda
-
-LLMs write HTTP handlers in Python. You serve them from Elixir:
+LLMs write FastAPI. Pyex serves it without bringing up a server:
 
 ```python
 import fastapi
@@ -150,266 +135,81 @@ def hello(name):
 ```
 
 ```elixir
-{:ok, app} = Pyex.Lambda.boot(source, ctx: ctx)
+{:ok, app}       = Pyex.Lambda.boot(source)
 {:ok, resp, app} = Pyex.Lambda.handle(app, %{method: "GET", path: "/hello/world"})
-# resp.status => 200, resp.body => %{"message" => "hello world"}
 ```
 
-Boot once, handle many requests. State threads through -- the
-filesystem persists across calls, exactly like a real server.
+Boot once, handle many requests. State threads through — filesystem
+mutations persist across calls, exactly as they would on a long-lived
+server. Streaming responses use generator continuations driven by
+`Stream.resource`, so chunks are produced lazily without spawning
+processes.
 
-POST with a JSON body:
+## How ready is it
 
-```elixir
-{:ok, resp, _app} = Pyex.Lambda.handle(app, %{
-  method: "POST",
-  path: "/items",
-  body: ~s({"name": "widget", "qty": 3})
-})
+Pyex is used in production for a single workload type — LLM-generated
+HTTP handlers, behind a compute budget. It is not a general drop-in
+for CPython, and it has not been independently audited.
+
+What gives the project confidence:
+
+- **Differential fuzzing against CPython.** 127 properties generate
+  random Python programs across arithmetic, strings, collections,
+  control flow, classes, generators, comprehensions, `match`/`case`,
+  exceptions, and context managers. Each program is run through
+  Pyex and CPython; outputs and exception types must match exactly.
+  This is the suite that catches the bugs no human would write.
+
+- **CPython conformance suite.** 411 hand-written snippets executed
+  through both interpreters; canonical `repr` output is compared
+  byte-for-byte. A separate exception-conformance file verifies
+  that when Pyex raises `TypeError`, CPython does too.
+
+- **Whole-program fixtures.** A growing set of complete programs
+  recorded against CPython and replayed in CI, including programs
+  that combine generators, file I/O, regex, classes, and stdlib.
+
+- **IBM `dectest` vectors.** The `decimal` module passes 5,073 of
+  the IBM standard-arithmetic test vectors. Skipped vectors are
+  subnormal / payload / non-modelled signal cases, documented at
+  the test site.
+
+- **Property-based invariants.** 39 properties assert Pyex never
+  crashes on random input — valid Python programs, malformed bytes,
+  random tokens. Bad input must produce a structured error, never
+  an Elixir exception.
+
+- **Real workloads as tests.** End-to-end tests run a portfolio
+  rebalancer, a DCF model, a Stripe-shaped webhook handler, an SSR
+  blog, and a Tsiolkovsky rocket-equation simulator — programs sized
+  and shaped like things customers actually write.
+
+- **Static analysis.** Dialyzer is clean. Every public function has
+  `@spec`. CI runs Elixir 1.19 / OTP 27+28 with warnings as errors.
+
+```bash
+mix test       # full suite
+mix dialyzer   # static types
 ```
-
-The handler reads `request.json()` just like real FastAPI.
-
-### Streaming
-
-Generators yield chunks lazily:
-
-```elixir
-{:ok, resp, _app} = Pyex.Lambda.handle_stream(app, %{method: "GET", path: "/events"})
-Enum.take(resp.chunks, 3)
-# => ["data: 0\n\n", "data: 1\n\n", "data: 2\n\n"]
-```
-
-## What Python Does It Support
-
-Classes with inheritance and operator overloading. Generators and
-`yield from`. `match`/`case`. Decorators. List/dict/set comprehensions.
-`*args`/`**kwargs`. F-strings. `try`/`except`/`finally`. `with`
-statements. Type annotations (parsed, silently ignored). Walrus
-operator. Most things an LLM would write.
-
-### Stdlib
-
-| Module | What it does |
-|--------|-------------|
-| `json` | loads, dumps |
-| `math` | trig, sqrt, log, ceil, floor, pi, e |
-| `random` | randint, choice, shuffle, sample |
-| `re` | match, search, findall, sub, split |
-| `time` | time, sleep, monotonic |
-| `datetime` | datetime.now, date.today, timedelta |
-| `collections` | Counter, defaultdict, OrderedDict |
-| `csv` | reader, DictReader, writer, DictWriter |
-| `itertools` | chain, product, permutations, combinations, ... |
-| `html` | escape, unescape |
-| `markdown` | markdown to HTML |
-| `jinja2` | template engine with loops, conditionals, includes |
-| `uuid` | uuid4, uuid7 |
-| `unittest` | TestCase with assertions |
-| `fastapi` | route registration, HTMLResponse, JSONResponse, StreamingResponse |
-| `pydantic` | BaseModel, Field validation, type coercion |
-| `requests` | get, post, put, patch, delete (network-gated) |
-| `sql` | parameterized queries against PostgreSQL (capability-gated) |
-| `boto3` | S3 client (capability-gated) |
-
-## Performance
-
-Tree-walking interpreter. Pure computation is 12-70x slower than
-CPython. Cold startup is 7-83x faster (no process to spawn).
-
-| Benchmark | CPython cold | Pyex cold |
-|-----------|-------------|-----------|
-| FizzBuzz (100 iter) | 16.3 ms | 197 us |
-| Algorithms (~150 LOC) | 16.8 ms | 2.3 ms |
-
-For HTTP handler workloads (the Lambda path), per-request latency is
-66-90 us after boot. The interpreter isn't the bottleneck.
-
-`mix run bench/cpython_comparison.exs` to run benchmarks yourself.
 
 ## Architecture
 
 ```
-Source  ->  Pyex.Lexer  ->  Pyex.Parser  ->  Pyex.Interpreter
-                                                    |
-                                                 Pyex.Ctx
-                                           (filesystem, env,
-                                            compute budget, modules)
+Source ──► Pyex.Lexer ──► Pyex.Parser ──► Pyex.Interpreter
+                                                 │
+                                              Pyex.Ctx
+                                  (filesystem, env, modules,
+                                   limits, network, capabilities)
 ```
 
-No processes, no message passing, no global state. The interpreter is a
-pure function: `(ast, env, ctx) -> (value, env, ctx)`.
+The interpreter is `(ast, env, ctx) -> (value, env, ctx)`. No
+processes, no message passing, no global state, no `throw`/`catch`
+for control flow. Generators yield through tagged continuation
+frames so a generator can be suspended, serialized in principle, and
+resumed lazily.
 
-## Verification
-
-2,577 tests and 160 property-based tests across 63 files, organized into
-five layers that reinforce each other.
-
-```bash
-mix test          # ~150s, all layers
-mix dialyzer      # static types
-```
-
-### Layer 1: Pipeline unit tests
-
-Each stage of the interpreter pipeline has isolated tests. The lexer
-tests tokenize strings and assert token sequences. The parser tests
-feed tokens and assert AST node shapes. These catch regressions at
-the lowest level without running Python end-to-end.
-
-`test/pyex/lexer_test.exs` (62 tests), `test/pyex/parser_test.exs`
-(83 tests)
-
-### Layer 2: Feature tests
-
-The bulk of the suite. Each Python feature has a dedicated file that
-runs real Python through `Pyex.run!` and asserts on the return value.
-Classes, generators, comprehensions, try/except, match/case, augmented
-assignment, and string/list/dict methods all have standalone files.
-Error boundary tests verify that bad input produces the right
-`Pyex.Error` with the right kind, message, and line number -- error
-quality matters because LLMs use error messages to self-correct.
-
-`test/pyex/interpreter_test.exs` (282 tests),
-`test/pyex/builtins_test.exs` (153 tests),
-`test/pyex/methods_test.exs` (120 tests),
-`test/pyex/classes_test.exs` (60 tests),
-`test/pyex/error_boundary_test.exs` (67 tests),
-23 stdlib test files, and others
-
-### Layer 3: CPython conformance
-
-335 hand-written snippets run through both Pyex and CPython (via
-`System.cmd("python3", ...)`). Each snippet uses `print(repr(...))`
-so output is compared as canonical Python strings. If `python3` isn't
-on PATH, these skip gracefully.
-
-A separate file (54 tests) verifies exception types: when Pyex raises
-`TypeError`, CPython raises `TypeError` too.
-
-`test/pyex/conformance_test.exs` (335 tests),
-`test/pyex/error_conformance_test.exs` (54 tests)
-
-### Layer 4: Property-based testing and fuzzing
-
-Three files use StreamData to generate random inputs and assert
-invariants rather than specific values.
-
-**Robustness properties** (39 properties): generate random valid Python
-programs -- arithmetic, collections, classes, generators, comprehensions,
-stdlib calls -- and assert Pyex never crashes. It may return an error,
-but it must never raise an Elixir exception. Also feeds random bytes to
-the lexer and parser to verify they reject garbage gracefully.
-
-**Differential fuzzing** (79 properties): generate random Python programs,
-run through both Pyex and CPython, assert identical output. When both
-error, asserts they raise the same exception type. This is the strongest
-correctness guarantee -- it finds edge cases no human would write.
-
-**Math oracle** (42 properties): generate random numeric datasets, compute
-statistics (sum, mean, median, variance, stddev) in Python, cross-check
-against Polars via Explorer. A three-way oracle: Elixir generates data,
-Python computes, Polars verifies.
-
-`test/pyex/property_test.exs`,
-`test/pyex/differential_fuzz_test.exs`,
-`test/pyex/math_oracle_test.exs`
-
-### Layer 5: Integration and sandbox tests
-
-End-to-end tests that exercise the full stack including sandbox
-controls. These use `Pyex.Ctx` to configure compute timeouts,
-network policies, filesystem backends, and capability gates, then
-run realistic programs against them.
-
-The Lambda tests boot FastAPI apps and dispatch HTTP requests,
-including streaming responses via generators. Capability tests verify
-that boto3, SQL, and network access are denied by default and produce
-clear error messages when unconfigured. Filesystem tests cover both
-the Memory backend and the S3 backend (42 Bypass-mocked unit tests
-plus 8 real R2 integration tests, excluded by default). The README
-tests run every code example from this file.
-
-`test/pyex_test.exs`, `test/pyex/lambda_test.exs`,
-`test/pyex/streaming_test.exs`, `test/pyex/capabilities_test.exs`,
-`test/pyex/filesystem/s3_test.exs`, `test/pyex/readme_test.exs`,
-`test/pyex/llm_programs_test.exs`
-
-### How the layers work together
-
-A bug in string slicing would be caught by the unit test for slicing
-(layer 2), by any conformance test that slices a string (layer 3), and
-by differential fuzzing if it generates a slice expression (layer 4).
-A security issue like unbounded `itertools.product` would be caught by
-the DoS protection tests (layer 2) and by the sandbox integration
-tests (layer 5). The layers overlap deliberately -- each one catches
-classes of bugs the others might miss.
-
-### Static analysis
-
-Dialyzer runs on every change. All public functions have `@spec`
-annotations. The `.dialyzer_ignore.exs` file suppresses 30 known
-warnings from NimbleParsec-generated code; real warnings are zero.
-
-## Docker Eval Server
-
-If you don't have Elixir installed, you can run the HTTP eval server
-via Docker:
-
-```bash
-docker compose up
-```
-
-Then send Python to `POST /run`:
-
-```bash
-curl -s localhost:4000/run \
-  -H 'content-type: application/json' \
-  -d '{"source":"import json\nscores = [85, 92, 78, 95, 88]\navg = sum(scores) / len(scores)\nabove = [s for s in scores if s > avg]\nresult = {\"average\": avg, \"above_average\": above, \"count\": len(above)}\nprint(json.dumps(result, indent=2))\nresult\n"}' | jq
-```
-
-Response:
-
-```json
-{
-  "ok": true,
-  "value": {
-    "above_average": [92, 95, 88],
-    "average": 87.6,
-    "count": 3
-  },
-  "output": "{\n  \"average\": 87.6,\n  \"above_average\": [\n    92,\n    95,\n    88\n  ],\n  \"count\": 3\n}\n"
-}
-```
-
-The server wraps `Pyex.run/2` with a 5-second compute timeout.
-Errors are returned as JSON with a `kind` field (`:syntax`,
-`:python`, `:timeout`, etc.):
-
-```bash
-curl -s localhost:4000/run \
-  -H 'content-type: application/json' \
-  -d '{"source":"1 / 0"}' | jq
-```
-
-```json
-{
-  "ok": false,
-  "kind": "python",
-  "message": "ZeroDivisionError: division by zero (line 1)"
-}
-```
-
-## Development
-
-Requires Elixir ~> 1.19 and OTP 28.
-
-```bash
-mix deps.get
-mix test
-mix format
-mix dialyzer
-```
+This shape is deliberate. The library does not own a runtime; the
+host application does. Pyex is a value you compute with.
 
 ## License
 
