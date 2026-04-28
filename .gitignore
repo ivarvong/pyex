@@ -28,3 +28,4 @@ pyex-*.tar
 .env
 .tool-versions
 /scratch/
+*.xlsx
