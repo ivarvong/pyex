@@ -11,24 +11,33 @@ Pyex.run!("sorted([3, 1, 2])")
 
 ## Why this exists
 
-If your backend is Elixir and your product runs Python written by an
-LLM, you have three options: spin up a container per request, maintain
-a pool of CPython workers, or interpret the code directly.
+Pyex exists for one shape of problem: an Elixir application that
+needs to execute Python written by a language model, on the hot path,
+with capabilities the host controls.
 
-Containers and worker pools are heavy. They turn a function call into
-an orchestration problem — cold starts, pool sizing, IPC, log
-shipping, capability hardening per box. For LLM workloads that are
-mostly data shaping, template rendering, and HTTP handlers, the
-overhead dominates the work.
+The design constraint is that running the code should be a function
+call. Not a request to a sandbox service, not a cold container, not
+a serialized round-trip to a worker pool. The capabilities the
+program can use — files, network, database, app-specific functions —
+should be Elixir values you pass in, not endpoints behind an RPC.
 
-Pyex interprets directly. A request becomes a function call. The
-sandbox boundary is the BEAM process boundary you already have.
-Capabilities are values you pass in.
+That constraint rules a lot of things in and out:
 
-The tradeoff is raw compute speed: pure-CPU Python is roughly an
+- It rules out a microVM-class isolation boundary. A Firecracker or
+  gVisor sandbox is stronger than a tree-walking interpreter in the
+  same address space. Pyex is not trying to replace one.
+- It rules in latency and statefulness. A request is a function
+  call; an HTTP handler keeps its filesystem across calls; a
+  generator is a continuation, not a process.
+- It rules out being a CPython replacement. Pyex implements the
+  subset of Python an LLM tends to produce for a backend handler —
+  not scipy, not C extensions, not the long tail of CPython
+  semantics that no model is going to emit anyway.
+
+The compute speed cost is real: pure-CPU Python runs roughly an
 order of magnitude slower than CPython. For workloads dominated by
-I/O, templating, JSON, and routing — which is most of what an LLM
-writes — that is not the bottleneck.
+I/O, templating, JSON, and routing, the interpreter is not the
+bottleneck.
 
 ## Install
 
