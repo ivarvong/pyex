@@ -27,6 +27,7 @@ defmodule Pyex.BannedCallTracerTest do
     Elixir.Mix.Tasks.Pyex.Bench.Worker
     Elixir.Pyex.Test.Fixture
     Elixir.Pyex.Test.Oracle
+    Elixir.Pyex.Test.DifferentialFuzz
   ]
 
   test "no banned calls in the Pyex library" do
