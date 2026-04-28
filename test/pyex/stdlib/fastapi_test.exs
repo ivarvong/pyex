@@ -242,7 +242,9 @@ defmodule Pyex.Stdlib.FastAPITest do
         app
         """)
 
-      assert [{{_method, _path}, {:function, "greet", params, _body, _env}}] = app["__routes__"]
+      assert [{{_method, _path}, {:function, "greet", params, _body, _env, _is_generator}}] =
+               app["__routes__"]
+
       assert [{"name", nil}, {"greeting", _default}] = params
     end
   end

@@ -14,10 +14,12 @@ defmodule Pyex.Env do
   @type t :: %__MODULE__{
           scopes: [scope(), ...],
           scope_ids: [reference(), ...],
-          global: scope()
+          global: scope(),
+          has_decls: boolean(),
+          has_decls_stack: [boolean()]
         }
 
-  defstruct scopes: [%{}], scope_ids: [], global: %{}
+  defstruct scopes: [%{}], scope_ids: [], global: %{}, has_decls: false, has_decls_stack: []
 
   @doc """
   Creates a fresh environment with a single empty scope.
@@ -108,7 +110,7 @@ defmodule Pyex.Env do
   """
   @spec declare_global(t(), name()) :: t()
   def declare_global(%__MODULE__{scopes: [top | rest]} = env, name) do
-    %{env | scopes: [Map.put(top, {:__global__, name}, true) | rest]}
+    %{env | scopes: [Map.put(top, {:__global__, name}, true) | rest], has_decls: true}
   end
 
   @doc """
@@ -116,7 +118,7 @@ defmodule Pyex.Env do
   """
   @spec declare_nonlocal(t(), name()) :: t()
   def declare_nonlocal(%__MODULE__{scopes: [top | rest]} = env, name) do
-    %{env | scopes: [Map.put(top, {:__nonlocal__, name}, true) | rest]}
+    %{env | scopes: [Map.put(top, {:__nonlocal__, name}, true) | rest], has_decls: true}
   end
 
   @doc """
@@ -311,7 +313,13 @@ defmodule Pyex.Env do
   """
   @spec push_scope(t()) :: t()
   def push_scope(%__MODULE__{scopes: scopes, scope_ids: scope_ids} = env) do
-    %{env | scopes: [%{} | scopes], scope_ids: [make_ref() | scope_ids]}
+    %{
+      env
+      | scopes: [%{} | scopes],
+        scope_ids: [make_ref() | scope_ids],
+        has_decls: false,
+        has_decls_stack: [env.has_decls | env.has_decls_stack]
+    }
   end
 
   @doc """
@@ -322,7 +330,13 @@ defmodule Pyex.Env do
   """
   @spec push_scope_with(t(), scope()) :: t()
   def push_scope_with(%__MODULE__{scopes: scopes, scope_ids: scope_ids} = env, initial) do
-    %{env | scopes: [initial | scopes], scope_ids: [make_ref() | scope_ids]}
+    %{
+      env
+      | scopes: [initial | scopes],
+        scope_ids: [make_ref() | scope_ids],
+        has_decls: false,
+        has_decls_stack: [env.has_decls | env.has_decls_stack]
+    }
   end
 
   @doc """
@@ -335,8 +349,18 @@ defmodule Pyex.Env do
   Removes the topmost scope from the stack.
   """
   @spec drop_top_scope(t()) :: t()
+  def drop_top_scope(
+        %__MODULE__{
+          scopes: [_top | rest],
+          scope_ids: [_id | rest_ids],
+          has_decls_stack: [has_decls | stack]
+        } = env
+      ) do
+    %{env | scopes: rest, scope_ids: rest_ids, has_decls: has_decls, has_decls_stack: stack}
+  end
+
   def drop_top_scope(%__MODULE__{scopes: [_top | rest], scope_ids: [_id | rest_ids]} = env) do
-    %{env | scopes: rest, scope_ids: rest_ids}
+    %{env | scopes: rest, scope_ids: rest_ids, has_decls: false}
   end
 
   @doc """

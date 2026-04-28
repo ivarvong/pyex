@@ -170,7 +170,7 @@ defmodule Pyex.Stdlib.Dataclasses do
   end
 
   @spec user_callable?(Interpreter.pyvalue()) :: boolean()
-  defp user_callable?({:function, _, _, _, _}), do: true
+  defp user_callable?({:function, _, _, _, _, _}), do: true
   defp user_callable?({:lambda, _, _, _}), do: true
   defp user_callable?({:bound_method, _, _}), do: true
   defp user_callable?({:bound_method, _, _, _}), do: true

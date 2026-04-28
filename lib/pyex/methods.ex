@@ -52,6 +52,7 @@ defmodule Pyex.Methods do
     case list_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
       {:ok_kw, method_fn} -> {:ok, {:builtin_kw, bound_kw(method_fn, object)}}
+      {:ok_raw, method_fn} -> {:ok, {:builtin_raw, bound(method_fn, object)}}
       :error -> :error
     end
   end
@@ -60,6 +61,7 @@ defmodule Pyex.Methods do
     case list_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
       {:ok_kw, method_fn} -> {:ok, {:builtin_kw, bound_kw(method_fn, object)}}
+      {:ok_raw, method_fn} -> {:ok, {:builtin_raw, bound(method_fn, object)}}
       :error -> :error
     end
   end
@@ -276,10 +278,11 @@ defmodule Pyex.Methods do
           {:ok, ([Interpreter.pyvalue()], [Interpreter.pyvalue()] -> Interpreter.pyvalue())}
           | {:ok_kw,
              ([Interpreter.pyvalue()], [Interpreter.pyvalue()], map() -> Interpreter.pyvalue())}
+          | {:ok_raw, ([Interpreter.pyvalue()], [Interpreter.pyvalue()] -> Interpreter.pyvalue())}
           | :error
-  defp list_method("append"), do: {:ok, &list_append/2}
+  defp list_method("append"), do: {:ok_raw, &list_append/2}
   defp list_method("extend"), do: {:ok, &list_extend/2}
-  defp list_method("insert"), do: {:ok, &list_insert/2}
+  defp list_method("insert"), do: {:ok_raw, &list_insert/2}
   defp list_method("remove"), do: {:ok, &list_remove/2}
   defp list_method("pop"), do: {:ok, &list_pop/2}
   defp list_method("sort"), do: {:ok_kw, &list_sort/3}

@@ -172,6 +172,71 @@ defmodule Pyex.Interpreter.Assignments do
   end
 
   @doc """
+  Evaluates subscript assignment on an arbitrary expression target.
+
+  Handles cases like `f()[k] = v` or `obj.method()[k] = v` where the
+  subscript container is the result of evaluating an expression. Writes
+  through heap refs; non-ref temporaries are updated and discarded (matches
+  CPython behavior — no error, but the mutation has no lasting effect).
+  """
+  @spec eval_expr_subscript_assign(
+          Parser.ast_node(),
+          Parser.ast_node(),
+          Parser.ast_node(),
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  def eval_expr_subscript_assign(target_expr, key_expr, val_expr, env, ctx) do
+    with {raw_container, env, ctx} when not is_py_exception(raw_container) <-
+           Interpreter.eval(target_expr, env, ctx),
+         {key, env, ctx} when not is_py_exception(key) <- Interpreter.eval(key_expr, env, ctx),
+         {val, env, ctx} when not is_py_exception(val) <- Interpreter.eval(val_expr, env, ctx) do
+      container = Ctx.deref(ctx, raw_container)
+
+      case container do
+        {:py_dict, _, _} = dict ->
+          updated = PyDict.put(dict, key, val)
+          ctx = maybe_heap_put(ctx, raw_container, updated)
+          {val, env, ctx}
+
+        %{} = map ->
+          updated = Map.put(map, key, val)
+          ctx = maybe_heap_put(ctx, raw_container, updated)
+          {val, env, ctx}
+
+        {:py_list, reversed, _len} when is_integer(key) ->
+          python_list = Enum.reverse(reversed)
+          real_idx = if key < 0, do: length(python_list) + key, else: key
+          updated_python = List.replace_at(python_list, real_idx, val)
+          updated = {:py_list, Enum.reverse(updated_python), length(updated_python)}
+          ctx = maybe_heap_put(ctx, raw_container, updated)
+          {val, env, ctx}
+
+        {:instance, _, _} = inst ->
+          case Dunder.call_dunder_mut(inst, "__setitem__", [key, val], env, ctx) do
+            {:ok, updated_inst, _return_val, env, ctx} ->
+              ctx = maybe_heap_put(ctx, raw_container, updated_inst)
+              {val, env, ctx}
+
+            :not_found ->
+              {{:exception,
+                "TypeError: '#{Helpers.py_type(inst)}' object does not support item assignment"},
+               env, ctx}
+          end
+
+        _ ->
+          {{:exception, "TypeError: object does not support item assignment"}, env, ctx}
+      end
+    else
+      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+    end
+  end
+
+  @spec maybe_heap_put(Ctx.t(), Interpreter.pyvalue(), Interpreter.pyvalue()) :: Ctx.t()
+  defp maybe_heap_put(ctx, {:ref, id}, updated), do: Ctx.heap_put(ctx, id, updated)
+  defp maybe_heap_put(ctx, _raw, _updated), do: ctx
+
+  @doc """
   Evaluates name-backed subscript assignment.
   """
   @spec eval_name_subscript_assign(
@@ -735,7 +800,7 @@ defmodule Pyex.Interpreter.Assignments do
           other when is_map(other) ->
             {nil, Env.put_at_source(env, var_name, Map.put(other, attr, value)), ctx}
 
-          {:function, _, _, _, _} = func ->
+          {:function, _, _, _, _, _} = func ->
             wrapped = {:func_with_attrs, func, %{attr => value}}
             {nil, Env.put_at_source(env, var_name, wrapped), ctx}
 
@@ -803,7 +868,7 @@ defmodule Pyex.Interpreter.Assignments do
         case PyDict.fetch(dict, "__defaultdict_factory__") do
           {:ok, {:builtin_type, _, func}} -> func.([])
           {:ok, {:builtin, func}} -> func.([])
-          {:ok, {:function, _, _, _, _} = func} -> {:defaultdict_call_needed, func}
+          {:ok, {:function, _, _, _, _, _} = func} -> {:defaultdict_call_needed, func}
           _ -> {:exception, "KeyError: #{Pyex.Builtins.py_repr_quoted(key)}"}
         end
     end
@@ -818,7 +883,7 @@ defmodule Pyex.Interpreter.Assignments do
         case Map.fetch(obj, "__defaultdict_factory__") do
           {:ok, {:builtin_type, _, func}} -> func.([])
           {:ok, {:builtin, func}} -> func.([])
-          {:ok, {:function, _, _, _, _} = func} -> {:defaultdict_call_needed, func}
+          {:ok, {:function, _, _, _, _, _} = func} -> {:defaultdict_call_needed, func}
           _ -> {:exception, "KeyError: #{Pyex.Builtins.py_repr_quoted(key)}"}
         end
     end
