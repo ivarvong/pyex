@@ -9,7 +9,7 @@ defmodule Pyex.Conformance.DatetimeTimeTest do
   import Pyex.Test.Oracle
 
   describe "constructor" do
-    for {label, args} <- [
+    for {_label, args} <- [
           {"default", "0"},
           {"hour only", "12"},
           {"hour minute", "12, 30"},
@@ -29,7 +29,7 @@ defmodule Pyex.Conformance.DatetimeTimeTest do
   end
 
   describe "isoformat" do
-    for {label, args, expected} <- [
+    for {label, args, _expected} <- [
           {"basic", "12, 30", "12:30:00"},
           {"with sec", "12, 30, 45", "12:30:45"},
           {"with us", "12, 30, 45, 123456", "12:30:45.123456"},
