@@ -1,81 +1,25 @@
-defmodule Pyex.DifferentialFuzzTest do
+defmodule Pyex.DifferentialFuzz.ArithmeticTest do
   @moduledoc """
-  Differential fuzzing tests that generate random valid Python programs,
-  run them through both CPython and Pyex, and assert identical output.
+  Differential fuzzing tests covering arithmetic, strings, and lists.
 
-  Unlike `ConformanceTest` (hand-written snippets), these tests use
-  StreamData generators to explore the input space automatically. Every
-  generated program wraps its result in `print(repr(...))` so we get
-  canonical, comparable output.
-
-  Requires `python3` on PATH. Skipped otherwise.
+  This file defines several `defmodule`s rather than one. ExUnit only
+  parallelizes across modules, so a single ~127-property module made
+  the file the dominant chunk of suite wall time. Splitting into five
+  modules lets the property tests run concurrently.
   """
+
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  @python3 System.find_executable("python3")
+  @moduletag :requires_python3
+
+  import Pyex.Test.DifferentialFuzz
 
   setup do
-    if @python3 do
+    if python3_available?() do
       :ok
     else
       {:skip, "python3 not found on PATH"}
-    end
-  end
-
-  defp assert_differential(code) do
-    cpython_output = run_cpython(code)
-    pyex_output = run_pyex(code)
-
-    assert pyex_output == cpython_output,
-           """
-           Differential fuzz mismatch:
-
-           Python code:
-           #{indent(code)}
-
-           CPython output: #{inspect(cpython_output)}
-           Pyex output:    #{inspect(pyex_output)}
-           """
-  end
-
-  defp run_cpython(code) do
-    case System.cmd(@python3, ["-c", code], stderr_to_stdout: true) do
-      {output, 0} -> {:ok, String.trim(output)}
-      {output, _} -> {:error, extract_exception_type(String.trim(output))}
-    end
-  end
-
-  defp run_pyex(code) do
-    case Pyex.run(code, Pyex.Ctx.new(timeout: 2_000)) do
-      {:ok, _, ctx} -> {:ok, ctx |> Pyex.output() |> IO.iodata_to_binary() |> String.trim()}
-      {:error, err} -> {:error, err.exception_type || err.kind}
-    end
-  end
-
-  defp extract_exception_type(stderr) do
-    case Regex.run(~r/(\w+Error|\w+Exception|StopIteration|KeyboardInterrupt)\b/, stderr) do
-      [_, type] -> type
-      _ -> :unknown
-    end
-  end
-
-  defp indent(code) do
-    code
-    |> String.split("\n")
-    |> Enum.map_join("\n", &("    " <> &1))
-  end
-
-  # ── Generators ──────────────────────────────────────────────
-
-  defp small_int, do: integer(-50..50)
-  defp arith_op, do: member_of(["+", "-", "*"])
-
-  defp comparison_op, do: member_of(["==", "!=", "<", ">", "<=", ">="])
-
-  defp safe_string do
-    gen all(s <- string(:alphanumeric, min_length: 0, max_length: 12)) do
-      s
     end
   end
 
@@ -415,6 +359,28 @@ defmodule Pyex.DifferentialFuzzTest do
       end
     end
   end
+end
+
+defmodule Pyex.DifferentialFuzz.CollectionsTest do
+  @moduledoc """
+  Differential fuzzing tests covering dicts, sets, tuples, control
+  flow, and functions.
+  """
+
+  use ExUnit.Case, async: true
+  use ExUnitProperties
+
+  @moduletag :requires_python3
+
+  import Pyex.Test.DifferentialFuzz
+
+  setup do
+    if python3_available?() do
+      :ok
+    else
+      {:skip, "python3 not found on PATH"}
+    end
+  end
 
   describe "dict differential fuzzing" do
     property "dict construction and access" do
@@ -729,6 +695,27 @@ defmodule Pyex.DifferentialFuzzTest do
   end
 
   # ── Builtin differential fuzzing ───────────────────────────
+end
+
+defmodule Pyex.DifferentialFuzz.BuiltinsTest do
+  @moduledoc """
+  Differential fuzzing tests covering builtins, generators, and classes.
+  """
+
+  use ExUnit.Case, async: true
+  use ExUnitProperties
+
+  @moduletag :requires_python3
+
+  import Pyex.Test.DifferentialFuzz
+
+  setup do
+    if python3_available?() do
+      :ok
+    else
+      {:skip, "python3 not found on PATH"}
+    end
+  end
 
   describe "builtin differential fuzzing" do
     property "sorted with various inputs" do
@@ -1044,6 +1031,28 @@ defmodule Pyex.DifferentialFuzzTest do
   end
 
   # ── Exception handling differential fuzzing ────────────────
+end
+
+defmodule Pyex.DifferentialFuzz.ExceptionAndFormatTest do
+  @moduledoc """
+  Differential fuzzing tests covering exception handling, complex
+  programs, match/case, and percent + str.format formatting.
+  """
+
+  use ExUnit.Case, async: true
+  use ExUnitProperties
+
+  @moduletag :requires_python3
+
+  import Pyex.Test.DifferentialFuzz
+
+  setup do
+    if python3_available?() do
+      :ok
+    else
+      {:skip, "python3 not found on PATH"}
+    end
+  end
 
   describe "exception handling differential fuzzing" do
     property "try/except with division" do
@@ -1487,7 +1496,30 @@ defmodule Pyex.DifferentialFuzzTest do
     end
   end
 
-  # ── Exception handling differential fuzzing ───────────────────────────────
+  # ── Exception hierarchy + scoping + dunders ───────────────────────────────
+end
+
+defmodule Pyex.DifferentialFuzz.ScopingAndDunderTest do
+  @moduledoc """
+  Differential fuzzing tests covering exception hierarchy, context
+  managers, keyword-only params, slicing, scoping, dunder methods,
+  with-statement multi-target, and sort stability.
+  """
+
+  use ExUnit.Case, async: true
+  use ExUnitProperties
+
+  @moduletag :requires_python3
+
+  import Pyex.Test.DifferentialFuzz
+
+  setup do
+    if python3_available?() do
+      :ok
+    else
+      {:skip, "python3 not found on PATH"}
+    end
+  end
 
   describe "exception hierarchy differential fuzzing" do
     property "custom exception class hierarchy" do
