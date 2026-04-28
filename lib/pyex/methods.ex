@@ -145,7 +145,7 @@ defmodule Pyex.Methods do
     end
   end
 
-  def resolve({:deque, _, _} = object, attr) do
+  def resolve({:deque, _, _, _, _} = object, attr) do
     case deque_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin_kw, bound_kw(method_fn, object)}}
       :error -> :error
@@ -2451,6 +2451,18 @@ defmodule Pyex.Methods do
   defp stringio_exit({:stringio, _}, _args, _kw), do: false
 
   # ── deque methods ────────────────────────────────────────────────────────────
+  #
+  # Internal representation: {:deque, front, rear, len, maxlen}
+  #   front — left items in order, leftmost at head
+  #   rear  — right items reversed, rightmost at head
+  #   len   — total count (O(1) access)
+  #   maxlen — integer cap or nil
+  #
+  # Full list: front ++ Enum.reverse(rear)
+  # append(x) → prepend to rear  — O(1)
+  # appendleft(x) → prepend to front — O(1)
+  # pop() → take rear head; rebalance if rear empty — O(1) amortized
+  # popleft() → take front head; rebalance if front empty — O(1) amortized
 
   @spec deque_method(String.t()) ::
           {:ok, (Interpreter.pyvalue(), [Interpreter.pyvalue()], map() -> Interpreter.pyvalue())}
@@ -2466,78 +2478,130 @@ defmodule Pyex.Methods do
   defp deque_method("copy"), do: {:ok, &deque_copy/3}
   defp deque_method(_), do: :error
 
-  defp deque_trim({:deque, items, maxlen} = d) do
-    if is_integer(maxlen) and length(items) > maxlen do
-      {:deque, Enum.take(items, -maxlen), maxlen}
-    else
-      d
+  @spec deque_to_list(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]
+  def deque_to_list({:deque, front, rear, _len, _maxlen}), do: front ++ Enum.reverse(rear)
+
+  @spec deque_from_list([Interpreter.pyvalue()], integer() | nil) :: Interpreter.pyvalue()
+  def deque_from_list(items, maxlen) do
+    items =
+      if is_integer(maxlen) and length(items) > maxlen,
+        do: Enum.take(items, -maxlen),
+        else: items
+
+    {:deque, items, [], length(items), maxlen}
+  end
+
+  defp deque_drop_left({:deque, [_ | front], rear, len, maxlen}),
+    do: {:deque, front, rear, len - 1, maxlen}
+
+  defp deque_drop_left({:deque, [], rear, len, maxlen}) do
+    case Enum.reverse(rear) do
+      [_ | new_front] -> {:deque, new_front, [], len - 1, maxlen}
+      [] -> {:deque, [], [], 0, maxlen}
     end
   end
 
-  defp deque_append({:deque, items, maxlen}, [x], _kw) do
-    new = deque_trim({:deque, items ++ [x], maxlen})
+  defp deque_drop_right({:deque, front, [_ | rear], len, maxlen}),
+    do: {:deque, front, rear, len - 1, maxlen}
+
+  defp deque_drop_right({:deque, front, [], len, maxlen}) do
+    case Enum.reverse(front) do
+      [_ | new_rear] -> {:deque, [], new_rear, len - 1, maxlen}
+      [] -> {:deque, [], [], 0, maxlen}
+    end
+  end
+
+  defp deque_append({:deque, front, rear, len, maxlen}, [x], _kw) do
+    new = {:deque, front, [x | rear], len + 1, maxlen}
+    new = if is_integer(maxlen) and len + 1 > maxlen, do: deque_drop_left(new), else: new
     {:mutate, new, nil}
   end
 
-  defp deque_appendleft({:deque, items, maxlen}, [x], _kw) do
-    new = deque_trim({:deque, [x | items], maxlen})
+  defp deque_appendleft({:deque, front, rear, len, maxlen}, [x], _kw) do
+    new = {:deque, [x | front], rear, len + 1, maxlen}
+    new = if is_integer(maxlen) and len + 1 > maxlen, do: deque_drop_right(new), else: new
     {:mutate, new, nil}
   end
 
-  defp deque_pop({:deque, [], _}, _args, _kw) do
-    {:exception, "IndexError: pop from an empty deque"}
+  defp deque_pop({:deque, _, _, 0, _}, _args, _kw),
+    do: {:exception, "IndexError: pop from an empty deque"}
+
+  defp deque_pop({:deque, front, [h | rear], len, maxlen}, _args, _kw),
+    do: {:mutate, {:deque, front, rear, len - 1, maxlen}, h}
+
+  defp deque_pop({:deque, front, [], len, maxlen}, _args, _kw) do
+    case Enum.reverse(front) do
+      [h | new_rear] -> {:mutate, {:deque, [], new_rear, len - 1, maxlen}, h}
+      [] -> {:exception, "IndexError: pop from an empty deque"}
+    end
   end
 
-  defp deque_pop({:deque, items, maxlen}, _args, _kw) do
-    last = List.last(items)
-    new = {:deque, Enum.drop(items, -1), maxlen}
-    {:mutate, new, last}
+  defp deque_popleft({:deque, _, _, 0, _}, _args, _kw),
+    do: {:exception, "IndexError: pop from an empty deque"}
+
+  defp deque_popleft({:deque, [h | front], rear, len, maxlen}, _args, _kw),
+    do: {:mutate, {:deque, front, rear, len - 1, maxlen}, h}
+
+  defp deque_popleft({:deque, [], rear, len, maxlen}, _args, _kw) do
+    case Enum.reverse(rear) do
+      [h | new_front] -> {:mutate, {:deque, new_front, [], len - 1, maxlen}, h}
+      [] -> {:exception, "IndexError: pop from an empty deque"}
+    end
   end
 
-  defp deque_popleft({:deque, [], _}, _args, _kw) do
-    {:exception, "IndexError: pop from an empty deque"}
-  end
-
-  defp deque_popleft({:deque, [head | rest], maxlen}, _args, _kw) do
-    {:mutate, {:deque, rest, maxlen}, head}
-  end
-
-  defp deque_extend({:deque, items, maxlen}, [iterable], _kw) do
+  defp deque_extend({:deque, front, rear, len, maxlen}, [iterable], _kw) do
     new_items = Builtins.to_list_safe(iterable)
-    new = deque_trim({:deque, items ++ new_items, maxlen})
+    new_rear = Enum.reverse(new_items) ++ rear
+    new_len = len + length(new_items)
+
+    new =
+      if is_integer(maxlen) and new_len > maxlen do
+        all = front ++ Enum.reverse(new_rear)
+        deque_from_list(Enum.take(all, -maxlen), maxlen)
+      else
+        {:deque, front, new_rear, new_len, maxlen}
+      end
+
     {:mutate, new, nil}
   end
 
-  defp deque_extendleft({:deque, items, maxlen}, [iterable], _kw) do
+  defp deque_extendleft({:deque, front, rear, len, maxlen}, [iterable], _kw) do
     new_items = Builtins.to_list_safe(iterable)
-    new = deque_trim({:deque, Enum.reverse(new_items) ++ items, maxlen})
+    new_front = Enum.reverse(new_items) ++ front
+    new_len = len + length(new_items)
+
+    new =
+      if is_integer(maxlen) and new_len > maxlen do
+        all = new_front ++ Enum.reverse(rear)
+        deque_from_list(Enum.take(all, maxlen), maxlen)
+      else
+        {:deque, new_front, rear, new_len, maxlen}
+      end
+
     {:mutate, new, nil}
   end
 
-  defp deque_clear({:deque, _, maxlen}, _args, _kw) do
-    {:mutate, {:deque, [], maxlen}, nil}
+  defp deque_clear({:deque, _, _, _, maxlen}, _args, _kw) do
+    {:mutate, {:deque, [], [], 0, maxlen}, nil}
   end
 
-  defp deque_rotate({:deque, items, maxlen}, args, _kw) do
+  defp deque_rotate({:deque, _, _, 0, maxlen}, _args, _kw),
+    do: {:mutate, {:deque, [], [], 0, maxlen}, nil}
+
+  defp deque_rotate({:deque, _, _, len, _} = deque, args, _kw) do
     n =
       case args do
         [n] when is_integer(n) -> n
         _ -> 1
       end
 
-    len = length(items)
-
-    if len == 0 do
-      {:mutate, {:deque, items, maxlen}, nil}
-    else
-      n = rem(n, len)
-      n = if n < 0, do: n + len, else: n
-      {right, left} = Enum.split(items, len - n)
-      {:mutate, {:deque, left ++ right, maxlen}, nil}
-    end
+    n = rem(n, len)
+    n = if n < 0, do: n + len, else: n
+    items = deque_to_list(deque)
+    {right, left} = Enum.split(items, len - n)
+    maxlen = elem(deque, 4)
+    {:mutate, {:deque, left ++ right, [], len, maxlen}, nil}
   end
 
-  defp deque_copy({:deque, items, maxlen}, _args, _kw) do
-    {:deque, items, maxlen}
-  end
+  defp deque_copy({:deque, _, _, _, _} = deque, _args, _kw), do: deque
 end

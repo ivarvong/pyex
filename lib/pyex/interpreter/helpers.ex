@@ -48,7 +48,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:pandas_rolling, _, _}), do: "Rolling"
   def py_type({:pandas_dataframe, _}), do: "DataFrame"
   def py_type({:pyex_decimal, _}), do: "Decimal"
-  def py_type({:deque, _, _}), do: "deque"
+  def py_type({:deque, _, _, _, _}), do: "deque"
   def py_type({:stringio, _}), do: "StringIO"
   def py_type({:property, _, _, _}), do: "property"
   def py_type({:staticmethod, _}), do: "staticmethod"
@@ -190,11 +190,14 @@ defmodule Pyex.Interpreter.Helpers do
 
   def py_str({:stringio, buf}), do: "<StringIO object at 0x0, buf=#{inspect(buf)}>"
 
-  def py_str({:deque, items, nil}),
-    do: "deque([" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> "])"
+  def py_str({:deque, _, _, _, nil} = d),
+    do: "deque([" <> Enum.map_join(Pyex.Methods.deque_to_list(d), ", ", &py_repr_fmt/1) <> "])"
 
-  def py_str({:deque, items, maxlen}),
-    do: "deque([" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> "], maxlen=#{maxlen})"
+  def py_str({:deque, _, _, _, maxlen} = d),
+    do:
+      "deque([" <>
+        Enum.map_join(Pyex.Methods.deque_to_list(d), ", ", &py_repr_fmt/1) <>
+        "], maxlen=#{maxlen})"
 
   def py_str({:tuple, items}), do: "(" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> ")"
 
@@ -335,6 +338,8 @@ defmodule Pyex.Interpreter.Helpers do
   def truthy?({:py_dict, _, _}), do: true
   def truthy?(map) when map == %{}, do: false
   def truthy?({:tuple, []}), do: false
+  def truthy?({:deque, _, _, 0, _}), do: false
+  def truthy?({:deque, _, _, _, _}), do: true
   def truthy?({:set, s}), do: MapSet.size(s) > 0
 
   def truthy?({:pyex_decimal, d}), do: not Decimal.equal?(d, Decimal.new(0))

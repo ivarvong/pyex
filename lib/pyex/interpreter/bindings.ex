@@ -170,6 +170,6 @@ defmodule Pyex.Interpreter.Bindings do
   @spec update_annotation_order(Env.t(), String.t()) :: [String.t()]
   defp update_annotation_order(env, name) do
     order = current_annotation_order(env)
-    if name in order, do: order, else: order ++ [name]
+    if name in order, do: order, else: [name | order]
   end
 end

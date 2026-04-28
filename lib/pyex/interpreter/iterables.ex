@@ -40,7 +40,9 @@ defmodule Pyex.Interpreter.Iterables do
     end
   end
 
-  def to_iterable({:deque, items, _}, env, ctx), do: {:ok, items, env, ctx}
+  def to_iterable({:deque, _, _, _, _} = d, env, ctx),
+    do: {:ok, Pyex.Methods.deque_to_list(d), env, ctx}
+
   def to_iterable({:generator, items}, env, ctx), do: {:ok, items, env, ctx}
 
   # Iterating an enum class yields its members in definition order.

@@ -79,7 +79,7 @@ defmodule Pyex.Stdlib.Dataclasses do
   defp decorate_class({:class, name, bases, class_attrs}, _kwargs) do
     field_names =
       case Map.get(class_attrs, "__annotations_order__") do
-        names when is_list(names) -> names
+        names when is_list(names) -> Enum.reverse(names)
         _ -> class_attrs |> Map.get("__annotations__", %{}) |> Map.keys()
       end
 

@@ -78,7 +78,7 @@ defmodule Pyex.Interpreter do
           | {:property, pyvalue() | nil, pyvalue() | nil, pyvalue() | nil}
           | {:staticmethod, pyvalue()}
           | {:classmethod, pyvalue()}
-          | {:deque, [pyvalue()], integer() | nil}
+          | {:deque, [pyvalue()], [pyvalue()], non_neg_integer(), integer() | nil}
           | {:stringio, String.t()}
           | {:partial, pyvalue(), [pyvalue()], %{optional(String.t()) => pyvalue()}}
           | {:lru_cached_function, pyvalue(), non_neg_integer()}

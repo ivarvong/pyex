@@ -208,7 +208,7 @@ defmodule Pyex.Builtins do
   defp builtin_len([{:frozenset, s}]), do: MapSet.size(s)
   defp builtin_len([{:bytes, b}]), do: byte_size(b)
   defp builtin_len([{:bytearray, b}]), do: byte_size(b)
-  defp builtin_len([{:deque, items, _}]), do: length(items)
+  defp builtin_len([{:deque, _, _, len, _}]), do: len
   defp builtin_len([{:generator, items}]), do: length(items)
   defp builtin_len([{:range, _, _, _} = r]), do: range_length(r)
   defp builtin_len([{:pandas_series, s}]), do: Explorer.Series.count(s)
@@ -886,7 +886,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp to_list({:deque, items, _}), do: {:ok, items}
+  defp to_list({:deque, _, _, _, _} = d), do: {:ok, Pyex.Methods.deque_to_list(d)}
   defp to_list({:py_list, reversed, _}), do: {:ok, Enum.reverse(reversed)}
   defp to_list(list) when is_list(list), do: {:ok, list}
 
@@ -933,7 +933,7 @@ defmodule Pyex.Builtins do
   defp builtin_list([{:tuple, items}]), do: items
   defp builtin_list([{:set, s}]), do: MapSet.to_list(s)
   defp builtin_list([{:frozenset, s}]), do: MapSet.to_list(s)
-  defp builtin_list([{:deque, items, _}]), do: items
+  defp builtin_list([{:deque, _, _, _, _} = d]), do: Pyex.Methods.deque_to_list(d)
   defp builtin_list([{:generator, items}]), do: items
 
   # When a generator raises during accumulation, we receive a
@@ -2646,6 +2646,8 @@ defmodule Pyex.Builtins do
   def truthy?({:py_dict, _, _}), do: true
   def truthy?(map) when map == %{}, do: false
   def truthy?({:tuple, []}), do: false
+  def truthy?({:deque, _, _, 0, _}), do: false
+  def truthy?({:deque, _, _, _, _}), do: true
   def truthy?({:set, s}), do: MapSet.size(s) > 0
   def truthy?({:frozenset, s}), do: MapSet.size(s) > 0
 
@@ -2678,7 +2680,7 @@ defmodule Pyex.Builtins do
   defp pytype({:builtin_kw, _}), do: "builtin_function_or_method"
   defp pytype({:class, name, _, _}), do: name
   defp pytype({:instance, {:class, name, _, _}, _}), do: name
-  defp pytype({:deque, _, _}), do: "deque"
+  defp pytype({:deque, _, _, _, _}), do: "deque"
   defp pytype({:range, _, _, _}), do: "range"
   defp pytype({:bound_method, _, _}), do: "method"
   defp pytype({:bound_method, _, _, _}), do: "method"

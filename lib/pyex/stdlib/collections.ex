@@ -309,6 +309,8 @@ defmodule Pyex.Stdlib.Collections do
   defp to_list({:py_list, reversed, _}), do: Enum.reverse(reversed)
   defp to_list(list) when is_list(list), do: list
   defp to_list({:tuple, items}), do: items
+  defp to_list({:range, _, _, _} = r), do: Pyex.Builtins.range_to_list(r)
+  defp to_list({:deque, _, _, _, _} = d), do: Pyex.Methods.deque_to_list(d)
   defp to_list(other), do: [other]
 
   # ── deque ───────────────────────────────────────────────────────────────────
@@ -331,7 +333,7 @@ defmodule Pyex.Stdlib.Collections do
         items
       end
 
-    {:deque, items, maxlen}
+    Pyex.Methods.deque_from_list(items, maxlen)
   end
 
   # ── ChainMap ────────────────────────────────────────────────────────────────
