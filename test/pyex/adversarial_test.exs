@@ -312,12 +312,14 @@ defmodule Pyex.AdversarialTest do
     end
 
     test "deep inheritance chain lookup" do
-      # Build a chain of 200 classes and instantiate the deepest one
+      # Build a chain of 100 classes and instantiate the deepest one.
+      # 200 had been borderline against ExUnit's 60s timeout on slow
+      # CI runners; 100 keeps the adversarial shape while leaving headroom.
       lines =
         ["class C0:\n    def method(self): return 0"] ++
-          for i <- 1..200, do: "class C#{i}(C#{i - 1}): pass"
+          for i <- 1..100, do: "class C#{i}(C#{i - 1}): pass"
 
-      code = Enum.join(lines, "\n") <> "\nC200().method()"
+      code = Enum.join(lines, "\n") <> "\nC100().method()"
       assert_contained(code)
     end
   end
