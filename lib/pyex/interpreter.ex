@@ -427,6 +427,8 @@ defmodule Pyex.Interpreter do
           class_val
         end
 
+      class_val = ClassLookup.with_mro_cache(class_val)
+
       {nil, Env.smart_put(env, name, class_val), ctx}
     end
   end
@@ -864,7 +866,8 @@ defmodule Pyex.Interpreter do
                 {{:tuple, bases}, env, ctx}
 
               "__dict__" ->
-                pairs = Enum.map(class_attrs, fn {k, v} -> {k, v} end)
+                visible = ClassLookup.visible_attrs(class_attrs)
+                pairs = Enum.map(visible, fn {k, v} -> {k, v} end)
                 {PyDict.from_pairs(pairs), env, ctx}
 
               _ ->
@@ -1621,7 +1624,8 @@ defmodule Pyex.Interpreter do
 
           "__dict__" ->
             # Expose a read-only view of class attrs as a dict
-            pairs = Enum.map(class_attrs, fn {k, v} -> {k, v} end)
+            visible = ClassLookup.visible_attrs(class_attrs)
+            pairs = Enum.map(visible, fn {k, v} -> {k, v} end)
             {PyDict.from_pairs(pairs), env, ctx}
 
           _ ->

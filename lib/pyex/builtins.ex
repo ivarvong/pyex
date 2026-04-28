@@ -2033,7 +2033,8 @@ defmodule Pyex.Builtins do
   end
 
   defp class_getattr({:class, _, _, class_attrs}, "__dict__") do
-    {:ok, PyDict.from_pairs(Enum.map(class_attrs, fn {k, v} -> {k, v} end))}
+    visible = Pyex.Interpreter.ClassLookup.visible_attrs(class_attrs)
+    {:ok, PyDict.from_pairs(Enum.map(visible, fn {k, v} -> {k, v} end))}
   end
 
   defp class_getattr({:class, _, _, _} = class, attr) do
@@ -2240,13 +2241,20 @@ defmodule Pyex.Builtins do
   @spec builtin_dir([Interpreter.pyvalue()]) :: [String.t()]
   defp builtin_dir([{:instance, {:class, _, bases, class_attrs}, instance_attrs}]) do
     inherited = collect_inherited_attrs(bases)
-    all_keys = Map.keys(class_attrs) ++ Map.keys(instance_attrs) ++ Map.keys(inherited)
+    visible_class = Pyex.Interpreter.ClassLookup.visible_attrs(class_attrs)
+    visible_inherited = Pyex.Interpreter.ClassLookup.visible_attrs(inherited)
+
+    all_keys =
+      Map.keys(visible_class) ++ Map.keys(instance_attrs) ++ Map.keys(visible_inherited)
+
     all_keys |> Enum.uniq() |> Enum.sort()
   end
 
   defp builtin_dir([{:class, _, bases, class_attrs}]) do
     inherited = collect_inherited_attrs(bases)
-    all_keys = Map.keys(class_attrs) ++ Map.keys(inherited)
+    visible_class = Pyex.Interpreter.ClassLookup.visible_attrs(class_attrs)
+    visible_inherited = Pyex.Interpreter.ClassLookup.visible_attrs(inherited)
+    all_keys = Map.keys(visible_class) ++ Map.keys(visible_inherited)
     all_keys |> Enum.uniq() |> Enum.sort()
   end
 
@@ -2291,7 +2299,8 @@ defmodule Pyex.Builtins do
   @spec builtin_vars([Interpreter.pyvalue()]) :: %{optional(String.t()) => Interpreter.pyvalue()}
   defp builtin_vars([{:instance, _class, attrs}]), do: attrs
 
-  defp builtin_vars([{:class, _, _bases, attrs}]), do: attrs
+  defp builtin_vars([{:class, _, _bases, attrs}]),
+    do: Pyex.Interpreter.ClassLookup.visible_attrs(attrs)
 
   defp builtin_vars([{:module, _, attrs}]), do: attrs
 
