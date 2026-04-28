@@ -23,6 +23,7 @@ defmodule Pyex.BannedCallTracerTest do
     Elixir.Mix.Tasks.Pyex
     Elixir.Mix.Tasks.Pyex.Fixture
     Elixir.Mix.Tasks.Pyex.Trace
+    Elixir.Mix.Tasks.Pyex.Bench.Budget
     Elixir.Mix.Tasks.Pyex.Bench.Coordinator
     Elixir.Mix.Tasks.Pyex.Bench.Worker
     Elixir.Pyex.Test.Fixture

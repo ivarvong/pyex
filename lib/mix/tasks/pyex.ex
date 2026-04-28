@@ -13,6 +13,9 @@ defmodule Mix.Tasks.Pyex do
 
   use Mix.Task
 
+  @external_resource "lib/mix/tasks/spreadsheet.py"
+  @spreadsheet File.read!("lib/mix/tasks/spreadsheet.py")
+
   @impl Mix.Task
   def run(args) do
     Mix.Task.run("app.start")
@@ -31,14 +34,19 @@ defmodule Mix.Tasks.Pyex do
 
     case read_source(path) do
       {:ok, code} ->
-        ctx = Pyex.Ctx.new()
+        ctx =
+          Pyex.Ctx.new(
+            filesystem: Pyex.Filesystem.Memory.new(%{"spreadsheet.py" => @spreadsheet})
+          )
 
         case Pyex.run(code, ctx) do
           {:ok, nil, ctx} ->
             print_output(ctx)
+            sync_out(ctx)
 
           {:ok, result, ctx} ->
             print_output(ctx)
+            sync_out(ctx)
             IO.inspect(result)
 
           {:error, msg} ->
@@ -56,6 +64,17 @@ defmodule Mix.Tasks.Pyex do
     case Pyex.output(ctx) do
       "" -> :ok
       out -> IO.puts(out)
+    end
+  end
+
+  defp sync_out(ctx) do
+    case ctx.filesystem.files |> Map.delete("spreadsheet.py") |> Map.to_list() do
+      [{name, data}] ->
+        File.write!(name, data, [:binary])
+        IO.puts("wrote #{name}")
+
+      _ ->
+        :ok
     end
   end
 

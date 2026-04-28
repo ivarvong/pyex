@@ -215,6 +215,8 @@ defmodule Pyex.Stdlib.Zipfile do
          {:ok, binary, source, env, ctx} ->
            case parse_archive(binary, limits) do
              {:ok, entries, comment} ->
+               rev_entries = Enum.reverse(entries)
+
                state = %{
                  mode: :r,
                  filename: source.filename,
@@ -222,8 +224,8 @@ defmodule Pyex.Stdlib.Zipfile do
                  write_back_path: nil,
                  write_back_handle: nil,
                  raw: binary,
-                 entries: entries,
-                 entry_index: index_entries(entries),
+                 entries: rev_entries,
+                 entry_index: index_entries(rev_entries),
                  default_method: compression,
                  comment: comment,
                  closed: false,
@@ -810,9 +812,7 @@ defmodule Pyex.Stdlib.Zipfile do
   end
 
   defp index_entries(entries) do
-    entries
-    |> Enum.with_index()
-    |> Map.new(fn {e, idx} -> {e.name, idx} end)
+    Map.new(entries, fn e -> {e.name, e} end)
   end
 
   # ==========================================================================
@@ -1167,7 +1167,7 @@ defmodule Pyex.Stdlib.Zipfile do
         {:ctx_call,
          fn env, ctx ->
            state = Ctx.deref(ctx, {:ref, ref_id})
-           names = Enum.map(state.entries, & &1.name)
+           names = Enum.map(Enum.reverse(state.entries), & &1.name)
            {{:py_list, Enum.reverse(names), length(names)}, env, ctx}
          end}
 
@@ -1225,7 +1225,7 @@ defmodule Pyex.Stdlib.Zipfile do
          {:ctx_call,
           fn env, ctx ->
             with_open_state(ref_id, env, ctx, fn state, env, ctx ->
-              names = Enum.map(state.entries, & &1.name)
+              names = Enum.map(Enum.reverse(state.entries), & &1.name)
               {{:py_list, Enum.reverse(names), length(names)}, env, ctx}
             end)
           end}
@@ -1242,7 +1242,7 @@ defmodule Pyex.Stdlib.Zipfile do
          {:ctx_call,
           fn env, ctx ->
             with_open_state(ref_id, env, ctx, fn state, env, ctx ->
-              infos = Enum.map(state.entries, &make_zipinfo/1)
+              infos = Enum.map(Enum.reverse(state.entries), &make_zipinfo/1)
               {{:py_list, Enum.reverse(infos), length(infos)}, env, ctx}
             end)
           end}
@@ -1450,8 +1450,8 @@ defmodule Pyex.Stdlib.Zipfile do
 
   defp lookup_entry(state, name) do
     case Map.fetch(state.entry_index, name) do
-      {:ok, idx} ->
-        {:ok, Enum.at(state.entries, idx)}
+      {:ok, entry} ->
+        {:ok, entry}
 
       :error ->
         {:exception, "KeyError: \"There is no item named '#{printable(name)}' in the archive\""}
@@ -1533,8 +1533,9 @@ defmodule Pyex.Stdlib.Zipfile do
                  is_symlink: false
                }
 
-               entries = state.entries ++ [entry]
-               new_state = %{state | entries: entries, entry_index: index_entries(entries)}
+               entries = [entry | state.entries]
+               new_entry_index = Map.put(state.entry_index, name, entry)
+               new_state = %{state | entries: entries, entry_index: new_entry_index}
                ctx = Ctx.heap_put(ctx, ref_id, new_state)
                {nil, env, ctx}
            end
@@ -1630,12 +1631,13 @@ defmodule Pyex.Stdlib.Zipfile do
                      is_symlink: false
                    }
 
-                   entries = state.entries ++ [entry]
+                   entries = [entry | state.entries]
+                   new_entry_index = Map.put(state.entry_index, arcname, entry)
 
                    new_state = %{
                      state
                      | entries: entries,
-                       entry_index: index_entries(entries)
+                       entry_index: new_entry_index
                    }
 
                    ctx = Ctx.heap_put(ctx, ref_id, new_state)
@@ -1724,7 +1726,7 @@ defmodule Pyex.Stdlib.Zipfile do
   # `members` accepts None/:all (extract everything) or an iterable of
   # names / ZipInfo objects.  Unknown names raise KeyError to match
   # CPython.  Order follows the caller-supplied list when given.
-  defp select_members(state, :all), do: {:ok, state.entries}
+  defp select_members(state, :all), do: {:ok, Enum.reverse(state.entries)}
 
   defp select_members(state, members) do
     list =
@@ -1740,8 +1742,8 @@ defmodule Pyex.Stdlib.Zipfile do
       name = member_name(member)
 
       case Map.fetch(state.entry_index, name) do
-        {:ok, idx} ->
-          {:cont, {:ok, [Enum.at(state.entries, idx) | acc]}}
+        {:ok, entry} ->
+          {:cont, {:ok, [entry | acc]}}
 
         :error ->
           {:halt,
@@ -1811,7 +1813,7 @@ defmodule Pyex.Stdlib.Zipfile do
        {:ctx_call,
         fn env, ctx ->
           with_open_state(ref_id, env, ctx, fn state, env, ctx ->
-            case Enum.reduce_while(state.entries, :ok, fn entry, :ok ->
+            case Enum.reduce_while(Enum.reverse(state.entries), :ok, fn entry, :ok ->
                    if entry.is_dir or entry.encrypted do
                      {:cont, :ok}
                    else
@@ -1839,7 +1841,7 @@ defmodule Pyex.Stdlib.Zipfile do
               "File Name                                             Modified             Size\n"
 
             lines =
-              Enum.map_join(state.entries, "", fn e ->
+              Enum.map_join(Enum.reverse(state.entries), "", fn e ->
                 {y, m, d, hh, mm, ss} = e.date_time
 
                 ts =
@@ -1930,8 +1932,9 @@ defmodule Pyex.Stdlib.Zipfile do
                  is_symlink: false
                }
 
-               entries = state.entries ++ [entry]
-               new_state = %{state | entries: entries, entry_index: index_entries(entries)}
+               entries = [entry | state.entries]
+               new_entry_index = Map.put(state.entry_index, dir_name, entry)
+               new_state = %{state | entries: entries, entry_index: new_entry_index}
                ctx = Ctx.heap_put(ctx, ref_id, new_state)
                {nil, env, ctx}
            end
@@ -2013,7 +2016,7 @@ defmodule Pyex.Stdlib.Zipfile do
   defp build_zip_binary(state) do
     try do
       {lfh_pieces, cd_pieces, _final_offset} =
-        Enum.reduce(state.entries, {[], [], 0}, fn entry, {lfhs, cdes, off} ->
+        Enum.reduce(Enum.reverse(state.entries), {[], [], 0}, fn entry, {lfhs, cdes, off} ->
           {compressed, csize} = compress_for_zip(entry)
           gp_flag = compute_gp_flag(entry)
           lfh_block = build_lfh(entry, compressed, csize, gp_flag)

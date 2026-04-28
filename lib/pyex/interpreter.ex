@@ -56,7 +56,7 @@ defmodule Pyex.Interpreter do
           | {:set, MapSet.t(pyvalue())}
           | {:frozenset, MapSet.t(pyvalue())}
           | {:range, integer(), integer(), integer()}
-          | {:function, String.t(), [Parser.param()], [Parser.ast_node()], Env.t()}
+          | {:function, String.t(), [Parser.param()], [Parser.ast_node()], Env.t(), boolean()}
           | {:builtin, ([pyvalue()] -> pyvalue())}
           | {:builtin_type, String.t(), ([pyvalue()] -> pyvalue())}
           | {:builtin_kw, ([pyvalue()], %{optional(String.t()) => pyvalue()} -> pyvalue())}
@@ -78,7 +78,7 @@ defmodule Pyex.Interpreter do
           | {:property, pyvalue() | nil, pyvalue() | nil, pyvalue() | nil}
           | {:staticmethod, pyvalue()}
           | {:classmethod, pyvalue()}
-          | {:deque, [pyvalue()], integer() | nil}
+          | {:deque, [pyvalue()], [pyvalue()], non_neg_integer(), integer() | nil}
           | {:stringio, String.t()}
           | {:partial, pyvalue(), [pyvalue()], %{optional(String.t()) => pyvalue()}}
           | {:lru_cached_function, pyvalue(), non_neg_integer()}
@@ -221,7 +221,7 @@ defmodule Pyex.Interpreter do
 
   def eval({:def, _, [name, params, body]}, env, ctx) do
     {evaluated_params, ctx} = eval_param_defaults(params, env, ctx)
-    func = {:function, name, evaluated_params, body, env}
+    func = {:function, name, evaluated_params, body, env, contains_yield?(body)}
     {nil, Env.smart_put(env, name, func), ctx}
   end
 
@@ -523,6 +523,11 @@ defmodule Pyex.Interpreter do
     Assignments.eval_attr_aug_subscript_assign(target_expr, key_expr, op, val_expr, env, ctx)
   end
 
+  def eval({:subscript_assign, _, [expr_target, key_expr, val_expr]}, env, ctx)
+      when is_tuple(expr_target) do
+    Assignments.eval_expr_subscript_assign(expr_target, key_expr, val_expr, env, ctx)
+  end
+
   def eval({:subscript_assign, _, [name, key_expr, val_expr]}, env, ctx) do
     Assignments.eval_name_subscript_assign(name, key_expr, val_expr, env, ctx)
   end
@@ -723,7 +728,7 @@ defmodule Pyex.Interpreter do
 
                   {_, :error} ->
                     case ClassLookup.resolve_class_attr_with_owner(class, attr) do
-                      {:ok, {:function, _, _, _, _} = func, owner_class} ->
+                      {:ok, {:function, _, _, _, _, _} = func, owner_class} ->
                         {{:bound_method, raw, func, owner_class}, env, ctx}
 
                       {:ok, {:builtin_kw, _} = bkw, _owner} ->
@@ -802,7 +807,7 @@ defmodule Pyex.Interpreter do
 
                   {_, :error} ->
                     case ClassLookup.resolve_class_attr_with_owner(class, attr) do
-                      {:ok, {:function, _, _, _, _} = func, owner_class} ->
+                      {:ok, {:function, _, _, _, _, _} = func, owner_class} ->
                         {{:bound_method, raw_object, func, owner_class}, env, ctx}
 
                       {:ok, {:builtin_kw, _} = bkw, _owner} ->
@@ -874,7 +879,7 @@ defmodule Pyex.Interpreter do
                 case Map.get(class_attrs, attr) do
                   nil ->
                     case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
-                      {:ok, {:function, _, _, _, _} = func, _owner} ->
+                      {:ok, {:function, _, _, _, _, _} = func, _owner} ->
                         {{:bound_method, class_val, func}, env, ctx}
 
                       {:ok, {:builtin_kw, _} = bkw, _owner} ->
@@ -971,7 +976,7 @@ defmodule Pyex.Interpreter do
               end)
 
             case result do
-              {:ok, {:function, _, _, _, _} = func, owner_class} ->
+              {:ok, {:function, _, _, _, _, _} = func, owner_class} ->
                 {{:bound_method, instance, func, owner_class}, env, ctx}
 
               # Builtin attrs on a parent class should still receive
@@ -1070,7 +1075,7 @@ defmodule Pyex.Interpreter do
                  ctx}
             end
 
-          {:function, _, _, _, _} = func ->
+          {:function, _, _, _, _, _} = func ->
             case Helpers.function_attr(func, attr) do
               {:ok, value} ->
                 {value, env, ctx}
@@ -1197,7 +1202,7 @@ defmodule Pyex.Interpreter do
   def eval({:lambda, _, [params, body_expr]}, env, ctx) do
     body = [{:return, [line: 1], [body_expr]}]
     {evaluated_params, ctx} = eval_param_defaults(params, env, ctx)
-    func = {:function, "<lambda>", evaluated_params, body, env}
+    func = {:function, "<lambda>", evaluated_params, body, env, false}
     {func, env, ctx}
   end
 
@@ -1461,7 +1466,7 @@ defmodule Pyex.Interpreter do
   defp callable?({:builtin, _}), do: true
   defp callable?({:builtin_kw, _}), do: true
   defp callable?({:builtin_raw, _}), do: true
-  defp callable?({:function, _, _, _, _}), do: true
+  defp callable?({:function, _, _, _, _, _}), do: true
   defp callable?({:lambda, _, _, _}), do: true
   defp callable?({:bound_method, _, _}), do: true
   defp callable?({:bound_method, _, _, _}), do: true
@@ -1494,7 +1499,7 @@ defmodule Pyex.Interpreter do
             end
         end
 
-      {:function, _, _, _, _} = func ->
+      {:function, _, _, _, _, _} = func ->
         case Helpers.function_attr(func, attr) do
           {:ok, value} ->
             {value, env, ctx}
@@ -1532,7 +1537,7 @@ defmodule Pyex.Interpreter do
             override = subclass_method_override(class, attr)
 
             case {override, Map.fetch(inst_attrs, attr)} do
-              {{:ok, {:function, _, _, _, _} = func, owner_class}, _} ->
+              {{:ok, {:function, _, _, _, _, _} = func, owner_class}, _} ->
                 {{:bound_method, object, func, owner_class}, env, ctx}
 
               {_, {:ok, value}} ->
@@ -1540,7 +1545,7 @@ defmodule Pyex.Interpreter do
 
               {_, :error} ->
                 case ClassLookup.resolve_class_attr_with_owner(class, attr) do
-                  {:ok, {:function, _, _, _, _} = func, owner_class} ->
+                  {:ok, {:function, _, _, _, _, _} = func, owner_class} ->
                     {{:bound_method, object, func, owner_class}, env, ctx}
 
                   {:ok, {:builtin_kw, _} = bkw, _owner} ->
@@ -1632,7 +1637,7 @@ defmodule Pyex.Interpreter do
             case Map.get(class_attrs, attr) do
               nil ->
                 case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
-                  {:ok, {:function, _, _, _, _} = func, _owner} ->
+                  {:ok, {:function, _, _, _, _, _} = func, _owner} ->
                     {{:bound_method, class_val, func}, env, ctx}
 
                   {:ok, {:builtin_kw, _} = bkw, _owner} ->
@@ -1855,7 +1860,7 @@ defmodule Pyex.Interpreter do
           end)
 
         case result do
-          {:ok, {:function, _, _, _, _} = func, owner_class} ->
+          {:ok, {:function, _, _, _, _, _} = func, owner_class} ->
             {{:bound_method, instance, func, owner_class}, env, ctx}
 
           {:ok, {:builtin, _} = b, _owner} ->
@@ -2091,8 +2096,25 @@ defmodule Pyex.Interpreter do
           call_result()
   def call_function(func, args, kwargs, env, ctx)
 
-  def call_function({:function, name, params, body, closure_env} = func, args, kwargs, env, ctx) do
-    Invocation.call_user_function(func, name, params, body, closure_env, args, kwargs, env, ctx)
+  def call_function(
+        {:function, name, params, body, closure_env, is_generator} = func,
+        args,
+        kwargs,
+        env,
+        ctx
+      ) do
+    Invocation.call_user_function(
+      func,
+      name,
+      params,
+      body,
+      closure_env,
+      is_generator,
+      args,
+      kwargs,
+      env,
+      ctx
+    )
   end
 
   def call_function({:func_with_attrs, func, _attrs}, args, kwargs, env, ctx) do
@@ -2172,7 +2194,7 @@ defmodule Pyex.Interpreter do
   end
 
   def call_function(
-        {:bound_method, instance, {:function, _, _, _, _} = func, defining_class},
+        {:bound_method, instance, {:function, _, _, _, _, _} = func, defining_class},
         args,
         kwargs,
         env,
@@ -2182,7 +2204,7 @@ defmodule Pyex.Interpreter do
   end
 
   def call_function(
-        {:bound_method, instance, {:function, _, _, _, _} = func},
+        {:bound_method, instance, {:function, _, _, _, _, _} = func},
         args,
         kwargs,
         env,
@@ -2394,7 +2416,7 @@ defmodule Pyex.Interpreter do
     case derefed do
       {:instance, {:class, _, _, _} = desc_class, _} ->
         case ClassLookup.resolve_class_attr(desc_class, "__get__") do
-          {:ok, {:function, _, _, _, _} = func} ->
+          {:ok, {:function, _, _, _, _, _} = func} ->
             result =
               call_function(
                 {:bound_method, value, func},
@@ -2423,7 +2445,7 @@ defmodule Pyex.Interpreter do
     case derefed do
       {:instance, {:class, _, _, _} = desc_class, _} ->
         case ClassLookup.resolve_class_attr(desc_class, "__set__") do
-          {:ok, {:function, _, _, _, _} = func} ->
+          {:ok, {:function, _, _, _, _, _} = func} ->
             result =
               call_function(
                 {:bound_method, value, func},
@@ -2611,7 +2633,7 @@ defmodule Pyex.Interpreter do
     |> Enum.find_value(:not_found, fn
       {:class, _, _, attrs} = cls ->
         case Map.fetch(attrs, attr) do
-          {:ok, {:function, _, _, _, _} = func} -> {:ok, func, cls}
+          {:ok, {:function, _, _, _, _, _} = func} -> {:ok, func, cls}
           _ -> nil
         end
 
@@ -2795,7 +2817,7 @@ defmodule Pyex.Interpreter do
         {{:exception, "TypeError: '#{Helpers.py_type(val)}' object is not subscriptable"}, env,
          ctx}
 
-      {:function, _, _, _, _} ->
+      {:function, _, _, _, _, _} ->
         {{:exception, "TypeError: 'function' object is not subscriptable"}, env, ctx}
 
       _ ->
@@ -3835,16 +3857,22 @@ defmodule Pyex.Interpreter do
 
   @spec rewrite_self_reference(pyvalue(), String.t(), pyvalue()) :: pyvalue()
   defp rewrite_self_reference(
-         {:lru_cached_function, {:function, fname, params, body, closure_env}, cache_id},
+         {:lru_cached_function, {:function, fname, params, body, closure_env, is_generator},
+          cache_id},
          name,
          decorated
        ) do
     {:lru_cached_function,
-     {:function, fname, params, body, Env.put_global(closure_env, name, decorated)}, cache_id}
+     {:function, fname, params, body, Env.put_global(closure_env, name, decorated), is_generator},
+     cache_id}
   end
 
-  defp rewrite_self_reference({:function, fname, params, body, closure_env}, name, decorated) do
-    {:function, fname, params, body, Env.put_global(closure_env, name, decorated)}
+  defp rewrite_self_reference(
+         {:function, fname, params, body, closure_env, is_generator},
+         name,
+         decorated
+       ) do
+    {:function, fname, params, body, Env.put_global(closure_env, name, decorated), is_generator}
   end
 
   defp rewrite_self_reference({:partial, inner, args, kwargs}, name, decorated) do

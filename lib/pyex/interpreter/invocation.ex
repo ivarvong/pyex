@@ -17,22 +17,56 @@ defmodule Pyex.Interpreter.Invocation do
           [Parser.param()],
           [Parser.ast_node()],
           Env.t(),
+          boolean(),
           [Interpreter.pyvalue()],
           %{optional(String.t()) => Interpreter.pyvalue()},
           Env.t(),
           Ctx.t()
         ) :: Interpreter.call_result()
-  def call_user_function(func, name, params, body, closure_env, args, kwargs, env, ctx) do
+  def call_user_function(
+        func,
+        name,
+        params,
+        body,
+        closure_env,
+        is_generator,
+        args,
+        kwargs,
+        env,
+        ctx
+      ) do
     case Ctx.check_step(ctx) do
       {:exceeded, msg} ->
         {{:exception, msg}, env, ctx}
 
       {:ok, ctx} ->
-        do_call_user_function(func, name, params, body, closure_env, args, kwargs, env, ctx)
+        do_call_user_function(
+          func,
+          name,
+          params,
+          body,
+          closure_env,
+          is_generator,
+          args,
+          kwargs,
+          env,
+          ctx
+        )
     end
   end
 
-  defp do_call_user_function(func, name, params, body, closure_env, args, kwargs, env, ctx) do
+  defp do_call_user_function(
+         func,
+         name,
+         params,
+         body,
+         closure_env,
+         is_generator,
+         args,
+         kwargs,
+         env,
+         ctx
+       ) do
     if ctx.call_depth >= ctx.max_call_depth do
       {{:exception, "RecursionError: maximum recursion depth exceeded"}, env, ctx}
     else
@@ -62,7 +96,7 @@ defmodule Pyex.Interpreter.Invocation do
           t0 = if ctx.profile, do: System.monotonic_time(:microsecond)
 
           result =
-            if Interpreter.contains_yield?(body) do
+            if is_generator do
               eval_generator_function(body, call_env, env, ctx)
             else
               eval_regular_function(func, fresh_closure, body, call_env, env, ctx)
@@ -86,7 +120,7 @@ defmodule Pyex.Interpreter.Invocation do
         ) :: Interpreter.call_result()
   def call_bound_method(
         instance,
-        {:function, fname, params, body, closure_env},
+        {:function, fname, params, body, closure_env, is_generator},
         defining_class,
         args,
         kwargs,
@@ -97,7 +131,7 @@ defmodule Pyex.Interpreter.Invocation do
 
     fresh_closure = Env.refresh_from_caller(closure_env, env)
 
-    func = {:function, fname, params, body, closure_env}
+    func = {:function, fname, params, body, closure_env, is_generator}
     base_env = Env.push_scope(Env.put(fresh_closure, fname, func))
 
     base_env =
@@ -108,7 +142,7 @@ defmodule Pyex.Interpreter.Invocation do
         {{:exception, msg}, env, ctx}
 
       {call_env, ctx} ->
-        if Interpreter.contains_yield?(body) do
+        if is_generator do
           eval_generator_function(body, call_env, env, ctx)
         else
           {result, post_call_env, ctx} = Interpreter.eval_statements(body, call_env, ctx)
@@ -374,13 +408,14 @@ defmodule Pyex.Interpreter.Invocation do
     instance = {:instance, class, %{}}
 
     case ClassLookup.resolve_class_attr_with_owner(class, "__init__") do
-      {:ok, {:function, init_name, params, body, closure_env}, defining_class} ->
+      {:ok, {:function, init_name, params, body, closure_env, is_generator}, defining_class} ->
         call_class_init(
           instance,
           init_name,
           params,
           body,
           closure_env,
+          is_generator,
           defining_class,
           args,
           kwargs,
@@ -504,7 +539,7 @@ defmodule Pyex.Interpreter.Invocation do
         ) :: Interpreter.call_result()
   def call_callable_instance(instance, class, args, kwargs, env, ctx) do
     case ClassLookup.resolve_class_attr(class, "__call__") do
-      {:ok, {:function, _, _, _, _} = func} ->
+      {:ok, {:function, _, _, _, _, _} = func} ->
         Interpreter.call_function({:bound_method, instance, func}, args, kwargs, env, ctx)
 
       {:ok, {:builtin, fun}} ->
@@ -669,6 +704,7 @@ defmodule Pyex.Interpreter.Invocation do
           [Parser.param()],
           [Parser.ast_node()],
           Env.t(),
+          boolean(),
           Interpreter.pyvalue(),
           [Interpreter.pyvalue()],
           %{optional(String.t()) => Interpreter.pyvalue()},
@@ -681,6 +717,7 @@ defmodule Pyex.Interpreter.Invocation do
          params,
          body,
          closure_env,
+         is_generator,
          defining_class,
          args,
          kwargs,
@@ -691,7 +728,7 @@ defmodule Pyex.Interpreter.Invocation do
 
     fresh_closure = Env.refresh_from_caller(closure_env, env)
 
-    init_fn = {:function, init_name, params, body, closure_env}
+    init_fn = {:function, init_name, params, body, closure_env, is_generator}
     base_env = Env.push_scope(Env.put(fresh_closure, init_name, init_fn))
     base_env = Env.put(base_env, "__class__", defining_class)
 

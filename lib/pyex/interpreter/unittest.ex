@@ -110,7 +110,7 @@ defmodule Pyex.Interpreter.Unittest do
           {Interpreter.pyvalue(), Env.t(), Ctx.t()}
   defp maybe_call_setup(instance, class_attrs, env, ctx) do
     case Map.fetch(class_attrs, "setUp") do
-      {:ok, {:function, _, _, _, _} = func} ->
+      {:ok, {:function, _, _, _, _, _} = func} ->
         case Interpreter.call_function({:bound_method, instance, func}, [], %{}, env, ctx) do
           {{:exception, _} = signal, _env, ctx} -> {signal, env, ctx}
           {:mutate, _updated_self, {:exception, _} = signal, _env, ctx} -> {signal, env, ctx}
@@ -128,7 +128,7 @@ defmodule Pyex.Interpreter.Unittest do
           {Interpreter.pyvalue(), Env.t(), Ctx.t()}
   defp maybe_call_teardown(instance, class_attrs, env, ctx) do
     case Map.fetch(class_attrs, "tearDown") do
-      {:ok, {:function, _, _, _, _} = func} ->
+      {:ok, {:function, _, _, _, _, _} = func} ->
         case Interpreter.call_function({:bound_method, instance, func}, [], %{}, env, ctx) do
           {{:exception, _}, _env, ctx} -> {instance, env, ctx}
           {:mutate, updated_self, _val, new_env, ctx} -> {updated_self, new_env, ctx}
@@ -145,7 +145,7 @@ defmodule Pyex.Interpreter.Unittest do
           {:ok | {:fail, String.t()} | {:error, String.t()}, Env.t(), Ctx.t()}
   defp run_single_test(instance, method_name, class_attrs, env, ctx) do
     case Map.fetch(class_attrs, method_name) do
-      {:ok, {:function, _, _, _, _} = func} ->
+      {:ok, {:function, _, _, _, _, _} = func} ->
         case Interpreter.call_function({:bound_method, instance, func}, [], %{}, env, ctx) do
           {{:exception, "AssertionError" <> _ = msg}, env, ctx} ->
             {{:fail, msg}, env, ctx}

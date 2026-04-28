@@ -31,7 +31,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:tuple, _}), do: "tuple"
   def py_type({:set, _}), do: "set"
   def py_type({:frozenset, _}), do: "frozenset"
-  def py_type({:function, _, _, _, _}), do: "function"
+  def py_type({:function, _, _, _, _, _}), do: "function"
   def py_type({:builtin, _}), do: "builtin_function_or_method"
   def py_type({:builtin_type, name, _}), do: "<class '#{name}'>"
   def py_type({:builtin_kw, _}), do: "builtin_function_or_method"
@@ -48,7 +48,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:pandas_rolling, _, _}), do: "Rolling"
   def py_type({:pandas_dataframe, _}), do: "DataFrame"
   def py_type({:pyex_decimal, _}), do: "Decimal"
-  def py_type({:deque, _, _}), do: "deque"
+  def py_type({:deque, _, _, _, _}), do: "deque"
   def py_type({:stringio, _}), do: "StringIO"
   def py_type({:property, _, _, _}), do: "property"
   def py_type({:staticmethod, _}), do: "staticmethod"
@@ -75,7 +75,7 @@ defmodule Pyex.Interpreter.Helpers do
           {:ok, Pyex.Interpreter.pyvalue()} | :error
   def function_attr({:func_with_attrs, func, _attrs}, attr), do: function_attr(func, attr)
 
-  def function_attr({:function, name, params, body, _env}, attr) do
+  def function_attr({:function, name, params, body, _env, _is_generator}, attr) do
     case attr do
       "__name__" -> {:ok, name}
       "__qualname__" -> {:ok, name}
@@ -190,11 +190,14 @@ defmodule Pyex.Interpreter.Helpers do
 
   def py_str({:stringio, buf}), do: "<StringIO object at 0x0, buf=#{inspect(buf)}>"
 
-  def py_str({:deque, items, nil}),
-    do: "deque([" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> "])"
+  def py_str({:deque, _, _, _, nil} = d),
+    do: "deque([" <> Enum.map_join(Pyex.Methods.deque_to_list(d), ", ", &py_repr_fmt/1) <> "])"
 
-  def py_str({:deque, items, maxlen}),
-    do: "deque([" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> "], maxlen=#{maxlen})"
+  def py_str({:deque, _, _, _, maxlen} = d),
+    do:
+      "deque([" <>
+        Enum.map_join(Pyex.Methods.deque_to_list(d), ", ", &py_repr_fmt/1) <>
+        "], maxlen=#{maxlen})"
 
   def py_str({:tuple, items}), do: "(" <> Enum.map_join(items, ", ", &py_repr_fmt/1) <> ")"
 
@@ -335,6 +338,8 @@ defmodule Pyex.Interpreter.Helpers do
   def truthy?({:py_dict, _, _}), do: true
   def truthy?(map) when map == %{}, do: false
   def truthy?({:tuple, []}), do: false
+  def truthy?({:deque, _, _, 0, _}), do: false
+  def truthy?({:deque, _, _, _, _}), do: true
   def truthy?({:set, s}), do: MapSet.size(s) > 0
 
   def truthy?({:pyex_decimal, d}), do: not Decimal.equal?(d, Decimal.new(0))
@@ -467,19 +472,13 @@ defmodule Pyex.Interpreter.Helpers do
 
   @doc false
   @spec has_scope_declarations?(Env.t()) :: boolean()
-  def has_scope_declarations?(%Env{scopes: [top | _]}) do
-    Enum.any?(top, fn
-      {{:__global__, _}, _} -> true
-      {{:__nonlocal__, _}, _} -> true
-      _ -> false
-    end)
-  end
+  def has_scope_declarations?(%Env{has_decls: has_decls}), do: has_decls
 
   @doc false
   @spec refresh_closure(Pyex.Interpreter.pyvalue(), Env.t()) :: Pyex.Interpreter.pyvalue()
-  def refresh_closure({:function, name, params, body, _old_env}, post_call_env) do
+  def refresh_closure({:function, name, params, body, _old_env, is_generator}, post_call_env) do
     new_closure_env = Env.drop_top_scope(post_call_env)
-    {:function, name, params, body, new_closure_env}
+    {:function, name, params, body, new_closure_env, is_generator}
   end
 
   def refresh_closure(value, _post_call_env), do: value
@@ -487,9 +486,9 @@ defmodule Pyex.Interpreter.Helpers do
   @doc false
   @dialyzer {:nowarn_function, update_closure_env: 2}
   @spec update_closure_env(Pyex.Interpreter.pyvalue(), Env.t()) :: Pyex.Interpreter.pyvalue()
-  def update_closure_env({:function, name, params, body, old_env}, post_call_env) do
+  def update_closure_env({:function, name, params, body, old_env, is_generator}, post_call_env) do
     new_closure_env = Env.merge_closure_scopes(old_env, post_call_env)
-    {:function, name, params, body, new_closure_env}
+    {:function, name, params, body, new_closure_env, is_generator}
   end
 
   def update_closure_env(value, _post_call_env), do: value

@@ -1696,6 +1696,35 @@ defmodule Pyex.InterpreterTest do
     end
   end
 
+  describe "subscript assign on expression target" do
+    test "method call result subscript assign" do
+      assert Pyex.run!("""
+             rows = {}
+             rows.setdefault(1, {})[2] = "x"
+             rows[1][2]
+             """) == "x"
+    end
+
+    test "call result subscript assign populates nested dict" do
+      assert Pyex.run!("""
+             rows = {}
+             rows.setdefault("a", {})["b"] = 99
+             rows.setdefault("a", {})["c"] = 100
+             rows
+             """) == %{"a" => %{"b" => 99, "c" => 100}}
+    end
+
+    test "subscript on function return value" do
+      assert Pyex.run!("""
+             def get_d():
+                 return d
+             d = {}
+             get_d()["k"] = 42
+             d["k"]
+             """) == 42
+    end
+  end
+
   describe "chained assignment" do
     test "a = b = 1" do
       assert Pyex.run!("""

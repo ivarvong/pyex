@@ -201,5 +201,137 @@ defmodule Pyex.Conformance.CollectionsTest do
       print(len(d))
       """)
     end
+
+    test "deque from range" do
+      check!("""
+      from collections import deque
+      d = deque(range(5))
+      print(list(d))
+      """)
+    end
+
+    test "deque truthy and falsy" do
+      check!("""
+      from collections import deque
+      d = deque()
+      print(bool(d))
+      d.append(1)
+      print(bool(d))
+      d.pop()
+      print(bool(d))
+      """)
+    end
+
+    test "deque while loop drains correctly" do
+      check!("""
+      from collections import deque
+      d = deque([1, 2, 3, 4, 5])
+      total = 0
+      while d:
+          total += d.popleft()
+      print(total)
+      print(len(d))
+      """)
+    end
+
+    test "deque popleft after many appends (rebalance path)" do
+      check!("""
+      from collections import deque
+      d = deque()
+      for i in range(10):
+          d.append(i)
+      result = []
+      while d:
+          result.append(d.popleft())
+      print(result)
+      """)
+    end
+
+    test "deque pop after many appendlefts (rebalance path)" do
+      check!("""
+      from collections import deque
+      d = deque()
+      for i in range(10):
+          d.appendleft(i)
+      result = []
+      while d:
+          result.append(d.pop())
+      print(result)
+      """)
+    end
+
+    test "deque clear" do
+      check!("""
+      from collections import deque
+      d = deque([1, 2, 3])
+      d.clear()
+      print(list(d))
+      print(len(d))
+      """)
+    end
+
+    test "deque copy" do
+      check!("""
+      from collections import deque
+      d = deque([1, 2, 3])
+      d2 = d.copy()
+      d.append(4)
+      print(list(d))
+      print(list(d2))
+      """)
+    end
+
+    test "deque str representation" do
+      check!("""
+      from collections import deque
+      print(str(deque([1, 2, 3])))
+      print(str(deque([1, 2, 3], maxlen=5)))
+      """)
+    end
+
+    test "deque maxlen with appendleft drops from right" do
+      check!("""
+      from collections import deque
+      d = deque(maxlen=3)
+      d.appendleft(1)
+      d.appendleft(2)
+      d.appendleft(3)
+      d.appendleft(4)
+      print(list(d))
+      """)
+    end
+
+    test "deque bounded sliding window" do
+      check!("""
+      from collections import deque
+      d = deque(maxlen=3)
+      for i in range(6):
+          d.append(i)
+      print(list(d))
+      """)
+    end
+
+    test "deque in for loop" do
+      check!("""
+      from collections import deque
+      d = deque([10, 20, 30])
+      total = 0
+      for x in d:
+          total += x
+      print(total)
+      """)
+    end
+
+    test "deque ordering preserved through mixed operations" do
+      check!("""
+      from collections import deque
+      d = deque([3, 4, 5])
+      d.appendleft(2)
+      d.appendleft(1)
+      d.append(6)
+      d.append(7)
+      print(list(d))
+      """)
+    end
   end
 end

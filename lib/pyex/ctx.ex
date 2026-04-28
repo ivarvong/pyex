@@ -534,7 +534,7 @@ defmodule Pyex.Ctx do
   def estimate_memory(value) do
     case value do
       v when is_binary(v) -> byte_size(v)
-      {:py_list, reversed, _len} -> 64 + 8 * length(reversed)
+      {:py_list, _reversed, len} -> 64 + 8 * len
       {:py_dict, dict, _order} -> 128 + 48 * map_size(dict)
       {:set, s} -> 96 + 32 * MapSet.size(s)
       {:tuple, items} -> 64 + 8 * length(items)

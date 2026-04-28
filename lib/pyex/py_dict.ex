@@ -5,7 +5,9 @@ defmodule Pyex.PyDict do
   Python dicts (since 3.7) guarantee iteration in insertion order.
   Elixir maps do not.  This module provides a `{:py_dict, map, keys}`
   tuple where `map` gives O(log n) key lookup and `keys` preserves
-  insertion order.
+  insertion order internally in **reverse** so that appending a new key
+  is O(1).  Exposed order is corrected by `keys/1`, `values/1`, and
+  `items/1`.
 
   All functions in this module are pure — they take and return the
   `{:py_dict, map, keys}` triple.  The interpreter, builtins, methods,
@@ -33,7 +35,7 @@ defmodule Pyex.PyDict do
         if Map.has_key?(m, k) do
           {Map.put(m, k, v), ks}
         else
-          {Map.put(m, k, v), ks ++ [k]}
+          {Map.put(m, k, v), [k | ks]}
         end
       end)
 
@@ -47,7 +49,7 @@ defmodule Pyex.PyDict do
   """
   @spec from_map(%{optional(term()) => term()}) :: t()
   def from_map(map) when is_map(map) do
-    {:py_dict, map, Map.keys(map)}
+    {:py_dict, map, Enum.reverse(Map.keys(map))}
   end
 
   @doc """
@@ -107,7 +109,7 @@ defmodule Pyex.PyDict do
 
   @doc """
   Inserts or updates `key`.  If the key already exists, its position
-  is preserved; otherwise it is appended.
+  is preserved; otherwise it is prepended to the internal order list.
   """
   @spec put(t(), term(), term()) :: t()
   def put({:py_dict, map, keys}, key, value) do
@@ -116,7 +118,7 @@ defmodule Pyex.PyDict do
     if Map.has_key?(map, canon) do
       {:py_dict, Map.put(map, canon, value), keys}
     else
-      {:py_dict, Map.put(map, canon, value), keys ++ [canon]}
+      {:py_dict, Map.put(map, canon, value), [canon | keys]}
     end
   end
 
@@ -133,14 +135,14 @@ defmodule Pyex.PyDict do
   Returns the keys in insertion order.
   """
   @spec keys(t()) :: [term()]
-  def keys({:py_dict, _map, keys}), do: keys
+  def keys({:py_dict, _map, keys}), do: Enum.reverse(keys)
 
   @doc """
   Returns the values in insertion order.
   """
   @spec values(t()) :: [term()]
   def values({:py_dict, map, keys}) do
-    Enum.map(keys, &Map.fetch!(map, &1))
+    Enum.map(Enum.reverse(keys), &Map.fetch!(map, &1))
   end
 
   @doc """
@@ -148,7 +150,7 @@ defmodule Pyex.PyDict do
   """
   @spec items(t()) :: [{term(), term()}]
   def items({:py_dict, map, keys}) do
-    Enum.map(keys, fn k -> {k, Map.fetch!(map, k)} end)
+    Enum.map(Enum.reverse(keys), fn k -> {k, Map.fetch!(map, k)} end)
   end
 
   @doc """
@@ -169,12 +171,8 @@ defmodule Pyex.PyDict do
   """
   @spec merge(t(), t()) :: t()
   def merge({:py_dict, l_map, l_keys}, {:py_dict, r_map, r_keys}) do
-    new_keys =
-      Enum.reduce(r_keys, l_keys, fn k, acc ->
-        if Map.has_key?(l_map, k), do: acc, else: acc ++ [k]
-      end)
-
-    {:py_dict, Map.merge(l_map, r_map), new_keys}
+    new_r_keys_reversed = Enum.filter(r_keys, fn k -> not Map.has_key?(l_map, k) end)
+    {:py_dict, Map.merge(l_map, r_map), new_r_keys_reversed ++ l_keys}
   end
 
   @doc """
@@ -183,12 +181,12 @@ defmodule Pyex.PyDict do
   """
   @spec merge_map(t(), %{optional(term()) => term()}) :: t()
   def merge_map({:py_dict, l_map, l_keys}, right) when is_map(right) do
-    new_keys =
-      Enum.reduce(right, l_keys, fn {k, _v}, acc ->
-        if Map.has_key?(l_map, k), do: acc, else: acc ++ [k]
+    new_r_keys_reversed =
+      Enum.reduce(right, [], fn {k, _v}, acc ->
+        if Map.has_key?(l_map, k), do: acc, else: [k | acc]
       end)
 
-    {:py_dict, Map.merge(l_map, right), new_keys}
+    {:py_dict, Map.merge(l_map, right), new_r_keys_reversed ++ l_keys}
   end
 
   @doc """

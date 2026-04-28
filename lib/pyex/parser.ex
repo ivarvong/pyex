@@ -540,6 +540,17 @@ defmodule Pyex.Parser do
   @spec parse_expression_statement([Lexer.token()]) :: parse_result()
   defp parse_expression_statement(tokens) do
     case parse_expression(tokens) do
+      {:ok, {:subscript, _, [target, key]} = expr, [{:op, _, :assign} | rest]} ->
+        line = node_line(expr)
+
+        case parse_expression(rest) do
+          {:ok, val, rest} ->
+            {:ok, {:subscript_assign, [line: line], [target, key, val]}, drop_newline(rest)}
+
+          {:error, _} = error ->
+            error
+        end
+
       {:ok, expr, rest} ->
         line = node_line(expr)
         {:ok, {:expr, [line: line], [expr]}, drop_newline(rest)}
