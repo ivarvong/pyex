@@ -325,6 +325,9 @@ defmodule Pyex.Interpreter.ControlFlow do
           {name, val}, acc when is_binary(name) ->
             {:cont, Env.smart_put(acc, name, val)}
 
+          {{:starred, name}, val}, acc ->
+            {:cont, Env.smart_put(acc, name, val)}
+
           {nested_names, val}, acc when is_list(nested_names) ->
             case bind_loop_var(nested_names, val, acc) do
               {:exception, _} = err -> {:halt, err}
@@ -581,11 +584,43 @@ defmodule Pyex.Interpreter.ControlFlow do
   @spec unpack_for_list([term()], [Interpreter.pyvalue()]) ::
           {:ok, [{term(), Interpreter.pyvalue()}]} | {:exception, String.t()}
   defp unpack_for_list(names, items) do
-    if length(names) == length(items) do
-      {:ok, Enum.zip(names, items)}
-    else
+    case Enum.find_index(names, &match?({:starred, _}, &1)) do
+      nil ->
+        if length(names) == length(items) do
+          {:ok, Enum.zip(names, items)}
+        else
+          {:exception,
+           "ValueError: not enough values to unpack (expected #{length(names)}, got #{length(items)})"}
+        end
+
+      star_idx ->
+        unpack_for_list_starred(names, items, star_idx)
+    end
+  end
+
+  @spec unpack_for_list_starred([term()], [Interpreter.pyvalue()], non_neg_integer()) ::
+          {:ok, [{term(), Interpreter.pyvalue()}]} | {:exception, String.t()}
+  defp unpack_for_list_starred(names, items, star_idx) do
+    fixed_count = length(names) - 1
+    item_count = length(items)
+
+    if item_count < fixed_count do
       {:exception,
-       "ValueError: not enough values to unpack (expected #{length(names)}, got #{length(items)})"}
+       "ValueError: not enough values to unpack (expected at least #{fixed_count}, got #{item_count})"}
+    else
+      after_count = length(names) - star_idx - 1
+      before_names = Enum.take(names, star_idx)
+      star_target = Enum.at(names, star_idx)
+      after_names = Enum.drop(names, star_idx + 1)
+
+      before_items = Enum.take(items, star_idx)
+      after_items = if after_count > 0, do: Enum.take(items, -after_count), else: []
+      star_items = items |> Enum.drop(star_idx) |> Enum.take(item_count - star_idx - after_count)
+
+      {:ok,
+       Enum.zip(before_names, before_items) ++
+         [{star_target, star_items}] ++
+         Enum.zip(after_names, after_items)}
     end
   end
 

@@ -65,6 +65,15 @@ defmodule Pyex.Parser.ControlFlow do
     end
   end
 
+  def parse_for([{:op, line, :star}, {:name, _, name}, {:op, _, :comma} | rest]) do
+    with {:ok, var_names, rest} <- collect_for_vars(rest, [{:starred, name}]),
+         {:ok, iterable, rest} <- Parser.parse_expression(rest),
+         {:ok, body, rest} <- parse_loop_body(rest, "for"),
+         {:ok, else_body, rest} <- parse_loop_else(rest) do
+      {:ok, {:for, [line: line], [var_names, iterable, body, else_body]}, drop_newline(rest)}
+    end
+  end
+
   def parse_for([{:name, line, var_name}, {:keyword, _, "in"} | rest]) do
     with {:ok, iterable, rest} <- Parser.parse_expression(rest),
          {:ok, body, rest} <- parse_loop_body(rest, "for"),
@@ -196,7 +205,7 @@ defmodule Pyex.Parser.ControlFlow do
     {:error, "expected ':' after #{context} at #{token_line(tokens)}"}
   end
 
-  @type for_target :: String.t() | [for_target()]
+  @type for_target :: String.t() | {:starred, String.t()} | [for_target()]
 
   @spec collect_for_vars([Lexer.token()], [for_target()]) ::
           {:ok, [for_target()], [Lexer.token()]} | {:error, String.t()}
@@ -206,6 +215,26 @@ defmodule Pyex.Parser.ControlFlow do
 
   defp collect_for_vars([{:name, _, name}, {:op, _, :comma} | rest], acc) do
     collect_for_vars(rest, [name | acc])
+  end
+
+  defp collect_for_vars([{:op, _, :star}, {:name, _, name}, {:keyword, _, "in"} | rest], acc) do
+    starred_target = {:starred, name}
+
+    if Enum.any?(acc, &match?({:starred, _}, &1)) do
+      {:error, "SyntaxError: multiple starred expressions in for loop at #{token_line(rest)}"}
+    else
+      {:ok, Enum.reverse([starred_target | acc]), rest}
+    end
+  end
+
+  defp collect_for_vars([{:op, _, :star}, {:name, _, name}, {:op, _, :comma} | rest], acc) do
+    starred_target = {:starred, name}
+
+    if Enum.any?(acc, &match?({:starred, _}, &1)) do
+      {:error, "SyntaxError: multiple starred expressions in for loop at #{token_line(rest)}"}
+    else
+      collect_for_vars(rest, [starred_target | acc])
+    end
   end
 
   defp collect_for_vars([{:op, _, :lparen} | rest], acc) do

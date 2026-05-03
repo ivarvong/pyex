@@ -205,3 +205,13 @@ Known limitations:
 - `datetime.now()` always returns UTC (not local time)
 - `str.format_map()` not yet implemented
 
+## Recently fixed (performance)
+
+- Quadratic slowdown on repeated calls to module-level functions
+  whose bodies called other module-level functions.  `update_closure_env`
+  was rebuilding closures after every call, producing a self-referential
+  module-scope graph that grew one level per call.  Fixed by
+  short-circuiting closure rebuild when the captured scope is just the
+  module: there are no enclosing locals to track.  Manhattanhenge full
+  run: 2 min -> 1.9 s (60x).
+

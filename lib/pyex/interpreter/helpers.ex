@@ -486,6 +486,13 @@ defmodule Pyex.Interpreter.Helpers do
   @doc false
   @dialyzer {:nowarn_function, update_closure_env: 2}
   @spec update_closure_env(Pyex.Interpreter.pyvalue(), Env.t()) :: Pyex.Interpreter.pyvalue()
+  def update_closure_env(
+        {:function, _name, _params, _body, %Env{scopes: [_single]}, _is_generator} = func,
+        _post_call_env
+      ) do
+    func
+  end
+
   def update_closure_env({:function, name, params, body, old_env, is_generator}, post_call_env) do
     new_closure_env = Env.merge_closure_scopes(old_env, post_call_env)
     {:function, name, params, body, new_closure_env, is_generator}
