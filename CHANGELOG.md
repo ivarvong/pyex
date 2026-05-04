@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/ivarvong/pyex/compare/v0.1.0...v0.1.1) (2026-05-04)
+
+
+### Performance Improvements
+
+* fix O(n²) list.append, dict insert, zipfile.writestr, and deque.append ([#55](https://github.com/ivarvong/pyex/issues/55)) ([80b2f55](https://github.com/ivarvong/pyex/commit/80b2f55210d107e9269e25a0979611bddc0bd93c))
+
 ## 0.1.0 — 2026-02-13
 
 Initial release.
