@@ -32,6 +32,9 @@ write arbitrary Python -- it must be rock solid.
 - Small focused modules with clear responsibilities
 - No one-line comments
 - Use NimbleParsec for lexing/tokenization where it makes sense
+- Follow Elixir conventions for option keys.  Use `:timeout` (not `timeout_ms`),
+  always in milliseconds.  Same for `Task.yield`, `GenServer.call`, etc.  Never
+  invent suffix-typed option names like `_ms`, `_seconds`, `_bytes`.
 
 ## Architecture
 

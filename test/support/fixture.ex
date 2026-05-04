@@ -28,7 +28,8 @@ defmodule Pyex.Test.Fixture do
     :expected_stdout,
     :expected_files,
     :expected_error,
-    :expected_hash
+    :expected_hash,
+    :timeout
   ]
 
   @type t :: %__MODULE__{
@@ -39,8 +40,11 @@ defmodule Pyex.Test.Fixture do
           expected_stdout: String.t(),
           expected_files: %{String.t() => String.t()},
           expected_error: String.t() | nil,
-          expected_hash: String.t()
+          expected_hash: String.t(),
+          timeout: pos_integer()
         }
+
+  @default_timeout 5_000
 
   @doc """
   Returns the list of all fixture names (directory names under programs/).
@@ -76,6 +80,7 @@ defmodule Pyex.Test.Fixture do
     expected = File.read!(expected_json) |> Jason.decode!()
 
     input_fs = load_input_fs(Path.join(dir, "fs"))
+    options = load_options(Path.join(dir, "options.json"))
 
     %__MODULE__{
       name: name,
@@ -85,8 +90,16 @@ defmodule Pyex.Test.Fixture do
       expected_stdout: expected["stdout"],
       expected_files: expected["files"] || %{},
       expected_error: expected["error"],
-      expected_hash: expected["sha256"]
+      expected_hash: expected["sha256"],
+      timeout: Map.get(options, "timeout", @default_timeout)
     }
+  end
+
+  defp load_options(path) do
+    case File.read(path) do
+      {:ok, content} -> Jason.decode!(content)
+      {:error, _} -> %{}
+    end
   end
 
   @doc """
@@ -99,10 +112,10 @@ defmodule Pyex.Test.Fixture do
           files: %{String.t() => String.t()},
           error: String.t() | nil
         }
-  def run_pyex(%__MODULE__{source: source, input_fs: input_fs}) do
+  def run_pyex(%__MODULE__{source: source, input_fs: input_fs, timeout: timeout}) do
     fs = Pyex.Filesystem.Memory.new(input_fs)
 
-    case Pyex.run(source, filesystem: fs) do
+    case Pyex.run(source, filesystem: fs, limits: [timeout: timeout]) do
       {:ok, _value, ctx} ->
         stdout = Pyex.output(ctx)
         output_files = diff_filesystem(input_fs, ctx.filesystem)

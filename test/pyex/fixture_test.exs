@@ -23,7 +23,11 @@ defmodule Pyex.FixtureTest do
   for name <- Fixture.list_all() do
     describe "fixture: #{name}" do
       @fixture_name name
+      # ExUnit timeout: 2x the Pyex internal timeout, with a 30s minimum so
+      # short fixtures still benefit from quick feedback on hangs.
+      @ex_timeout max(30_000, Fixture.load!(name).timeout * 2)
 
+      @tag timeout: @ex_timeout
       test "matches CPython ground truth" do
         fixture = Fixture.load!(@fixture_name)
         result = Fixture.run_pyex(fixture)

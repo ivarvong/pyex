@@ -318,7 +318,7 @@ defmodule Pyex.Stdlib.Datetime do
        "utcnow" => {:builtin, &datetime_utcnow/1},
        "fromisoformat" => {:builtin, &datetime_fromisoformat/1},
        "strptime" => {:builtin, &datetime_strptime/1},
-       "fromtimestamp" => {:builtin, &datetime_fromtimestamp/1},
+       "fromtimestamp" => {:builtin_kw, &datetime_fromtimestamp/2},
        "utcfromtimestamp" => {:builtin, &datetime_fromtimestamp/1},
        "combine" => {:builtin_kw, &datetime_combine/2}
      })}
@@ -684,6 +684,18 @@ defmodule Pyex.Stdlib.Datetime do
     end
   end
 
+  @spec datetime_fromtimestamp(
+          [Pyex.Interpreter.pyvalue()],
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: Pyex.Interpreter.pyvalue()
+  defp datetime_fromtimestamp([_self | args], kwargs) do
+    case args do
+      [ts] -> datetime_fromtimestamp([ts, Map.get(kwargs, "tz")])
+      [ts, tz] -> datetime_fromtimestamp([ts, Map.get(kwargs, "tz", tz)])
+      _ -> {:exception, "TypeError: fromtimestamp() takes 1 or 2 positional arguments"}
+    end
+  end
+
   @spec datetime_fromtimestamp([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp datetime_fromtimestamp([ts]) when is_number(ts) do
     microseconds = round(ts * 1_000_000)
@@ -694,7 +706,24 @@ defmodule Pyex.Stdlib.Datetime do
     end
   end
 
+  defp datetime_fromtimestamp([ts, nil]) when is_number(ts) do
+    datetime_fromtimestamp([ts])
+  end
+
+  defp datetime_fromtimestamp([ts, tz]) when is_number(ts) do
+    microseconds = round(ts * 1_000_000)
+
+    case DateTime.from_unix(microseconds, :microsecond) do
+      {:ok, dt} -> make_datetime_from_utc(dt, tz)
+      {:error, _} -> {:exception, "ValueError: timestamp out of range for platform datetime"}
+    end
+  end
+
   defp datetime_fromtimestamp([ts]) do
+    {:exception, "TypeError: an integer or float is required, got #{py_type_name(ts)}"}
+  end
+
+  defp datetime_fromtimestamp([ts, _tz]) do
     {:exception, "TypeError: an integer or float is required, got #{py_type_name(ts)}"}
   end
 
