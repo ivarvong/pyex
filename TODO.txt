@@ -1,12 +1,40 @@
 Pyex TODO — bugs and missing features to fix
 =============================================
 
-All tests pass (3213+ tests, 0 failures, 0 skipped).
+All tests pass (5344 tests, 0 failures, 2 skipped).
 All 16 fixtures pass.
 
 Heap-based reference system is complete for lists, dicts, sets, and
 class instances.  Aliasing works: `b = a; b.val = 99` → `a.val == 99`.
 Intrusive linked lists work: `node.prev.next = node.next`.
+
+## Recently fixed (async/await — Phase 1)
+
+- `async def`, `await`, `async for`, `async with` parse and run.
+  Coroutines are tagged sync-or-async on the unified `:function`
+  pyvalue (no parallel `:async_function` tag); calling an async
+  function defers body execution and returns a `:coroutine`.
+  `await` and `asyncio.run` drive coroutines via a synchronous
+  trampoline.  Strict on shape: non-awaitables raise CPython-style
+  TypeError with a hint about forgetting to call the function.
+- New `asyncio` module: `run`, `gather`, `sleep`, `create_task`,
+  `ensure_future`, `wait_for`, `iscoroutine`,
+  `iscoroutinefunction`.  `gather(return_exceptions=True)` returns
+  real exception instances so `isinstance(r, ValueError)` works.
+  `create_task` returns a Task with `.result()` / `.done()` /
+  `.cancel()` / `.exception()`.
+- Async methods on classes work: instance, `@staticmethod`,
+  `@classmethod`, subclass override.  Instance method dispatch
+  routes through the bound-method dispatcher with `self` prepended.
+- Async generators (`async def` + `yield`) ride the existing
+  lazy_iter machinery, so FastAPI streaming patterns work
+  unchanged.
+- Phase 1 divergences from CPython are documented and pinned in
+  `test/pyex/async_conformance_test.exs` (52 tests):
+    - `gather` is sequential, not interleaved
+    - `create_task` drives eagerly, not on the next await
+    - Nested `asyncio.run` is silently allowed (CPython errors)
+    - `[x async for x in g()]` not yet parsed
 
 ## Recently fixed (lazy iteration)
 
