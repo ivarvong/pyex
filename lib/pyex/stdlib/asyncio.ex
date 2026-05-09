@@ -148,17 +148,21 @@ defmodule Pyex.Stdlib.Asyncio do
     end
   end
 
-  @spec do_sleep([Interpreter.pyvalue()]) :: nil | term()
-  defp do_sleep([]), do: nil
+  # Returns a Task wrapping nil so the canonical
+  # `await asyncio.sleep(t)` works against Pyex's strict await.  The
+  # sleep itself happens here (Process.sleep), counted as I/O time
+  # rather than compute time per the existing sandbox accounting.
+  @spec do_sleep([Interpreter.pyvalue()]) :: term()
+  defp do_sleep([]), do: {:asyncio_task, nil}
 
   defp do_sleep([t]) when is_integer(t) and t >= 0 do
     Process.sleep(t * 1000)
-    nil
+    {:asyncio_task, nil}
   end
 
   defp do_sleep([t]) when is_float(t) and t >= 0 do
     Process.sleep(round(t * 1000))
-    nil
+    {:asyncio_task, nil}
   end
 
   defp do_sleep([t]) when is_number(t) do
