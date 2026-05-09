@@ -66,6 +66,14 @@ defmodule Pyex.Parser.Comprehensions do
         [{:keyword, _, "for"} | for_rest] ->
           parse_list_comp(expr, for_rest, line)
 
+        [{:keyword, _, "async"}, {:keyword, _, "for"} | for_rest] ->
+          # Async list comprehension: `[x async for x in g()]`.
+          # The interpreter iterates async generators via the same
+          # lazy_iter machinery sync generators use, so the AST
+          # shape is identical — the `async` keyword is parser
+          # sugar that relaxes the "must be in async def" rule.
+          parse_list_comp(expr, for_rest, line)
+
         _ ->
           parse_list_elements_rest(rest, line, [expr])
       end
@@ -458,6 +466,13 @@ defmodule Pyex.Parser.Comprehensions do
   end
 
   defp parse_comp_clauses([{:keyword, _, "for"} | rest], acc) do
+    parse_comp_for_clause(rest, acc)
+  end
+
+  defp parse_comp_clauses([{:keyword, _, "async"}, {:keyword, _, "for"} | rest], acc) do
+    # Async-for clause inside a comprehension chain: same AST shape
+    # as a regular for clause (Pyex iterates async generators via
+    # the sync iteration path).
     parse_comp_for_clause(rest, acc)
   end
 

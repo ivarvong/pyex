@@ -783,7 +783,7 @@ defmodule Pyex.Lambda do
             {{:yielded, next_val, next_cont}, next_env, next_ctx} ->
               {[chunk], {:next, next_val, next_cont, next_env, next_ctx}}
 
-            {:done, _env, _ctx} ->
+            {done, _env, _ctx} when done == :done or elem(done, 0) == :done_with_value ->
               {[chunk], :done}
 
             {{:exception, msg}, _env, _ctx} ->

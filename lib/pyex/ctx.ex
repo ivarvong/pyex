@@ -82,7 +82,8 @@ defmodule Pyex.Ctx do
           limits: Pyex.Limits.t(),
           steps: non_neg_integer(),
           memory_bytes: non_neg_integer(),
-          output_bytes: non_neg_integer()
+          output_bytes: non_neg_integer(),
+          asyncio_running: boolean()
         }
 
   defstruct filesystem: nil,
@@ -115,7 +116,8 @@ defmodule Pyex.Ctx do
             limits: %Pyex.Limits{},
             steps: 0,
             memory_bytes: 0,
-            output_bytes: 0
+            output_bytes: 0,
+            asyncio_running: false
 
   @doc """
   Creates a fresh live context that captures output and execution counters.
@@ -980,6 +982,51 @@ defmodule Pyex.Ctx do
   end
 
   @doc """
+  Marks a generator iterator as exhausted and records the body's
+  return value.  CPython's `StopIteration(value)` semantics — used
+  by `await` to surface the inner coroutine's return as the
+  expression's value, and by `yield from` to propagate it up.
+  """
+  @spec mark_iter_done_with_value(t(), non_neg_integer(), term()) :: t()
+  def mark_iter_done_with_value(%__MODULE__{iterators: iters} = ctx, id, return_value) do
+    %{ctx | iterators: Map.put(iters, id, {:gen_done, return_value})}
+  end
+
+  @doc """
+  Creates a fresh, unstarted coroutine iterator.  The body is staged
+  in a `:gen_unstarted` pool entry; the first advance runs the body
+  in `:lazy_iter` mode up to the first yield (or to completion).
+
+  CPython semantics: calling an `async def` does NOT run the body;
+  the body runs only when the coroutine is driven (`await` /
+  `asyncio.run`).
+  """
+  @spec new_unstarted_coroutine_iterator(t(), [term()], term()) ::
+          {{:iterator, non_neg_integer()}, t()}
+  def new_unstarted_coroutine_iterator(
+        %__MODULE__{iterators: iters, next_iterator_id: id} = ctx,
+        body,
+        gen_env
+      ) do
+    entry = {:gen_unstarted, body, gen_env}
+    ctx = %{ctx | iterators: Map.put(iters, id, entry), next_iterator_id: id + 1}
+    {{:iterator, id}, ctx}
+  end
+
+  @doc """
+  Returns the stored return value for an exhausted generator
+  iterator (or `nil` if there isn't one — the bare `:gen_done`
+  marker carries no value).
+  """
+  @spec iter_return_value(t(), non_neg_integer()) :: term()
+  def iter_return_value(%__MODULE__{iterators: iters}, id) do
+    case Map.get(iters, id) do
+      {:gen_done, value} -> value
+      _ -> nil
+    end
+  end
+
+  @doc """
   Updates a generator iterator's pending entry after a successful resume.
   """
   @spec set_gen_pending(t(), non_neg_integer(), term(), [term()], term()) :: t()
@@ -1013,6 +1060,7 @@ defmodule Pyex.Ctx do
           | {:instance, term()}
           | {:gen_pending, term(), [term()], term()}
           | {:gen_awaiting_send, term(), [term()], term()}
+          | {:gen_unstarted, [term()], term()}
   def iter_next(%__MODULE__{iterators: iters} = ctx, id) do
     case Map.get(iters, id) do
       {:list, [item | rest]} ->
@@ -1031,7 +1079,17 @@ defmodule Pyex.Ctx do
       {:gen_awaiting_send, val, cont, gen_env} ->
         {:gen_awaiting_send, val, cont, gen_env}
 
+      {:gen_unstarted, body, gen_env} ->
+        {:gen_unstarted, body, gen_env}
+
       :gen_done ->
+        :exhausted
+
+      {:gen_done, _value} ->
+        # Generator completed with a captured return value (PEP 380
+        # `StopIteration(value)`).  iter_next reports `:exhausted`
+        # uniformly; callers that need the value pull it via
+        # `iter_return_value/2`.
         :exhausted
 
       nil ->

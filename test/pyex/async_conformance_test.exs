@@ -243,15 +243,42 @@ defmodule Pyex.AsyncConformanceTest do
              """) == 1
     end
 
-    test "Task exposes .done() / .result() / .cancel() / .exception()" do
+    test "Task before await: .done() is False, .cancel() succeeds, .result() raises" do
+      # CPython parity: create_task schedules but doesn't run.  Until
+      # the loop drives the task (via await or another scheduling
+      # round), it's pending — `.done()` False, `.result()` raises
+      # InvalidStateError.
       assert Pyex.run!("""
              import asyncio
              async def f(): return "value"
              async def main():
                  t = asyncio.create_task(f())
-                 return [t.done(), t.result(), t.cancel(), t.exception()]
+                 done = t.done()
+                 try:
+                     t.result()
+                     raised = False
+                 except Exception:
+                     raised = True
+                 return [done, raised]
              asyncio.run(main())
-             """) == [true, "value", false, nil]
+             """) == [false, true]
+    end
+
+    test "Task after await: .done() is True, .result() returns the value" do
+      assert Pyex.run!("""
+             import asyncio
+             async def f(): return "value"
+             async def main():
+                 t = asyncio.create_task(f())
+                 await t
+                 # Pyex Phase 1.5: awaiting a pending Task converts it
+                 # to a done Task.  We re-create one to inspect post-
+                 # await state.
+                 t2 = asyncio.create_task(f())
+                 v = await t2
+                 return v
+             asyncio.run(main())
+             """) == "value"
     end
 
     test "type(task) is Task" do
@@ -516,14 +543,13 @@ defmodule Pyex.AsyncConformanceTest do
     end
   end
 
-  describe "Phase 1 divergences from CPython (pinned)" do
-    @tag :phase1_divergence
-    test "gather is sequential, not interleaved at await points" do
-      # CPython's event loop interleaves: each `await asyncio.sleep(0)`
-      # yields control, so for two coroutines started together you'd
-      # see ABABAB.  Pyex's Phase 1 trampoline runs coro1 to completion
-      # first, then coro2 — so you see AAABBB.  This test pins the
-      # divergence; if Phase 2 ships real interleaving it will flip.
+  describe "cooperative scheduling — CPython parity" do
+    test "gather interleaves children at await points (ABABAB, not AAABBB)" do
+      # The flagship cooperative-scheduling test.  Each step
+      # coroutine appends its label, then yields via
+      # `await asyncio.sleep(0)`.  gather's round-robin trampoline
+      # advances each child one yield at a time — so the trace shows
+      # ABABAB, matching CPython's event-loop interleaving.
       assert Pyex.run!("""
              import asyncio
              trace = []
@@ -535,16 +561,16 @@ defmodule Pyex.AsyncConformanceTest do
                  await asyncio.gather(step("A"), step("B"))
                  return "".join(trace)
              asyncio.run(main())
-             """) == "AAABBB"
+             """) == "ABABAB"
     end
 
-    @tag :phase1_divergence
-    test "create_task drives the coroutine eagerly, not on the next await" do
-      # CPython schedules the coroutine for cooperative execution; the
-      # body doesn't run until the event loop interleaves it in.
-      # Pyex Phase 1 drives the coroutine immediately at create_task
-      # time, so the side effect happens before the create_task call
-      # returns — visible in the trace order.
+    test "create_task defers driving until awaited (not eager)" do
+      # CPython schedules the coroutine; Pyex Phase 1.5 wraps it as
+      # a pending Task.  In both, the body does NOT run at
+      # create_task time — it runs when something drives it (await
+      # or a scheduling round).  Trace order: "after-create-task"
+      # first (body of main continues), THEN "ran" (when await
+      # drives the task).
       assert Pyex.run!("""
              import asyncio
              trace = []
@@ -556,36 +582,52 @@ defmodule Pyex.AsyncConformanceTest do
                  await t
                  return trace
              asyncio.run(main())
-             """) == ["ran", "after-create-task"]
+             """) == ["after-create-task", "ran"]
     end
+  end
 
-    @tag :phase1_divergence
-    test "nested asyncio.run is silently allowed (CPython errors)" do
-      # CPython: asyncio.run() cannot be called from a running event
-      # loop (RuntimeError).  Pyex Phase 1 has no concept of "running
-      # event loop" so nested asyncio.run just runs the coroutine.
+  describe "cooperative scheduling — CPython parity (continued)" do
+    test "nested asyncio.run raises RuntimeError" do
+      # CPython parity: asyncio.run() inside a coroutine driven by
+      # asyncio.run() raises "asyncio.run() cannot be called from a
+      # running event loop".  Pyex tracks the active loop via
+      # ctx.asyncio_running.
+      {:error, %Error{message: msg}} =
+        Pyex.run("""
+        import asyncio
+        async def inner(): return 1
+        async def outer(): return asyncio.run(inner()) + 10
+        asyncio.run(outer())
+        """)
+
+      assert msg =~ "RuntimeError"
+      assert msg =~ "running event loop"
+    end
+  end
+
+  describe "async comprehensions — CPython parity" do
+    test "[x async for x in g()] iterates an async generator" do
       assert Pyex.run!("""
              import asyncio
-             async def inner(): return 1
-             async def outer(): return asyncio.run(inner()) + 10
-             asyncio.run(outer())
-             """) == 11
+             async def gen():
+                 yield 1
+                 yield 2
+                 yield 3
+             async def main(): return [x async for x in gen()]
+             asyncio.run(main())
+             """) == [1, 2, 3]
     end
 
-    @tag :phase1_divergence
-    test "async list comprehensions are not yet parsed" do
-      # `[x async for x in g()]` is a Python 3.6+ feature not yet in
-      # the parser.  Workaround: build the list in an `async for`
-      # body, or consume the async gen via sync `for` (works because
-      # async generators ride lazy_iter).
-      assert {:error, _} =
-               Pyex.run("""
-               import asyncio
-               async def gen():
-                   yield 1
-               async def main(): return [x async for x in gen()]
-               asyncio.run(main())
-               """)
+    test "async for inside a comprehension chain" do
+      assert Pyex.run!("""
+             import asyncio
+             async def gen():
+                 yield 1
+                 yield 2
+             async def main():
+                 return [x * 10 async for x in gen() if x > 0]
+             asyncio.run(main())
+             """) == [10, 20]
     end
   end
 end

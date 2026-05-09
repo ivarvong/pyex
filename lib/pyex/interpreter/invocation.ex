@@ -111,9 +111,14 @@ defmodule Pyex.Interpreter.Invocation do
   @doc """
   Build a coroutine from an `async def` call.
 
-  Binds parameters into the closure environment but does NOT execute
-  the body — the resulting `:coroutine` value is driven later by
-  `await` / `asyncio.run` / `asyncio.gather`.
+  Runs the body in `:lazy_iter` mode (the same machinery sync
+  generators use): the body executes up to its first `await`, then
+  suspends.  The resulting `:coroutine` value wraps the iterator
+  token, so subsequent `await` advances the same state.
+
+  For an awaitless body, the entire body runs and the return value
+  is captured on the iterator entry via PEP 380 semantics.
+  `await` then surfaces it directly.
   """
   @spec build_coroutine(
           String.t(),
@@ -130,47 +135,292 @@ defmodule Pyex.Interpreter.Invocation do
     base_env = Env.push_scope(fresh_closure)
 
     case CallSupport.bind_params(params, args, kwargs, base_env, ctx) do
-      {:exception, msg, ctx} -> {{:exception, msg}, env, ctx}
-      {call_env, ctx} -> {{:coroutine, name, body, call_env}, env, ctx}
+      {:exception, msg, ctx} ->
+        {{:exception, msg}, env, ctx}
+
+      {call_env, ctx} ->
+        # CPython parity: calling an async def does NOT run the body.
+        # Stage the body in a `:gen_unstarted` pool entry so the
+        # first advance (via `await` / `asyncio.run`) runs it.
+        {iter_token, ctx} = Ctx.new_unstarted_coroutine_iterator(ctx, body, call_env)
+        {{:coroutine, name, iter_token}, env, ctx}
     end
   end
 
   @doc """
-  Drive a coroutine (or already-resolved Task) to completion.
+  Drive a coroutine (or already-resolved Task) to completion via
+  the cooperative trampoline.
 
-  Phase 1 trampoline: runs the body synchronously in its captured
-  call environment.  `await` and `asyncio.run` / `gather` route
-  through here.  Tasks built by `asyncio.create_task` are
-  pre-resolved (Phase 1) so driving one returns its wrapped value.
+  Used by `asyncio.run` / `asyncio.gather` (and any other top-level
+  driver) to consume a coroutine end-to-end.  Yielded values are
+  sentinels — `{:asyncio_sleep, ms}` makes the trampoline sleep,
+  unrecognized yields are silently consumed.  Returns the captured
+  `StopIteration` value when the inner iterator exhausts.
+
+  For `await EXPR` inside an async body, use `initiate_await/3` and
+  the `:cont_await_iter` frame — that path yields *up* to the
+  surrounding trampoline rather than consuming yields locally.
 
   Strict on input shape: anything that is not `:coroutine` or
-  `:asyncio_task` raises a CPython-shaped TypeError.  Caller is
-  responsible for catching `await` outside an async function.
+  `:asyncio_task` raises a CPython-shaped TypeError.
   """
   @spec drive_coroutine(Interpreter.pyvalue(), Env.t(), Ctx.t()) :: Interpreter.call_result()
-  def drive_coroutine({:coroutine, _name, body, call_env}, env, ctx) do
-    if ctx.call_depth >= ctx.max_call_depth do
-      {{:exception, "RecursionError: maximum recursion depth exceeded"}, env, ctx}
-    else
-      ctx = %{ctx | call_depth: ctx.call_depth + 1}
-      {result, _post_call_env, ctx} = Interpreter.eval_statements(body, call_env, ctx)
-      ctx = %{ctx | call_depth: ctx.call_depth - 1}
-
-      case result do
-        {:exception, _} = signal -> {signal, env, ctx}
-        other -> {Helpers.unwrap_function_result(other), env, ctx}
-      end
-    end
+  def drive_coroutine({:coroutine, _name, {:iterator, id}}, env, ctx) do
+    drive_iter_to_completion(id, env, ctx)
   end
 
   def drive_coroutine({:asyncio_task, value}, env, ctx) do
     {value, env, ctx}
   end
 
+  def drive_coroutine({:asyncio_task_pending, coro}, env, ctx) do
+    drive_coroutine(coro, env, ctx)
+  end
+
   def drive_coroutine(other, env, ctx) do
     type_name = Helpers.py_type(other)
 
     {{:exception, "TypeError: object #{type_name} can't be used in 'await' expression"}, env, ctx}
+  end
+
+  @doc """
+  First step of an `await EXPR`: evaluate the awaitable, then either
+  return its value immediately (if already resolved) or yield its
+  first yielded value up to the surrounding trampoline with a
+  `:cont_await_iter` frame attached for resumption.
+  """
+  @spec initiate_await(Interpreter.pyvalue(), Env.t(), Ctx.t()) :: Interpreter.call_result()
+  def initiate_await({:coroutine, _name, {:iterator, id}}, env, ctx) do
+    advance_await_step(id, env, ctx)
+  end
+
+  def initiate_await({:asyncio_task, value}, env, ctx) do
+    {value, env, ctx}
+  end
+
+  def initiate_await({:asyncio_task_pending, coro}, env, ctx) do
+    # Awaiting a pending Task drives its wrapped coroutine to
+    # completion (yielding sentinels up to the surrounding
+    # trampoline).  After this, the Task is conceptually done.
+    initiate_await(coro, env, ctx)
+  end
+
+  def initiate_await(other, env, ctx) do
+    type_name = Helpers.py_type(other)
+
+    {{:exception, "TypeError: object #{type_name} can't be used in 'await' expression"}, env, ctx}
+  end
+
+  @doc """
+  Resume an in-progress `await` (called by the `:cont_await_iter`
+  frame in `resume_generator`).  Advances the awaited iterator one
+  step; either yields up again, surfaces the return value as the
+  await's result, or propagates an exception.
+  """
+  @spec continue_await(non_neg_integer(), Env.t(), Ctx.t()) :: Interpreter.call_result()
+  def continue_await(id, env, ctx) do
+    advance_await_step(id, env, ctx)
+  end
+
+  # Internal: one step of an await.  Either yields up (with
+  # cont_await_iter so resumption advances the same iterator) or
+  # surfaces the awaited iterator's return value as the await's
+  # result.
+  defp advance_await_step(id, env, ctx) do
+    case advance_iter_one(id, env, ctx) do
+      {:exhausted, env, ctx} ->
+        return_value = Ctx.iter_return_value(ctx, id)
+        {return_value, env, ctx}
+
+      {{:yielded, value}, env, ctx} ->
+        {{:yielded, value, [{:cont_await_iter, id}]}, env, ctx}
+
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+    end
+  end
+
+  # Top-level driver — used by asyncio.run.  Pumps to completion,
+  # interpreting known sentinels (asyncio.sleep) along the way.
+  defp drive_iter_to_completion(id, env, ctx) do
+    case advance_iter_one(id, env, ctx) do
+      {:exhausted, env, ctx} ->
+        return_value = Ctx.iter_return_value(ctx, id)
+        {return_value, env, ctx}
+
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {{:yielded, value}, env, ctx} ->
+        interpret_yield_sentinel(value)
+        drive_iter_to_completion(id, env, ctx)
+    end
+  end
+
+  @doc """
+  Advance a coroutine's iterator one step.  Public so the asyncio
+  module can build round-robin schedulers (gather, the main loop)
+  on top of the same primitive `await` uses internally.
+  """
+  @spec advance_coroutine_one_step(non_neg_integer(), Env.t(), Ctx.t()) ::
+          {:exhausted, Env.t(), Ctx.t()}
+          | {{:yielded, Interpreter.pyvalue()}, Env.t(), Ctx.t()}
+          | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  def advance_coroutine_one_step(id, env, ctx), do: advance_iter_one(id, env, ctx)
+
+  @doc """
+  Interpret a sentinel yielded by an awaitable.  Currently the only
+  sentinel is `{:asyncio_sleep, ms}` — anything else is silently
+  consumed.  Public so `asyncio.gather` can re-use the same
+  interpretation when round-robin-driving children.
+  """
+  @spec interpret_yield_sentinel(Interpreter.pyvalue()) :: any()
+  def interpret_yield_sentinel({:asyncio_sleep, ms}) when is_integer(ms) and ms >= 0 do
+    Process.sleep(ms)
+  end
+
+  def interpret_yield_sentinel(_), do: :ok
+
+  # One-step iterator advance: returns either an exhaustion signal,
+  # a yielded value (with the value extracted), or an exception.
+  # Mirrors the islice helper's pattern but for one step.
+  defp advance_iter_one(id, env, ctx) do
+    case Ctx.iter_next(ctx, id) do
+      :exhausted ->
+        {:exhausted, env, ctx}
+
+      {:gen_unstarted, body, gen_env} ->
+        # First advance of an unstarted coroutine: run the body
+        # (in lazy_iter mode) up to its first yield or to completion.
+        # Whatever the body produces *is* the result of this advance.
+        run_unstarted(id, body, gen_env, env, ctx)
+
+      {:gen_pending, val, cont, gen_env} ->
+        # The pending value is the most recent yield; "advancing"
+        # surfaces it now and stages the next step.  Same semantics
+        # as next(g) on a CPython generator.
+        case step_via_continuation(id, val, cont, gen_env, env, ctx) do
+          {:exhausted, env, ctx} -> {{:yielded, val}, env, ctx}
+          {{:yielded, _next_val}, env, ctx} -> {{:yielded, val}, env, ctx}
+          {{:exception, _} = sig, env, ctx} -> {sig, env, ctx}
+        end
+
+      {:gen_awaiting_send, val, cont, gen_env} ->
+        case step_via_send(id, cont, gen_env, nil, env, ctx) do
+          {:exhausted, env, ctx} -> {{:yielded, val}, env, ctx}
+          {{:yielded, _next_val}, env, ctx} -> {{:yielded, val}, env, ctx}
+          {{:exception, _} = sig, env, ctx} -> {sig, env, ctx}
+        end
+
+      {:instance, inst} ->
+        case Interpreter.eval_instance_next(inst, id, :no_default, env, ctx) do
+          {{:exception, "StopIteration" <> _}, env, ctx} -> {:exhausted, env, ctx}
+          {{:exception, _} = sig, env, ctx} -> {sig, env, ctx}
+          {value, env, ctx} -> {{:yielded, value}, env, ctx}
+        end
+    end
+  end
+
+  # Start a fresh coroutine: run the body in defer_inner mode (so
+  # internal yields suspend), update the iter pool entry to reflect
+  # the new state.  Returns the first yielded value, exhaustion (with
+  # return value captured), or exception.
+  defp run_unstarted(id, body, gen_env, env, ctx) do
+    saved_mode = ctx.generator_mode
+    inner_ctx = %{ctx | generator_mode: :defer_inner}
+
+    case Interpreter.eval_statements(body, gen_env, inner_ctx) do
+      {{:yielded, val, [{:cont_bind_sent, _} | _] = cont}, post_env, post_ctx} ->
+        ctx = sync_generator_ctx(ctx, post_ctx)
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.set_gen_awaiting_send(ctx, id, val, cont, post_env)
+        {{:yielded, val}, env, ctx}
+
+      {{:yielded, val, cont}, post_env, post_ctx} ->
+        ctx = sync_generator_ctx(ctx, post_ctx)
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.set_gen_pending(ctx, id, val, cont, post_env)
+        {{:yielded, val}, env, ctx}
+
+      {{:exception, _} = signal, _post_env, post_ctx} ->
+        ctx = sync_generator_ctx(ctx, post_ctx)
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {signal, env, ctx}
+
+      {result, _post_env, post_ctx} ->
+        ctx = sync_generator_ctx(ctx, post_ctx)
+        ctx = %{ctx | generator_mode: saved_mode}
+        return_value = Helpers.unwrap_function_result(result)
+        ctx = Ctx.mark_iter_done_with_value(ctx, id, return_value)
+        {:exhausted, env, ctx}
+    end
+  end
+
+  # Run the continuation forward one step, updating the iter pool
+  # entry to reflect the new state (pending / awaiting-send / done).
+  defp step_via_continuation(id, _val, cont, gen_env, env, ctx) do
+    saved_mode = ctx.generator_mode
+    inner_ctx = %{ctx | generator_mode: :defer_inner}
+
+    case Interpreter.resume_generator(cont, gen_env, inner_ctx) do
+      {{:yielded, next_val, [{:cont_bind_sent, _} | _] = next_cont}, next_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.set_gen_awaiting_send(ctx, id, next_val, next_cont, next_gen_env)
+        {{:yielded, next_val}, env, ctx}
+
+      {{:yielded, next_val, next_cont}, next_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.set_gen_pending(ctx, id, next_val, next_cont, next_gen_env)
+        {{:yielded, next_val}, env, ctx}
+
+      {{:done_with_value, return_value}, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_done_with_value(ctx, id, return_value)
+        {:exhausted, env, ctx}
+
+      {:done, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {:exhausted, env, ctx}
+
+      {{:exception, _} = signal, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {signal, env, ctx}
+    end
+  end
+
+  defp step_via_send(id, cont, gen_env, sent_value, env, ctx) do
+    saved_mode = ctx.generator_mode
+    inner_ctx = %{ctx | generator_mode: :defer_inner}
+
+    case Interpreter.resume_generator_with_send(cont, gen_env, inner_ctx, sent_value) do
+      {{:yielded, next_val, [{:cont_bind_sent, _} | _] = next_cont}, next_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.set_gen_awaiting_send(ctx, id, next_val, next_cont, next_gen_env)
+        {{:yielded, next_val}, env, ctx}
+
+      {{:yielded, next_val, next_cont}, next_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.set_gen_pending(ctx, id, next_val, next_cont, next_gen_env)
+        {{:yielded, next_val}, env, ctx}
+
+      {{:done_with_value, return_value}, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_done_with_value(ctx, id, return_value)
+        {:exhausted, env, ctx}
+
+      {:done, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {:exhausted, env, ctx}
+
+      {{:exception, _} = signal, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {signal, env, ctx}
+    end
   end
 
   @doc false
@@ -723,12 +973,14 @@ defmodule Pyex.Interpreter.Invocation do
             ctx = sync_generator_ctx(ctx, gen_ctx)
             {signal, env, ctx}
 
-          {_, _post_env, gen_ctx} ->
+          {result, _post_env, gen_ctx} ->
             ctx = sync_generator_ctx(ctx, gen_ctx)
-            # Generator that never yields — return an exhausted iterator
-            # so consumers see zero items via the same code path.
+            # Generator (or coroutine) that never yields — capture the
+            # body's return value via PEP 380 StopIteration semantics
+            # so `await` and `yield from` can surface it.
+            return_value = Helpers.unwrap_function_result(result)
             {iter_token, ctx} = Ctx.new_generator_iterator(ctx, nil, [], call_env)
-            ctx = Ctx.mark_iter_exhausted(ctx, elem(iter_token, 1))
+            ctx = Ctx.mark_iter_done_with_value(ctx, elem(iter_token, 1), return_value)
             {iter_token, env, ctx}
         end
 

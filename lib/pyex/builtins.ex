@@ -2682,8 +2682,9 @@ defmodule Pyex.Builtins do
   defp pytype({:set, _}), do: "set"
   defp pytype({:frozenset, _}), do: "frozenset"
   defp pytype({:function, _, _, _, _, _, _}), do: "function"
-  defp pytype({:coroutine, _, _, _}), do: "coroutine"
+  defp pytype({:coroutine, _, _}), do: "coroutine"
   defp pytype({:asyncio_task, _}), do: "Task"
+  defp pytype({:asyncio_task_pending, _}), do: "Task"
   defp pytype({:builtin, _}), do: "builtin_function_or_method"
   defp pytype({:builtin_kw, _}), do: "builtin_function_or_method"
   defp pytype({:class, name, _, _}), do: name
@@ -2807,8 +2808,9 @@ defmodule Pyex.Builtins do
   def py_repr({:complex, _, _} = c), do: Pyex.Interpreter.Helpers.py_str(c)
 
   def py_repr({:function, name, _, _, _, _, _}), do: "<function #{name}>"
-  def py_repr({:coroutine, name, _, _}), do: "<coroutine object #{name}>"
-  def py_repr({:asyncio_task, _}), do: "<Task>"
+  def py_repr({:coroutine, name, _}), do: "<coroutine object #{name}>"
+  def py_repr({:asyncio_task, _}), do: "<Task done>"
+  def py_repr({:asyncio_task_pending, _}), do: "<Task pending>"
   def py_repr({:builtin, _}), do: "<built-in function>"
   def py_repr({:builtin_kw, _}), do: "<built-in function>"
   def py_repr({:pyex_decimal, d}), do: Decimal.to_string(d)

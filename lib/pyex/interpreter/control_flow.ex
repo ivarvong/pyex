@@ -246,6 +246,11 @@ defmodule Pyex.Interpreter.ControlFlow do
         ctx = Pyex.Ctx.set_gen_pending(ctx, id, next_val, next_cont, next_gen_env)
         eval_for_generator_iter(var_name, id, body, else_body, env, ctx)
 
+      {{:done_with_value, return_value}, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Pyex.Ctx.mark_iter_done_with_value(ctx, id, return_value)
+        eval_loop_else(else_body, env, ctx)
+
       {:done, _gen_env, ctx} ->
         ctx = %{ctx | generator_mode: saved_mode}
         ctx = Pyex.Ctx.mark_iter_exhausted(ctx, id)

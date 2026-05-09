@@ -366,6 +366,11 @@ defmodule Pyex.Interpreter.BuiltinResults do
         ctx = Ctx.set_gen_pending(ctx, id, next_val, next_cont, next_gen_env)
         {val, env, ctx}
 
+      {{:done_with_value, return_value}, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_done_with_value(ctx, id, return_value)
+        {val, env, ctx}
+
       {:done, _gen_env, ctx} ->
         ctx = %{ctx | generator_mode: saved_mode}
         ctx = Ctx.mark_iter_exhausted(ctx, id)
@@ -420,6 +425,11 @@ defmodule Pyex.Interpreter.BuiltinResults do
         ctx = %{ctx | generator_mode: saved_mode}
         ctx = Ctx.set_gen_pending(ctx, id, next_val, next_cont, next_gen_env)
         {next_val, env, ctx}
+
+      {{:done_with_value, return_value}, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_done_with_value(ctx, id, return_value)
+        {{:exception, "StopIteration"}, env, ctx}
 
       {:done, _gen_env, ctx} ->
         ctx = %{ctx | generator_mode: saved_mode}

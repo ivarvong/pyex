@@ -166,6 +166,13 @@ defmodule Pyex.Methods do
     end
   end
 
+  def resolve({:asyncio_task_pending, _} = object, attr) do
+    case asyncio_task_pending_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
   def resolve({:pandas_series, _} = object, attr) do
     case pandas_series_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
@@ -2482,6 +2489,33 @@ defmodule Pyex.Methods do
   # No exception attached (Phase 1 surfaces exceptions from the
   # coroutine eagerly during create_task driving).
   defp task_exception({:asyncio_task, _}, _args), do: nil
+
+  # ── Pending Task methods ────────────────────────────────────────────────────
+  #
+  # A Task wrapping an undriven coroutine.  CPython's behavior:
+  # `.done()` returns False until the loop has driven it; calling
+  # `.result()` raises InvalidStateError.  Pyex Phase 1.5 mirrors
+  # that.  `.cancel()` cancels the underlying coroutine.
+
+  @spec asyncio_task_pending_method(String.t()) :: {:ok, fun()} | :error
+  defp asyncio_task_pending_method("done"), do: {:ok, &task_pending_done/2}
+  defp asyncio_task_pending_method("cancel"), do: {:ok, &task_pending_cancel/2}
+  defp asyncio_task_pending_method("cancelled"), do: {:ok, &task_pending_cancelled/2}
+  defp asyncio_task_pending_method("result"), do: {:ok, &task_pending_result/2}
+  defp asyncio_task_pending_method("exception"), do: {:ok, &task_pending_exception/2}
+  defp asyncio_task_pending_method(_), do: :error
+
+  defp task_pending_done({:asyncio_task_pending, _}, _args), do: false
+  defp task_pending_cancel({:asyncio_task_pending, _}, _args), do: true
+  defp task_pending_cancelled({:asyncio_task_pending, _}, _args), do: false
+
+  defp task_pending_result({:asyncio_task_pending, _}, _args) do
+    {:exception, "InvalidStateError: Result is not set."}
+  end
+
+  defp task_pending_exception({:asyncio_task_pending, _}, _args) do
+    {:exception, "InvalidStateError: Exception is not set."}
+  end
 
   # ── deque methods ────────────────────────────────────────────────────────────
   #
