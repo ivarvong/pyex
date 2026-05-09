@@ -32,6 +32,8 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:set, _}), do: "set"
   def py_type({:frozenset, _}), do: "frozenset"
   def py_type({:function, _, _, _, _, _, _}), do: "function"
+  def py_type({:coroutine, _, _, _}), do: "coroutine"
+  def py_type({:asyncio_task, _}), do: "Task"
   def py_type({:builtin, _}), do: "builtin_function_or_method"
   def py_type({:builtin_type, name, _}), do: "<class '#{name}'>"
   def py_type({:builtin_kw, _}), do: "builtin_function_or_method"
@@ -265,6 +267,8 @@ defmodule Pyex.Interpreter.Helpers do
   def py_str({:generator, _}), do: "<generator object>"
   def py_str({:generator_error, _, _}), do: "<generator object>"
   def py_str({:iterator, _}), do: "<iterator object>"
+  def py_str({:coroutine, name, _, _}), do: "<coroutine object #{name}>"
+  def py_str({:asyncio_task, _}), do: "<Task>"
   def py_str({:ref, _}), do: "<ref>"
   def py_str(_), do: "<object>"
 

@@ -16,35 +16,15 @@ defmodule Pyex.ErrorMessagesTest do
   # These features are recognized by the interpreter but not supported.
   # Error messages must say so clearly, not pretend the name doesn't exist.
 
-  describe "unimplemented: async/await" do
-    test "async def gives NotImplementedError, not NameError" do
-      {:error, %Error{message: msg}} = Pyex.run("async def foo():\n    pass")
-      assert msg =~ "NotImplementedError"
+  # async/await error-message coverage now lives in
+  # Pyex.AsyncConformanceTest.  We keep one regression here for the
+  # "bare async (without def/for/with) gives a clear SyntaxError"
+  # case because that's specifically about error-message quality.
+  describe "async syntax errors" do
+    test "bare 'async' (not followed by def/for/with) is a clear SyntaxError" do
+      {:error, %Error{message: msg}} = Pyex.run("async = 5")
+      assert msg =~ "SyntaxError"
       assert msg =~ "async"
-      assert msg =~ "not supported"
-      refute msg =~ "NameError"
-    end
-
-    test "await gives NotImplementedError, not NameError" do
-      {:error, %Error{message: msg}} = Pyex.run("await foo()")
-      assert msg =~ "NotImplementedError"
-      assert msg =~ "await"
-      assert msg =~ "not supported"
-      refute msg =~ "NameError"
-    end
-
-    test "async for gives NotImplementedError" do
-      {:error, %Error{message: msg}} = Pyex.run("async for x in gen():\n    pass")
-      assert msg =~ "NotImplementedError"
-      assert msg =~ "async"
-      assert msg =~ "not supported"
-    end
-
-    test "async with gives NotImplementedError" do
-      {:error, %Error{message: msg}} = Pyex.run("async with ctx() as c:\n    pass")
-      assert msg =~ "NotImplementedError"
-      assert msg =~ "async"
-      assert msg =~ "not supported"
     end
   end
 

@@ -58,6 +58,8 @@ defmodule Pyex.Interpreter do
           | {:range, integer(), integer(), integer()}
           | {:function, String.t(), [Parser.param()], [Parser.ast_node()], Env.t(), boolean(),
              :sync | :async}
+          | {:coroutine, String.t(), [Parser.ast_node()], Env.t()}
+          | {:asyncio_task, pyvalue()}
           | {:builtin, ([pyvalue()] -> pyvalue())}
           | {:builtin_type, String.t(), ([pyvalue()] -> pyvalue())}
           | {:builtin_kw, ([pyvalue()], %{optional(String.t()) => pyvalue()} -> pyvalue())}
@@ -220,9 +222,21 @@ defmodule Pyex.Interpreter do
     eval_statements(statements, env, ctx)
   end
 
-  def eval({:def, _, [name, params, body]}, env, ctx) do
+  def eval({:def, meta, [name, params, body]}, env, ctx) do
     {evaluated_params, ctx} = eval_param_defaults(params, env, ctx)
-    func = {:function, name, evaluated_params, body, env, contains_yield?(body), :sync}
+    has_yield = contains_yield?(body)
+
+    # `async def` + yield is an async generator in CPython.  Phase 1
+    # models it as a regular sync generator so the existing lazy_iter
+    # machinery (and FastAPI streaming) consume it without changes.
+    # Plain `async def` (no yield) becomes a coroutine producer.
+    kind =
+      cond do
+        Keyword.get(meta, :async, false) and not has_yield -> :async
+        true -> :sync
+      end
+
+    func = {:function, name, evaluated_params, body, env, has_yield, kind}
     {nil, Env.smart_put(env, name, func), ctx}
   end
 
@@ -596,6 +610,18 @@ defmodule Pyex.Interpreter do
 
       {iterable, env, ctx} ->
         yield_from_general(iterable, env, ctx)
+    end
+  end
+
+  # `await EXPR`: evaluate EXPR, then drive it via the coroutine
+  # trampoline.  Strict on shape — non-awaitable values raise
+  # TypeError to match CPython.  An async function call produces a
+  # coroutine; `asyncio.create_task` produces a Task; both are valid
+  # await targets.
+  def eval({:await, _, [expr]}, env, ctx) do
+    case eval(expr, env, ctx) do
+      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+      {value, env, ctx} -> Invocation.drive_coroutine(value, env, ctx)
     end
   end
 
@@ -2116,6 +2142,19 @@ defmodule Pyex.Interpreter do
       env,
       ctx
     )
+  end
+
+  # Calling an `async def` (kind=:async) defers body execution and
+  # returns a coroutine value.  The body is driven later by `await`
+  # / `asyncio.run` / `asyncio.gather` via the trampoline.
+  def call_function(
+        {:function, name, params, body, closure_env, _is_generator, :async},
+        args,
+        kwargs,
+        env,
+        ctx
+      ) do
+    Invocation.build_coroutine(name, params, body, closure_env, args, kwargs, env, ctx)
   end
 
   def call_function({:func_with_attrs, func, _attrs}, args, kwargs, env, ctx) do
@@ -3858,8 +3897,8 @@ defmodule Pyex.Interpreter do
 
   @spec rewrite_self_reference(pyvalue(), String.t(), pyvalue()) :: pyvalue()
   defp rewrite_self_reference(
-         {:lru_cached_function,
-          {:function, fname, params, body, closure_env, is_generator, kind}, cache_id},
+         {:lru_cached_function, {:function, fname, params, body, closure_env, is_generator, kind},
+          cache_id},
          name,
          decorated
        ) do

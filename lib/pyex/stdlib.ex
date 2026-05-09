@@ -47,6 +47,7 @@ defmodule Pyex.Stdlib do
     "copy" => Pyex.Stdlib.Copy,
     "io" => Pyex.Stdlib.Io,
     "abc" => Pyex.Stdlib.Abc,
+    "asyncio" => Pyex.Stdlib.Asyncio,
     "enum" => Pyex.Stdlib.EnumModule,
     "string" => Pyex.Stdlib.String,
     "typing" => Pyex.Stdlib.Typing,
