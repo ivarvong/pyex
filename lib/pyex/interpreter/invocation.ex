@@ -120,7 +120,7 @@ defmodule Pyex.Interpreter.Invocation do
         ) :: Interpreter.call_result()
   def call_bound_method(
         instance,
-        {:function, fname, params, body, closure_env, is_generator},
+        {:function, fname, params, body, closure_env, is_generator, kind},
         defining_class,
         args,
         kwargs,
@@ -131,7 +131,7 @@ defmodule Pyex.Interpreter.Invocation do
 
     fresh_closure = Env.refresh_from_caller(closure_env, env)
 
-    func = {:function, fname, params, body, closure_env, is_generator}
+    func = {:function, fname, params, body, closure_env, is_generator, kind}
     base_env = Env.push_scope(Env.put(fresh_closure, fname, func))
 
     base_env =
@@ -408,7 +408,8 @@ defmodule Pyex.Interpreter.Invocation do
     instance = {:instance, class, %{}}
 
     case ClassLookup.resolve_class_attr_with_owner(class, "__init__") do
-      {:ok, {:function, init_name, params, body, closure_env, is_generator}, defining_class} ->
+      {:ok, {:function, init_name, params, body, closure_env, is_generator, _kind},
+       defining_class} ->
         call_class_init(
           instance,
           init_name,
@@ -539,7 +540,7 @@ defmodule Pyex.Interpreter.Invocation do
         ) :: Interpreter.call_result()
   def call_callable_instance(instance, class, args, kwargs, env, ctx) do
     case ClassLookup.resolve_class_attr(class, "__call__") do
-      {:ok, {:function, _, _, _, _, _} = func} ->
+      {:ok, {:function, _, _, _, _, _, _} = func} ->
         Interpreter.call_function({:bound_method, instance, func}, args, kwargs, env, ctx)
 
       {:ok, {:builtin, fun}} ->
@@ -728,7 +729,7 @@ defmodule Pyex.Interpreter.Invocation do
 
     fresh_closure = Env.refresh_from_caller(closure_env, env)
 
-    init_fn = {:function, init_name, params, body, closure_env, is_generator}
+    init_fn = {:function, init_name, params, body, closure_env, is_generator, :sync}
     base_env = Env.push_scope(Env.put(fresh_closure, init_name, init_fn))
     base_env = Env.put(base_env, "__class__", defining_class)
 

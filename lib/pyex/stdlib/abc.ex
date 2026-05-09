@@ -31,8 +31,9 @@ defmodule Pyex.Stdlib.Abc do
     # Mark the function as abstract — we just pass it through.
     # Real enforcement would require checking at instantiation time.
     case func do
-      {:function, name, params, body, env, is_generator} ->
-        {:function, name, params, body, Map.put(env, "__isabstractmethod__", true), is_generator}
+      {:function, name, params, body, env, is_generator, kind} ->
+        {:function, name, params, body, Map.put(env, "__isabstractmethod__", true), is_generator,
+         kind}
 
       {:property, fget, fset, fdel} ->
         {:property, fget, fset, fdel}

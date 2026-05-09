@@ -87,7 +87,7 @@ defmodule Pyex.Interpreter.Dunder do
 
   defp call_dunder_on_class(instance, class, method, args, env, ctx) do
     case ClassLookup.resolve_class_attr(class, method) do
-      {:ok, {:function, _, _, _, _, _} = func} ->
+      {:ok, {:function, _, _, _, _, _, _} = func} ->
         case Interpreter.call_function({:bound_method, instance, func}, args, %{}, env, ctx) do
           {:mutate, new_obj, return_val, new_env, ctx} ->
             {:ok, new_obj, return_val, new_env, ctx}
@@ -283,7 +283,7 @@ defmodule Pyex.Interpreter.Dunder do
     end
   end
 
-  defp run_generator_to_next({:function, _, _, _, _, _} = func, env, ctx) do
+  defp run_generator_to_next({:function, _, _, _, _, _, _} = func, env, ctx) do
     # Execute the generator function in defer mode to get first yield
     ctx_defer = %{ctx | generator_mode: :defer}
 

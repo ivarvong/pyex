@@ -209,7 +209,7 @@ defmodule Pyex.Interpreter.Calls do
           Env.t(),
           Ctx.t()
         ) :: term()
-  def call_method(instance, {:function, _, _, _, _, _} = func, args, kwargs, env, ctx) do
+  def call_method(instance, {:function, _, _, _, _, _, _} = func, args, kwargs, env, ctx) do
     method_args = [instance | args]
 
     case Interpreter.call_function(func, method_args, kwargs, env, ctx) do
