@@ -8,6 +8,17 @@ Heap-based reference system is complete for lists, dicts, sets, and
 class instances.  Aliasing works: `b = a; b.val = 99` → `a.val == 99`.
 Intrusive linked lists work: `node.prev.next = node.next`.
 
+## Recently fixed (lazy iteration)
+
+- `itertools.islice` over an infinite generator no longer hangs.
+  `list(islice(g(), 5))` against `def g(): while True: yield i`
+  now terminates with the first 5 items.  Fix: register `islice` in
+  the no-drain set so the iterator arg isn't materialized before
+  the builtin runs, then return an `:islice_call` signal handled
+  by a bounded-step iterator in `BuiltinResults`.  Same shape can
+  extend to `takewhile`/`dropwhile`/`filterfalse` if those become
+  load-bearing.
+
 ## Recently fixed (class system, type(), descriptors, subclassing)
 
 - `type(cls) is type` holds: `type` is now the canonical class singleton

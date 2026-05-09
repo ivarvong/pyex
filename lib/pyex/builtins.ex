@@ -115,7 +115,13 @@ defmodule Pyex.Builtins do
         end
       end
 
-    MapSet.new(captures)
+    # Stdlib functions that need lazy access to iterator args (e.g.
+    # `itertools.islice` over an infinite generator).  Without this
+    # registration, the builtin call path drains the iterator into a
+    # list before the function runs — which loops forever.
+    extras = [Pyex.Stdlib.Itertools.islice_capture()]
+
+    MapSet.new(captures ++ extras)
   end
 
   @spec all() :: [{String.t(), ([Interpreter.pyvalue()] -> Interpreter.pyvalue())}]

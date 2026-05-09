@@ -97,6 +97,59 @@ defmodule Pyex.Stdlib.ItertoolsTest do
 
       assert result == [2, 3]
     end
+
+    test "stops cleanly on an infinite generator" do
+      # Regression: islice used to materialize the iterator before
+      # taking the prefix, which never returned for an infinite
+      # generator.  Now islice steps the iterator lazily via the
+      # `:islice_call` signal handler.
+      result =
+        Pyex.run!(
+          """
+          from itertools import islice
+          def g():
+              i = 0
+              while True:
+                  yield i
+                  i += 1
+          list(islice(g(), 5))
+          """,
+          limits: [timeout: 1000]
+        )
+
+      assert result == [0, 1, 2, 3, 4]
+    end
+
+    test "stops cleanly with start, stop, and step on an infinite generator" do
+      result =
+        Pyex.run!(
+          """
+          from itertools import islice
+          def g():
+              i = 0
+              while True:
+                  yield i
+                  i += 1
+          list(islice(g(), 0, 10, 2))
+          """,
+          limits: [timeout: 1000]
+        )
+
+      assert result == [0, 2, 4, 6, 8]
+    end
+
+    test "stops cleanly when the underlying generator exhausts before stop" do
+      result =
+        Pyex.run!("""
+        from itertools import islice
+        def g():
+            yield 1
+            yield 2
+        list(islice(g(), 10))
+        """)
+
+      assert result == [1, 2]
+    end
   end
 
   describe "product" do
