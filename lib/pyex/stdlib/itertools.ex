@@ -19,6 +19,19 @@ defmodule Pyex.Stdlib.Itertools do
   @max_output 1_000_000
 
   @doc """
+  Function reference for `islice`, used by the no-drain registry in
+  `Pyex.Builtins` so the builtin call path doesn't materialize an
+  iterator argument before islice gets to step it lazily.
+
+  Must return the *same* capture that `module_value/0` registers,
+  otherwise the MapSet membership check won't match (local
+  `&do_islice/1` and external `&Itertools.do_islice/1` are distinct
+  function values).
+  """
+  @spec islice_capture() :: function()
+  def islice_capture, do: &do_islice/1
+
+  @doc """
   Returns the module value map with all itertools functions.
   """
   @impl Pyex.Stdlib.Module
@@ -27,7 +40,7 @@ defmodule Pyex.Stdlib.Itertools do
     %{
       "chain" => chain_value(),
       "chain_from_iterable" => {:builtin, &do_chain_from_iterable/1},
-      "islice" => {:builtin, &do_islice/1},
+      "islice" => {:builtin, islice_capture()},
       "product" => {:builtin_kw, &do_product/2},
       "permutations" => {:builtin, &do_permutations/1},
       "combinations" => {:builtin, &do_combinations/1},
@@ -103,25 +116,59 @@ defmodule Pyex.Stdlib.Itertools do
      }}
   end
 
-  @spec do_islice([Interpreter.pyvalue()]) :: [Interpreter.pyvalue()]
-  defp do_islice([iterable, stop]) when is_integer(stop) do
+  @doc """
+  islice(iterable, stop) / islice(iterable, start, stop[, step])
+
+  When the iterable is an `:iterator` token (a lazy generator), this
+  function returns an `:islice_call` signal so the interpreter can
+  step the iterator at most `stop` times — terminating cleanly even
+  for infinite generators like `count()`.  For materialized
+  iterables (lists, tuples, ranges) it stays eager.
+
+  Public so the interpreter's no-drain registry can reference it; do
+  not call directly from outside this module.
+  """
+  @spec do_islice([Interpreter.pyvalue()]) :: term()
+  def do_islice([{:iterator, _} = iter, stop]) when is_integer(stop) and stop >= 0 do
+    {:islice_call, iter, 0, stop, 1}
+  end
+
+  def do_islice([{:iterator, _} = iter, nil]) do
+    {:islice_call, iter, 0, :infinity, 1}
+  end
+
+  def do_islice([{:iterator, _} = iter, start, stop])
+      when is_integer(start) and is_integer(stop) do
+    {:islice_call, iter, start, stop, 1}
+  end
+
+  def do_islice([{:iterator, _} = iter, start, nil]) when is_integer(start) do
+    {:islice_call, iter, start, :infinity, 1}
+  end
+
+  def do_islice([{:iterator, _} = iter, start, stop, step])
+      when is_integer(start) and is_integer(stop) and is_integer(step) and step > 0 do
+    {:islice_call, iter, start, stop, step}
+  end
+
+  def do_islice([iterable, stop]) when is_integer(stop) do
     iterable |> materialize() |> Enum.take(max(stop, 0))
   end
 
-  defp do_islice([iterable, nil]) do
+  def do_islice([iterable, nil]) do
     materialize(iterable)
   end
 
-  defp do_islice([iterable, start, stop]) when is_integer(start) and is_integer(stop) do
+  def do_islice([iterable, start, stop]) when is_integer(start) and is_integer(stop) do
     iterable |> materialize() |> Enum.slice(start..(stop - 1)//1)
   end
 
-  defp do_islice([iterable, start, nil]) when is_integer(start) do
+  def do_islice([iterable, start, nil]) when is_integer(start) do
     iterable |> materialize() |> Enum.drop(start)
   end
 
-  defp do_islice([iterable, start, stop, step])
-       when is_integer(start) and is_integer(stop) and is_integer(step) and step > 0 do
+  def do_islice([iterable, start, stop, step])
+      when is_integer(start) and is_integer(stop) and is_integer(step) and step > 0 do
     iterable
     |> materialize()
     |> Enum.slice(start..(stop - 1)//1)

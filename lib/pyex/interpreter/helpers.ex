@@ -31,7 +31,9 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:tuple, _}), do: "tuple"
   def py_type({:set, _}), do: "set"
   def py_type({:frozenset, _}), do: "frozenset"
-  def py_type({:function, _, _, _, _, _}), do: "function"
+  def py_type({:function, _, _, _, _, _, _}), do: "function"
+  def py_type({:coroutine, _, _, _}), do: "coroutine"
+  def py_type({:asyncio_task, _}), do: "Task"
   def py_type({:builtin, _}), do: "builtin_function_or_method"
   def py_type({:builtin_type, name, _}), do: "<class '#{name}'>"
   def py_type({:builtin_kw, _}), do: "builtin_function_or_method"
@@ -75,7 +77,7 @@ defmodule Pyex.Interpreter.Helpers do
           {:ok, Pyex.Interpreter.pyvalue()} | :error
   def function_attr({:func_with_attrs, func, _attrs}, attr), do: function_attr(func, attr)
 
-  def function_attr({:function, name, params, body, _env, _is_generator}, attr) do
+  def function_attr({:function, name, params, body, _env, _is_generator, _kind}, attr) do
     case attr do
       "__name__" -> {:ok, name}
       "__qualname__" -> {:ok, name}
@@ -265,6 +267,8 @@ defmodule Pyex.Interpreter.Helpers do
   def py_str({:generator, _}), do: "<generator object>"
   def py_str({:generator_error, _, _}), do: "<generator object>"
   def py_str({:iterator, _}), do: "<iterator object>"
+  def py_str({:coroutine, name, _, _}), do: "<coroutine object #{name}>"
+  def py_str({:asyncio_task, _}), do: "<Task>"
   def py_str({:ref, _}), do: "<ref>"
   def py_str(_), do: "<object>"
 
@@ -476,9 +480,12 @@ defmodule Pyex.Interpreter.Helpers do
 
   @doc false
   @spec refresh_closure(Pyex.Interpreter.pyvalue(), Env.t()) :: Pyex.Interpreter.pyvalue()
-  def refresh_closure({:function, name, params, body, _old_env, is_generator}, post_call_env) do
+  def refresh_closure(
+        {:function, name, params, body, _old_env, is_generator, kind},
+        post_call_env
+      ) do
     new_closure_env = Env.drop_top_scope(post_call_env)
-    {:function, name, params, body, new_closure_env, is_generator}
+    {:function, name, params, body, new_closure_env, is_generator, kind}
   end
 
   def refresh_closure(value, _post_call_env), do: value
@@ -487,15 +494,18 @@ defmodule Pyex.Interpreter.Helpers do
   @dialyzer {:nowarn_function, update_closure_env: 2}
   @spec update_closure_env(Pyex.Interpreter.pyvalue(), Env.t()) :: Pyex.Interpreter.pyvalue()
   def update_closure_env(
-        {:function, _name, _params, _body, %Env{scopes: [_single]}, _is_generator} = func,
+        {:function, _name, _params, _body, %Env{scopes: [_single]}, _is_generator, _kind} = func,
         _post_call_env
       ) do
     func
   end
 
-  def update_closure_env({:function, name, params, body, old_env, is_generator}, post_call_env) do
+  def update_closure_env(
+        {:function, name, params, body, old_env, is_generator, kind},
+        post_call_env
+      ) do
     new_closure_env = Env.merge_closure_scopes(old_env, post_call_env)
-    {:function, name, params, body, new_closure_env, is_generator}
+    {:function, name, params, body, new_closure_env, is_generator, kind}
   end
 
   def update_closure_env(value, _post_call_env), do: value

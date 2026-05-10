@@ -159,6 +159,13 @@ defmodule Pyex.Methods do
     end
   end
 
+  def resolve({:asyncio_task, _} = object, attr) do
+    case asyncio_task_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
   def resolve({:pandas_series, _} = object, attr) do
     case pandas_series_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
@@ -2449,6 +2456,32 @@ defmodule Pyex.Methods do
 
   defp stringio_enter({:stringio, _} = sio, _args, _kw), do: sio
   defp stringio_exit({:stringio, _}, _args, _kw), do: false
+
+  # ── asyncio.Task methods ────────────────────────────────────────────────────
+  #
+  # Phase 1 Tasks are always already-done: `asyncio.create_task(coro)`
+  # drives the coroutine eagerly and wraps the result.  The methods
+  # below mirror CPython's surface so callers that introspect Task
+  # state (`.done()`, `.result()`, `.cancel()`) get the values they
+  # expect.  A Phase 2 host-driven trampoline could plug actually-
+  # pending Tasks in by extending the `:asyncio_task` shape.
+
+  @spec asyncio_task_method(String.t()) :: {:ok, fun()} | :error
+  defp asyncio_task_method("result"), do: {:ok, &task_result/2}
+  defp asyncio_task_method("done"), do: {:ok, &task_done/2}
+  defp asyncio_task_method("cancel"), do: {:ok, &task_cancel/2}
+  defp asyncio_task_method("cancelled"), do: {:ok, &task_cancelled/2}
+  defp asyncio_task_method("exception"), do: {:ok, &task_exception/2}
+  defp asyncio_task_method(_), do: :error
+
+  defp task_result({:asyncio_task, value}, _args), do: value
+  defp task_done({:asyncio_task, _}, _args), do: true
+  # Cannot cancel a done Task — CPython returns False.
+  defp task_cancel({:asyncio_task, _}, _args), do: false
+  defp task_cancelled({:asyncio_task, _}, _args), do: false
+  # No exception attached (Phase 1 surfaces exceptions from the
+  # coroutine eagerly during create_task driving).
+  defp task_exception({:asyncio_task, _}, _args), do: nil
 
   # ── deque methods ────────────────────────────────────────────────────────────
   #

@@ -170,6 +170,9 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:filterfalse_call, predicate, items} ->
         Iteration.eval_filterfalse(predicate, items, env, ctx)
 
+      {:islice_call, iter, start, stop, step} ->
+        eval_islice(iter, start, stop, step, env, ctx)
+
       {:unittest_main} ->
         Unittest.eval_unittest_main(env, ctx)
 
@@ -427,6 +430,112 @@ defmodule Pyex.Interpreter.BuiltinResults do
         ctx = %{ctx | generator_mode: saved_mode}
         ctx = Ctx.mark_iter_exhausted(ctx, id)
         {signal, env, ctx}
+    end
+  end
+
+  @spec eval_islice(
+          Interpreter.pyvalue(),
+          non_neg_integer(),
+          non_neg_integer() | :infinity,
+          pos_integer(),
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp eval_islice({:iterator, id}, start, stop, step, env, ctx) do
+    case skip_iter(id, start, env, ctx) do
+      {:exhausted, env, ctx} ->
+        {[], env, ctx}
+
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {:ok, env, ctx} ->
+        # Items to collect = ceil((stop - start) / step) for finite stop.
+        # `collect_islice` then advances by `step` between each kept item.
+        take_count =
+          case stop do
+            :infinity ->
+              :infinity
+
+            n when is_integer(n) ->
+              span = max(n - start, 0)
+              div(span + step - 1, step)
+          end
+
+        collect_islice(id, take_count, step, [], env, ctx)
+    end
+  end
+
+  defp skip_iter(_id, 0, env, ctx), do: {:ok, env, ctx}
+
+  defp skip_iter(id, n, env, ctx) when n > 0 do
+    case advance_iter(id, env, ctx) do
+      {:exhausted, env, ctx} -> {:exhausted, env, ctx}
+      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+      {{:ok, _val}, env, ctx} -> skip_iter(id, n - 1, env, ctx)
+    end
+  end
+
+  defp collect_islice(_id, 0, _step, acc, env, ctx) do
+    {Enum.reverse(acc), env, ctx}
+  end
+
+  defp collect_islice(id, n, step, acc, env, ctx) do
+    case advance_iter(id, env, ctx) do
+      {:exhausted, env, ctx} ->
+        {Enum.reverse(acc), env, ctx}
+
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {{:ok, val}, env, ctx} ->
+        acc = [val | acc]
+        next_n = if n == :infinity, do: :infinity, else: n - 1
+
+        if next_n == 0 do
+          {Enum.reverse(acc), env, ctx}
+        else
+          case skip_iter(id, step - 1, env, ctx) do
+            {:exhausted, env, ctx} -> {Enum.reverse(acc), env, ctx}
+            {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+            {:ok, env, ctx} -> collect_islice(id, next_n, step, acc, env, ctx)
+          end
+        end
+    end
+  end
+
+  # Advance an iterator one step, normalizing the various tagged
+  # entries (`:list`, `:gen_pending`, `:gen_awaiting_send`,
+  # `:instance`) to a single `{:ok, val} | :exhausted | exception`
+  # outcome.
+  defp advance_iter(id, env, ctx) do
+    case Ctx.iter_next(ctx, id) do
+      {:ok, item, ctx} ->
+        {{:ok, item}, env, ctx}
+
+      :exhausted ->
+        {:exhausted, env, ctx}
+
+      {:gen_pending, val, cont, gen_env} ->
+        case step_generator(id, val, cont, gen_env, env, ctx) do
+          {{:exception, "StopIteration" <> _}, env, ctx} -> {:exhausted, env, ctx}
+          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+          {value, env, ctx} -> {{:ok, value}, env, ctx}
+        end
+
+      {:gen_awaiting_send, _val, cont, gen_env} ->
+        case advance_with_sent_value(id, cont, gen_env, nil, env, ctx) do
+          {{:exception, "StopIteration" <> _}, env, ctx} -> {:exhausted, env, ctx}
+          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+          {value, env, ctx} -> {{:ok, value}, env, ctx}
+        end
+
+      {:instance, inst} ->
+        case Interpreter.eval_instance_next(inst, id, :no_default, env, ctx) do
+          {{:exception, "StopIteration" <> _}, env, ctx} -> {:exhausted, env, ctx}
+          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+          {value, env, ctx} -> {{:ok, value}, env, ctx}
+        end
     end
   end
 end

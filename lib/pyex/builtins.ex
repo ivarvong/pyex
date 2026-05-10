@@ -115,7 +115,13 @@ defmodule Pyex.Builtins do
         end
       end
 
-    MapSet.new(captures)
+    # Stdlib functions that need lazy access to iterator args (e.g.
+    # `itertools.islice` over an infinite generator).  Without this
+    # registration, the builtin call path drains the iterator into a
+    # list before the function runs — which loops forever.
+    extras = [Pyex.Stdlib.Itertools.islice_capture()]
+
+    MapSet.new(captures ++ extras)
   end
 
   @spec all() :: [{String.t(), ([Interpreter.pyvalue()] -> Interpreter.pyvalue())}]
@@ -1011,7 +1017,7 @@ defmodule Pyex.Builtins do
      |> visible_dict()
      |> Map.reject(fn {_k, v} ->
        match?({:builtin, _}, v) or match?({:builtin_kw, _}, v) or
-         match?({:function, _, _, _, _, _}, v) or match?({:bound_method, _, _}, v) or
+         match?({:function, _, _, _, _, _, _}, v) or match?({:bound_method, _, _}, v) or
          match?({:bound_method, _, _, _}, v)
      end)
      |> PyDict.from_map()}
@@ -1526,7 +1532,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_map([{:function, _, _, _, _, _} = func | iterables]) when iterables != [] do
+  defp builtin_map([{:function, _, _, _, _, _, _} = func | iterables]) when iterables != [] do
     case collect_iterables(iterables) do
       {:ok, lists} -> {:map_call, func, zip_truncate(lists)}
       {:exception, _} = e -> e
@@ -1661,7 +1667,7 @@ defmodule Pyex.Builtins do
     filter_with_func(func, list)
   end
 
-  defp builtin_filter([{:function, _, _, _, _, _} = func, list]) when is_list(list) do
+  defp builtin_filter([{:function, _, _, _, _, _, _} = func, list]) when is_list(list) do
     {:filter_call, func, list}
   end
 
@@ -1929,7 +1935,7 @@ defmodule Pyex.Builtins do
     ]
   end
 
-  defp builtin_hasattr([{:function, _, _, _, _, _}, attr]) when is_binary(attr) do
+  defp builtin_hasattr([{:function, _, _, _, _, _, _}, attr]) when is_binary(attr) do
     attr in [
       "__name__",
       "__qualname__",
@@ -2039,7 +2045,7 @@ defmodule Pyex.Builtins do
 
   defp class_getattr({:class, _, _, _} = class, attr) do
     case Pyex.Interpreter.ClassLookup.resolve_class_attr_with_owner(class, attr) do
-      {:ok, {:function, _, _, _, _, _} = func, _owner} ->
+      {:ok, {:function, _, _, _, _, _, _} = func, _owner} ->
         {:ok, {:bound_method, class, func}}
 
       {:ok, {:builtin_kw, _} = bkw, _owner} ->
@@ -2144,14 +2150,14 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_getattr([{:function, _, _, _, _, _} = f, attr]) when is_binary(attr) do
+  defp builtin_getattr([{:function, _, _, _, _, _, _} = f, attr]) when is_binary(attr) do
     case Pyex.Interpreter.Helpers.function_attr(f, attr) do
       {:ok, val} -> val
       :error -> {:exception, "AttributeError: function has no attribute '#{attr}'"}
     end
   end
 
-  defp builtin_getattr([{:function, _, _, _, _, _} = f, attr, default]) when is_binary(attr) do
+  defp builtin_getattr([{:function, _, _, _, _, _, _} = f, attr, default]) when is_binary(attr) do
     case Pyex.Interpreter.Helpers.function_attr(f, attr) do
       {:ok, val} -> val
       :error -> default
@@ -2227,7 +2233,7 @@ defmodule Pyex.Builtins do
   defp builtin_callable([{:builtin, _}]), do: true
   defp builtin_callable([{:builtin_kw, _}]), do: true
   defp builtin_callable([{:builtin_type, _, _}]), do: true
-  defp builtin_callable([{:function, _, _, _, _, _}]), do: true
+  defp builtin_callable([{:function, _, _, _, _, _, _}]), do: true
   defp builtin_callable([{:class, _, _, _}]), do: true
   defp builtin_callable([{:bound_method, _, _}]), do: true
   defp builtin_callable([{:bound_method, _, _, _}]), do: true
@@ -2675,7 +2681,9 @@ defmodule Pyex.Builtins do
   defp pytype({:tuple, _}), do: "tuple"
   defp pytype({:set, _}), do: "set"
   defp pytype({:frozenset, _}), do: "frozenset"
-  defp pytype({:function, _, _, _, _, _}), do: "function"
+  defp pytype({:function, _, _, _, _, _, _}), do: "function"
+  defp pytype({:coroutine, _, _, _}), do: "coroutine"
+  defp pytype({:asyncio_task, _}), do: "Task"
   defp pytype({:builtin, _}), do: "builtin_function_or_method"
   defp pytype({:builtin_kw, _}), do: "builtin_function_or_method"
   defp pytype({:class, name, _, _}), do: name
@@ -2798,7 +2806,9 @@ defmodule Pyex.Builtins do
 
   def py_repr({:complex, _, _} = c), do: Pyex.Interpreter.Helpers.py_str(c)
 
-  def py_repr({:function, name, _, _, _, _}), do: "<function #{name}>"
+  def py_repr({:function, name, _, _, _, _, _}), do: "<function #{name}>"
+  def py_repr({:coroutine, name, _, _}), do: "<coroutine object #{name}>"
+  def py_repr({:asyncio_task, _}), do: "<Task>"
   def py_repr({:builtin, _}), do: "<built-in function>"
   def py_repr({:builtin_kw, _}), do: "<built-in function>"
   def py_repr({:pyex_decimal, d}), do: Decimal.to_string(d)

@@ -108,6 +108,71 @@ defmodule Pyex.Interpreter.Invocation do
     end
   end
 
+  @doc """
+  Build a coroutine from an `async def` call.
+
+  Binds parameters into the closure environment but does NOT execute
+  the body — the resulting `:coroutine` value is driven later by
+  `await` / `asyncio.run` / `asyncio.gather`.
+  """
+  @spec build_coroutine(
+          String.t(),
+          [Parser.param()],
+          [Parser.ast_node()],
+          Env.t(),
+          [Interpreter.pyvalue()],
+          %{optional(String.t()) => Interpreter.pyvalue()},
+          Env.t(),
+          Ctx.t()
+        ) :: Interpreter.call_result()
+  def build_coroutine(name, params, body, closure_env, args, kwargs, env, ctx) do
+    fresh_closure = Env.refresh_from_caller(closure_env, env)
+    base_env = Env.push_scope(fresh_closure)
+
+    case CallSupport.bind_params(params, args, kwargs, base_env, ctx) do
+      {:exception, msg, ctx} -> {{:exception, msg}, env, ctx}
+      {call_env, ctx} -> {{:coroutine, name, body, call_env}, env, ctx}
+    end
+  end
+
+  @doc """
+  Drive a coroutine (or already-resolved Task) to completion.
+
+  Phase 1 trampoline: runs the body synchronously in its captured
+  call environment.  `await` and `asyncio.run` / `gather` route
+  through here.  Tasks built by `asyncio.create_task` are
+  pre-resolved (Phase 1) so driving one returns its wrapped value.
+
+  Strict on input shape: anything that is not `:coroutine` or
+  `:asyncio_task` raises a CPython-shaped TypeError.  Caller is
+  responsible for catching `await` outside an async function.
+  """
+  @spec drive_coroutine(Interpreter.pyvalue(), Env.t(), Ctx.t()) :: Interpreter.call_result()
+  def drive_coroutine({:coroutine, _name, body, call_env}, env, ctx) do
+    if ctx.call_depth >= ctx.max_call_depth do
+      {{:exception, "RecursionError: maximum recursion depth exceeded"}, env, ctx}
+    else
+      ctx = %{ctx | call_depth: ctx.call_depth + 1}
+      {result, _post_call_env, ctx} = Interpreter.eval_statements(body, call_env, ctx)
+      ctx = %{ctx | call_depth: ctx.call_depth - 1}
+
+      case result do
+        {:exception, _} = signal -> {signal, env, ctx}
+        other -> {Helpers.unwrap_function_result(other), env, ctx}
+      end
+    end
+  end
+
+  def drive_coroutine({:asyncio_task, value}, env, ctx) do
+    {value, env, ctx}
+  end
+
+  def drive_coroutine(other, env, ctx) do
+    type_name = Helpers.py_type(other)
+
+    {{:exception, "TypeError: object #{type_name} can't be used in 'await' expression"}, env, ctx}
+  end
+
   @doc false
   @spec call_bound_method(
           Interpreter.pyvalue(),
@@ -120,7 +185,7 @@ defmodule Pyex.Interpreter.Invocation do
         ) :: Interpreter.call_result()
   def call_bound_method(
         instance,
-        {:function, fname, params, body, closure_env, is_generator},
+        {:function, fname, params, body, closure_env, is_generator, kind},
         defining_class,
         args,
         kwargs,
@@ -129,9 +194,63 @@ defmodule Pyex.Interpreter.Invocation do
       ) do
     method_args = [instance | args]
 
+    # Async methods are coroutines: bind self+args into the call env
+    # and produce a coroutine value rather than running the body
+    # inline.  Sync methods fall through to the existing path below.
+    if kind == :async do
+      Interpreter.call_function(
+        {:function, fname, params, body, closure_env, is_generator, :async},
+        method_args,
+        kwargs,
+        env,
+        ctx
+      )
+    else
+      call_bound_sync_method(
+        instance,
+        fname,
+        params,
+        body,
+        closure_env,
+        is_generator,
+        defining_class,
+        method_args,
+        kwargs,
+        env,
+        ctx
+      )
+    end
+  end
+
+  @spec call_bound_sync_method(
+          Interpreter.pyvalue(),
+          String.t(),
+          [Parser.param()],
+          [Parser.ast_node()],
+          Env.t(),
+          boolean(),
+          Interpreter.pyvalue() | nil,
+          [Interpreter.pyvalue()],
+          %{optional(String.t()) => Interpreter.pyvalue()},
+          Env.t(),
+          Ctx.t()
+        ) :: Interpreter.call_result()
+  defp call_bound_sync_method(
+         instance,
+         fname,
+         params,
+         body,
+         closure_env,
+         is_generator,
+         defining_class,
+         method_args,
+         kwargs,
+         env,
+         ctx
+       ) do
     fresh_closure = Env.refresh_from_caller(closure_env, env)
 
-    func = {:function, fname, params, body, closure_env, is_generator}
+    func = {:function, fname, params, body, closure_env, is_generator, :sync}
     base_env = Env.push_scope(Env.put(fresh_closure, fname, func))
 
     base_env =
@@ -408,7 +527,8 @@ defmodule Pyex.Interpreter.Invocation do
     instance = {:instance, class, %{}}
 
     case ClassLookup.resolve_class_attr_with_owner(class, "__init__") do
-      {:ok, {:function, init_name, params, body, closure_env, is_generator}, defining_class} ->
+      {:ok, {:function, init_name, params, body, closure_env, is_generator, _kind},
+       defining_class} ->
         call_class_init(
           instance,
           init_name,
@@ -539,7 +659,7 @@ defmodule Pyex.Interpreter.Invocation do
         ) :: Interpreter.call_result()
   def call_callable_instance(instance, class, args, kwargs, env, ctx) do
     case ClassLookup.resolve_class_attr(class, "__call__") do
-      {:ok, {:function, _, _, _, _, _} = func} ->
+      {:ok, {:function, _, _, _, _, _, _} = func} ->
         Interpreter.call_function({:bound_method, instance, func}, args, kwargs, env, ctx)
 
       {:ok, {:builtin, fun}} ->
@@ -728,7 +848,7 @@ defmodule Pyex.Interpreter.Invocation do
 
     fresh_closure = Env.refresh_from_caller(closure_env, env)
 
-    init_fn = {:function, init_name, params, body, closure_env, is_generator}
+    init_fn = {:function, init_name, params, body, closure_env, is_generator, :sync}
     base_env = Env.push_scope(Env.put(fresh_closure, init_name, init_fn))
     base_env = Env.put(base_env, "__class__", defining_class)
 

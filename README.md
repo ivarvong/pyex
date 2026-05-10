@@ -193,6 +193,16 @@ The hard parts of Python, implemented to match CPython semantics:
   `send()`, two-way communication, lazy iteration. Generators
   suspend through tagged continuation frames so an agent step can be
   paused and resumed without owning a process.
+- **`async` / `await` with a synchronous trampoline.** `async def`
+  produces a coroutine value; `await` and `asyncio.run` drive it to
+  completion. `asyncio.gather`, `asyncio.sleep`, `asyncio.create_task`
+  (with `Task.result()` / `.done()` / `.cancel()`), and async
+  generators all work. `gather` is sequential rather than concurrent
+  — same answer as CPython, slower wall-clock when fan-out matters.
+  Async generators ride the existing lazy-iterator machinery, so
+  FastAPI streaming patterns work without extra plumbing. `await`
+  on a non-awaitable raises CPython-shaped TypeError. Phase 1
+  divergences from CPython are pinned in the conformance suite.
 - **Exception fidelity.** The full CPython exception hierarchy
   (`BaseException` → `Exception` → `OSError` → `FileNotFoundError`,
   etc.). `try` / `except` / `finally` / `else`, exception groups,
@@ -214,15 +224,16 @@ Standard library, implemented in Elixir to match CPython semantics:
 
 ```
 abc          datetime     html         pathlib     sql
-base64       decimal      hmac         pydantic    statistics
-bisect       enum         io           pygments    string
-boto3        fastapi      itertools    random      sys
-collections  fnmatch      jinja2       re          textwrap
-contextlib   functools    json         requests    time
-copy         glob         markdown     secrets     typing
-crypto       hashlib      math         shutil      unittest
-csv          heapq        operator     urllib      uuid
-dataclasses                                        yaml / zipfile / zoneinfo
+asyncio      decimal      hmac         pydantic    statistics
+base64       enum         io           pygments    string
+bisect       fastapi      itertools    random      sys
+boto3        fnmatch      jinja2       re          textwrap
+collections  functools    json         requests    time
+contextlib   glob         markdown     secrets     typing
+copy         hashlib      math         shutil      unittest
+crypto       heapq        operator     urllib      uuid
+csv                                                yaml
+dataclasses                                        zipfile / zoneinfo
 ```
 
 `pandas` is partial. `pydantic` does `BaseModel`, `Field`, and

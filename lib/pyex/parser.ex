@@ -287,16 +287,38 @@ defmodule Pyex.Parser do
     parse_name_list(rest, line, :nonlocal)
   end
 
-  defp parse_statement([{:keyword, line, "async"} | _rest]) do
-    {:error,
-     "NotImplementedError: 'async' is not supported. " <>
-       "Write synchronous code instead (line #{line})"}
+  defp parse_statement([{:keyword, _line, "async"}, {:keyword, _, "def"} | rest]) do
+    case Definitions.parse_function_def(rest) do
+      {:ok, {:def, meta, args}, rest} ->
+        {:ok, {:def, Keyword.put(meta, :async, true), args}, rest}
+
+      other ->
+        other
+    end
   end
 
-  defp parse_statement([{:keyword, line, "await"} | _rest]) do
-    {:error,
-     "NotImplementedError: 'await' is not supported. " <>
-       "Call functions directly instead of awaiting them (line #{line})"}
+  defp parse_statement([{:keyword, _line, "async"}, {:keyword, _, "for"} | rest]) do
+    case ControlFlow.parse_for(rest) do
+      {:ok, {:for, meta, args}, rest} ->
+        {:ok, {:for, Keyword.put(meta, :async, true), args}, rest}
+
+      other ->
+        other
+    end
+  end
+
+  defp parse_statement([{:keyword, _line, "async"}, {:keyword, with_line, "with"} | rest]) do
+    case Definitions.parse_with(rest, with_line) do
+      {:ok, {:with, meta, args}, rest} ->
+        {:ok, {:with, Keyword.put(meta, :async, true), args}, rest}
+
+      other ->
+        other
+    end
+  end
+
+  defp parse_statement([{:keyword, line, "async"} | _rest]) do
+    {:error, "SyntaxError: 'async' must be followed by 'def', 'for', or 'with' on line #{line}"}
   end
 
   defp parse_statement([{:op, line, :at} | rest]) do
@@ -1085,6 +1107,12 @@ defmodule Pyex.Parser do
   defp parse_multiplication_rest(left, rest), do: {:ok, left, rest}
 
   @spec parse_unary([Lexer.token()]) :: parse_result()
+  defp parse_unary([{:keyword, line, "await"} | rest]) do
+    with {:ok, expr, rest} <- parse_unary(rest) do
+      {:ok, {:await, [line: line], [expr]}, rest}
+    end
+  end
+
   defp parse_unary([{:op, line, :minus} | rest]) do
     with {:ok, expr, rest} <- parse_unary(rest) do
       {:ok, {:unaryop, [line: line], [:neg, expr]}, rest}
@@ -1345,18 +1373,6 @@ defmodule Pyex.Parser do
 
   defp parse_atom([{:op, line, :lbrace} | rest]) do
     Comprehensions.parse_dict_literal(rest, line)
-  end
-
-  defp parse_atom([{:keyword, line, "await"} | _]) do
-    {:error,
-     "NotImplementedError: 'await' is not supported. " <>
-       "Call functions directly instead of awaiting them (line #{line})"}
-  end
-
-  defp parse_atom([{:keyword, line, "async"} | _]) do
-    {:error,
-     "NotImplementedError: 'async' is not supported. " <>
-       "Write synchronous code instead (line #{line})"}
   end
 
   defp parse_atom([]) do

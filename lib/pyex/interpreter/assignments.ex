@@ -800,7 +800,7 @@ defmodule Pyex.Interpreter.Assignments do
           other when is_map(other) ->
             {nil, Env.put_at_source(env, var_name, Map.put(other, attr, value)), ctx}
 
-          {:function, _, _, _, _, _} = func ->
+          {:function, _, _, _, _, _, _} = func ->
             wrapped = {:func_with_attrs, func, %{attr => value}}
             {nil, Env.put_at_source(env, var_name, wrapped), ctx}
 
@@ -868,7 +868,7 @@ defmodule Pyex.Interpreter.Assignments do
         case PyDict.fetch(dict, "__defaultdict_factory__") do
           {:ok, {:builtin_type, _, func}} -> func.([])
           {:ok, {:builtin, func}} -> func.([])
-          {:ok, {:function, _, _, _, _, _} = func} -> {:defaultdict_call_needed, func}
+          {:ok, {:function, _, _, _, _, _, _} = func} -> {:defaultdict_call_needed, func}
           _ -> {:exception, "KeyError: #{Pyex.Builtins.py_repr_quoted(key)}"}
         end
     end
@@ -883,7 +883,7 @@ defmodule Pyex.Interpreter.Assignments do
         case Map.fetch(obj, "__defaultdict_factory__") do
           {:ok, {:builtin_type, _, func}} -> func.([])
           {:ok, {:builtin, func}} -> func.([])
-          {:ok, {:function, _, _, _, _, _} = func} -> {:defaultdict_call_needed, func}
+          {:ok, {:function, _, _, _, _, _, _} = func} -> {:defaultdict_call_needed, func}
           _ -> {:exception, "KeyError: #{Pyex.Builtins.py_repr_quoted(key)}"}
         end
     end

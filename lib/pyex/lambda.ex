@@ -487,7 +487,7 @@ defmodule Pyex.Lambda do
           Ctx.t()
         ) :: {Interpreter.pyvalue(), Ctx.t(), Interpreter.pyvalue()}
   defp call_handler(
-         {:function, name, params, body, closure_env, is_generator} = func,
+         {:function, name, params, body, closure_env, is_generator, kind} = func,
          path_params,
          request,
          ctx
@@ -503,7 +503,7 @@ defmodule Pyex.Lambda do
       {:ok, call_env} ->
         {result, post_env, new_ctx} = Interpreter.eval({:module, [line: 1], body}, call_env, ctx)
         updated_closure = extract_closure_env(post_env, closure_env)
-        updated_handler = {:function, name, params, body, updated_closure, is_generator}
+        updated_handler = {:function, name, params, body, updated_closure, is_generator, kind}
 
         case result do
           {:returned, value} -> {value, new_ctx, updated_handler}
@@ -529,10 +529,10 @@ defmodule Pyex.Lambda do
           Ctx.t()
         ) :: {:ok, Interpreter.pyvalue(), Ctx.t()} | {:error, String.t(), Ctx.t()}
   defp call_handler_safe(handler, path_params, request, ctx) do
-    {func_name, params, body, closure_env, is_generator} =
+    {func_name, params, body, closure_env, is_generator, kind} =
       case handler do
-        {:function, name, p, b, ce, gen?} -> {name, p, b, ce, gen?}
-        {:builtin, fun} -> {:builtin, nil, nil, fun, false}
+        {:function, name, p, b, ce, gen?, k} -> {name, p, b, ce, gen?, k}
+        {:builtin, fun} -> {:builtin, nil, nil, fun, false, :sync}
       end
 
     case func_name do
@@ -561,7 +561,9 @@ defmodule Pyex.Lambda do
               Interpreter.eval({:module, [line: 1], body}, call_env, ctx)
 
             updated_closure = extract_closure_env(post_env, closure_env)
-            updated_handler = {:function, func_name, params, body, updated_closure, is_generator}
+
+            updated_handler =
+              {:function, func_name, params, body, updated_closure, is_generator, kind}
 
             case result do
               {:returned, value} -> {:ok, value, new_ctx, updated_handler}
