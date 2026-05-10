@@ -554,8 +554,19 @@ defmodule Pyex.Interpreter do
 
   def eval({:return, _, [expr]}, env, ctx) do
     case eval(expr, env, ctx) do
-      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-      {value, env, ctx} -> {{:returned, value}, env, ctx}
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {{:yielded, val, cont}, env, ctx} ->
+        # `return await coro` (or any return-of-suspending-expr): the
+        # awaited expression yielded part-way through evaluation.
+        # Propagate the yield up; on resume, the resumed value becomes
+        # the function's return.  Mirrors how `eval_assign` handles
+        # `x = yield expr` via `:cont_bind_sent`.
+        {{:yielded, val, cont ++ [{:cont_return_value}]}, env, ctx}
+
+      {value, env, ctx} ->
+        {{:returned, value}, env, ctx}
     end
   end
 
@@ -3665,6 +3676,7 @@ defmodule Pyex.Interpreter do
              [Parser.ast_node()] | nil}
           | {:cont_bind_sent, String.t()}
           | {:cont_await_iter, non_neg_integer()}
+          | {:cont_return_value}
 
   @doc """
   Resumes a suspended generator from a continuation.
@@ -3686,6 +3698,12 @@ defmodule Pyex.Interpreter do
     # next() resumes with sent_value = nil (Python semantics)
     env = Env.smart_put(env, name, nil)
     resume_generator(rest, env, ctx)
+  end
+
+  def resume_generator([{:cont_return_value} | _rest], env, ctx) do
+    # `return await coro` resumed with no sent value (e.g. via
+    # plain next()): treat as the function returning None.
+    {{:done_with_value, nil}, env, ctx}
   end
 
   def resume_generator([{:cont_stmts, stmts} | rest], env, ctx) do
@@ -3840,6 +3858,13 @@ defmodule Pyex.Interpreter do
   def resume_generator_with_send([{:cont_bind_sent, name} | rest], env, ctx, sent_value) do
     env = Env.smart_put(env, name, sent_value)
     resume_generator(rest, env, ctx)
+  end
+
+  def resume_generator_with_send([{:cont_return_value} | _rest], env, ctx, sent_value) do
+    # `return await coro` resumed with the awaited value via
+    # `:cont_await_iter` -> `resume_generator_with_send`.  The sent
+    # value IS what the function returns.
+    {{:done_with_value, sent_value}, env, ctx}
   end
 
   def resume_generator_with_send(cont, env, ctx, _sent_value) do

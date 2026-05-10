@@ -38,10 +38,23 @@ defmodule Pyex.Interpreter.Bindings do
         {signal, env, ctx}
 
       {{:yielded, val, cont}, env, ctx} ->
-        # yield fires inside an assignment: `x = yield val`.
-        # When the generator is resumed via .send(sent_value), `sent_value`
-        # becomes the result of the yield expression and is bound to `name`.
-        {{:yielded, val, [{:cont_bind_sent, name} | cont]}, env, ctx}
+        # A yielding expression on the RHS of an assignment.  Two
+        # shapes:
+        #
+        #   `x = yield val`  — `cont` is empty.  On resume via .send,
+        #     the sent value is the result of the yield expression and
+        #     is bound to `name`.
+        #
+        #   `x = await coro` — `cont` already has `:cont_await_iter`
+        #     (and maybe nested frames) that drive the coroutine to
+        #     completion before any value is available to bind.
+        #
+        # The bind frame must run AFTER the existing cont — append,
+        # don't prepend.  When `:cont_await_iter` finishes, it routes
+        # its `:done_with_value` through `resume_generator_with_send`
+        # with the awaited value as the sent value, which is exactly
+        # what `:cont_bind_sent` consumes.
+        {{:yielded, val, cont ++ [{:cont_bind_sent, name}]}, env, ctx}
 
       {value, env, ctx} ->
         {value, Env.smart_put(env, name, value), ctx}
