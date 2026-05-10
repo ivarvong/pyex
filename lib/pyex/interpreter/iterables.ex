@@ -138,7 +138,10 @@ defmodule Pyex.Interpreter.Iterables do
       {{:yielded, val, next_cont}, next_env, ctx} ->
         drain_generator(val, next_cont, next_env, [val | acc], env, ctx)
 
-      {:done, _gen_env, ctx} ->
+      {done, _gen_env, ctx} when done == :done or elem(done, 0) == :done_with_value ->
+        # Plain `:done` and `{:done_with_value, _}` both terminate
+        # the drain.  The return value is preserved on the iterator
+        # entry by the caller; this drain just collects yields.
         ctx = %{ctx | generator_mode: saved_mode}
         {:ok, Enum.reverse(acc), env, ctx}
 

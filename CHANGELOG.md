@@ -2,42 +2,49 @@
 
 ## Unreleased
 
-### Async / await
+### Async / await — cooperative scheduling
 
-- `async def`, `await`, `async for`, `async with` parse and run.
-  Coroutines are tagged sync-or-async on the function value
-  (`{:function, ..., :sync | :async}`); calling an async function
-  binds parameters and returns a `:coroutine` value without
-  executing the body.  `await` and `asyncio.run` drive the
-  coroutine via a synchronous trampoline
-  (`Pyex.Interpreter.Invocation.drive_coroutine/3`).
-- New `asyncio` module: `run`, `gather`, `sleep`, `create_task`,
-  `ensure_future`, `wait_for`, `iscoroutine`, `iscoroutinefunction`.
-  `gather(return_exceptions=True)` returns real exception
-  *instances* (not strings), so `isinstance(r, ValueError)` works
-  against gather results.
-- `asyncio.create_task` drives the coroutine eagerly and returns a
-  Task value with `.result()` / `.done()` / `.cancel()` /
-  `.exception()` methods.
-- Async generators (`async def` + `yield`) ride the existing
-  lazy-iterator machinery; FastAPI streaming patterns work
-  unchanged.
-- Async methods on classes (instance / `@staticmethod` /
-  `@classmethod` / subclass override) return coroutines via the
-  bound-method dispatcher.
-- `await` and `asyncio.run` are strict on shape: non-awaitable
-  arguments raise CPython-shaped TypeError.  `asyncio.run`'s
-  TypeError includes a hint about the most common LLM mistake
-  (forgetting to call the async function).
+`async def`, `await`, `async for`, `async with`, async list
+comprehensions, and the `asyncio` module — implemented as
+cooperative coroutines on top of the existing generator-as-
+continuation machinery.
 
-Phase 1 divergences from CPython are documented and pinned in
-`test/pyex/async_conformance_test.exs`:
+Coroutines are tagged generators (`{:function, ..., :sync |
+:async}`).  Calling an async function returns a coroutine value
+that wraps a `:gen_unstarted` iter-pool entry; the body runs when
+something drives it.  `await EXPR` is yield-from on the inner
+iterator: each yield propagates up to the surrounding trampoline,
+and the inner's `StopIteration` value (PEP 380) becomes the
+await's result.  `asyncio.sleep(t)` yields an `{:asyncio_sleep,
+ms}` sentinel that the trampoline interprets.
 
-- `gather` is sequential, not interleaved at await points
-- `create_task` drives eagerly rather than scheduling
-- Nested `asyncio.run` is silently allowed (CPython errors)
-- Async list comprehensions (`[x async for x in g()]`) not yet
-  parsed
+Observable interleaving matches CPython:
+
+  - `gather(step("A"), step("B"))` over coroutines that
+    `await asyncio.sleep(0)` between mutations produces ABABAB,
+    not AAABBB.
+  - `create_task` is lazy — the body runs when the Task is
+    awaited, with `Task.result()` / `.done()` / `.cancel()` /
+    `.exception()` methods.  An undriven Task reports `done() =
+    False` and `result()` raises `InvalidStateError`.
+  - Nested `asyncio.run` raises `RuntimeError`
+    ("asyncio.run() cannot be called from a running event loop").
+  - Async list comprehensions (`[x async for x in g()]`) parse
+    and run.
+  - `await` on a non-awaitable raises CPython-shaped `TypeError`.
+
+`asyncio` surface: `run`, `gather`, `sleep`, `create_task`,
+`ensure_future`, `wait_for`, `iscoroutine`,
+`iscoroutinefunction`.  `gather(return_exceptions=True)` returns
+real exception *instances* (built via the same machinery as
+`raise ValueError(...)`), so `isinstance(r, ValueError)` works
+against gather results.
+
+Async methods on classes (instance / `@staticmethod` /
+`@classmethod` / subclass override) return coroutines via the
+bound-method dispatcher.  Async generators (`async def` + `yield`)
+ride the existing lazy-iterator machinery, so FastAPI streaming
+patterns work unchanged.
 
 ### itertools.islice
 

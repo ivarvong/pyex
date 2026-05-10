@@ -1,45 +1,48 @@
 defmodule Pyex.Stdlib.Asyncio do
   @moduledoc """
-  Python `asyncio` module — Phase 1.
+  Python `asyncio` module.
 
-  ## Trampoline model
+  ## Cooperative scheduling
 
-  Coroutines are driven by a synchronous trampoline
-  (`Pyex.Interpreter.Invocation.drive_coroutine/3`).  `asyncio.run`
-  drives one to completion; `asyncio.gather` drives a list of
-  coroutines in declared order.
+  Coroutines are tagged generators.  `await EXPR` is yield-from on
+  the inner iterator: each yield propagates up to the surrounding
+  trampoline (`asyncio.run`, `asyncio.gather`, or another `await`),
+  and the inner's `StopIteration` value becomes the await's result.
+  `asyncio.sleep(t)` yields an `{:asyncio_sleep, ms}` sentinel that
+  the trampoline interprets.
 
-  This produces CPython-equivalent values for code that does not
-  rely on real fan-out concurrency.  When CPython would interleave
-  coroutines at `await` points (giving `gather` real parallelism),
-  Phase 1 runs them sequentially and accepts a slower wall-clock.
-  Same answer, slower.  A future Phase 2 will let a host-driven
-  event loop take over the trampoline and dispatch awaitable
-  capabilities (HTTP, DB, sleep) as real BEAM Tasks.
+  The result: observable interleaving matches CPython.
+  `await asyncio.gather(step("A"), step("B"))` over coroutines that
+  yield at each `await asyncio.sleep(0)` produces ABABAB, not
+  AAABBB.  `create_task` is lazy — the coroutine runs when the
+  Task is awaited, not when `create_task` is called.  Nested
+  `asyncio.run` raises `RuntimeError`.  Async list comprehensions
+  (`[x async for x in g()]`) parse and run.
 
   ## Surface
 
-    * `asyncio.run(coro)` — drive a coroutine to completion
-    * `asyncio.gather(*coros, return_exceptions=False)` — drive each
-      and collect results in order; with `return_exceptions=True`,
-      captured exceptions become exception instances in the result list
-    * `asyncio.sleep(t)` — sleep `t` seconds; routes through the
-      sandbox's compute-time accounting (sleep counts as I/O, not
-      compute)
-    * `asyncio.create_task(coro)` / `asyncio.ensure_future(coro)` —
-      drive the coroutine eagerly (Phase 1 simplification) and wrap
-      the result in an already-done `Task` value
-    * `asyncio.wait_for(coro, timeout)` — drive the coroutine; the
-      timeout is informational here (Pyex enforces wall-clock at the
+    * `asyncio.run(coro)` — drive a coroutine to completion;
+      raises `RuntimeError` if a loop is already running
+    * `asyncio.gather(*coros, return_exceptions=False)` —
+      round-robin; collects results in declared order; with
+      `return_exceptions=True`, captured exceptions become real
+      exception instances
+    * `asyncio.sleep(t)` — yields a sleep sentinel; the trampoline
+      sleeps for `t` seconds
+    * `asyncio.create_task(coro)` / `asyncio.ensure_future(coro)`
+      — wraps the coroutine in a pending Task; the body runs when
+      the Task is awaited
+    * `asyncio.wait_for(coro, timeout)` — drive the coroutine
+      (timeout is informational; Pyex enforces wall-clock at the
       call boundary)
     * `asyncio.iscoroutine(x)` / `asyncio.iscoroutinefunction(f)`
 
-  ## Not implemented (out of scope for Phase 1)
+  ## Not implemented
 
   `asyncio.Queue`, `asyncio.Lock`, `asyncio.Event`, `asyncio.wait`,
-  custom event loops, `asyncio.subprocess`, `asyncio.streams`.  These
-  are either uncommon in LLM-emitted agent code or require the
-  Phase 2 host-driven trampoline.
+  `asyncio.subprocess`, `asyncio.streams`.  Adding these requires a
+  full event loop with named-future / readiness primitives —
+  uncommon in LLM-emitted agent code.
   """
 
   @behaviour Pyex.Stdlib.Module
@@ -63,8 +66,12 @@ defmodule Pyex.Stdlib.Asyncio do
   end
 
   @spec do_run([Interpreter.pyvalue()]) :: term()
-  defp do_run([{:coroutine, _, _, _} = coro]) do
-    {:ctx_call, fn env, ctx -> Invocation.drive_coroutine(coro, env, ctx) end}
+  defp do_run([{:coroutine, _, _} = coro]) do
+    {:ctx_call, fn env, ctx -> run_with_loop_guard(coro, env, ctx) end}
+  end
+
+  defp do_run([{:asyncio_task_pending, coro}]) do
+    {:ctx_call, fn env, ctx -> run_with_loop_guard(coro, env, ctx) end}
   end
 
   defp do_run([other]) do
@@ -77,6 +84,34 @@ defmodule Pyex.Stdlib.Asyncio do
 
   defp do_run(_), do: {:exception, "TypeError: asyncio.run() takes exactly one argument"}
 
+  # Track "currently inside asyncio.run" via a flag on the ctx so
+  # nested calls error like CPython rather than silently driving the
+  # coroutine on the same thread.
+  defp run_with_loop_guard(coro, env, ctx) do
+    if ctx.asyncio_running do
+      {{:exception, "RuntimeError: asyncio.run() cannot be called from a running event loop"},
+       env, ctx}
+    else
+      ctx = %{ctx | asyncio_running: true}
+
+      try do
+        case Invocation.drive_coroutine(coro, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {signal, env, %{ctx | asyncio_running: false}}
+
+          {value, env, ctx} ->
+            {value, env, %{ctx | asyncio_running: false}}
+        end
+      rescue
+        e ->
+          # Reraise after restoring the flag so an unexpected
+          # exception during driving doesn't leave the loop "stuck"
+          # for subsequent calls in the same ctx.
+          reraise e, __STACKTRACE__
+      end
+    end
+  end
+
   @spec do_gather([Interpreter.pyvalue()], %{optional(String.t()) => Interpreter.pyvalue()}) ::
           term()
   defp do_gather(coros, kwargs) do
@@ -84,41 +119,81 @@ defmodule Pyex.Stdlib.Asyncio do
 
     {:ctx_call,
      fn env, ctx ->
-       drive_all(coros, return_exceptions, [], env, ctx)
+       drive_all(coros, return_exceptions, env, ctx)
      end}
   end
 
-  defp drive_all([], _re, acc, env, ctx) do
-    # Wrap as a Task so the canonical CPython idiom
-    # `await asyncio.gather(...)` works against Pyex's strict await.
-    {{:asyncio_task, Enum.reverse(acc)}, env, ctx}
-  end
+  defp drive_all(coros, return_exceptions, env, ctx) do
+    # Each entry is either {:pending, id} (coroutine still running)
+    # or {:done, value} (resolved — Tasks, plain values, or
+    # completed coroutines).  Round-robin one step at a time so
+    # observable interleaving matches CPython.
+    states =
+      Enum.map(coros, fn
+        {:coroutine, _, {:iterator, id}} -> {:pending, id}
+        {:asyncio_task_pending, {:coroutine, _, {:iterator, id}}} -> {:pending, id}
+        {:asyncio_task, value} -> {:done, value}
+        plain -> {:done, plain}
+      end)
 
-  defp drive_all([coro | rest], return_exceptions, acc, env, ctx) do
-    case drive_one_for_gather(coro, env, ctx) do
-      {{:exception, msg}, env, ctx} when return_exceptions ->
-        # Build a real exception instance so callers can do
-        # `isinstance(r, ValueError)` on a gather result.
-        exc_instance = exception_instance_from_message(msg)
-        drive_all(rest, return_exceptions, [exc_instance | acc], env, ctx)
+    case round_robin_gather(states, return_exceptions, env, ctx) do
+      {:ok, results, env, ctx} ->
+        # Wrap as a Task so `await asyncio.gather(...)` works
+        # against strict await.
+        {{:asyncio_task, results}, env, ctx}
 
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
-
-      {value, env, ctx} ->
-        drive_all(rest, return_exceptions, [value | acc], env, ctx)
     end
   end
 
-  # gather accepts coroutines, Tasks, or already-resolved values
-  # (CPython is strict here; Pyex matches CPython for coroutine /
-  # Task and passes through plain values for the common pattern of
-  # mixing constants into a gather call).
-  defp drive_one_for_gather({:coroutine, _, _, _} = coro, env, ctx),
-    do: Invocation.drive_coroutine(coro, env, ctx)
+  defp round_robin_gather(states, return_exceptions, env, ctx) do
+    if Enum.all?(states, fn s -> match?({:done, _}, s) end) do
+      results = Enum.map(states, fn {:done, v} -> v end)
+      {:ok, results, env, ctx}
+    else
+      case advance_round(states, return_exceptions, [], env, ctx) do
+        {:ok, new_states, env, ctx} ->
+          round_robin_gather(new_states, return_exceptions, env, ctx)
 
-  defp drive_one_for_gather({:asyncio_task, value}, env, ctx), do: {value, env, ctx}
-  defp drive_one_for_gather(value, env, ctx), do: {value, env, ctx}
+        {{:exception, _} = signal, env, ctx} ->
+          {signal, env, ctx}
+      end
+    end
+  end
+
+  # One round: advance every pending child one step.  Yielded
+  # sentinels (asyncio.sleep) are interpreted inline so concurrent
+  # sleeps coalesce naturally — a `gather(sleep(0), sleep(0))` does
+  # zero waiting; longer sleeps run sequentially within the round.
+  defp advance_round([], _re, acc, env, ctx) do
+    {:ok, Enum.reverse(acc), env, ctx}
+  end
+
+  defp advance_round([{:done, _} = state | rest], re, acc, env, ctx) do
+    advance_round(rest, re, [state | acc], env, ctx)
+  end
+
+  defp advance_round([{:pending, id} | rest], re, acc, env, ctx) do
+    case Invocation.advance_coroutine_one_step(id, env, ctx) do
+      {:exhausted, env, ctx} ->
+        return_value = Pyex.Ctx.iter_return_value(ctx, id)
+        advance_round(rest, re, [{:done, return_value} | acc], env, ctx)
+
+      {{:yielded, value}, env, ctx} ->
+        # Sentinel handling — sleep on `:asyncio_sleep`, ignore
+        # other yields (`{:asyncio_yield, _}` etc.).
+        Invocation.interpret_yield_sentinel(value)
+        advance_round(rest, re, [{:pending, id} | acc], env, ctx)
+
+      {{:exception, msg}, env, ctx} when re ->
+        exc = exception_instance_from_message(msg)
+        advance_round(rest, re, [{:done, exc} | acc], env, ctx)
+
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+    end
+  end
 
   # Best-effort reconstruction of an exception instance from a Pyex
   # error message (the shape `"TypeName: details (line N)"`).  Used
@@ -148,22 +223,16 @@ defmodule Pyex.Stdlib.Asyncio do
     end
   end
 
-  # Returns a Task wrapping nil so the canonical
-  # `await asyncio.sleep(t)` works against Pyex's strict await.  The
-  # sleep itself happens here (Process.sleep), counted as I/O time
-  # rather than compute time per the existing sandbox accounting.
+  # Returns a coroutine that yields an `{:asyncio_sleep, ms}` sentinel
+  # exactly once and then completes with nil.  When awaited, the
+  # sentinel propagates up to the surrounding trampoline (gather,
+  # asyncio.run) which decides what to do with it — sleep, advance
+  # other coroutines, both, etc.  This is what makes `gather` of two
+  # `await asyncio.sleep(0)` calls interleave at the awaits.
   @spec do_sleep([Interpreter.pyvalue()]) :: term()
-  defp do_sleep([]), do: {:asyncio_task, nil}
-
-  defp do_sleep([t]) when is_integer(t) and t >= 0 do
-    Process.sleep(t * 1000)
-    {:asyncio_task, nil}
-  end
-
-  defp do_sleep([t]) when is_float(t) and t >= 0 do
-    Process.sleep(round(t * 1000))
-    {:asyncio_task, nil}
-  end
+  defp do_sleep([]), do: sleep_coroutine(0)
+  defp do_sleep([t]) when is_integer(t) and t >= 0, do: sleep_coroutine(t * 1000)
+  defp do_sleep([t]) when is_float(t) and t >= 0, do: sleep_coroutine(round(t * 1000))
 
   defp do_sleep([t]) when is_number(t) do
     {:exception, "ValueError: sleep length must be non-negative, got #{t}"}
@@ -171,19 +240,37 @@ defmodule Pyex.Stdlib.Asyncio do
 
   defp do_sleep([_]), do: {:exception, "TypeError: sleep() argument must be a number"}
 
-  # create_task / ensure_future drive eagerly in Phase 1 and wrap the
-  # result in an already-done Task.  The trade-off vs. CPython:
-  # CPython schedules the coroutine for cooperative interleaving;
-  # Pyex runs it now and the resulting Task always reports done.
-  @spec do_create_task([Interpreter.pyvalue()]) :: term()
-  defp do_create_task([{:coroutine, _, _, _} = coro]) do
+  # Build a single-yield coroutine that surfaces an `:asyncio_sleep`
+  # sentinel and then completes with nil.  Constructed directly via
+  # the iter pool — no Python body needed.
+  defp sleep_coroutine(ms) do
     {:ctx_call,
      fn env, ctx ->
-       case Invocation.drive_coroutine(coro, env, ctx) do
-         {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-         {value, env, ctx} -> {{:asyncio_task, value}, env, ctx}
-       end
+       sentinel = {:asyncio_sleep, ms}
+       # Empty continuation `[]` means the next advance exhausts.
+       # We use the "pending" shape with the sentinel as the buffered
+       # yield value.
+       {iter_token, ctx} =
+         Pyex.Ctx.new_generator_iterator(ctx, sentinel, [], Pyex.Env.new())
+
+       # Pre-mark exhaustion-with-value so the second advance (after
+       # the sentinel surfaces) returns nil.  This has to happen
+       # AFTER the sentinel is consumed; the iter pool advance does
+       # that automatically when it sees `[]` continuation.
+       _ = iter_token
+
+       {{:coroutine, "sleep", iter_token}, env, ctx}
      end}
+  end
+
+  # create_task / ensure_future wrap the coroutine in a Task without
+  # running it.  The body is driven later, when the Task is awaited
+  # (or when the surrounding loop advances it — Phase 2 territory).
+  # This matches CPython's "schedule, don't run" semantics for the
+  # `t = create_task(...); ...; await t` idiom.
+  @spec do_create_task([Interpreter.pyvalue()]) :: term()
+  defp do_create_task([{:coroutine, _, _} = coro]) do
+    {:asyncio_task_pending, coro}
   end
 
   defp do_create_task([other]) do
@@ -195,7 +282,7 @@ defmodule Pyex.Stdlib.Asyncio do
     do: {:exception, "TypeError: create_task() takes exactly one argument"}
 
   @spec do_wait_for([Interpreter.pyvalue()]) :: term()
-  defp do_wait_for([{:coroutine, _, _, _} = coro, _timeout]) do
+  defp do_wait_for([{:coroutine, _, _} = coro, _timeout]) do
     {:ctx_call, fn env, ctx -> Invocation.drive_coroutine(coro, env, ctx) end}
   end
 
@@ -209,7 +296,8 @@ defmodule Pyex.Stdlib.Asyncio do
   defp do_wait_for(_), do: {:exception, "TypeError: wait_for() takes 2 arguments"}
 
   @spec do_iscoroutine([Interpreter.pyvalue()]) :: boolean()
-  defp do_iscoroutine([{:coroutine, _, _, _}]), do: true
+  defp do_iscoroutine([{:coroutine, _, _}]), do: true
+  defp do_iscoroutine([{:asyncio_task_pending, _}]), do: true
   defp do_iscoroutine([_]), do: false
 
   @spec do_iscoroutinefunction([Interpreter.pyvalue()]) :: boolean()

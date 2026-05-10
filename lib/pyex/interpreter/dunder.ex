@@ -275,6 +275,11 @@ defmodule Pyex.Interpreter.Dunder do
       {:done, _gen_env, ctx} ->
         {:done, env, ctx}
 
+      {{:done_with_value, _value}, _gen_env, ctx} ->
+        # Cleanup completed via `return value`; we don't surface the
+        # value here because __exit__ doesn't take a return path.
+        {:done, env, ctx}
+
       {:yielded, _next_val, _next_cont, _next_gen_env, ctx} ->
         {:done, env, ctx}
 

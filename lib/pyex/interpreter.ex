@@ -58,8 +58,9 @@ defmodule Pyex.Interpreter do
           | {:range, integer(), integer(), integer()}
           | {:function, String.t(), [Parser.param()], [Parser.ast_node()], Env.t(), boolean(),
              :sync | :async}
-          | {:coroutine, String.t(), [Parser.ast_node()], Env.t()}
+          | {:coroutine, String.t(), {:iterator, non_neg_integer()}}
           | {:asyncio_task, pyvalue()}
+          | {:asyncio_task_pending, pyvalue()}
           | {:builtin, ([pyvalue()] -> pyvalue())}
           | {:builtin_type, String.t(), ([pyvalue()] -> pyvalue())}
           | {:builtin_kw, ([pyvalue()], %{optional(String.t()) => pyvalue()} -> pyvalue())}
@@ -613,15 +614,17 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  # `await EXPR`: evaluate EXPR, then drive it via the coroutine
-  # trampoline.  Strict on shape — non-awaitable values raise
-  # TypeError to match CPython.  An async function call produces a
-  # coroutine; `asyncio.create_task` produces a Task; both are valid
-  # await targets.
+  # `await EXPR`: evaluate EXPR (must be a coroutine or Task), then
+  # advance it one step.  If the awaited iterator yields, propagate
+  # the yield UP to the surrounding trampoline (with a
+  # `:cont_await_iter` frame so resumption continues the same
+  # await).  When the iterator exhausts, surface its captured return
+  # value as the await expression's result.  Strict on shape —
+  # non-awaitables raise CPython-shaped TypeError.
   def eval({:await, _, [expr]}, env, ctx) do
     case eval(expr, env, ctx) do
       {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-      {value, env, ctx} -> Invocation.drive_coroutine(value, env, ctx)
+      {value, env, ctx} -> Invocation.initiate_await(value, env, ctx)
     end
   end
 
@@ -3657,6 +3660,11 @@ defmodule Pyex.Interpreter do
              [Parser.ast_node()] | nil}
           | {:cont_while, Parser.ast_node(), [Parser.ast_node()], [Parser.ast_node()] | nil}
           | {:cont_yield_from, [pyvalue()]}
+          | {:cont_yield_from_iter, non_neg_integer()}
+          | {:cont_for_gen_iter, String.t(), non_neg_integer(), [Parser.ast_node()],
+             [Parser.ast_node()] | nil}
+          | {:cont_bind_sent, String.t()}
+          | {:cont_await_iter, non_neg_integer()}
 
   @doc """
   Resumes a suspended generator from a continuation.
@@ -3670,6 +3678,7 @@ defmodule Pyex.Interpreter do
   @spec resume_generator([cont_frame()], Env.t(), Ctx.t()) ::
           {{:yielded, pyvalue(), [cont_frame()]}, Env.t(), Ctx.t()}
           | {:done, Env.t(), Ctx.t()}
+          | {{:done_with_value, pyvalue()}, Env.t(), Ctx.t()}
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
   def resume_generator([], env, ctx), do: {:done, env, ctx}
 
@@ -3684,8 +3693,12 @@ defmodule Pyex.Interpreter do
       {{:yielded, val, inner_cont}, env, ctx} ->
         {{:yielded, val, inner_cont ++ rest}, env, ctx}
 
-      {{:returned, _}, env, ctx} ->
-        {:done, env, ctx}
+      {{:returned, value}, env, ctx} ->
+        # PEP 380: a generator's `return value` becomes the value of
+        # `yield from` — and PEP 492 inherits this for `await`.
+        # Surfaced via `{:done_with_value, value}`; legacy callers
+        # that match `:done` keep working (value defaults to nil).
+        {{:done_with_value, value}, env, ctx}
 
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
@@ -3700,8 +3713,8 @@ defmodule Pyex.Interpreter do
       {{:yielded, val, inner_cont}, env, ctx} ->
         {{:yielded, val, inner_cont ++ rest}, env, ctx}
 
-      {{:returned, _}, env, ctx} ->
-        {:done, env, ctx}
+      {{:returned, value}, env, ctx} ->
+        {{:done_with_value, value}, env, ctx}
 
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
@@ -3716,8 +3729,8 @@ defmodule Pyex.Interpreter do
       {{:yielded, val, inner_cont}, env, ctx} ->
         {{:yielded, val, inner_cont ++ rest}, env, ctx}
 
-      {{:returned, _}, env, ctx} ->
-        {:done, env, ctx}
+      {{:returned, value}, env, ctx} ->
+        {{:done_with_value, value}, env, ctx}
 
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
@@ -3746,14 +3759,35 @@ defmodule Pyex.Interpreter do
       {{:yielded, val, inner_cont}, env, ctx} ->
         {{:yielded, val, inner_cont ++ rest}, env, ctx}
 
-      {{:returned, _}, env, ctx} ->
-        {:done, env, ctx}
+      {{:returned, value}, env, ctx} ->
+        {{:done_with_value, value}, env, ctx}
 
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
       {_, env, ctx} ->
         resume_generator(rest, env, ctx)
+    end
+  end
+
+  # Resume an in-progress `await`: advance the awaited iterator one
+  # more step.  If it yields again, propagate the yield up with this
+  # frame reattached.  If it completes, surface the StopIteration
+  # value as the "sent value" to the rest of the continuation — that
+  # way `r = await coro` lands the return value in `r` via the
+  # existing `:cont_bind_sent` machinery.
+  def resume_generator([{:cont_await_iter, id} | rest], env, ctx) do
+    case Invocation.continue_await(id, env, ctx) do
+      {{:yielded, val, inner_cont}, env, ctx} ->
+        {{:yielded, val, inner_cont ++ rest}, env, ctx}
+
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {return_value, env, ctx} ->
+        # Send the return value back into the surrounding context
+        # (cont_bind_sent will pick it up if there's an assign).
+        resume_generator_with_send(rest, env, ctx, return_value)
     end
   end
 
@@ -3772,6 +3806,11 @@ defmodule Pyex.Interpreter do
             ctx = %{ctx | generator_mode: saved_mode}
             ctx = Pyex.Ctx.set_gen_pending(ctx, id, val, next_cont, next_gen_env)
             {{:yielded, val, [{:cont_yield_from_iter, id}] ++ rest}, env, ctx}
+
+          {{:done_with_value, return_value}, _gen_env, ctx} ->
+            ctx = %{ctx | generator_mode: saved_mode}
+            ctx = Pyex.Ctx.mark_iter_done_with_value(ctx, id, return_value)
+            resume_generator(rest, env, ctx)
 
           {:done, _gen_env, ctx} ->
             ctx = %{ctx | generator_mode: saved_mode}
@@ -3796,6 +3835,7 @@ defmodule Pyex.Interpreter do
   @spec resume_generator_with_send([cont_frame()], Env.t(), Ctx.t(), pyvalue()) ::
           {{:yielded, pyvalue(), [cont_frame()]}, Env.t(), Ctx.t()}
           | {:done, Env.t(), Ctx.t()}
+          | {{:done_with_value, pyvalue()}, Env.t(), Ctx.t()}
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
   def resume_generator_with_send([{:cont_bind_sent, name} | rest], env, ctx, sent_value) do
     env = Env.smart_put(env, name, sent_value)

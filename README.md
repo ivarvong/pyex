@@ -193,16 +193,20 @@ The hard parts of Python, implemented to match CPython semantics:
   `send()`, two-way communication, lazy iteration. Generators
   suspend through tagged continuation frames so an agent step can be
   paused and resumed without owning a process.
-- **`async` / `await` with a synchronous trampoline.** `async def`
-  produces a coroutine value; `await` and `asyncio.run` drive it to
-  completion. `asyncio.gather`, `asyncio.sleep`, `asyncio.create_task`
-  (with `Task.result()` / `.done()` / `.cancel()`), and async
-  generators all work. `gather` is sequential rather than concurrent
-  — same answer as CPython, slower wall-clock when fan-out matters.
-  Async generators ride the existing lazy-iterator machinery, so
-  FastAPI streaming patterns work without extra plumbing. `await`
-  on a non-awaitable raises CPython-shaped TypeError. Phase 1
-  divergences from CPython are pinned in the conformance suite.
+- **`async` / `await` as cooperative coroutines.** `async def`
+  produces a coroutine; `await` is yield-from over the inner
+  iterator, so yields propagate up to the surrounding trampoline
+  (`asyncio.run`, `asyncio.gather`, or another `await`). Observable
+  interleaving matches CPython:
+  `gather(step("A"), step("B"))` over coroutines that
+  `await asyncio.sleep(0)` between mutations produces ABABAB.
+  `asyncio.create_task` is lazy — the body runs when the Task is
+  awaited, with `Task.result()` / `.done()` / `.cancel()` /
+  `.exception()`. Nested `asyncio.run` raises `RuntimeError`.
+  Async list comprehensions (`[x async for x in g()]`) parse and
+  run. `await` on a non-awaitable raises CPython-shaped TypeError.
+  Async generators ride the same lazy-iterator machinery sync
+  generators use, so FastAPI streaming patterns work unchanged.
 - **Exception fidelity.** The full CPython exception hierarchy
   (`BaseException` → `Exception` → `OSError` → `FileNotFoundError`,
   etc.). `try` / `except` / `finally` / `else`, exception groups,
