@@ -141,6 +141,60 @@ defmodule Pyex.AsyncConformanceTest do
              asyncio.run(main())
              """) == "'k'"
     end
+
+    test "`r = await coro` binds the awaited value when coro has internal awaits" do
+      # Regression: eval_assign was prepending :cont_bind_sent in
+      # front of the await's existing :cont_await_iter cont, so the
+      # bind ran first (binding nil) before the await actually drove
+      # the coroutine to completion.  Append, don't prepend — the
+      # bind has to happen AFTER the await resolves.
+      assert Pyex.run!("""
+             import asyncio
+             async def fetch():
+                 await asyncio.sleep(0)
+                 return [1, 2, 3]
+             async def main():
+                 r = await fetch()
+                 return r
+             asyncio.run(main())
+             """) == [1, 2, 3]
+    end
+
+    test "`return await coro` surfaces the awaited value when coro has internal awaits" do
+      # Same shape of bug, parallel fix in eval_return: a yielded
+      # signal from the awaited expression has to propagate up with
+      # a :cont_return_value frame that, on resume, makes the sent
+      # value the function's return.
+      assert Pyex.run!("""
+             import asyncio
+             async def inner(v):
+                 await asyncio.sleep(0)
+                 return v
+             async def outer(v):
+                 return await inner(v)
+             asyncio.run(outer({"k": [1, 2, 3]}))
+             """) == %{"k" => [1, 2, 3]}
+    end
+
+    test "chained awaits with internal sleeps each surface their value" do
+      # Stress the yield-through-assign path: three levels of
+      # `r = await fn()` where every fn has its own internal
+      # `await asyncio.sleep(0)`.  If the cont frames are ordered
+      # wrong at any level, intermediate values get lost.
+      assert Pyex.run!("""
+             import asyncio
+             async def lvl3():
+                 await asyncio.sleep(0)
+                 return "leaf"
+             async def lvl2():
+                 r = await lvl3()
+                 return r + "-mid"
+             async def lvl1():
+                 r = await lvl2()
+                 return r + "-top"
+             asyncio.run(lvl1())
+             """) == "leaf-mid-top"
+    end
   end
 
   describe "asyncio.gather" do
