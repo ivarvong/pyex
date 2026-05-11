@@ -11,6 +11,19 @@ defmodule Pyex.Interpreter.Calls do
 
   @typep eval_result :: {Interpreter.pyvalue() | tuple(), Env.t(), Ctx.t()}
 
+  @typedoc """
+  Encodes enough context to write back a mutated receiver after a call
+  that was suspended mid-arg-evaluation and later resumed via continuation.
+
+  - `{:var_attr, var_name}` — receiver is a simple variable (`out.append(...)`).
+  - `{:getattr_method, raw_receiver, func_expr}` — chained getattr receiver.
+  - `{:general_call, func_expr}` — free-function call (setattr, list literal, etc.).
+  """
+  @type call_site_meta ::
+          {:var_attr, String.t()}
+          | {:getattr_method, Interpreter.pyvalue(), Parser.ast_node()}
+          | {:general_call, Parser.ast_node()}
+
   @doc """
   Evaluates a method call rooted at a variable attribute access.
   """
@@ -22,46 +35,7 @@ defmodule Pyex.Interpreter.Calls do
         {signal, env, ctx}
 
       {func, env, ctx} ->
-        case Interpreter.eval_call_args(arg_exprs, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {args, kwargs, env, ctx} ->
-            case Interpreter.call_function(func, args, kwargs, env, ctx) do
-              {:mutate, new_object, return_value, new_env, ctx} ->
-                case Env.get(new_env, var_name) do
-                  {:ok, {:ref, id}} -> {return_value, new_env, Ctx.heap_put(ctx, id, new_object)}
-                  _ -> {return_value, Env.put_at_source(new_env, var_name, new_object), ctx}
-                end
-
-              {:mutate_arg, index, new_object, return_value, new_env, ctx} ->
-                {new_env, ctx} =
-                  mutate_target(Enum.at(arg_exprs, index), new_object, new_env, ctx)
-
-                {return_value, new_env, ctx}
-
-              {:mutate, new_object, return_value, ctx} ->
-                case Env.get(env, var_name) do
-                  {:ok, {:ref, id}} -> {return_value, env, Ctx.heap_put(ctx, id, new_object)}
-                  _ -> {return_value, Env.put_at_source(env, var_name, new_object), ctx}
-                end
-
-              {:mutate_arg, index, new_object, return_value, ctx} ->
-                {env, ctx} = mutate_target(Enum.at(arg_exprs, index), new_object, env, ctx)
-                {return_value, env, ctx}
-
-              {{:exception, _} = signal, env, ctx} ->
-                {signal, env, ctx}
-
-              {result, env, ctx, _updated_func} ->
-                env = maybe_update_instance_var(env, var_name)
-                {result, env, ctx}
-
-              {result, env, ctx} ->
-                env = maybe_update_instance_var(env, var_name)
-                {result, env, ctx}
-            end
-        end
+        eval_call_with_yield(func, {:var_attr, var_name}, arg_exprs, env, ctx)
     end
   end
 
@@ -91,92 +65,25 @@ defmodule Pyex.Interpreter.Calls do
             {signal, env, ctx}
 
           {func, env, ctx} ->
-            case Interpreter.eval_call_args(arg_exprs, env, ctx) do
-              {{:exception, _} = signal, env, ctx} ->
-                {signal, env, ctx}
-
-              {args, kwargs, env, ctx} ->
-                case Interpreter.call_function(func, args, kwargs, env, ctx) do
-                  {:mutate, new_object, return_value, new_env, ctx} ->
-                    {new_env, ctx} =
-                      write_back_to_receiver(raw_receiver, func_expr, new_object, new_env, ctx)
-
-                    {return_value, new_env, ctx}
-
-                  {:mutate, new_object, return_value, ctx} ->
-                    {env, ctx} =
-                      write_back_to_receiver(raw_receiver, func_expr, new_object, env, ctx)
-
-                    {return_value, env, ctx}
-
-                  {:mutate_arg, index, new_object, return_value, new_env, ctx} ->
-                    {new_env, ctx} =
-                      mutate_target(Enum.at(arg_exprs, index), new_object, new_env, ctx)
-
-                    {return_value, new_env, ctx}
-
-                  {:mutate_arg, index, new_object, return_value, ctx} ->
-                    {env, ctx} = mutate_target(Enum.at(arg_exprs, index), new_object, env, ctx)
-                    {return_value, env, ctx}
-
-                  {{:exception, _} = signal, env, ctx} ->
-                    {signal, env, ctx}
-
-                  {result, env, ctx, updated_func} ->
-                    env = Helpers.rebind_var(env, func_expr, updated_func)
-                    {result, env, ctx}
-
-                  {result, env, ctx} ->
-                    {result, env, ctx}
-                end
-            end
+            eval_call_with_yield(
+              func,
+              {:getattr_method, raw_receiver, func_expr},
+              arg_exprs,
+              env,
+              ctx
+            )
         end
     end
   end
 
+  @spec eval_call_expr(Parser.ast_node(), [Parser.ast_node()], Env.t(), Ctx.t()) :: eval_result()
   def eval_call_expr(func_expr, arg_exprs, env, ctx) do
     case Interpreter.eval(func_expr, env, ctx) do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
       {func, env, ctx} ->
-        case Interpreter.eval_call_args(arg_exprs, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
-            {signal, env, ctx}
-
-          {args, kwargs, env, ctx} ->
-            case Interpreter.call_function(func, args, kwargs, env, ctx) do
-              {:mutate, new_object, return_value, new_env, ctx} ->
-                target = mutate_target_expr(func_expr, arg_exprs)
-                {new_env, ctx} = mutate_target(target, new_object, new_env, ctx)
-                {return_value, new_env, ctx}
-
-              {:mutate_arg, index, new_object, return_value, new_env, ctx} ->
-                {new_env, ctx} =
-                  mutate_target(Enum.at(arg_exprs, index), new_object, new_env, ctx)
-
-                {return_value, new_env, ctx}
-
-              {:mutate, new_object, return_value, ctx} ->
-                target = mutate_target_expr(func_expr, arg_exprs)
-                {env, ctx} = mutate_target(target, new_object, env, ctx)
-                {return_value, env, ctx}
-
-              {:mutate_arg, index, new_object, return_value, ctx} ->
-                {env, ctx} = mutate_target(Enum.at(arg_exprs, index), new_object, env, ctx)
-                {return_value, env, ctx}
-
-              {{:exception, _} = signal, env, ctx} ->
-                {signal, env, ctx}
-
-              {result, env, ctx, updated_func} ->
-                env = Helpers.rebind_var(env, func_expr, updated_func)
-                {result, env, ctx}
-
-              {result, env, ctx} ->
-                {result, env, ctx}
-            end
-        end
+        eval_call_with_yield(func, {:general_call, func_expr}, arg_exprs, env, ctx)
     end
   end
 
@@ -227,6 +134,242 @@ defmodule Pyex.Interpreter.Calls do
         {result, env, ctx}
     end
   end
+
+  @doc """
+  Evaluate `arg_exprs`, then invoke `func`, applying mutation write-back
+  according to `call_site_meta`.  Propagates `{:yielded, val, cont}` signals
+  from any arg expression upward with a `{:cont_call_pos_resume, ...}` or
+  `{:cont_call_kw_resume, ...}` continuation frame so that
+  `Interpreter.resume_generator_with_send` can re-enter the evaluation loop
+  after the awaited value is available.
+  """
+  @spec eval_call_with_yield(
+          Interpreter.pyvalue(),
+          call_site_meta(),
+          [Parser.ast_node()],
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  def eval_call_with_yield(func, meta, arg_exprs, env, ctx) do
+    eval_remaining_and_call(func, meta, arg_exprs, arg_exprs, [], %{}, env, ctx)
+  end
+
+  @doc """
+  Resume mid-arg-evaluation (positional arg variant) with `sent_value` as the
+  result of the previously-yielded arg expression.  Called from
+  `Interpreter.resume_generator_with_send/4`.
+  """
+  @spec eval_remaining_and_call(
+          Interpreter.pyvalue(),
+          call_site_meta(),
+          [Parser.ast_node()],
+          [Parser.ast_node()],
+          [Interpreter.pyvalue()],
+          map(),
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  def eval_remaining_and_call(func, meta, orig_args, remaining, rev_pos, kwargs, env, ctx)
+
+  def eval_remaining_and_call(func, meta, orig_args, [], rev_pos, kwargs, env, ctx) do
+    invoke_with_mutation(func, meta, orig_args, Enum.reverse(rev_pos), kwargs, env, ctx)
+  end
+
+  def eval_remaining_and_call(
+        func,
+        meta,
+        orig_args,
+        [{:kwarg, _, [name, expr]} | rest],
+        rev_pos,
+        kwargs,
+        env,
+        ctx
+      ) do
+    case Interpreter.eval(expr, env, ctx) do
+      {{:exception, _} = sig, env, ctx} ->
+        {sig, env, ctx}
+
+      {{:yielded, val, cont}, env, ctx} ->
+        frame = {:cont_call_kw_resume, func, meta, orig_args, rev_pos, name, rest, kwargs}
+        {{:yielded, val, cont ++ [frame]}, env, ctx}
+
+      {v, env, ctx} ->
+        eval_remaining_and_call(
+          func,
+          meta,
+          orig_args,
+          rest,
+          rev_pos,
+          Map.put(kwargs, name, v),
+          env,
+          ctx
+        )
+    end
+  end
+
+  def eval_remaining_and_call(
+        func,
+        meta,
+        orig_args,
+        [{:star_arg, _, [expr]} | rest],
+        rev_pos,
+        kwargs,
+        env,
+        ctx
+      ) do
+    case Interpreter.eval(expr, env, ctx) do
+      {{:exception, _} = sig, env, ctx} ->
+        {sig, env, ctx}
+
+      {{:yielded, val, cont}, env, ctx} ->
+        frame = {:cont_call_star_resume, func, meta, orig_args, rev_pos, rest, kwargs}
+        {{:yielded, val, cont ++ [frame]}, env, ctx}
+
+      {val, env, ctx} ->
+        case Interpreter.to_iterable(val, env, ctx) do
+          {:ok, items, env, ctx} ->
+            eval_remaining_and_call(
+              func,
+              meta,
+              orig_args,
+              rest,
+              Enum.reverse(items) ++ rev_pos,
+              kwargs,
+              env,
+              ctx
+            )
+
+          {:exception, msg} ->
+            {{:exception, msg}, env, ctx}
+        end
+    end
+  end
+
+  def eval_remaining_and_call(
+        func,
+        meta,
+        orig_args,
+        [{:double_star_arg, _, [expr]} | rest],
+        rev_pos,
+        kwargs,
+        env,
+        ctx
+      ) do
+    case Interpreter.eval(expr, env, ctx) do
+      {{:exception, _} = sig, env, ctx} ->
+        {sig, env, ctx}
+
+      {{:yielded, val, cont}, env, ctx} ->
+        frame = {:cont_call_dstar_resume, func, meta, orig_args, rev_pos, rest, kwargs}
+        {{:yielded, val, cont ++ [frame]}, env, ctx}
+
+      {raw_val, env, ctx} ->
+        val = Ctx.deref(ctx, raw_val)
+
+        merged =
+          case val do
+            {:py_dict, _, _} = dict ->
+              Enum.reduce(Pyex.PyDict.items(dict), kwargs, fn {k, v}, acc ->
+                Map.put(acc, to_string(k), v)
+              end)
+
+            map when is_map(map) ->
+              Enum.reduce(map, kwargs, fn {k, v}, acc -> Map.put(acc, to_string(k), v) end)
+
+            _ ->
+              :error
+          end
+
+        case merged do
+          :error ->
+            {{:exception,
+              "TypeError: argument after ** must be a mapping, not '#{Interpreter.Helpers.py_type(val)}'"},
+             env, ctx}
+
+          merged ->
+            eval_remaining_and_call(func, meta, orig_args, rest, rev_pos, merged, env, ctx)
+        end
+    end
+  end
+
+  def eval_remaining_and_call(func, meta, orig_args, [expr | rest], rev_pos, kwargs, env, ctx) do
+    case Interpreter.eval(expr, env, ctx) do
+      {{:exception, _} = sig, env, ctx} ->
+        {sig, env, ctx}
+
+      {{:yielded, val, cont}, env, ctx} ->
+        frame = {:cont_call_pos_resume, func, meta, orig_args, rev_pos, rest, kwargs}
+        {{:yielded, val, cont ++ [frame]}, env, ctx}
+
+      {v, env, ctx} ->
+        eval_remaining_and_call(func, meta, orig_args, rest, [v | rev_pos], kwargs, env, ctx)
+    end
+  end
+
+  defp invoke_with_mutation(func, meta, orig_arg_exprs, args, kwargs, env, ctx) do
+    case Interpreter.call_function(func, args, kwargs, env, ctx) do
+      {:mutate, new_object, return_value, new_env, ctx} ->
+        {new_env, ctx} = apply_mutate(meta, orig_arg_exprs, new_object, new_env, ctx)
+        {return_value, new_env, ctx}
+
+      {:mutate_arg, index, new_object, return_value, new_env, ctx} ->
+        {new_env, ctx} = mutate_target(Enum.at(orig_arg_exprs, index), new_object, new_env, ctx)
+        {return_value, new_env, ctx}
+
+      {:mutate, new_object, return_value, ctx} ->
+        {env, ctx} = apply_mutate(meta, orig_arg_exprs, new_object, env, ctx)
+        {return_value, env, ctx}
+
+      {:mutate_arg, index, new_object, return_value, ctx} ->
+        {env, ctx} = mutate_target(Enum.at(orig_arg_exprs, index), new_object, env, ctx)
+        {return_value, env, ctx}
+
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {result, env, ctx, updated_func} ->
+        {env, ctx} = apply_updated_func(meta, func, updated_func, env, ctx)
+        {result, env, ctx}
+
+      {result, env, ctx} ->
+        {env, ctx} = apply_post_call(meta, env, ctx)
+        {result, env, ctx}
+    end
+  end
+
+  defp apply_mutate({:var_attr, var_name}, _orig_args, new_object, env, ctx) do
+    case Env.get(env, var_name) do
+      {:ok, {:ref, id}} -> {env, Ctx.heap_put(ctx, id, new_object)}
+      _ -> {Env.put_at_source(env, var_name, new_object), ctx}
+    end
+  end
+
+  defp apply_mutate({:getattr_method, raw_receiver, func_expr}, _orig_args, new_object, env, ctx) do
+    write_back_to_receiver(raw_receiver, func_expr, new_object, env, ctx)
+  end
+
+  defp apply_mutate({:general_call, func_expr}, orig_arg_exprs, new_object, env, ctx) do
+    target = mutate_target_expr(func_expr, orig_arg_exprs)
+    mutate_target(target, new_object, env, ctx)
+  end
+
+  defp apply_updated_func({:var_attr, var_name}, _func, _updated, env, ctx) do
+    {maybe_update_instance_var(env, var_name), ctx}
+  end
+
+  defp apply_updated_func({:getattr_method, _receiver, func_expr}, _func, updated_func, env, ctx) do
+    {Helpers.rebind_var(env, func_expr, updated_func), ctx}
+  end
+
+  defp apply_updated_func({:general_call, func_expr}, _func, updated_func, env, ctx) do
+    {Helpers.rebind_var(env, func_expr, updated_func), ctx}
+  end
+
+  defp apply_post_call({:var_attr, var_name}, env, ctx) do
+    {maybe_update_instance_var(env, var_name), ctx}
+  end
+
+  defp apply_post_call(_meta, env, ctx), do: {env, ctx}
 
   @spec mutate_target_expr(Parser.ast_node(), [Parser.ast_node()]) :: Parser.ast_node()
   defp mutate_target_expr({:var, _, ["setattr"]}, [first_arg | _]), do: first_arg

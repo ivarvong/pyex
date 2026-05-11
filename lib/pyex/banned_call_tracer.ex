@@ -42,6 +42,12 @@ defmodule Pyex.BannedCallTracer do
   - `Task.async/1`, `Task.yield/2`, `Task.shutdown/2` — the regex engine uses
     a supervised task to enforce a per-call timeout. This is an internal safety
     mechanism, not user-visible concurrency.
+  - `Task.async_stream/3` — `asyncio.gather` over `{:awaitable, _}` capabilities
+    fans the queued capability calls out as parallel BEAM Tasks via
+    `Task.async_stream`. The Tasks run host-registered functions only — the
+    Pyex interpreter itself never spawns. Task lifetimes are bounded by the
+    duration of the gather call (`timeout: :infinity` is safe because the
+    outer Pyex limits enforce wall-clock at the call boundary).
   - `GenServer.stop/1` — `sql.query()` manages a short-lived Postgrex connection
     process per call and tears it down immediately after use.
   - `:os.system_time/1` — `time.time()` and `time.time_ns()` must read the real
@@ -121,6 +127,10 @@ defmodule Pyex.BannedCallTracer do
     {Task, :async, 1},
     {Task, :yield, 2},
     {Task, :shutdown, 2},
+    # asyncio.gather over {:awaitable, _} capabilities — parallel
+    # dispatch of host-registered tools.  Pyex itself never spawns;
+    # the Tasks run host code with bounded lifetimes.
+    {Task, :async_stream, 3},
     # sql stdlib — short-lived Postgrex connection per call
     {GenServer, :stop, 1},
     {GenServer, :stop, 3},

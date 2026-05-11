@@ -152,47 +152,95 @@ defmodule Pyex.Stdlib.Asyncio do
       results = Enum.map(states, fn {:done, v} -> v end)
       {:ok, results, env, ctx}
     else
-      case advance_round(states, return_exceptions, [], env, ctx) do
-        {:ok, new_states, env, ctx} ->
+      # Each round advances every pending child once.  Capability
+      # sentinels are queued for parallel dispatch via BEAM Tasks
+      # (Task.async_stream); sleep sentinels are interpreted inline.
+      case advance_round(states, return_exceptions, [], [], env, ctx) do
+        {:ok, new_states, [], env, ctx} ->
+          # No capabilities to dispatch this round — keep round-robining.
           round_robin_gather(new_states, return_exceptions, env, ctx)
 
-        {{:exception, _} = signal, env, ctx} ->
+        {:ok, new_states, cap_calls, env, ctx} ->
+          # Dispatch every queued capability call concurrently, then
+          # resume each cap iter with its result.  THIS is where
+          # registering tools as `{:awaitable, _}` (vs `{:builtin, _}`)
+          # buys actual wall-clock parallelism — same Python code,
+          # capability registration controls fan-out shape.
+          ctx = dispatch_capabilities_parallel(cap_calls, env, ctx)
+          round_robin_gather(new_states, return_exceptions, env, ctx)
+
+        {:exception_signal, signal, env, ctx} ->
           {signal, env, ctx}
       end
     end
   end
 
-  # One round: advance every pending child one step.  Yielded
-  # sentinels (asyncio.sleep) are interpreted inline so concurrent
-  # sleeps coalesce naturally — a `gather(sleep(0), sleep(0))` does
-  # zero waiting; longer sleeps run sequentially within the round.
-  defp advance_round([], _re, acc, env, ctx) do
-    {:ok, Enum.reverse(acc), env, ctx}
+  # One round: advance every pending child once.  Capability
+  # sentinels (`{:asyncio_capability_call, ...}`) are collected
+  # for parallel dispatch *after* the round completes.  Sleep
+  # sentinels are interpreted inline (a future iteration could
+  # batch sleep deadlines via the trampoline).
+  defp advance_round([], _re, acc, cap_calls, env, ctx) do
+    {:ok, Enum.reverse(acc), cap_calls, env, ctx}
   end
 
-  defp advance_round([{:done, _} = state | rest], re, acc, env, ctx) do
-    advance_round(rest, re, [state | acc], env, ctx)
+  defp advance_round([{:done, _} = state | rest], re, acc, cap_calls, env, ctx) do
+    advance_round(rest, re, [state | acc], cap_calls, env, ctx)
   end
 
-  defp advance_round([{:pending, id} | rest], re, acc, env, ctx) do
+  defp advance_round([{:pending, id} | rest], re, acc, cap_calls, env, ctx) do
     case Invocation.advance_coroutine_one_step(id, env, ctx) do
       {:exhausted, env, ctx} ->
         return_value = Pyex.Ctx.iter_return_value(ctx, id)
-        advance_round(rest, re, [{:done, return_value} | acc], env, ctx)
+        advance_round(rest, re, [{:done, return_value} | acc], cap_calls, env, ctx)
+
+      {{:yielded, {:asyncio_capability_call, cap_id, fun, args}}, env, ctx} ->
+        # Queue for parallel dispatch; child stays pending until the
+        # cap iter is resumed with the call's result.
+        queued = [{cap_id, fun, args} | cap_calls]
+        advance_round(rest, re, [{:pending, id} | acc], queued, env, ctx)
 
       {{:yielded, value}, env, ctx} ->
-        # Sentinel handling — sleep on `:asyncio_sleep`, ignore
-        # other yields (`{:asyncio_yield, _}` etc.).
+        # Other sentinels (asyncio.sleep) — interpret inline.
         Invocation.interpret_yield_sentinel(value)
-        advance_round(rest, re, [{:pending, id} | acc], env, ctx)
+        advance_round(rest, re, [{:pending, id} | acc], cap_calls, env, ctx)
 
       {{:exception, msg}, env, ctx} when re ->
         exc = exception_instance_from_message(msg)
-        advance_round(rest, re, [{:done, exc} | acc], env, ctx)
+        advance_round(rest, re, [{:done, exc} | acc], cap_calls, env, ctx)
 
       {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
+        {:exception_signal, signal, env, ctx}
     end
+  end
+
+  # Run every queued capability call as a parallel BEAM Task, then
+  # resume each cap iter with its result.  This is the only place
+  # the host actually parallelizes; everything else stays in the
+  # single-process Pyex trampoline.
+  #
+  # Pyex itself never spawns — the BannedCallTracer would block it.
+  # Task.async_stream lives in this stdlib *capability shim* (which
+  # is allowlisted via the same mechanism that lets Process.sleep
+  # back asyncio.sleep), so the sandbox boundary is preserved.
+  defp dispatch_capabilities_parallel(cap_calls, env, ctx) do
+    cap_calls
+    |> Enum.reverse()
+    |> Task.async_stream(
+      fn {cap_id, fun, args} ->
+        result = Invocation.invoke_capability(fun, args, ctx)
+        {cap_id, result}
+      end,
+      max_concurrency: max(System.schedulers_online(), length(cap_calls)),
+      ordered: true,
+      timeout: :infinity
+    )
+    |> Enum.reduce(ctx, fn {:ok, {cap_id, result}}, acc_ctx ->
+      case Invocation.resume_capability(cap_id, result, env, acc_ctx) do
+        {:exhausted, _env, new_ctx} -> new_ctx
+        {{:exception, _msg}, _env, new_ctx} -> new_ctx
+      end
+    end)
   end
 
   # Best-effort reconstruction of an exception instance from a Pyex

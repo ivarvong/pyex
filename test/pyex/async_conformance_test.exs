@@ -659,6 +659,171 @@ defmodule Pyex.AsyncConformanceTest do
     end
   end
 
+  describe "{:awaitable, fn} host capabilities" do
+    test "sequential await of a capability returns the correct value" do
+      modules = %{"tools" => %{"double" => {:awaitable, fn [n] -> n * 2 end}}}
+
+      assert Pyex.run!(
+               """
+               import asyncio
+               from tools import double
+               async def main():
+                   a = await double(3)
+                   b = await double(7)
+                   return a + b
+               asyncio.run(main())
+               """,
+               modules: modules
+             ) == 20
+    end
+
+    test "gather over capabilities returns results in original order" do
+      modules = %{"tools" => %{"triple" => {:awaitable, fn [n] -> n * 3 end}}}
+
+      assert Pyex.run!(
+               """
+               import asyncio
+               from tools import triple
+               async def main():
+                   return await asyncio.gather(triple(1), triple(2), triple(3))
+               asyncio.run(main())
+               """,
+               modules: modules
+             ) == [3, 6, 9]
+    end
+
+    test "gather runs capabilities in parallel (wall-clock ~= one cap, not N)" do
+      delay_ms = 60
+
+      modules = %{
+        "tools" => %{
+          "slow" =>
+            {:awaitable,
+             fn [n] ->
+               Process.sleep(delay_ms)
+               n
+             end}
+        }
+      }
+
+      {micros, result} =
+        :timer.tc(fn ->
+          Pyex.run!(
+            """
+            import asyncio
+            from tools import slow
+            async def main(n):
+                return await asyncio.gather(*[slow(i) for i in range(n)])
+            asyncio.run(main(10))
+            """,
+            modules: modules
+          )
+        end)
+
+      wall_ms = micros / 1000.0
+      assert result == Enum.to_list(0..9)
+      # Sequential would take 10 * 60 ms = 600 ms.  Parallel should be
+      # under 3x the single-call cost (generous for CI variance).
+      assert wall_ms < delay_ms * 3,
+             "expected parallel gather ~#{delay_ms} ms, got #{Float.round(wall_ms, 1)} ms"
+    end
+
+    test "out.append(await cap(i)) works without a temp variable" do
+      modules = %{"tools" => %{"double" => {:awaitable, fn [n] -> n * 2 end}}}
+
+      assert Pyex.run!(
+               """
+               import asyncio
+               from tools import double
+               async def main():
+                   out = []
+                   for i in range(5):
+                       out.append(await double(i))
+                   return out
+               asyncio.run(main())
+               """,
+               modules: modules
+             ) == [0, 2, 4, 6, 8]
+    end
+
+    test "gather and sequential loop produce identical results" do
+      modules = %{"tools" => %{"sq" => {:awaitable, fn [n] -> n * n end}}}
+
+      parallel =
+        Pyex.run!(
+          """
+          import asyncio
+          from tools import sq
+          async def main():
+              return await asyncio.gather(*[sq(i) for i in range(8)])
+          asyncio.run(main())
+          """,
+          modules: modules
+        )
+
+      sequential =
+        Pyex.run!(
+          """
+          import asyncio
+          from tools import sq
+          async def main():
+              out = []
+              for i in range(8):
+                  out.append(await sq(i))
+              return out
+          asyncio.run(main())
+          """,
+          modules: modules
+        )
+
+      assert parallel == sequential
+      assert parallel == [0, 1, 4, 9, 16, 25, 36, 49]
+    end
+
+    test "capability called from a nested helper coroutine" do
+      modules = %{"tools" => %{"fetch" => {:awaitable, fn [url] -> "body:#{url}" end}}}
+
+      assert Pyex.run!(
+               """
+               import asyncio
+               from tools import fetch
+
+               async def get(url):
+                   return await fetch(url)
+
+               async def main():
+                   a = await get("a.com")
+                   b = await get("b.com")
+                   return [a, b]
+
+               asyncio.run(main())
+               """,
+               modules: modules
+             ) == ["body:a.com", "body:b.com"]
+    end
+
+    test "gather over helper coroutines that each await a capability" do
+      modules = %{"tools" => %{"fetch" => {:awaitable, fn [url] -> "body:#{url}" end}}}
+
+      assert Pyex.run!(
+               """
+               import asyncio
+               from tools import fetch
+
+               async def get(url):
+                   return await fetch(url)
+
+               async def main():
+                   urls = ["a.com", "b.com", "c.com"]
+                   return await asyncio.gather(*[get(u) for u in urls])
+
+               asyncio.run(main())
+               """,
+               modules: modules
+             ) == ["body:a.com", "body:b.com", "body:c.com"]
+    end
+  end
+
   describe "async comprehensions — CPython parity" do
     test "[x async for x in g()] iterates an async generator" do
       assert Pyex.run!("""
