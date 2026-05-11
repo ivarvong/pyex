@@ -269,9 +269,7 @@ defmodule Pyex.Interpreter.Invocation do
         # semantics so the re-advance does not re-surface the already
         # handled sentinel.  `asyncio.gather` overrides this with a
         # parallel batch path — see `Pyex.Stdlib.Asyncio.round_robin_gather`.
-        result = invoke_capability(fun, args, ctx)
-
-        case resume_capability(cap_id, result, env, ctx) do
+        case dispatch_capability(cap_id, fun, args, env, ctx) do
           {{:exception, _} = signal, env, ctx} ->
             {signal, env, ctx}
 
@@ -354,6 +352,27 @@ defmodule Pyex.Interpreter.Invocation do
     rescue
       e -> {:exception, "RuntimeError: capability raised: #{Exception.message(e)}"}
     end
+  end
+
+  @doc """
+  Invoke a single capability and resume its iter with the result.
+
+  The sequential trampoline uses this directly per `{:asyncio_capability_call, ...}`
+  sentinel.  `asyncio.gather`'s parallel path inlines a fan-out version
+  (`Task.async_stream` over invoke, then a reduce over resume_capability)
+  because the two steps need to be split across host threads.
+  """
+  @spec dispatch_capability(
+          non_neg_integer(),
+          (list() -> term()),
+          [Interpreter.pyvalue()],
+          Env.t(),
+          Ctx.t()
+        ) ::
+          {:exhausted, Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  def dispatch_capability(cap_id, fun, args, env, ctx) do
+    result = invoke_capability(fun, args, ctx)
+    resume_capability(cap_id, result, env, ctx)
   end
 
   @doc """
