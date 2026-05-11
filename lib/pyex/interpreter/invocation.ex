@@ -836,29 +836,6 @@ defmodule Pyex.Interpreter.Invocation do
   end
 
   @doc false
-  @spec call_builtin_kw_raw(
-          (list(), %{optional(String.t()) => Interpreter.pyvalue()} -> term()),
-          [Interpreter.pyvalue()],
-          %{optional(String.t()) => Interpreter.pyvalue()},
-          Env.t(),
-          Ctx.t()
-        ) :: Interpreter.call_result()
-  def call_builtin_kw_raw(fun, args, kwargs, env, ctx) do
-    result =
-      try do
-        fun.(args, kwargs)
-      rescue
-        FunctionClauseError ->
-          {:exception, "TypeError: invalid arguments"}
-
-        e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
-          {:exception, "TypeError: #{Exception.message(e)}"}
-      end
-
-    BuiltinResults.handle_builtin_kw_result(result, env, ctx)
-  end
-
-  @doc false
   @spec call_bound_builtin_kw(
           Interpreter.pyvalue(),
           (list(), %{optional(String.t()) => Interpreter.pyvalue()} -> term()),

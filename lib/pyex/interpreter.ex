@@ -2281,10 +2281,6 @@ defmodule Pyex.Interpreter do
     Invocation.call_builtin_kw(fun, args, kwargs, env, ctx)
   end
 
-  def call_function({:builtin_kw_raw, fun}, args, kwargs, env, ctx) do
-    Invocation.call_builtin_kw_raw(fun, args, kwargs, env, ctx)
-  end
-
   def call_function(
         {:bound_method, instance, {:function, _, _, _, _, _, _} = func, defining_class},
         args,
