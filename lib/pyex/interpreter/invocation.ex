@@ -241,9 +241,21 @@ defmodule Pyex.Interpreter.Invocation do
   end
 
   # Top-level driver — used by asyncio.run.  Pumps to completion,
-  # interpreting known sentinels (asyncio.sleep) along the way.
-  defp drive_iter_to_completion(id, env, ctx) do
-    case advance_iter_one(id, env, ctx) do
+  # interpreting known sentinels (asyncio.sleep) and dispatching
+  # capability calls along the way.
+  #
+  # `mode` controls how `:gen_pending` is advanced:
+  #
+  #   :buffered — surface the buffered val (next(g) semantics).  Used on
+  #               entry, before any capability has been resumed.
+  #   :fresh    — run the cont and surface what it produces.  Used after a
+  #               capability resume, so a re-advance does not re-surface
+  #               the already-dispatched sentinel.
+  #
+  # The mode latches to `:fresh` after the first capability dispatch
+  # and stays there for the rest of the drive.
+  defp drive_iter_to_completion(id, env, ctx, mode \\ :buffered) do
+    case advance_by_mode(id, env, ctx, mode) do
       {:exhausted, env, ctx} ->
         return_value = Ctx.iter_return_value(ctx, id)
         {return_value, env, ctx}
@@ -252,13 +264,11 @@ defmodule Pyex.Interpreter.Invocation do
         {signal, env, ctx}
 
       {{:yielded, {:asyncio_capability_call, cap_id, fun, args}}, env, ctx} ->
-        # Capability sentinel: the inner cap iter is awaiting a
-        # value from the trampoline.  Compute the result inline
-        # (sequential mode), feed it back, then advance — using
-        # `advance_iter_fresh` so we get the NEXT yield, not the
-        # already-handled sentinel re-buffered.
-        # `asyncio.gather` overrides this with a parallel batch
-        # path (see Pyex.Stdlib.Asyncio.round_robin_gather).
+        # Capability sentinel: dispatch the host fn inline (sequential
+        # mode), feed the result back, then continue driving with fresh
+        # semantics so the re-advance does not re-surface the already
+        # handled sentinel.  `asyncio.gather` overrides this with a
+        # parallel batch path — see `Pyex.Stdlib.Asyncio.round_robin_gather`.
         result = invoke_capability(fun, args, ctx)
 
         case resume_capability(cap_id, result, env, ctx) do
@@ -266,41 +276,17 @@ defmodule Pyex.Interpreter.Invocation do
             {signal, env, ctx}
 
           {_, env, ctx} ->
-            drive_after_capability(id, env, ctx)
+            drive_iter_to_completion(id, env, ctx, :fresh)
         end
 
       {{:yielded, value}, env, ctx} ->
         interpret_yield_sentinel(value)
-        drive_iter_to_completion(id, env, ctx)
+        drive_iter_to_completion(id, env, ctx, mode)
     end
   end
 
-  # After a capability is resumed, advance the outer iter using
-  # fresh-yield semantics: surface whatever the staged continuation
-  # produces *now*, not the previously-buffered sentinel.  Then
-  # hand back to the main pump.
-  defp drive_after_capability(id, env, ctx) do
-    case advance_iter_fresh(id, env, ctx) do
-      {:exhausted, env, ctx} ->
-        return_value = Ctx.iter_return_value(ctx, id)
-        {return_value, env, ctx}
-
-      {{:exception, _} = signal, env, ctx} ->
-        {signal, env, ctx}
-
-      {{:yielded, {:asyncio_capability_call, cap_id, fun, args}}, env, ctx} ->
-        result = invoke_capability(fun, args, ctx)
-
-        case resume_capability(cap_id, result, env, ctx) do
-          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-          {_, env, ctx} -> drive_after_capability(id, env, ctx)
-        end
-
-      {{:yielded, value}, env, ctx} ->
-        interpret_yield_sentinel(value)
-        drive_after_capability(id, env, ctx)
-    end
-  end
+  defp advance_by_mode(id, env, ctx, :buffered), do: advance_iter_one(id, env, ctx)
+  defp advance_by_mode(id, env, ctx, :fresh), do: advance_iter_fresh(id, env, ctx)
 
   # Like advance_iter_one but for trampoline use: when the outer
   # iter is :gen_pending, runs the continuation and returns the
