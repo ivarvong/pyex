@@ -2260,7 +2260,7 @@ defmodule Pyex.Interpreter do
           Map.put(
             ctx.iterators,
             cap_id,
-            {:gen_awaiting_capability, sentinel, [{:cont_capability_resume}], Env.new()}
+            {:gen_awaiting_send, sentinel, [{:cont_capability_resume}], Env.new()}
           )
     }
 

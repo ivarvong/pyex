@@ -1016,14 +1016,13 @@ defmodule Pyex.Ctx do
   @doc """
   Creates an iterator pool entry for an awaitable-capability call.
 
-  Different from `:gen_awaiting_send` (which is the Python-level
-  `r = yield X` pattern, advanced implicitly with `nil` on `next()`):
-  this entry surfaces its sentinel without auto-advancing.  The
-  trampoline (`asyncio.run`, `asyncio.gather`) is expected to read
-  the sentinel, dispatch the underlying capability call (in
-  parallel for batches), and advance the iter via
-  `Pyex.Interpreter.Invocation.resume_capability/4` with the
-  computed result.
+  Uses the same `:gen_awaiting_send` shape as Python `r = yield X`
+  generators — both protocols pause an iter waiting for a value to be
+  sent in.  The difference is in advance behavior, which dispatches on
+  the value's shape: a `coroutine_signal()` (capability sentinel)
+  surfaces and waits for the trampoline to call
+  `Pyex.Interpreter.Invocation.resume_capability/4`; a `pyvalue()`
+  auto-advances with `nil` (Python `next(g)` semantics).
   """
   @spec new_awaiting_capability_iterator(t(), term(), [term()], term()) ::
           {{:iterator, non_neg_integer()}, t()}
@@ -1033,7 +1032,7 @@ defmodule Pyex.Ctx do
         cont,
         gen_env
       ) do
-    entry = {:gen_awaiting_capability, sentinel, cont, gen_env}
+    entry = {:gen_awaiting_send, sentinel, cont, gen_env}
     ctx = %{ctx | iterators: Map.put(iters, id, entry), next_iterator_id: id + 1}
     {{:iterator, id}, ctx}
   end
@@ -1085,7 +1084,6 @@ defmodule Pyex.Ctx do
           | {:instance, term()}
           | {:gen_pending, term(), [term()], term()}
           | {:gen_awaiting_send, term(), [term()], term()}
-          | {:gen_awaiting_capability, term(), [term()], term()}
           | {:gen_unstarted, [term()], term()}
   def iter_next(%__MODULE__{iterators: iters} = ctx, id) do
     case Map.get(iters, id) do
@@ -1104,9 +1102,6 @@ defmodule Pyex.Ctx do
 
       {:gen_awaiting_send, val, cont, gen_env} ->
         {:gen_awaiting_send, val, cont, gen_env}
-
-      {:gen_awaiting_capability, sentinel, cont, gen_env} ->
-        {:gen_awaiting_capability, sentinel, cont, gen_env}
 
       {:gen_unstarted, body, gen_env} ->
         {:gen_unstarted, body, gen_env}

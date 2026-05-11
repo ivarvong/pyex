@@ -322,26 +322,26 @@ defmodule Pyex.Interpreter.Invocation do
         end
 
       _ ->
-        # For other states (unstarted, awaiting_send, awaiting_capability,
-        # instance), buffered-yield semantics are correct or irrelevant.
+        # For other states (unstarted, awaiting_send, instance),
+        # buffered-yield semantics are correct or irrelevant.
         advance_iter_one(id, env, ctx)
     end
   end
 
   @doc """
-  Advance an iter currently in `:gen_awaiting_capability` state by
-  supplying the trampoline-computed result.  The sent value flows
-  through the iter's saved continuation
-  (`[:cont_capability_resume, ...]`) and lands wherever the
-  surrounding `await` expression was waiting (`r = await cap()` →
-  binds via `:cont_bind_sent`; `return await cap()` → returns via
-  `:cont_return_value`).
+  Advance a capability iter (in `:gen_awaiting_send` state with a
+  `{:asyncio_capability_call, ...}` sentinel) by supplying the
+  trampoline-computed result.  The sent value flows through the iter's
+  saved continuation (`[:cont_capability_resume, ...]`) and lands
+  wherever the surrounding `await` expression was waiting
+  (`r = await cap()` → binds via `:cont_bind_sent`; `return await cap()`
+  → returns via `:cont_return_value`).
   """
   @spec resume_capability(non_neg_integer(), Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
           {:exhausted, Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
   def resume_capability(id, value, env, ctx) do
     case Ctx.iter_entry(ctx, id) do
-      {:gen_awaiting_capability, _sentinel, cont, gen_env} ->
+      {:gen_awaiting_send, {:asyncio_capability_call, _, _, _}, cont, gen_env} ->
         case step_via_send(id, cont, gen_env, value, env, ctx) do
           {:exhausted, env, ctx} -> {:exhausted, env, ctx}
           {{:yielded, _val}, env, ctx} -> {:exhausted, env, ctx}
@@ -416,10 +416,10 @@ defmodule Pyex.Interpreter.Invocation do
       {:gen_pending, {:asyncio_capability_call, cap_id, _, _} = val, cont, gen_env} ->
         # Capability sentinel in the pending slot.  Two sub-cases:
         #
-        # (a) Cap still in-flight (`{:gen_awaiting_capability, ...}`): re-surface
-        #     the sentinel so the trampoline can dispatch it.  The continuation
-        #     must still be run to prepare the NEXT state (same as regular
-        #     buffered semantics).
+        # (a) Cap still in-flight (its own iter still in `:gen_awaiting_send`
+        #     state with the sentinel): re-surface the sentinel so the
+        #     trampoline can dispatch it.  The continuation must still be run
+        #     to prepare the NEXT state (same as regular buffered semantics).
         #
         # (b) Cap already resolved (`{:gen_done, _}`): the trampoline already
         #     handled this sentinel in a previous round but a nested `await`
@@ -430,7 +430,7 @@ defmodule Pyex.Interpreter.Invocation do
         #     continuation now and return whatever it produces (the coroutine's
         #     actual next state, which is usually exhaustion + return value).
         case Ctx.iter_entry(ctx, cap_id) do
-          {:gen_awaiting_capability, _, _, _} ->
+          {:gen_awaiting_send, {:asyncio_capability_call, _, _, _}, _, _} ->
             case step_via_continuation(id, val, cont, gen_env, env, ctx) do
               {:exhausted, env, ctx} -> {{:yielded, val}, env, ctx}
               {{:yielded, _next_val}, env, ctx} -> {{:yielded, val}, env, ctx}
@@ -455,21 +455,20 @@ defmodule Pyex.Interpreter.Invocation do
           {{:exception, _} = sig, env, ctx} -> {sig, env, ctx}
         end
 
+      {:gen_awaiting_send, {:asyncio_capability_call, _, _, _} = sentinel, _cont, _gen_env} ->
+        # Capability protocol: surface the sentinel WITHOUT advancing.  The
+        # trampoline must dispatch the underlying call and resume this iter
+        # via `resume_capability/4` with the result.
+        {{:yielded, sentinel}, env, ctx}
+
       {:gen_awaiting_send, val, cont, gen_env} ->
+        # Python send protocol: `r = yield X` paused waiting for `.send(v)`.
+        # `next(g)` (or any unguarded advance) implicitly sends `nil`.
         case step_via_send(id, cont, gen_env, nil, env, ctx) do
           {:exhausted, env, ctx} -> {{:yielded, val}, env, ctx}
           {{:yielded, _next_val}, env, ctx} -> {{:yielded, val}, env, ctx}
           {{:exception, _} = sig, env, ctx} -> {sig, env, ctx}
         end
-
-      {:gen_awaiting_capability, sentinel, _cont, _gen_env} ->
-        # Surface the sentinel WITHOUT advancing.  The trampoline
-        # must dispatch the underlying capability call and resume
-        # this iter via `resume_capability/4` with the result.
-        # (Distinguished from `:gen_awaiting_send` which advances
-        # implicitly with `nil` to honor next-on-Python-generator
-        # semantics.)
-        {{:yielded, sentinel}, env, ctx}
 
       {:instance, inst} ->
         case Interpreter.eval_instance_next(inst, id, :no_default, env, ctx) do
