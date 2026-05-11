@@ -2247,24 +2247,15 @@ defmodule Pyex.Interpreter do
   # `asyncio.gather` batches a set of these into parallel BEAM
   # Tasks via `Task.async_stream/3`.
   def call_function({:awaitable, fun}, args, _kwargs, env, ctx) do
-    {{:iterator, cap_id}, ctx} =
-      Ctx.new_awaiting_capability_iterator(ctx, nil, [{:cont_capability_resume}], Env.new())
+    {iter_token, ctx} =
+      Ctx.new_awaiting_capability_iterator(
+        ctx,
+        fn cap_id -> {:asyncio_capability_call, cap_id, fun, args} end,
+        [{:cont_capability_resume}],
+        Env.new()
+      )
 
-    sentinel = {:asyncio_capability_call, cap_id, fun, args}
-
-    # Re-stamp the entry now that we know the cap_id (the sentinel
-    # carries it so the trampoline can resume the right iter).
-    ctx = %{
-      ctx
-      | iterators:
-          Map.put(
-            ctx.iterators,
-            cap_id,
-            {:gen_awaiting_send, sentinel, [{:cont_capability_resume}], Env.new()}
-          )
-    }
-
-    {{:coroutine, "<capability>", {:iterator, cap_id}}, env, ctx}
+    {{:coroutine, "<capability>", iter_token}, env, ctx}
   end
 
   def call_function({:builtin_raw, fun}, args, _kwargs, env, ctx) do

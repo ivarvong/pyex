@@ -1016,6 +1016,12 @@ defmodule Pyex.Ctx do
   @doc """
   Creates an iterator pool entry for an awaitable-capability call.
 
+  Takes a `sentinel_builder` closure that receives the freshly-allocated
+  `cap_id` and returns the sentinel to store.  This lets the caller
+  embed the id in the sentinel without needing to re-stamp the entry
+  after allocation — the chicken-and-egg from when this function took a
+  pre-built sentinel goes away.
+
   Uses the same `:gen_awaiting_send` shape as Python `r = yield X`
   generators — both protocols pause an iter waiting for a value to be
   sent in.  The difference is in advance behavior, which dispatches on
@@ -1024,15 +1030,20 @@ defmodule Pyex.Ctx do
   `Pyex.Interpreter.Invocation.resume_capability/4`; a `pyvalue()`
   auto-advances with `nil` (Python `next(g)` semantics).
   """
-  @spec new_awaiting_capability_iterator(t(), term(), [term()], term()) ::
-          {{:iterator, non_neg_integer()}, t()}
+  @spec new_awaiting_capability_iterator(
+          t(),
+          (non_neg_integer() -> term()),
+          [term()],
+          term()
+        ) :: {{:iterator, non_neg_integer()}, t()}
   def new_awaiting_capability_iterator(
         %__MODULE__{iterators: iters, next_iterator_id: id} = ctx,
-        sentinel,
+        sentinel_builder,
         cont,
         gen_env
-      ) do
-    entry = {:gen_awaiting_send, sentinel, cont, gen_env}
+      )
+      when is_function(sentinel_builder, 1) do
+    entry = {:gen_awaiting_send, sentinel_builder.(id), cont, gen_env}
     ctx = %{ctx | iterators: Map.put(iters, id, entry), next_iterator_id: id + 1}
     {{:iterator, id}, ctx}
   end
