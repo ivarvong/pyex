@@ -78,20 +78,5 @@
   # because it traces through `Decimal.Context.get().rounding`. The
   # `:round_05up` clause IS reached at runtime via the user-supplied
   # rounding-mode string.
-  {"lib/pyex/methods.ex", :guard_fail},
-  # `dispatch_capabilities_parallel/3` dispatches `{:asyncio_capability_call, ...}`
-  # sentinels which are an internal control-flow marker emitted when a
-  # `{:awaitable, fn}` capability iter is advanced.  The sentinel shape is
-  # not listed in `pyvalue()` (it is never a Python value), so Dialyzer
-  # concludes the cap_calls branch in `round_robin_gather` is unreachable.
-  # The function IS called at runtime whenever `asyncio.gather` contains
-  # awaitable capabilities.
-  {"lib/pyex/stdlib/asyncio.ex", :unused_fun},
-  # `advance_round` produces `{:ok, states, cap_calls, env, ctx}` where
-  # `cap_calls` is non-empty only when capability sentinels are yielded.
-  # Dialyzer can't prove `{:asyncio_capability_call, ...}` is a reachable
-  # yield value (it's not in `pyvalue()`), so it infers `cap_calls` is always
-  # `[]` and marks the non-empty branch as dead code.  Both branches are
-  # reachable at runtime when `asyncio.gather` over `{:awaitable, _}` caps.
-  {"lib/pyex/stdlib/asyncio.ex", :pattern_match}
+  {"lib/pyex/methods.ex", :guard_fail}
 ]

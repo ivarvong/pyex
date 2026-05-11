@@ -382,7 +382,7 @@ defmodule Pyex.Interpreter.Invocation do
   """
   @spec advance_coroutine_one_step(non_neg_integer(), Env.t(), Ctx.t()) ::
           {:exhausted, Env.t(), Ctx.t()}
-          | {{:yielded, Interpreter.pyvalue()}, Env.t(), Ctx.t()}
+          | {{:yielded, Interpreter.pyvalue() | Interpreter.coroutine_signal()}, Env.t(), Ctx.t()}
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
   def advance_coroutine_one_step(id, env, ctx), do: advance_iter_fresh(id, env, ctx)
 
@@ -392,7 +392,7 @@ defmodule Pyex.Interpreter.Invocation do
   consumed.  Public so `asyncio.gather` can re-use the same
   interpretation when round-robin-driving children.
   """
-  @spec interpret_yield_sentinel(Interpreter.pyvalue()) :: any()
+  @spec interpret_yield_sentinel(Interpreter.pyvalue() | Interpreter.coroutine_signal()) :: any()
   def interpret_yield_sentinel({:asyncio_sleep, ms}) when is_integer(ms) and ms >= 0 do
     Process.sleep(ms)
   end

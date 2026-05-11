@@ -95,12 +95,31 @@ defmodule Pyex.Interpreter do
           | {:module, String.t(), %{optional(String.t()) => pyvalue()}}
           | {:func_with_attrs, pyvalue(), %{optional(String.t()) => pyvalue()}}
 
+  @typedoc """
+  Control-flow tokens that flow through the same yield channel as user
+  `pyvalue()`s but represent internal coroutine machinery, not Python values.
+
+  - `{:asyncio_sleep, ms}` — emitted by `asyncio.sleep(t)`; the trampoline
+    `Process.sleep`s for `ms` and resumes.
+  - `{:asyncio_capability_call, cap_id, fun, args}` — emitted by a call to
+    an `{:awaitable, fn}` capability; the trampoline dispatches `fun` (in
+    parallel under `asyncio.gather`) and resumes the cap iter `cap_id` with
+    the result via `Invocation.resume_capability/4`.
+
+  Kept distinct from `pyvalue()` so Dialyzer can verify trampoline branches
+  that pattern-match on these shapes (which would otherwise be unreachable
+  if the yield channel were typed as `pyvalue()` alone).
+  """
+  @type coroutine_signal ::
+          {:asyncio_sleep, non_neg_integer()}
+          | {:asyncio_capability_call, non_neg_integer(), ([term()] -> term()), [pyvalue()]}
+
   @typep signal ::
            {:returned, pyvalue()}
            | {:break}
            | {:continue}
            | {:exception, String.t()}
-           | {:yielded, pyvalue(), [cont_frame()]}
+           | {:yielded, pyvalue() | coroutine_signal(), [cont_frame()]}
 
   @type builtin_signal ::
           {:print_call, [pyvalue()], String.t(), String.t()}
