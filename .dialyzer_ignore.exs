@@ -12,7 +12,11 @@
   # because it cannot see through the opaque boundary. The capabilities MapSet is
   # used correctly via MapSet.member?/2 and MapSet.new/1 -- these are false positives.
   # The specific warning types and affected files differ between Elixir/OTP versions;
-  # entries that don't trigger on a given version are silently ignored.
+  # entries that don't trigger on a given version are silently ignored, so do NOT
+  # prune these based on a `mix dialyzer --list-unused-filters` report from a
+  # single version.
+  {"lib/pyex/interpreter.ex", :call_without_opaque},
+  {"lib/pyex/stdlib/jinja2.ex", :call_without_opaque},
   {"lib/pyex/stdlib/dataclasses.ex", :call_without_opaque},
   {"lib/pyex/stdlib/csv.ex", :call_without_opaque},
   {"lib/pyex/filesystem/memory.ex", :call_without_opaque},
