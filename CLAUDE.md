@@ -54,5 +54,21 @@ Pyex is a Python interpreter written in Elixir. Follow idiomatic Elixir conventi
   before they cost a CI cycle.
 - Run `mix format --check-formatted` to verify all files are properly formatted
 
-After opening a PR, also verify CI is green with `gh pr checks <num>`
-before declaring the work done.
+## IMPORTANT: After opening a PR, you MUST check CI
+
+Opening a PR is not the end of the task.  After `gh pr create`:
+
+1. Run `gh pr checks <PR>` — every job must pass.
+2. For any failing job, fetch the log via `gh run view <run-id> --log-failed`
+   and treat the failure as part of the same task — fix it before declaring
+   the work done.
+3. CI runs Elixir 1.19.5 / OTP 27+28 (per AGENTS.md), which is a DIFFERENT
+   version from typical local setups (1.20.x).  Dialyzer warnings, type
+   inferences, and unused-filter reports can differ across versions.  In
+   particular: `mix dialyzer --list-unused-filters` on local does NOT prove
+   an ignore entry is dead on CI.  `.dialyzer_ignore.exs` intentionally
+   holds entries for both versions — prune only when you've verified the
+   entry is unused on BOTH 1.19 and 1.20.
+
+Do not declare a PR done, hand off to the user, or move on to the next task
+until CI is green or all failures are addressed.

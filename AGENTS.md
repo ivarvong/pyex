@@ -183,8 +183,15 @@ values are collected. This is by design.
    The ignore file contains entries for both Elixir 1.19.x (CI) and 1.20.x (local).
    "Unnecessary Skips" warnings in the output are expected and do **not** cause
    failure unless you pass `--list-unused-filters`.
-5. After opening a PR, check that all CI jobs pass with `gh pr checks <PR>`.
-   CI runs Elixir 1.19.5 / OTP 27+28; fix any failures before merging.
+5. After opening a PR, you MUST check that all CI jobs pass with
+   `gh pr checks <PR>` before declaring the work done.  Opening the PR is
+   not the end of the task.  For any failing job, fetch the log via
+   `gh run view <run-id> --log-failed` and fix it as part of the same
+   task.  CI runs Elixir 1.19.5 / OTP 27+28; warnings (especially Dialyzer)
+   can differ between CI and local 1.20.x — `mix dialyzer
+   --list-unused-filters` on local does NOT prove an entry is dead on CI.
+   Never prune `.dialyzer_ignore.exs` based on a single-version unused
+   report.
 6. Update TODO.txt to mark the item completed
 
 ## Procedure for adding a Python feature

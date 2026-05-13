@@ -24,6 +24,16 @@ defmodule Pyex.Interpreter.Calls do
           | {:getattr_method, Interpreter.pyvalue(), Parser.ast_node()}
           | {:general_call, Parser.ast_node()}
 
+  @typedoc """
+  Where a value belongs in a partially-evaluated argument list.
+
+  - `:pos` — next positional slot.
+  - `{:kw, name}` — named keyword.
+  - `:star` — `*expr`; the value is expanded as an iterable.
+  - `:dstar` — `**expr`; the value is merged into kwargs as a mapping.
+  """
+  @type arg_slot :: :pos | {:kw, String.t()} | :star | :dstar
+
   @doc """
   Evaluates a method call rooted at a variable attribute access.
   """
@@ -138,10 +148,9 @@ defmodule Pyex.Interpreter.Calls do
   @doc """
   Evaluate `arg_exprs`, then invoke `func`, applying mutation write-back
   according to `call_site_meta`.  Propagates `{:yielded, val, cont}` signals
-  from any arg expression upward with a `{:cont_call_pos_resume, ...}` or
-  `{:cont_call_kw_resume, ...}` continuation frame so that
-  `Interpreter.resume_generator_with_send` can re-enter the evaluation loop
-  after the awaited value is available.
+  from any arg expression upward with a `{:cont_call_resume, ...}` frame so
+  that `Interpreter.resume_generator_with_send` can re-enter the evaluation
+  loop after the awaited value is available.
   """
   @spec eval_call_with_yield(
           Interpreter.pyvalue(),
@@ -155,9 +164,10 @@ defmodule Pyex.Interpreter.Calls do
   end
 
   @doc """
-  Resume mid-arg-evaluation (positional arg variant) with `sent_value` as the
-  result of the previously-yielded arg expression.  Called from
-  `Interpreter.resume_generator_with_send/4`.
+  Resume mid-arg-evaluation: evaluate `remaining` arg exprs, then invoke
+  `func` and apply mutation write-back.  When an arg expression yields, the
+  rest of the evaluation is suspended as a `{:cont_call_resume, ...}` frame
+  that re-enters here once the awaited value lands.
   """
   @spec eval_remaining_and_call(
           Interpreter.pyvalue(),
@@ -175,136 +185,105 @@ defmodule Pyex.Interpreter.Calls do
     invoke_with_mutation(func, meta, orig_args, Enum.reverse(rev_pos), kwargs, env, ctx)
   end
 
-  def eval_remaining_and_call(
-        func,
-        meta,
-        orig_args,
-        [{:kwarg, _, [name, expr]} | rest],
-        rev_pos,
-        kwargs,
-        env,
-        ctx
-      ) do
+  def eval_remaining_and_call(func, meta, orig_args, [head | rest], rev_pos, kwargs, env, ctx) do
+    {expr, slot} = arg_expr_and_slot(head)
+
     case Interpreter.eval(expr, env, ctx) do
       {{:exception, _} = sig, env, ctx} ->
         {sig, env, ctx}
 
       {{:yielded, val, cont}, env, ctx} ->
-        frame = {:cont_call_kw_resume, func, meta, orig_args, rev_pos, name, rest, kwargs}
+        frame = {:cont_call_resume, func, meta, orig_args, rev_pos, rest, kwargs, slot}
         {{:yielded, val, cont ++ [frame]}, env, ctx}
 
-      {v, env, ctx} ->
-        eval_remaining_and_call(
-          func,
-          meta,
-          orig_args,
-          rest,
-          rev_pos,
-          Map.put(kwargs, name, v),
-          env,
-          ctx
-        )
-    end
-  end
-
-  def eval_remaining_and_call(
-        func,
-        meta,
-        orig_args,
-        [{:star_arg, _, [expr]} | rest],
-        rev_pos,
-        kwargs,
-        env,
-        ctx
-      ) do
-    case Interpreter.eval(expr, env, ctx) do
-      {{:exception, _} = sig, env, ctx} ->
-        {sig, env, ctx}
-
-      {{:yielded, val, cont}, env, ctx} ->
-        frame = {:cont_call_star_resume, func, meta, orig_args, rev_pos, rest, kwargs}
-        {{:yielded, val, cont ++ [frame]}, env, ctx}
-
-      {val, env, ctx} ->
-        case Interpreter.to_iterable(val, env, ctx) do
-          {:ok, items, env, ctx} ->
+      {value, env, ctx} ->
+        case incorporate_value(slot, value, rev_pos, kwargs, env, ctx) do
+          {:ok, new_rev_pos, new_kwargs, env, ctx} ->
             eval_remaining_and_call(
               func,
               meta,
               orig_args,
               rest,
-              Enum.reverse(items) ++ rev_pos,
-              kwargs,
+              new_rev_pos,
+              new_kwargs,
               env,
               ctx
             )
 
-          {:exception, msg} ->
-            {{:exception, msg}, env, ctx}
+          {:error, signal, env, ctx} ->
+            {signal, env, ctx}
         end
     end
   end
 
-  def eval_remaining_and_call(
-        func,
-        meta,
-        orig_args,
-        [{:double_star_arg, _, [expr]} | rest],
-        rev_pos,
-        kwargs,
-        env,
-        ctx
-      ) do
-    case Interpreter.eval(expr, env, ctx) do
-      {{:exception, _} = sig, env, ctx} ->
-        {sig, env, ctx}
+  @spec arg_expr_and_slot(Parser.ast_node()) :: {Parser.ast_node(), arg_slot()}
+  defp arg_expr_and_slot({:kwarg, _, [name, expr]}), do: {expr, {:kw, name}}
+  defp arg_expr_and_slot({:star_arg, _, [expr]}), do: {expr, :star}
+  defp arg_expr_and_slot({:double_star_arg, _, [expr]}), do: {expr, :dstar}
+  defp arg_expr_and_slot(expr), do: {expr, :pos}
 
-      {{:yielded, val, cont}, env, ctx} ->
-        frame = {:cont_call_dstar_resume, func, meta, orig_args, rev_pos, rest, kwargs}
-        {{:yielded, val, cont ++ [frame]}, env, ctx}
+  @doc """
+  Fold `value` into the accumulating argument state at `slot`.  Shared between
+  forward evaluation and the `:cont_call_resume` resume path so both honor the
+  same slot semantics (positional append, kwarg put, `*` expansion, `**` merge).
+  """
+  @spec incorporate_value(
+          arg_slot(),
+          Interpreter.pyvalue(),
+          [Interpreter.pyvalue()],
+          map(),
+          Env.t(),
+          Ctx.t()
+        ) ::
+          {:ok, [Interpreter.pyvalue()], map(), Env.t(), Ctx.t()}
+          | {:error, {:exception, String.t()}, Env.t(), Ctx.t()}
+  def incorporate_value(:pos, value, rev_pos, kwargs, env, ctx) do
+    {:ok, [value | rev_pos], kwargs, env, ctx}
+  end
 
-      {raw_val, env, ctx} ->
-        val = Ctx.deref(ctx, raw_val)
+  def incorporate_value({:kw, name}, value, rev_pos, kwargs, env, ctx) do
+    {:ok, rev_pos, Map.put(kwargs, name, value), env, ctx}
+  end
 
-        merged =
-          case val do
-            {:py_dict, _, _} = dict ->
-              Enum.reduce(Pyex.PyDict.items(dict), kwargs, fn {k, v}, acc ->
-                Map.put(acc, to_string(k), v)
-              end)
+  def incorporate_value(:star, value, rev_pos, kwargs, env, ctx) do
+    case Interpreter.to_iterable(value, env, ctx) do
+      {:ok, items, env, ctx} ->
+        {:ok, Enum.reverse(items) ++ rev_pos, kwargs, env, ctx}
 
-            map when is_map(map) ->
-              Enum.reduce(map, kwargs, fn {k, v}, acc -> Map.put(acc, to_string(k), v) end)
-
-            _ ->
-              :error
-          end
-
-        case merged do
-          :error ->
-            {{:exception,
-              "TypeError: argument after ** must be a mapping, not '#{Interpreter.Helpers.py_type(val)}'"},
-             env, ctx}
-
-          merged ->
-            eval_remaining_and_call(func, meta, orig_args, rest, rev_pos, merged, env, ctx)
-        end
+      {:exception, msg} ->
+        {:error, {:exception, msg}, env, ctx}
     end
   end
 
-  def eval_remaining_and_call(func, meta, orig_args, [expr | rest], rev_pos, kwargs, env, ctx) do
-    case Interpreter.eval(expr, env, ctx) do
-      {{:exception, _} = sig, env, ctx} ->
-        {sig, env, ctx}
+  def incorporate_value(:dstar, raw_value, rev_pos, kwargs, env, ctx) do
+    value = Ctx.deref(ctx, raw_value)
 
-      {{:yielded, val, cont}, env, ctx} ->
-        frame = {:cont_call_pos_resume, func, meta, orig_args, rev_pos, rest, kwargs}
-        {{:yielded, val, cont ++ [frame]}, env, ctx}
+    case merge_dstar(value, kwargs) do
+      {:ok, merged} ->
+        {:ok, rev_pos, merged, env, ctx}
 
-      {v, env, ctx} ->
-        eval_remaining_and_call(func, meta, orig_args, rest, [v | rev_pos], kwargs, env, ctx)
+      :error ->
+        {:error,
+         {:exception,
+          "TypeError: argument after ** must be a mapping, not '#{Helpers.py_type(value)}'"}, env,
+         ctx}
     end
   end
+
+  defp merge_dstar({:py_dict, _, _} = dict, kwargs) do
+    merged =
+      Enum.reduce(Pyex.PyDict.items(dict), kwargs, fn {k, v}, acc ->
+        Map.put(acc, to_string(k), v)
+      end)
+
+    {:ok, merged}
+  end
+
+  defp merge_dstar(map, kwargs) when is_map(map) do
+    {:ok, Enum.reduce(map, kwargs, fn {k, v}, acc -> Map.put(acc, to_string(k), v) end)}
+  end
+
+  defp merge_dstar(_, _), do: :error
 
   defp invoke_with_mutation(func, meta, orig_arg_exprs, args, kwargs, env, ctx) do
     case Interpreter.call_function(func, args, kwargs, env, ctx) do

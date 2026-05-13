@@ -95,12 +95,31 @@ defmodule Pyex.Interpreter do
           | {:module, String.t(), %{optional(String.t()) => pyvalue()}}
           | {:func_with_attrs, pyvalue(), %{optional(String.t()) => pyvalue()}}
 
+  @typedoc """
+  Control-flow tokens that flow through the same yield channel as user
+  `pyvalue()`s but represent internal coroutine machinery, not Python values.
+
+  - `{:asyncio_sleep, ms}` — emitted by `asyncio.sleep(t)`; the trampoline
+    `Process.sleep`s for `ms` and resumes.
+  - `{:asyncio_capability_call, cap_id, fun, args}` — emitted by a call to
+    an `{:awaitable, fn}` capability; the trampoline dispatches `fun` (in
+    parallel under `asyncio.gather`) and resumes the cap iter `cap_id` with
+    the result via `Invocation.resume_capability/4`.
+
+  Kept distinct from `pyvalue()` so Dialyzer can verify trampoline branches
+  that pattern-match on these shapes (which would otherwise be unreachable
+  if the yield channel were typed as `pyvalue()` alone).
+  """
+  @type coroutine_signal ::
+          {:asyncio_sleep, non_neg_integer()}
+          | {:asyncio_capability_call, non_neg_integer(), ([term()] -> term()), [pyvalue()]}
+
   @typep signal ::
            {:returned, pyvalue()}
            | {:break}
            | {:continue}
            | {:exception, String.t()}
-           | {:yielded, pyvalue(), [cont_frame()]}
+           | {:yielded, pyvalue() | coroutine_signal(), [cont_frame()]}
 
   @type builtin_signal ::
           {:print_call, [pyvalue()], String.t(), String.t()}
@@ -2228,24 +2247,15 @@ defmodule Pyex.Interpreter do
   # `asyncio.gather` batches a set of these into parallel BEAM
   # Tasks via `Task.async_stream/3`.
   def call_function({:awaitable, fun}, args, _kwargs, env, ctx) do
-    {{:iterator, cap_id}, ctx} =
-      Ctx.new_awaiting_capability_iterator(ctx, nil, [{:cont_capability_resume}], Env.new())
+    {iter_token, ctx} =
+      Ctx.new_awaiting_capability_iterator(
+        ctx,
+        fn cap_id -> {:asyncio_capability_call, cap_id, fun, args} end,
+        [{:cont_capability_resume}],
+        Env.new()
+      )
 
-    sentinel = {:asyncio_capability_call, cap_id, fun, args}
-
-    # Re-stamp the entry now that we know the cap_id (the sentinel
-    # carries it so the trampoline can resume the right iter).
-    ctx = %{
-      ctx
-      | iterators:
-          Map.put(
-            ctx.iterators,
-            cap_id,
-            {:gen_awaiting_capability, sentinel, [{:cont_capability_resume}], Env.new()}
-          )
-    }
-
-    {{:coroutine, "<capability>", {:iterator, cap_id}}, env, ctx}
+    {{:coroutine, "<capability>", iter_token}, env, ctx}
   end
 
   def call_function({:builtin_raw, fun}, args, _kwargs, env, ctx) do
@@ -2269,10 +2279,6 @@ defmodule Pyex.Interpreter do
 
   def call_function({:builtin_kw, fun}, args, kwargs, env, ctx) do
     Invocation.call_builtin_kw(fun, args, kwargs, env, ctx)
-  end
-
-  def call_function({:builtin_kw_raw, fun}, args, kwargs, env, ctx) do
-    Invocation.call_builtin_kw_raw(fun, args, kwargs, env, ctx)
   end
 
   def call_function(
@@ -3706,14 +3712,8 @@ defmodule Pyex.Interpreter do
           | {:cont_await_iter, non_neg_integer()}
           | {:cont_return_value}
           | {:cont_capability_resume}
-          | {:cont_call_pos_resume, pyvalue(), term(), [Parser.ast_node()], [pyvalue()],
-             [Parser.ast_node()], map()}
-          | {:cont_call_kw_resume, pyvalue(), term(), [Parser.ast_node()], [pyvalue()],
-             String.t(), [Parser.ast_node()], map()}
-          | {:cont_call_star_resume, pyvalue(), term(), [Parser.ast_node()], [pyvalue()],
-             [Parser.ast_node()], map()}
-          | {:cont_call_dstar_resume, pyvalue(), term(), [Parser.ast_node()], [pyvalue()],
-             [Parser.ast_node()], map()}
+          | {:cont_call_resume, pyvalue(), term(), [Parser.ast_node()], [pyvalue()],
+             [Parser.ast_node()], map(), Calls.arg_slot()}
 
   @doc """
   Resumes a suspended generator from a continuation.
@@ -3922,68 +3922,20 @@ defmodule Pyex.Interpreter do
   end
 
   def resume_generator_with_send(
-        [{:cont_call_pos_resume, func, meta, orig_args, rev_pos, remaining, kwargs} | rest],
+        [{:cont_call_resume, func, meta, orig_args, rev_pos, remaining, kwargs, slot} | rest],
         env,
         ctx,
         sent_value
       ) do
-    case Calls.eval_remaining_and_call(
-           func,
-           meta,
-           orig_args,
-           remaining,
-           [sent_value | rev_pos],
-           kwargs,
-           env,
-           ctx
-         ) do
-      {{:yielded, val, inner_cont}, env, ctx} -> {{:yielded, val, inner_cont ++ rest}, env, ctx}
-      {{:exception, _} = sig, env, ctx} -> {sig, env, ctx}
-      {val, env, ctx} -> resume_generator_with_send(rest, env, ctx, val)
-    end
-  end
-
-  def resume_generator_with_send(
-        [
-          {:cont_call_kw_resume, func, meta, orig_args, rev_pos, kw_name, remaining, kwargs}
-          | rest
-        ],
-        env,
-        ctx,
-        sent_value
-      ) do
-    case Calls.eval_remaining_and_call(
-           func,
-           meta,
-           orig_args,
-           remaining,
-           rev_pos,
-           Map.put(kwargs, kw_name, sent_value),
-           env,
-           ctx
-         ) do
-      {{:yielded, val, inner_cont}, env, ctx} -> {{:yielded, val, inner_cont ++ rest}, env, ctx}
-      {{:exception, _} = sig, env, ctx} -> {sig, env, ctx}
-      {val, env, ctx} -> resume_generator_with_send(rest, env, ctx, val)
-    end
-  end
-
-  def resume_generator_with_send(
-        [{:cont_call_star_resume, func, meta, orig_args, rev_pos, remaining, kwargs} | rest],
-        env,
-        ctx,
-        sent_value
-      ) do
-    # The star_arg expr resolved; expand it, then continue.
-    case to_iterable(sent_value, env, ctx) do
-      {:ok, items, env, ctx} ->
+    case Calls.incorporate_value(slot, sent_value, rev_pos, kwargs, env, ctx) do
+      {:ok, new_rev_pos, new_kwargs, env, ctx} ->
         case Calls.eval_remaining_and_call(
                func,
                meta,
                orig_args,
                remaining,
-               Enum.reverse(items) ++ rev_pos,
-               kwargs,
+               new_rev_pos,
+               new_kwargs,
                env,
                ctx
              ) do
@@ -3997,59 +3949,8 @@ defmodule Pyex.Interpreter do
             resume_generator_with_send(rest, env, ctx, val)
         end
 
-      {:exception, msg} ->
-        {{:exception, msg}, env, ctx}
-    end
-  end
-
-  def resume_generator_with_send(
-        [{:cont_call_dstar_resume, func, meta, orig_args, rev_pos, remaining, kwargs} | rest],
-        env,
-        ctx,
-        sent_value
-      ) do
-    val = Ctx.deref(ctx, sent_value)
-
-    merged =
-      case val do
-        {:py_dict, _, _} = dict ->
-          Enum.reduce(Pyex.PyDict.items(dict), kwargs, fn {k, v}, acc ->
-            Map.put(acc, to_string(k), v)
-          end)
-
-        map when is_map(map) ->
-          Enum.reduce(map, kwargs, fn {k, v}, acc -> Map.put(acc, to_string(k), v) end)
-
-        _ ->
-          :error
-      end
-
-    case merged do
-      :error ->
-        {{:exception,
-          "TypeError: argument after ** must be a mapping, not '#{Helpers.py_type(val)}'"}, env,
-         ctx}
-
-      merged ->
-        case Calls.eval_remaining_and_call(
-               func,
-               meta,
-               orig_args,
-               remaining,
-               rev_pos,
-               merged,
-               env,
-               ctx
-             ) do
-          {{:yielded, val, inner_cont}, env, ctx} ->
-            {{:yielded, val, inner_cont ++ rest}, env, ctx}
-
-          {{:exception, _} = sig, env, ctx} ->
-            {sig, env, ctx}
-
-          {val, env, ctx} ->
-            resume_generator_with_send(rest, env, ctx, val)
-        end
+      {:error, signal, env, ctx} ->
+        {signal, env, ctx}
     end
   end
 
