@@ -210,6 +210,7 @@ class Ledger:
             "movement": movement,
             "balances": balances,
             "exceptions_list": exceptions,
+            "audit": audit,
             "audit_hash": stable_hash(audit),
             "balance_hash": stable_hash(balances),
             "exception_hash": stable_hash(exceptions),
@@ -311,6 +312,9 @@ with open("exceptions.csv", "w") as f:
     f.write("event_id,reason\n")
     for event_id, reason in baseline["exceptions_list"]:
         f.write(event_id + "," + reason + "\n")
+
+with open("audit.json", "w") as f:
+    f.write(json.dumps(baseline["audit"], sort_keys=True))
 
 with open("summary.json", "w") as f:
     f.write(json.dumps(summary, sort_keys=True))
