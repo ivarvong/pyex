@@ -365,6 +365,16 @@ defmodule Pyex.InterpreterTest do
              """) == [1, 2]
     end
 
+    test "multi assignment supports subscript targets" do
+      assert Pyex.run!("""
+             xs = [1, 2, 3]
+             i = 0
+             j = 2
+             xs[i], xs[j] = xs[j], xs[i]
+             xs
+             """) == [3, 2, 1]
+    end
+
     test "int * list repetition (reversed operand)" do
       assert Pyex.run!("3 * [1, 2]") == [1, 2, 1, 2, 1, 2]
     end

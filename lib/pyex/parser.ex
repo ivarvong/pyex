@@ -76,7 +76,8 @@ defmodule Pyex.Parser do
 
   @type ast_node :: {node_type(), meta(), [term()]}
 
-  @type unpack_target :: String.t() | {:starred, String.t()} | [unpack_target()]
+  @type unpack_target ::
+          String.t() | {:starred, String.t()} | {:target, ast_node()} | [unpack_target()]
 
   @type param ::
           {String.t(), ast_node() | nil}
@@ -414,8 +415,14 @@ defmodule Pyex.Parser do
          _
        ) do
     case try_subscript_assign(rest, line, name) do
-      {:ok, _, _} = result -> result
-      :not_assign -> parse_expression_statement(tokens)
+      {:ok, _, _} = result ->
+        result
+
+      :not_assign ->
+        case try_multi_assign_from_target(tokens, line) do
+          {:ok, _, _} = result -> result
+          :not_assign -> parse_expression_statement(tokens)
+        end
     end
   end
 
@@ -1385,6 +1392,27 @@ defmodule Pyex.Parser do
 
   @spec try_multi_assign([Lexer.token()], pos_integer(), [unpack_target()]) ::
           parse_result() | :not_assign
+  defp try_multi_assign([{:name, _, _}, {:op, _, :lbracket} | _] = tokens, line, acc) do
+    case parse_assignment_target(tokens) do
+      {:ok, target, [{:op, _, :comma} | rest]} ->
+        try_multi_assign(rest, line, [target | acc])
+
+      {:ok, target, [{:op, _, :assign} | rest]} ->
+        names = Enum.reverse([target | acc])
+
+        case parse_comma_exprs(rest) do
+          {:ok, exprs, rest} ->
+            {:ok, {:multi_assign, [line: line], [names, exprs]}, drop_newline(rest)}
+
+          {:error, _} = error ->
+            error
+        end
+
+      _ ->
+        :not_assign
+    end
+  end
+
   defp try_multi_assign([{:name, _, name}, {:op, _, :comma} | rest], line, acc) do
     try_multi_assign(rest, line, [name | acc])
   end
@@ -1443,6 +1471,27 @@ defmodule Pyex.Parser do
   end
 
   defp try_multi_assign(_, _line, _acc), do: :not_assign
+
+  @spec try_multi_assign_from_target([Lexer.token()], pos_integer()) ::
+          parse_result() | :not_assign
+  defp try_multi_assign_from_target(tokens, line) do
+    case parse_assignment_target(tokens) do
+      {:ok, target, [{:op, _, :comma} | rest]} ->
+        try_multi_assign(rest, line, [target])
+
+      _ ->
+        :not_assign
+    end
+  end
+
+  @spec parse_assignment_target([Lexer.token()]) ::
+          {:ok, unpack_target(), [Lexer.token()]} | :error
+  defp parse_assignment_target(tokens) do
+    case parse_expression(tokens) do
+      {:ok, {:subscript, _, _} = target, rest} -> {:ok, {:target, target}, rest}
+      _ -> :error
+    end
+  end
 
   @spec try_paren_unpack_assign([Lexer.token()], pos_integer()) ::
           parse_result() | :not_assign
