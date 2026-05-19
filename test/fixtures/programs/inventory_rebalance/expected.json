@@ -1,0 +1,9 @@
+{
+  "error": "Traceback (most recent call last):\n  File \"/Users/ivar/code/pyex/test/fixtures/runner.py\", line 172, in run_fixture\n    exec(\n    ~~~~^\n        compile(source, main_py, \"exec\"),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        {\"__name__\": \"__main__\", \"__file__\": main_py},\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"test/fixtures/programs/inventory_rebalance/main.py\", line 93, in <module>\n    assert shipped == [\n           ^^^^^^^^^^^^\n    ...<4 lines>...\n    ]\n    ^\nAssertionError\n",
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T12:36:00.135721Z",
+  "sha256": "bc0dd630d6f2ded82c75843f450abffb62fe0870552ec5283d95a6431564658d",
+  "source_file": "main.py",
+  "stdout": ""
+}

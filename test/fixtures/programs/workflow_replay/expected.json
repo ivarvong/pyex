@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T12:36:00.179483Z",
+  "sha256": "295fbdd2113b66b172cc5ca3d41e1fe4e3e51f9a2778ee93fed8105fe0a34be5",
+  "source_file": "main.py",
+  "stdout": "(1, 'extract', ['profile', 'validate'], ['profile', 'validate'])\n(2, 'missing', [], ['profile', 'validate'])\n(3, 'profile', [], ['validate'])\n(4, 'validate', ['normalize'], ['normalize'])\n(5, 'normalize', ['publish'], ['publish'])\n(6, 'publish', ['notify'], ['notify'])\n(7, 'publish', [], ['notify'])\n(8, 'notify', [], [])\ndone ['extract', 'normalize', 'notify', 'profile', 'publish', 'validate']\ninvalid [(2, 'missing', 'unknown'), (7, 'publish', 'duplicate')]\n"
+}

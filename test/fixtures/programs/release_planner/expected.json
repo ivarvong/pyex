@@ -1,0 +1,9 @@
+{
+  "error": "Traceback (most recent call last):\n  File \"/Users/ivar/code/pyex/test/fixtures/runner.py\", line 172, in run_fixture\n    exec(\n    ~~~~^\n        compile(source, main_py, \"exec\"),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        {\"__name__\": \"__main__\", \"__file__\": main_py},\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"test/fixtures/programs/release_planner/main.py\", line 129, in <module>\n    assert planner.topo_order() == [\"auth\", \"catalog\", \"billing\", \"docs\", \"search\", \"checkout\", \"launch\"]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T12:27:39.751368Z",
+  "sha256": "c3e3f04feb0b5666db3a7dbbab46871d17a70b9dce68ae6d7f33d474bf408b3c",
+  "source_file": "main.py",
+  "stdout": ""
+}

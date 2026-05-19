@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T19:03:58.189589Z",
+  "sha256": "d561250e6caf0e05c8fa4f5e40452ae7875b25be335966ed4b17bc8126bd8b5c",
+  "source_file": "main.py",
+  "stdout": "nested-events return ['outer-enter', 'inner-enter', 'inner-finally', 'outer-finally']\nnested-events raise ['outer-enter', 'inner-enter', 'inner-finally', 'caught:boom', 'outer-finally']\nscan -4 [('enter', 1), ('finally', 1, 1), ('enter', 'skip'), ('finally', 'skip', 1), ('enter', 2), ('finally', 2, 3), ('enter', 'bad'), ('handled', 'bad value'), ('finally', 'bad', -7), ('enter', 3), ('finally', 3, -4), ('enter', 'stop'), ('finally', 'stop', -4)]\nscan2 9 [('enter', 4), ('finally', 4, 4), ('enter', 5), ('finally', 5, 9), ('else', 9)]\n"
+}

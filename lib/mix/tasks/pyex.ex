@@ -50,7 +50,7 @@ defmodule Mix.Tasks.Pyex do
             IO.inspect(result)
 
           {:error, msg} ->
-            Mix.shell().error(msg)
+            Mix.shell().error(msg.message)
         end
 
       {:error, reason} ->

@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T19:03:58.304569Z",
+  "sha256": "d064527605dfc4aca6dadad2a3a809bf70808330124b077e36f012e909f25efb",
+  "source_file": "main.py",
+  "stdout": "eq True True False\ntruth True False\nrows [('left', 2, ['pear', 'apple']), ('other', 1, ['apple']), ('fast:ship', 2, ['box', 'label'])]\nrepr Bag(left:apple,pear)\n"
+}

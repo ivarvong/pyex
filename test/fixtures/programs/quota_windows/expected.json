@@ -1,0 +1,9 @@
+{
+  "error": "Traceback (most recent call last):\n  File \"/Users/ivar/code/pyex/test/fixtures/runner.py\", line 172, in run_fixture\n    exec(\n    ~~~~^\n        compile(source, main_py, \"exec\"),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        {\"__name__\": \"__main__\", \"__file__\": main_py},\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"test/fixtures/programs/quota_windows/main.py\", line 103, in <module>\n    assert results == [\n           ^^^^^^^^^^^^\n    ...<9 lines>...\n    ]\n    ^\nAssertionError\n",
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T12:27:39.704976Z",
+  "sha256": "4e924d1fb1b843640916dcedd36ce82bde4285b5b175c45533cca11ca15a1016",
+  "source_file": "main.py",
+  "stdout": ""
+}
