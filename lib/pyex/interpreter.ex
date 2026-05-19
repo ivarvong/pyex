@@ -3045,7 +3045,7 @@ defmodule Pyex.Interpreter do
 
   @doc false
   @spec unpack_iterable_safe([pyvalue()], [Parser.unpack_target()]) ::
-          {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
+          {:ok, [{Parser.unpack_target(), pyvalue()}]} | {:exception, String.t()}
   def unpack_iterable_safe([single], names) do
     case single do
       {:py_list, reversed, _} ->
@@ -3076,7 +3076,7 @@ defmodule Pyex.Interpreter do
   end
 
   @spec check_unpack_length([pyvalue()], [Parser.unpack_target()]) ::
-          {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
+          {:ok, [{Parser.unpack_target(), pyvalue()}]} | {:exception, String.t()}
   defp check_unpack_length(items, names) do
     has_star = Enum.any?(names, &match?({:starred, _}, &1))
 
@@ -3092,8 +3092,8 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  @spec bind_pairs([Parser.unpack_target()], [pyvalue()], [{String.t(), pyvalue()}]) ::
-          {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
+  @spec bind_pairs([Parser.unpack_target()], [pyvalue()], [{Parser.unpack_target(), pyvalue()}]) ::
+          {:ok, [{Parser.unpack_target(), pyvalue()}]} | {:exception, String.t()}
   defp bind_pairs([], [], acc), do: {:ok, Enum.reverse(acc)}
 
   defp bind_pairs([name | names], [val | vals], acc) when is_binary(name) do
@@ -3104,6 +3104,10 @@ defmodule Pyex.Interpreter do
     bind_pairs(names, vals, [{s, val} | acc])
   end
 
+  defp bind_pairs([{:target, _} = target | names], [val | vals], acc) do
+    bind_pairs(names, vals, [{target, val} | acc])
+  end
+
   defp bind_pairs([nested_names | names], [val | vals], acc) when is_list(nested_names) do
     case unpack_nested(val, nested_names) do
       {:ok, pairs} -> bind_pairs(names, vals, Enum.reverse(pairs) ++ acc)
@@ -3112,7 +3116,7 @@ defmodule Pyex.Interpreter do
   end
 
   @spec unpack_nested(pyvalue(), [Parser.unpack_target()]) ::
-          {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
+          {:ok, [{Parser.unpack_target(), pyvalue()}]} | {:exception, String.t()}
   defp unpack_nested({:tuple, items}, names), do: check_unpack_length(items, names)
   defp unpack_nested({:py_list, rev, _}, names), do: check_unpack_length(Enum.reverse(rev), names)
   defp unpack_nested(list, names) when is_list(list), do: check_unpack_length(list, names)
@@ -3132,7 +3136,7 @@ defmodule Pyex.Interpreter do
   end
 
   @spec unpack_starred([pyvalue()], [Parser.unpack_target()]) ::
-          {:ok, [{String.t(), pyvalue()}]} | {:exception, String.t()}
+          {:ok, [{Parser.unpack_target(), pyvalue()}]} | {:exception, String.t()}
   defp unpack_starred(items, names) do
     star_idx = Enum.find_index(names, &match?({:starred, _}, &1))
     fixed_count = length(names) - 1

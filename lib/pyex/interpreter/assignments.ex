@@ -182,7 +182,7 @@ defmodule Pyex.Interpreter.Assignments do
   @spec eval_expr_subscript_assign(
           Parser.ast_node(),
           Parser.ast_node(),
-          Parser.ast_node(),
+          Parser.ast_node() | {:__evaluated__, Interpreter.pyvalue()},
           Env.t(),
           Ctx.t()
         ) :: eval_result()

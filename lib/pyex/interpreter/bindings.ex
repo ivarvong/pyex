@@ -7,6 +7,7 @@ defmodule Pyex.Interpreter.Bindings do
   """
 
   alias Pyex.{Ctx, Env, Interpreter, Parser}
+  alias Pyex.Interpreter.Assignments
 
   @typep eval_result :: {Interpreter.pyvalue() | tuple(), Env.t(), Ctx.t()}
 
@@ -141,16 +142,40 @@ defmodule Pyex.Interpreter.Bindings do
 
         case Interpreter.unpack_iterable_safe(derefed, names) do
           {:ok, pairs} ->
-            env =
-              Enum.reduce(pairs, env, fn {name, val}, acc -> Env.smart_put(acc, name, val) end)
+            case bind_assignment_pairs(pairs, env, ctx) do
+              {:ok, env, ctx} ->
+                {_, last_val} = List.last(pairs)
+                {last_val, env, ctx}
 
-            {_, last_val} = List.last(pairs)
-            {last_val, env, ctx}
+              {{:exception, _} = signal, env, ctx} ->
+                {signal, env, ctx}
+            end
 
           {:exception, msg} ->
             {{:exception, msg}, env, ctx}
         end
     end
+  end
+
+  @spec bind_assignment_pairs([{Parser.unpack_target(), Interpreter.pyvalue()}], Env.t(), Ctx.t()) ::
+          {:ok, Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  defp bind_assignment_pairs(pairs, env, ctx) do
+    Enum.reduce_while(pairs, {:ok, env, ctx}, fn
+      {name, val}, {:ok, env, ctx} when is_binary(name) ->
+        {:cont, {:ok, Env.smart_put(env, name, val), ctx}}
+
+      {{:target, {:subscript, _, [target_expr, key_expr]}}, val}, {:ok, env, ctx} ->
+        case Assignments.eval_expr_subscript_assign(
+               target_expr,
+               key_expr,
+               {:__evaluated__, val},
+               env,
+               ctx
+             ) do
+          {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
+          {_val, env, ctx} -> {:cont, {:ok, env, ctx}}
+        end
+    end)
   end
 
   @doc """
