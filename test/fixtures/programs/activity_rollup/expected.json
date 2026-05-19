@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T12:27:39.658480Z",
+  "sha256": "3f88c879c8c81be0e5fa086f377e01c4fb6a136a8767cbf8e2029740fd19c83f",
+  "source_file": "main.py",
+  "stdout": "ada 30 [(10, 40)]\nbea 20 [(0, 20)]\ncal 9 [(12, 21)]\ndan 6 [(39, 45)]\npeak 12 3\n"
+}

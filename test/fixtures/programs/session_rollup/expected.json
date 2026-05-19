@@ -1,0 +1,9 @@
+{
+  "error": "Traceback (most recent call last):\n  File \"/Users/ivar/code/pyex/test/fixtures/runner.py\", line 172, in run_fixture\n    exec(\n    ~~~~^\n        compile(source, main_py, \"exec\"),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        {\"__name__\": \"__main__\", \"__file__\": main_py},\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"test/fixtures/programs/session_rollup/main.py\", line 79, in <module>\n    assert rows == [(\"u1\", 2, 9, 4), (\"u2\", 2, 8, 4), (\"u3\", 1, 0, 1)]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T12:36:00.089428Z",
+  "sha256": "c992d37f8b39a73223f81229055e9c3b1132f0028c9ac7d6c439352faf1d2887",
+  "source_file": "main.py",
+  "stdout": ""
+}

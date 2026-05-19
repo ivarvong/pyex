@@ -3259,8 +3259,46 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  defp do_eval_binop(op, {:py_list, la, _}, {:py_list, ra, _}, env, ctx)
+       when op in [:eq, :neq] do
+    compare_sequence_equality(op, Enum.reverse(la), Enum.reverse(ra), env, ctx)
+  end
+
+  defp do_eval_binop(op, {:py_list, la, _}, ra, env, ctx)
+       when op in [:eq, :neq] and is_list(ra) do
+    compare_sequence_equality(op, Enum.reverse(la), ra, env, ctx)
+  end
+
+  defp do_eval_binop(op, la, {:py_list, ra, _}, env, ctx)
+       when op in [:eq, :neq] and is_list(la) do
+    compare_sequence_equality(op, la, Enum.reverse(ra), env, ctx)
+  end
+
+  defp do_eval_binop(op, la, ra, env, ctx)
+       when op in [:eq, :neq] and is_list(la) and is_list(ra) do
+    compare_sequence_equality(op, la, ra, env, ctx)
+  end
+
   defp do_eval_binop(op, {:tuple, la}, {:tuple, ra}, env, ctx)
-       when op in [:eq, :neq] and length(la) == length(ra) do
+       when op in [:eq, :neq] do
+    compare_sequence_equality(op, la, ra, env, ctx)
+  end
+
+  defp do_eval_binop(op, {:pandas_series, _} = l, r, env, ctx) do
+    BinaryOps.binop_result(BinaryOps.series_binop(op, l, r), env, ctx)
+  end
+
+  defp do_eval_binop(op, l, {:pandas_series, _} = r, env, ctx) do
+    BinaryOps.binop_result(BinaryOps.series_binop(op, l, r), env, ctx)
+  end
+
+  defp do_eval_binop(op, l, r, env, ctx) do
+    BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+  end
+
+  @spec compare_sequence_equality(atom(), [pyvalue()], [pyvalue()], Env.t(), Ctx.t()) ::
+          eval_result()
+  defp compare_sequence_equality(op, la, ra, env, ctx) when length(la) == length(ra) do
     result =
       Enum.zip(la, ra)
       |> Enum.reduce_while({true, env, ctx}, fn {a, b}, {_, env, ctx} ->
@@ -3281,21 +3319,8 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  defp do_eval_binop(op, {:tuple, la}, {:tuple, ra}, env, ctx)
-       when op in [:eq, :neq] and length(la) != length(ra) do
+  defp compare_sequence_equality(op, la, ra, env, ctx) when length(la) != length(ra) do
     {op == :neq, env, ctx}
-  end
-
-  defp do_eval_binop(op, {:pandas_series, _} = l, r, env, ctx) do
-    BinaryOps.binop_result(BinaryOps.series_binop(op, l, r), env, ctx)
-  end
-
-  defp do_eval_binop(op, l, {:pandas_series, _} = r, env, ctx) do
-    BinaryOps.binop_result(BinaryOps.series_binop(op, l, r), env, ctx)
-  end
-
-  defp do_eval_binop(op, l, r, env, ctx) do
-    BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
   end
 
   @doc false

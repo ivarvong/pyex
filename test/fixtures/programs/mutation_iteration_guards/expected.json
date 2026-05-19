@@ -1,0 +1,9 @@
+{
+  "error": "Traceback (most recent call last):\n  File \"/Users/ivar/code/pyex/test/fixtures/runner.py\", line 172, in run_fixture\n    exec(\n    ~~~~^\n        compile(source, main_py, \"exec\"),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        {\"__name__\": \"__main__\", \"__file__\": main_py},\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"test/fixtures/programs/mutation_iteration_guards/main.py\", line 48, in <module>\n    assert set_size[1:] == (\"runtime\", True)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T19:21:23.683285Z",
+  "sha256": "feade444a4ae3b5cde9a2fa384cb81c25c4be73878707ac7df87b48cec0b4e6f",
+  "source_file": "main.py",
+  "stdout": ""
+}

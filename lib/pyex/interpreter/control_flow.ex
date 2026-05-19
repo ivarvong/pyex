@@ -103,14 +103,36 @@ defmodule Pyex.Interpreter.ControlFlow do
           String.t() | nil
         ) :: eval_result()
   defp iterable_to_for(iterable, var_name, body, else_body, env, ctx, source_var) do
-    case Interpreter.to_iterable(iterable, env, ctx) do
-      {:ok, items, env, ctx} ->
-        eval_for_items(var_name, items, body, else_body, env, ctx, source_var)
+    case live_list_source(iterable, source_var, env, ctx) do
+      {:ok, source} ->
+        eval_for_live_list(var_name, source, body, else_body, env, ctx, source_var, 0)
 
-      {:exception, msg} ->
-        {{:exception, msg}, env, ctx}
+      :error ->
+        case Interpreter.to_iterable(iterable, env, ctx) do
+          {:ok, items, env, ctx} ->
+            eval_for_items(var_name, items, body, else_body, env, ctx, source_var)
+
+          {:exception, msg} ->
+            {{:exception, msg}, env, ctx}
+        end
     end
   end
+
+  @typep live_list_source :: {:ref, non_neg_integer()} | {:var, String.t()}
+
+  @spec live_list_source(Interpreter.pyvalue(), String.t() | nil, Env.t(), Ctx.t()) ::
+          {:ok, live_list_source()} | :error
+  defp live_list_source({:ref, id} = ref, _source_var, _env, ctx) do
+    case Ctx.deref(ctx, ref) do
+      {:py_list, _, _} -> {:ok, {:ref, id}}
+      _ -> :error
+    end
+  end
+
+  defp live_list_source({:py_list, _, _}, source_var, _env, _ctx) when is_binary(source_var),
+    do: {:ok, {:var, source_var}}
+
+  defp live_list_source(_iterable, _source_var, _env, _ctx), do: :error
 
   @spec eval_for_generator_iter(
           String.t() | [term()],
@@ -314,6 +336,165 @@ defmodule Pyex.Interpreter.ControlFlow do
         ) :: eval_result()
   def eval_for_items(var_name, items, body, else_body, env, ctx, source_var \\ nil) do
     do_eval_for_items(var_name, items, body, else_body, env, ctx, source_var, 0)
+  end
+
+  @spec eval_for_live_list(
+          String.t() | [term()],
+          live_list_source(),
+          [Parser.ast_node()],
+          [Parser.ast_node()] | nil,
+          Env.t(),
+          Ctx.t(),
+          String.t() | nil,
+          non_neg_integer()
+        ) :: eval_result()
+  defp eval_for_live_list(var_name, source, body, else_body, env, ctx, source_var, idx) do
+    case live_list_at(source, idx, env, ctx) do
+      :done ->
+        eval_loop_else(else_body, env, ctx)
+
+      {:ok, item} ->
+        eval_for_live_item(var_name, item, body, else_body, env, ctx, source_var, idx, source)
+    end
+  end
+
+  @spec eval_for_live_item(
+          String.t() | [term()],
+          Interpreter.pyvalue(),
+          [Parser.ast_node()],
+          [Parser.ast_node()] | nil,
+          Env.t(),
+          Ctx.t(),
+          String.t() | nil,
+          non_neg_integer(),
+          live_list_source()
+        ) :: eval_result()
+  defp eval_for_live_item(var_names, item, body, else_body, env, ctx, source_var, idx, source)
+       when is_list(var_names) do
+    case Ctx.check_step(ctx) do
+      {:exceeded, msg} ->
+        {{:exception, msg}, env, ctx}
+
+      {:ok, ctx} ->
+        ctx = Ctx.record(ctx, :loop, nil)
+
+        case bind_loop_var(var_names, Ctx.deref(ctx, item), env) do
+          {:exception, msg} ->
+            {{:exception, msg}, env, ctx}
+
+          env ->
+            case Interpreter.eval_statements(body, env, ctx) do
+              {{:returned, _} = signal, env, ctx} ->
+                {signal, env, ctx}
+
+              {{:break}, env, ctx} ->
+                {nil, env, ctx}
+
+              {{:exception, _} = signal, env, ctx} ->
+                {signal, env, ctx}
+
+              {{:yielded, val, cont}, env, ctx} ->
+                rest = live_list_rest(source, idx + 1, env, ctx)
+
+                {{:yielded, val, cont ++ [{:cont_for, var_names, rest, body, else_body}]}, env,
+                 ctx}
+
+              {{:continue}, env, ctx} ->
+                eval_for_live_list(
+                  var_names,
+                  source,
+                  body,
+                  else_body,
+                  env,
+                  ctx,
+                  source_var,
+                  idx + 1
+                )
+
+              {_, env, ctx} ->
+                eval_for_live_list(
+                  var_names,
+                  source,
+                  body,
+                  else_body,
+                  env,
+                  ctx,
+                  source_var,
+                  idx + 1
+                )
+            end
+        end
+    end
+  end
+
+  defp eval_for_live_item(var_name, item, body, else_body, env, ctx, source_var, idx, source) do
+    case Ctx.check_step(ctx) do
+      {:exceeded, msg} ->
+        {{:exception, msg}, env, ctx}
+
+      {:ok, ctx} ->
+        ctx = Ctx.record(ctx, :loop, nil)
+        env = Env.smart_put(env, var_name, item)
+
+        case Interpreter.eval_statements(body, env, ctx) do
+          {{:returned, _} = signal, env, ctx} ->
+            {signal, env, ctx}
+
+          {{:break}, env, ctx} ->
+            {nil, env, ctx}
+
+          {{:exception, _} = signal, env, ctx} ->
+            {signal, env, ctx}
+
+          {{:yielded, val, cont}, env, ctx} ->
+            rest = live_list_rest(source, idx + 1, env, ctx)
+            {{:yielded, val, cont ++ [{:cont_for, var_name, rest, body, else_body}]}, env, ctx}
+
+          {{:continue}, env, ctx} ->
+            {env, ctx} = writeback_loop_var(var_name, source_var, idx, item, env, ctx)
+            eval_for_live_list(var_name, source, body, else_body, env, ctx, source_var, idx + 1)
+
+          {_, env, ctx} ->
+            {env, ctx} = writeback_loop_var(var_name, source_var, idx, item, env, ctx)
+            eval_for_live_list(var_name, source, body, else_body, env, ctx, source_var, idx + 1)
+        end
+    end
+  end
+
+  @spec live_list_at(live_list_source(), non_neg_integer(), Env.t(), Ctx.t()) ::
+          {:ok, Interpreter.pyvalue()} | :done
+  defp live_list_at(source, idx, env, ctx) do
+    case live_list_value(source, env, ctx) do
+      {:py_list, reversed, len} when idx < len ->
+        {:ok, Enum.at(reversed, len - 1 - idx)}
+
+      _ ->
+        :done
+    end
+  end
+
+  @spec live_list_rest(live_list_source(), non_neg_integer(), Env.t(), Ctx.t()) ::
+          [Interpreter.pyvalue()]
+  defp live_list_rest(source, idx, env, ctx) do
+    case live_list_value(source, env, ctx) do
+      {:py_list, reversed, len} when idx < len ->
+        reversed
+        |> Enum.reverse()
+        |> Enum.drop(idx)
+
+      _ ->
+        []
+    end
+  end
+
+  @spec live_list_value(live_list_source(), Env.t(), Ctx.t()) :: Interpreter.pyvalue() | nil
+  defp live_list_value({:ref, id}, _env, ctx), do: Ctx.deref(ctx, {:ref, id})
+
+  defp live_list_value({:var, name}, env, ctx) do
+    case Env.get(env, name) do
+      {:ok, value} -> Ctx.deref(ctx, value)
+      :undefined -> nil
+    end
   end
 
   @doc false
@@ -538,36 +719,7 @@ defmodule Pyex.Interpreter.ControlFlow do
           Env.t(),
           Ctx.t()
         ) :: {Env.t(), Ctx.t()}
-  defp writeback_loop_var(_var_name, nil, _idx, _original, env, ctx), do: {env, ctx}
-
-  defp writeback_loop_var(var_name, source_var, idx, original, env, ctx) do
-    case Env.get(env, var_name) do
-      {:ok, current} when current != original ->
-        case Env.get(env, source_var) do
-          {:ok, {:ref, ref_id}} ->
-            case Ctx.deref(ctx, {:ref, ref_id}) do
-              {:py_list, reversed, len} when idx < len ->
-                real_idx = len - 1 - idx
-                updated = {:py_list, List.replace_at(reversed, real_idx, current), len}
-                {env, Ctx.heap_put(ctx, ref_id, updated)}
-
-              _ ->
-                {env, ctx}
-            end
-
-          {:ok, {:py_list, reversed, len}} when idx < len ->
-            real_idx = len - 1 - idx
-            updated = {:py_list, List.replace_at(reversed, real_idx, current), len}
-            {Env.put_at_source(env, source_var, updated), ctx}
-
-          _ ->
-            {env, ctx}
-        end
-
-      _ ->
-        {env, ctx}
-    end
-  end
+  defp writeback_loop_var(_var_name, _source_var, _idx, _original, env, ctx), do: {env, ctx}
 
   @spec eval_loop_else([Parser.ast_node()] | nil, Env.t(), Ctx.t()) :: eval_result()
   defp eval_loop_else(nil, env, ctx), do: {nil, env, ctx}

@@ -339,6 +339,32 @@ defmodule Pyex.InterpreterTest do
       assert Pyex.run!("[1, 2] * 3") == [1, 2, 1, 2, 1, 2]
     end
 
+    test "list equality uses recursive Python equality" do
+      assert Pyex.run!(~S|[(1, ["a"]), (2, [])] == [(1, ["a"]), (2, [])]|) == true
+      assert Pyex.run!(~S|[(1, ["a"])] != [(1, ["b"])]|) == true
+    end
+
+    test "list iteration observes appends before exhaustion" do
+      assert Pyex.run!("""
+             xs = [1, 2]
+             seen = []
+             for x in xs:
+                 seen.append(x)
+                 if x == 2:
+                     xs.append(3)
+             seen
+             """) == [1, 2, 3]
+    end
+
+    test "assigning loop variable does not mutate iterated list" do
+      assert Pyex.run!("""
+             xs = [1, 2]
+             for x in xs:
+                 x = 9
+             xs
+             """) == [1, 2]
+    end
+
     test "int * list repetition (reversed operand)" do
       assert Pyex.run!("3 * [1, 2]") == [1, 2, 1, 2, 1, 2]
     end

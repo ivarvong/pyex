@@ -1,0 +1,9 @@
+{
+  "error": "Traceback (most recent call last):\n  File \"/Users/ivar/code/pyex/test/fixtures/runner.py\", line 172, in run_fixture\n    exec(\n    ~~~~^\n        compile(source, main_py, \"exec\"),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        {\"__name__\": \"__main__\", \"__file__\": main_py},\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"test/fixtures/programs/call_binding_matrix/main.py\", line 61, in <module>\n    assert errors == [(\"posonly\", \"posonly\"), (\"missing\", \"missing\"), (\"multiple\", \"multiple\")]\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError\n",
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T19:21:23.573229Z",
+  "sha256": "48857d02ac2baaec0c9bf464214b43aebdeff9f2e1aedf79582382510f80fb8f",
+  "source_file": "main.py",
+  "stdout": ""
+}

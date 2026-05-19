@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T19:21:23.630127Z",
+  "sha256": "f6ba978a772d1d9b4ffeb703d800caa3404baa86ffb8a8ae74471180d0e81b5d",
+  "source_file": "main.py",
+  "stdout": "result (10, [('v2', 2), ('v3', 5), ('v5', 10)], [2, 5, 10], 5, [4, 9, 25], 'missing')\nstatus done\n"
+}

@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "files": {},
+  "python_version": "3.14.3",
+  "recorded_at": "2026-05-19T12:41:31.506701Z",
+  "sha256": "a380cc408ce80a2d92c155f34310bb5d5ecc79a40a57f5fd3e49bc32190bf05f",
+  "source_file": "main.py",
+  "stdout": "tier ['b', 'd', 'a', 'c', 'e']\nbucket ['a', 'b', 'c', 'd', 'e']\nledger [('a', 10), ('b', 21), ('d', 40), ('e', 50), ('c', 30), ('f', 60)]\nnested True True\n"
+}
