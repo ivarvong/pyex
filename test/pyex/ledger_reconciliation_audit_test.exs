@@ -16,11 +16,76 @@ defmodule Pyex.LedgerReconciliationAuditTest do
     result = Fixture.run_pyex(fixture)
 
     Fixture.assert_conforms(fixture, result)
+    audit_files!(result.files)
+  end
 
-    summary = Jason.decode!(Map.fetch!(result.files, "summary.json"))
-    balances = Jason.decode!(Map.fetch!(result.files, "balances.json"))
-    audit = Jason.decode!(Map.fetch!(result.files, "audit.json"))
-    exceptions = parse_exceptions(Map.fetch!(result.files, "exceptions.csv"))
+  test "ledger audit rejects corrupted proof artifacts" do
+    fixture = Fixture.load!("ledger_reconciliation_gauntlet")
+    result = Fixture.run_pyex(fixture)
+    Fixture.assert_conforms(fixture, result)
+
+    mutations = [
+      {:accepted_count,
+       fn files ->
+         mutate_summary(files, fn summary -> Map.update!(summary, "accepted", &(&1 + 1)) end)
+       end},
+      {:movement_total,
+       fn files ->
+         mutate_summary(files, fn summary -> Map.update!(summary, "movement", &(&1 + 1)) end)
+       end},
+      {:balance_sign,
+       fn files ->
+         mutate_balances(files, fn [[account, amount] | rest] -> [[account, -amount] | rest] end)
+       end},
+      {:balance_order,
+       fn files ->
+         mutate_balances(files, fn [first, second | rest] -> [second, first | rest] end)
+       end},
+      {:audit_drop, fn files -> mutate_audit(files, fn [_first | rest] -> rest end) end},
+      {:audit_duplicate,
+       fn files -> mutate_audit(files, fn [first | _] = rows -> [first | rows] end) end},
+      {:audit_amount,
+       fn files ->
+         mutate_audit(files, fn [[event, src, dst, amount] | rest] ->
+           [[event, src, dst, amount + 1] | rest]
+         end)
+       end},
+      {:audit_shape,
+       fn files ->
+         mutate_audit(files, fn [[event, src, _dst, amount] | rest] ->
+           [[event, src, src, amount] | rest]
+         end)
+       end},
+      {:exception_reason,
+       fn files ->
+         mutate_exceptions(files, fn [[event_id, _reason] | rest] ->
+           [[event_id, "wrong"] | rest]
+         end)
+       end},
+      {:exception_order,
+       fn files ->
+         mutate_exceptions(files, fn [first, second | rest] -> [second, first | rest] end)
+       end}
+    ]
+
+    for {name, mutate} <- mutations do
+      try do
+        result.files
+        |> mutate.()
+        |> audit_files!()
+
+        flunk("mutation #{name} should fail the independent ledger audit")
+      rescue
+        ExUnit.AssertionError -> :ok
+      end
+    end
+  end
+
+  defp audit_files!(files) do
+    summary = Jason.decode!(Map.fetch!(files, "summary.json"))
+    balances = Jason.decode!(Map.fetch!(files, "balances.json"))
+    audit = Jason.decode!(Map.fetch!(files, "audit.json"))
+    exceptions = parse_exceptions(Map.fetch!(files, "exceptions.csv"))
 
     assert length(audit) == summary["accepted"]
     assert length(exceptions) == summary["exceptions"]
@@ -39,6 +104,52 @@ defmodule Pyex.LedgerReconciliationAuditTest do
 
     assert exceptions == Enum.sort(exceptions)
     assert balances == Enum.sort_by(balances, fn [account, _amount] -> account end)
+
+    assert Enum.all?(exceptions, fn [event_id, reason] ->
+             is_binary(event_id) and
+               reason in ["inactive-account", "missing-account", "non-positive"]
+           end)
+  end
+
+  defp mutate_summary(files, fun) do
+    Map.update!(files, "summary.json", fn json ->
+      json
+      |> Jason.decode!()
+      |> fun.()
+      |> Jason.encode!(pretty: false)
+    end)
+  end
+
+  defp mutate_balances(files, fun) do
+    Map.update!(files, "balances.json", fn json ->
+      json
+      |> Jason.decode!()
+      |> fun.()
+      |> Jason.encode!(pretty: false)
+    end)
+  end
+
+  defp mutate_audit(files, fun) do
+    Map.update!(files, "audit.json", fn json ->
+      json
+      |> Jason.decode!()
+      |> fun.()
+      |> Jason.encode!(pretty: false)
+    end)
+  end
+
+  defp mutate_exceptions(files, fun) do
+    Map.update!(files, "exceptions.csv", fn csv ->
+      csv
+      |> parse_exceptions()
+      |> fun.()
+      |> encode_exceptions()
+    end)
+  end
+
+  defp encode_exceptions(rows) do
+    body = Enum.map_join(rows, "\n", fn [event_id, reason] -> event_id <> "," <> reason end)
+    "event_id,reason\n" <> body <> "\n"
   end
 
   defp parse_exceptions(csv) do
