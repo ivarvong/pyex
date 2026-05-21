@@ -179,3 +179,38 @@ jobs:
         run: |
           echo "Experimental Elixir ${{ matrix.elixir }} external HTTP run failed, likely due to upstream dependency compatibility."
           echo "Test outcome: ${{ steps.external_http.outcome }}"
+
+  library-conformance:
+    name: Library Conformance (vs pinned pip libraries)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28.1"
+          elixir-version: "1.19.5"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: deps-${{ runner.os }}-28.1-1.19.5-${{ hashFiles('**/mix.lock') }}
+          restore-keys: deps-${{ runner.os }}-28.1-1.19.5-
+
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: _build
+          key: build-${{ runner.os }}-28.1-1.19.5-${{ hashFiles('**/mix.lock') }}
+          restore-keys: build-${{ runner.os }}-28.1-1.19.5-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Run library conformance tests
+        run: mix test --include library_conformance test/pyex/library_conformance/

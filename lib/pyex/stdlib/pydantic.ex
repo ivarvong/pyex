@@ -28,7 +28,8 @@ defmodule Pyex.Stdlib.Pydantic do
   def module_value do
     %{
       "BaseModel" => base_model_class(),
-      "Field" => {:builtin_kw, &field/2}
+      "Field" => {:builtin_kw, &field/2},
+      "ValidationError" => {:exception_class, "ValidationError"}
     }
   end
 
@@ -150,6 +151,37 @@ defmodule Pyex.Stdlib.Pydantic do
 
       {ann_acc, def_acc, con_acc}
     end)
+  end
+
+  # Field declaration order across the MRO. Walks root-to-leaf so parent
+  # fields appear before subclass fields, matching real pydantic. Per
+  # class, prefers `__annotations_order__` (set by the interpreter when
+  # the class body is evaluated) and falls back to map-key iteration.
+  @spec ordered_field_names(Pyex.Interpreter.pyvalue()) :: [String.t()]
+  defp ordered_field_names(class) do
+    {names, _seen} =
+      class
+      |> linearize()
+      |> Enum.reverse()
+      |> Enum.reduce({[], MapSet.new()}, fn {:class, _, _, class_attrs}, {acc, seen} ->
+        Enum.reduce(local_field_order(class_attrs), {acc, seen}, fn name, {acc, seen} ->
+          if MapSet.member?(seen, name) do
+            {acc, seen}
+          else
+            {[name | acc], MapSet.put(seen, name)}
+          end
+        end)
+      end)
+
+    Enum.reverse(names)
+  end
+
+  @spec local_field_order(%{optional(String.t()) => Pyex.Interpreter.pyvalue()}) :: [String.t()]
+  defp local_field_order(class_attrs) do
+    case Map.get(class_attrs, "__annotations_order__") do
+      names when is_list(names) -> Enum.reverse(names)
+      _ -> class_attrs |> Map.get("__annotations__", %{}) |> Map.keys()
+    end
   end
 
   @spec validate_and_coerce(
@@ -450,8 +482,7 @@ defmodule Pyex.Stdlib.Pydantic do
         ) :: Pyex.Interpreter.pyvalue()
   defp model_dump([self], kwargs) do
     {:instance, class, attrs} = self
-    {annotations, _defaults, _constraints} = collect_fields(class)
-    field_names = Map.keys(annotations)
+    field_names = ordered_field_names(class)
 
     include = Map.get(kwargs, "include")
     exclude = Map.get(kwargs, "exclude")
@@ -556,9 +587,11 @@ defmodule Pyex.Stdlib.Pydantic do
     else
       {:class, name, _, _} = class
       {annotations, defaults, field_constraints} = collect_fields(class)
+      field_names = ordered_field_names(class)
 
       properties =
-        Enum.reduce(annotations, PyDict.new(), fn {field_name, type_str}, acc ->
+        Enum.reduce(field_names, PyDict.new(), fn field_name, acc ->
+          type_str = Map.get(annotations, field_name)
           prop = type_to_json_schema(type_str)
           constraints = Map.get(field_constraints, field_name, %{})
           prop = apply_schema_constraints(prop, constraints)
@@ -573,12 +606,10 @@ defmodule Pyex.Stdlib.Pydantic do
         end)
 
       required =
-        annotations
-        |> Enum.reject(fn {field_name, type_str} ->
+        Enum.reject(field_names, fn field_name ->
+          type_str = Map.get(annotations, field_name)
           optional?(type_str) or Map.has_key?(defaults, field_name)
         end)
-        |> Enum.map(fn {name, _} -> name end)
-        |> Enum.sort()
 
       schema =
         PyDict.from_pairs([

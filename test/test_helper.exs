@@ -1,4 +1,4 @@
-default_excludes = [:postgres, :r2, :external_http]
+default_excludes = [:postgres, :r2, :external_http, :library_conformance]
 
 extra_excludes =
   if Pyex.Test.Oracle.python3_available?() do

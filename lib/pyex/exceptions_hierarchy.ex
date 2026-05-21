@@ -90,7 +90,8 @@ defmodule Pyex.ExceptionsHierarchy do
     "Underflow" => "Inexact",
     "FloatOperation" => "DecimalException",
     "BadZipFile" => "Exception",
-    "LargeZipFile" => "Exception"
+    "LargeZipFile" => "Exception",
+    "ValidationError" => "ValueError"
   }
 
   @doc """
