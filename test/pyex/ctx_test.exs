@@ -146,6 +146,152 @@ defmodule Pyex.CtxTest do
     end
   end
 
+  # The hot path through `check_step/1` is taken on every loop
+  # iteration, statement, call entry, and generator yield.  A fast
+  # path skips the cond chain, the per-step ctx allocation, and the
+  # `System.monotonic_time/0` syscall when nothing is bounded.  The
+  # tradeoff is that `ctx.steps` stops advancing in the fast path —
+  # this test pins both branches' contract so future edits can't
+  # silently regress.
+  describe "check_step/1" do
+    test "default ctx (no limits, no timeout) hits the fast path and does not advance steps" do
+      ctx = Ctx.new()
+      assert ctx.steps == 0
+      assert {:ok, ctx2} = Ctx.check_step(ctx)
+      # Fast path: identity-on-fields ctx (no `steps + 1`).
+      assert ctx2.steps == 0
+      # And idempotent across many calls.
+      ctx3 =
+        Enum.reduce(1..100, ctx, fn _, acc ->
+          {:ok, c} = Ctx.check_step(acc)
+          c
+        end)
+
+      assert ctx3.steps == 0
+    end
+
+    test "timeout set forces the slow path and increments steps" do
+      ctx = Ctx.new(timeout: 5_000)
+      assert {:ok, ctx2} = Ctx.check_step(ctx)
+      assert ctx2.steps == 1
+    end
+
+    test "max_steps set forces the slow path, increments steps, and trips when exceeded" do
+      limits = Pyex.Limits.new(max_steps: 3)
+      ctx = Ctx.new(limits: limits)
+
+      ctx =
+        Enum.reduce(1..3, ctx, fn _, acc ->
+          {:ok, c} = Ctx.check_step(acc)
+          c
+        end)
+
+      assert ctx.steps == 3
+      assert {:exceeded, msg} = Ctx.check_step(ctx)
+      assert msg =~ "step limit exceeded"
+    end
+
+    test "max_memory_bytes set forces the slow path even with no timeout" do
+      limits = Pyex.Limits.new(max_memory_bytes: 10_000_000)
+      ctx = Ctx.new(limits: limits)
+      assert {:ok, ctx2} = Ctx.check_step(ctx)
+      assert ctx2.steps == 1
+    end
+
+    test "max_output_bytes set forces the slow path" do
+      limits = Pyex.Limits.new(max_output_bytes: 10_000)
+      ctx = Ctx.new(limits: limits)
+      assert {:ok, ctx2} = Ctx.check_step(ctx)
+      assert ctx2.steps == 1
+    end
+  end
+
+  # The list-index tuple cache turns `list[i]` from O(N) (a walk into
+  # the reverse-cons storage) into O(1) (`:erlang.element/2` on a
+  # cached tuple).  Three rules govern when caching happens:
+  #
+  #   - Only lists with len >= 32 enter the fast path (the walk is
+  #     faster than the cache-check overhead for shorter lists).
+  #   - Second-access promotion: first int subscript marks the id
+  #     as `:pending`, second builds the tuple.  This avoids paying
+  #     the O(N) build cost for lists that get indexed only once.
+  #   - `heap_put/3` invalidates centrally — any mutation drops the
+  #     cache entry, so aliased reads via either ref see fresh data.
+  describe "list_index_lookup cache" do
+    test "fresh ctx has empty cache" do
+      ctx = Ctx.new()
+      assert ctx.list_index_cache == %{}
+    end
+
+    test "short lists (len < 32) never touch the cache" do
+      {:ok, 10, ctx} =
+        Pyex.run("""
+        a = [10, 20, 30]
+        a[0]
+        """)
+
+      assert ctx.list_index_cache == %{}
+    end
+
+    test "first int subscript on a long list marks the entry as :pending" do
+      code = "long = [i for i in range(64)]\n_ = long[0]\nlong\n"
+      {:ok, _list, ctx} = Pyex.run(code)
+      assert [{_id, :pending}] = Map.to_list(ctx.list_index_cache)
+    end
+
+    test "second int subscript on a long list promotes to a tuple" do
+      code = "long = [i for i in range(64)]\n_ = long[0]\n_ = long[1]\nlong\n"
+      {:ok, _list, ctx} = Pyex.run(code)
+      assert [{_id, tup}] = Map.to_list(ctx.list_index_cache)
+      assert is_tuple(tup)
+      assert tuple_size(tup) == 64
+    end
+
+    test "append after promotion invalidates the cache; later reads see new value" do
+      code = """
+      a = [i for i in range(64)]
+      _ = a[0]
+      _ = a[1]                 # promote to tuple
+      a.append(999)            # mutation -> heap_put -> invalidate
+      a[64]                    # must see 999, not stale-tuple IndexError
+      """
+
+      assert {:ok, 999, _ctx} = Pyex.run(code)
+    end
+
+    test "subscript-assignment invalidates the cache" do
+      code = """
+      a = [i for i in range(64)]
+      _ = a[0]
+      _ = a[1]
+      a[5] = 9999
+      a[5]
+      """
+
+      assert {:ok, 9999, _ctx} = Pyex.run(code)
+    end
+
+    test "aliased lists see writes through the cache via either alias" do
+      code = """
+      a = [i for i in range(64)]
+      b = a
+      _ = a[0]
+      _ = a[1]                 # promote via a
+      b.append(777)            # mutate via b
+      a[64]                    # read via a must reflect b's append
+      """
+
+      assert {:ok, 777, _ctx} = Pyex.run(code)
+    end
+
+    test "heap_put on a non-cached id is a safe no-op" do
+      ctx = Ctx.new()
+      assert ctx.list_index_cache == %{}
+      ctx = Ctx.heap_put(ctx, 9999, {:py_list, [3, 2, 1], 3})
+      assert ctx.list_index_cache == %{}
+    end
+  end
+
   describe "output capture" do
     test "output/1 returns captured print output as iolist" do
       ctx =
