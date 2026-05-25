@@ -251,27 +251,48 @@ defmodule Pyex.Parser.ControlFlow do
     {:error, "expected variable name in for loop at #{token_line(tokens)}"}
   end
 
+  # Mirror of `Pyex.Parser.Comprehensions.collect_nested_for_pattern/2` —
+  # kept in sync because both the `for` statement and comprehension
+  # parsers consume the same paren-target sub-grammar.  If you change
+  # one, change the other.  A small shared module would dedupe, but
+  # the rest of `collect_for_vars` (which differs per call site)
+  # blocks a pure extraction; revisit when refactoring the parser
+  # layout.
   @spec collect_nested_for_pattern([Lexer.token()], [for_target()]) ::
           {:ok, [for_target()], [Lexer.token()]} | {:error, String.t()}
-  defp collect_nested_for_pattern([{:name, _, name}, {:op, _, :rparen} | rest], acc) do
-    {:ok, Enum.reverse([name | acc]), rest}
-  end
-
-  defp collect_nested_for_pattern([{:name, _, name}, {:op, _, :comma} | rest], acc) do
-    collect_nested_for_pattern(rest, [name | acc])
-  end
-
-  defp collect_nested_for_pattern([{:op, _, :lparen} | rest], acc) do
-    with {:ok, nested, rest} <- collect_nested_for_pattern(rest, []) do
+  defp collect_nested_for_pattern(tokens, acc) do
+    with {:ok, item, rest} <- parse_for_pattern_item(tokens) do
       case rest do
-        [{:op, _, :rparen} | rest] -> {:ok, Enum.reverse([nested | acc]), rest}
-        [{:op, _, :comma} | rest] -> collect_nested_for_pattern(rest, [nested | acc])
-        _ -> {:error, "expected ')' or ',' in nested for target at #{token_line(rest)}"}
+        [{:op, _, :rparen} | rest] ->
+          {:ok, Enum.reverse([item | acc]), rest}
+
+        [{:op, _, :comma}, {:op, _, :rparen} | rest] ->
+          {:ok, Enum.reverse([item | acc]), rest}
+
+        [{:op, _, :comma} | rest] ->
+          collect_nested_for_pattern(rest, [item | acc])
+
+        _ ->
+          {:error, "expected ')' or ',' in nested for target at #{token_line(rest)}"}
       end
     end
   end
 
-  defp collect_nested_for_pattern(tokens, _acc) do
+  @spec parse_for_pattern_item([Lexer.token()]) ::
+          {:ok, for_target(), [Lexer.token()]} | {:error, String.t()}
+  defp parse_for_pattern_item([{:op, _, :star}, {:name, _, name} | rest]) do
+    {:ok, {:starred, name}, rest}
+  end
+
+  defp parse_for_pattern_item([{:name, _, name} | rest]) do
+    {:ok, name, rest}
+  end
+
+  defp parse_for_pattern_item([{:op, _, :lparen} | rest]) do
+    collect_nested_for_pattern(rest, [])
+  end
+
+  defp parse_for_pattern_item(tokens) do
     {:error, "expected variable name in nested for target at #{token_line(tokens)}"}
   end
 
