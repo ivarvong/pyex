@@ -1466,6 +1466,59 @@ defmodule Pyex.InterpreterTest do
 
       assert msg =~ "ValueError"
     end
+
+    # Parenthesised tuple targets share the same `collect_nested_for_pattern`
+    # path that comprehensions now use; these tests pin the surface area
+    # where both forms must agree.
+    test "for (a, b) in pairs binds parenthesised target" do
+      assert {:ok, [3, 7, 11], _ctx} =
+               Pyex.run("""
+               result = []
+               for (a, b) in [(1, 2), (3, 4), (5, 6)]:
+                   result.append(a + b)
+               result
+               """)
+    end
+
+    test "for (a,) single-element tuple target unpacks 1-tuples" do
+      assert {:ok, [1, 2, 3], _ctx} =
+               Pyex.run("""
+               result = []
+               for (a,) in [(1,), (2,), (3,)]:
+                   result.append(a)
+               result
+               """)
+    end
+
+    test "for (a, *rest) starred target collects tail into a list" do
+      assert {:ok, [[2, 3], [5]], _ctx} =
+               Pyex.run("""
+               result = []
+               for (a, *rest) in [(1, 2, 3), (4, 5)]:
+                   result.append(rest)
+               result
+               """)
+    end
+
+    test "for (*head, last) starred target collects head into a list" do
+      assert {:ok, [[1, 2], [4]], _ctx} =
+               Pyex.run("""
+               result = []
+               for (*head, last) in [(1, 2, 3), (4, 5)]:
+                   result.append(head)
+               result
+               """)
+    end
+
+    test "for (a, (b, c)) nested parenthesised target" do
+      assert {:ok, [6, 15], _ctx} =
+               Pyex.run("""
+               result = []
+               for (a, (b, c)) in [(1, (2, 3)), (4, (5, 6))]:
+                   result.append(a + b + c)
+               result
+               """)
+    end
   end
 
   describe "chained comparisons" do
