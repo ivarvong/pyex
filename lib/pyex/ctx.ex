@@ -425,7 +425,7 @@ defmodule Pyex.Ctx do
   defp rule_matches_url?(%{dangerously_allow_full_internet_access: true}, _url), do: true
 
   defp rule_matches_url?(%{allowed_url_prefix: prefix}, url),
-    do: url_within_prefix?(URI.parse(url), URI.parse(prefix))
+    do: url_within_prefix?(URI.parse(url), URI.parse(prefix), prefix)
 
   defp rule_matches_url?(_, _url), do: false
 
@@ -438,12 +438,12 @@ defmodule Pyex.Ctx do
   # (never userinfo) also rejects the "https://api.example.com@evil.com/" trick.
   # A prefix whose authority ends in a bare ":" (e.g. "http://localhost:")
   # matches the host on any port.
-  @spec url_within_prefix?(URI.t(), URI.t()) :: boolean()
-  defp url_within_prefix?(url, prefix) do
+  @spec url_within_prefix?(URI.t(), URI.t(), String.t()) :: boolean()
+  defp url_within_prefix?(url, prefix, raw_prefix) do
     host_present?(url.host) and
       downcase(url.scheme) == downcase(prefix.scheme) and
       downcase(url.host) == downcase(prefix.host) and
-      port_match?(url, prefix) and
+      port_match?(url.port, prefix.port, raw_prefix) and
       path_within_prefix?(request_path(url.path), request_path(prefix.path))
   end
 
@@ -456,10 +456,21 @@ defmodule Pyex.Ctx do
 
   # A bare trailing ":" in the prefix authority (no port digits) is a wildcard
   # that matches any port; otherwise the effective ports (defaults filled in by
-  # URI.parse) must be equal.
-  @spec port_match?(URI.t(), URI.t()) :: boolean()
-  defp port_match?(url, %URI{authority: authority} = prefix) do
-    (is_binary(authority) and String.ends_with?(authority, ":")) or url.port == prefix.port
+  # URI.parse) must be equal. The wildcard is read off the raw prefix string so
+  # we never touch URI's opaque `authority` field.
+  @spec port_match?(non_neg_integer() | nil, non_neg_integer() | nil, String.t()) :: boolean()
+  defp port_match?(url_port, prefix_port, raw_prefix),
+    do: any_port_prefix?(raw_prefix) or url_port == prefix_port
+
+  @spec any_port_prefix?(String.t()) :: boolean()
+  defp any_port_prefix?(raw_prefix) do
+    case String.split(raw_prefix, "://", parts: 2) do
+      [_scheme, rest] ->
+        rest |> String.split(["/", "?", "#"], parts: 2) |> hd() |> String.ends_with?(":")
+
+      _ ->
+        false
+    end
   end
 
   @spec request_path(String.t() | nil) :: String.t()
