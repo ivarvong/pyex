@@ -440,11 +440,14 @@ defmodule Pyex.Ctx do
   # matches the host on any port.
   @spec url_within_prefix?(URI.t(), URI.t(), String.t()) :: boolean()
   defp url_within_prefix?(url, prefix, raw_prefix) do
+    url_path = request_path(url.path)
+
     host_present?(url.host) and
       downcase(url.scheme) == downcase(prefix.scheme) and
       downcase(url.host) == downcase(prefix.host) and
       port_match?(url.port, prefix.port, raw_prefix) and
-      path_within_prefix?(request_path(url.path), request_path(prefix.path))
+      not dot_dot_segment?(url_path) and
+      path_within_prefix?(url_path, request_path(prefix.path))
   end
 
   @spec host_present?(term()) :: boolean()
@@ -485,6 +488,20 @@ defmodule Pyex.Ctx do
       String.ends_with?(prefix_path, "/") -> String.starts_with?(url_path, prefix_path)
       true -> String.starts_with?(url_path, prefix_path <> "/")
     end
+  end
+
+  # A ".." path segment lets a request climb above the prefix subtree once a
+  # client or server applies RFC-3986 dot-segment removal (e.g. "/v1/../../admin"
+  # resolves to "/admin"), so a path containing one is treated as outside the
+  # prefix. URI.parse does not collapse dot-segments, and the check is done on
+  # the percent-decoded path so "%2e%2e" and "%2f"-smuggled separators are
+  # caught too; matching whole segments avoids false positives like "version..1".
+  @spec dot_dot_segment?(String.t()) :: boolean()
+  defp dot_dot_segment?(path) do
+    path
+    |> URI.decode()
+    |> String.split("/")
+    |> Enum.any?(&(&1 == ".."))
   end
 
   @spec rule_specificity(network_rule()) :: non_neg_integer()

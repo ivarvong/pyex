@@ -106,6 +106,30 @@ defmodule Pyex.CtxTest do
       assert {:ok, []} =
                Ctx.check_network_access(ctx, "GET", "https://postman-echo.com/get?source=pyex")
     end
+
+    test "denies a path that climbs above the prefix with .. segments" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/v1/"}])
+
+      assert {:denied, _} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com/v1/../../admin")
+    end
+
+    test "denies percent-encoded .. traversal" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/v1/"}])
+
+      assert {:denied, _} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com/v1/%2e%2e/admin")
+
+      assert {:denied, _} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com/v1/..%2f..%2fadmin")
+    end
+
+    test "allows a path segment that merely contains .. as a substring" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/v1/"}])
+
+      assert {:ok, []} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com/v1/version..1")
+    end
   end
 
   describe "record/3" do
