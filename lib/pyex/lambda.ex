@@ -256,10 +256,10 @@ defmodule Pyex.Lambda do
   end
 
   @spec interpret(String.t(), Ctx.t()) :: {:ok, Env.t(), Ctx.t()} | {:error, Error.t()}
-  defp interpret(source, ctx) do
+  defp interpret(source, %Ctx{} = ctx) do
     case Pyex.compile(source) do
       {:ok, ast} ->
-        ctx = %{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
+        ctx = %Ctx{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
 
         case Interpreter.run_with_ctx(ast, Builtins.runtime_env(ctx), ctx) do
           {:ok, _value, env, ctx} -> {:ok, env, ctx}

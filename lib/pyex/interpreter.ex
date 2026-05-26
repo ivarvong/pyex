@@ -1482,10 +1482,59 @@ defmodule Pyex.Interpreter do
 
   def eval({:lit, _, [value]}, env, ctx), do: {value, env, ctx}
 
+  # Fast path: parse-time scope resolution (see `Pyex.Parser.ScopeResolve`).
+  # `:scope, :global` means the analyzer proved the name is read from
+  # a non-local scope (module-level or builtin).  We still walk
+  # `env.scopes` because functions defined in imported modules see
+  # their *own* module scope as a non-top entry — but we skip the
+  # topmost scope (the function's own locals), which is a guaranteed
+  # miss.  Net: 1 hash lookup instead of 2 for the common
+  # `[function_locals, module_scope]` chain.
+  def eval({:var, [{:scope, :global} | _], [name]}, %Env{scopes: [_top | rest]} = env, ctx) do
+    case scope_find(rest, name) do
+      {:ok, value} -> {value, env, ctx}
+      # Misannotated reads fall back so behaviour stays correct.
+      :error -> eval_var_slow(name, env, ctx)
+    end
+  end
+
+  # `:scope, :local` means the analyzer proved the name is bound in
+  # the topmost scope.  One hash lookup.  On miss, fall back to the
+  # full walk (a wrong annotation must remain correct).
+  def eval({:var, [{:scope, :local} | _], [name]}, %Env{scopes: [top | _]} = env, ctx) do
+    case Map.fetch(top, name) do
+      {:ok, value} ->
+        {value, env, ctx}
+
+      :error ->
+        eval_var_slow(name, env, ctx)
+    end
+  end
+
+  # Unannotated reads (module-level code, closure reads the analyzer
+  # couldn't classify, or pre-existing AST built without the resolve
+  # pass).  Inlined directly so the common case doesn't pay an
+  # extra function call.
   def eval({:var, _, [name]}, env, ctx) do
     case Env.get(env, name) do
       {:ok, value} -> {value, env, ctx}
       :undefined -> {{:exception, "NameError: name '#{name}' is not defined"}, env, ctx}
+    end
+  end
+
+  defp eval_var_slow(name, env, ctx) do
+    case Env.get(env, name) do
+      {:ok, value} -> {value, env, ctx}
+      :undefined -> {{:exception, "NameError: name '#{name}' is not defined"}, env, ctx}
+    end
+  end
+
+  defp scope_find([], _name), do: :error
+
+  defp scope_find([scope | rest], name) do
+    case Map.fetch(scope, name) do
+      {:ok, _} = found -> found
+      :error -> scope_find(rest, name)
     end
   end
 
@@ -2763,7 +2812,50 @@ defmodule Pyex.Interpreter do
   defp canonicalize_map_key(_ctx, key, _obj), do: key
 
   @spec eval_subscript(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  # Lists shorter than this skip the tuple-cache fast path and stay
+  # on the original reverse-cons walk.  Below ~32 elements the walk
+  # is cheaper than the cache lookup + bookkeeping, and short-list
+  # indexing is rarely a hot path anyway.
+  @list_cache_min_len 32
+
   defp eval_subscript(object, key, env, ctx) do
+    # Fast path: a heap-stored Python list indexed by an integer key.
+    # Storage is reverse-cons (`Enum.at` is O(j) per index), but
+    # lists indexed repeatedly promote to a tuple form on the second
+    # access (see `Ctx.list_index_lookup/5`), giving O(1) subscript
+    # for inner-loop numerical code (SMA windows, z-scores, etc.).
+    # Heap-mutating ops invalidate the cache centrally in `heap_put/3`.
+    case object do
+      {:ref, id} when is_integer(key) ->
+        case Map.fetch!(ctx.heap, id) do
+          {:py_list, reversed, len} when len >= @list_cache_min_len ->
+            cond do
+              key < -len or key >= len ->
+                {{:exception, "IndexError: list index out of range"}, env, ctx}
+
+              true ->
+                forward_idx = if key < 0, do: len + key, else: key
+                storage_idx = len - 1 - forward_idx
+                {value, ctx} = Ctx.list_index_lookup(ctx, id, forward_idx, reversed, storage_idx)
+                {value, env, ctx}
+            end
+
+          # Already paid the heap fetch — hand the deref'd value
+          # to the slow path so it doesn't fetch a second time.
+          derefed_value ->
+            eval_subscript_slow(derefed_value, key, env, ctx)
+        end
+
+      _ ->
+        eval_subscript_slow(object, key, env, ctx)
+    end
+  end
+
+  # The slow path accepts either a heap ref or an already-deref'd
+  # value.  `Ctx.deref/2` is identity for non-refs, so the fast
+  # path can pre-deref and the slow path stays correct.
+  @spec eval_subscript_slow(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp eval_subscript_slow(object, key, env, ctx) do
     object = Ctx.deref(ctx, object)
     # Canonicalize keys for hash-based lookup so heap-backed instances with
     # matching `__eq__`/`__hash__` resolve to the correct dict/map entry.
@@ -2778,12 +2870,11 @@ defmodule Pyex.Interpreter do
         {value, env, ctx}
 
       {:py_list, reversed, len} when is_integer(key) ->
-        # Transform Python index to storage index
-        # Python index i = storage index (len-1-i)
-        # Python index -1 (last) = storage index 0 (first in reversed)
+        # Non-heap py_list — no caching available.  Falls back to the
+        # storage-index walk.  Hit rarely in practice; most py_lists
+        # live behind a heap ref and take the fast path above.
         index =
           if key < 0 do
-            # Python negative: -1 → 0, -2 → 1, etc.
             -key - 1
           else
             len - 1 - key

@@ -23,6 +23,12 @@
   {"lib/pyex/filesystem/memory.ex", :contract_with_opaque},
   {"lib/pyex/interpreter/call_support.ex", :call_without_opaque},
   {"lib/pyex/methods.ex", :call_without_opaque},
+  {"lib/pyex/parser/scope_resolve.ex", :call_without_opaque},
+  # `@spec ... :: MapSet.t(String.t())` on the analyzer's helpers
+  # surfaces `contract_with_opaque` on Elixir 1.19's older Dialyzer
+  # but is silent on 1.20.  MapSet's parameterized type is opaque;
+  # the analyzer never constructs MapSet values outside the module.
+  {"lib/pyex/parser/scope_resolve.ex", :contract_with_opaque},
   # The with-statement eval clause calls eval/3 on the context manager expression,
   # but Dialyzer cannot narrow the union type through pattern matching on
   # {:with, _, [expr, as_name, body]} and thinks expr could be an atom.

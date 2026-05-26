@@ -79,6 +79,7 @@ defmodule Pyex.Ctx do
           file: String.t() | nil,
           heap: %{optional(non_neg_integer()) => term()},
           next_heap_id: non_neg_integer(),
+          list_index_cache: %{optional(non_neg_integer()) => tuple()},
           limits: Pyex.Limits.t(),
           steps: non_neg_integer(),
           memory_bytes: non_neg_integer(),
@@ -113,6 +114,7 @@ defmodule Pyex.Ctx do
             file: nil,
             heap: %{},
             next_heap_id: 0,
+            list_index_cache: %{},
             limits: %Pyex.Limits{},
             steps: 0,
             memory_bytes: 0,
@@ -556,6 +558,31 @@ defmodule Pyex.Ctx do
   it combines `check_limits/1` and `check_deadline/1`.
   """
   @spec check_step(t()) :: {:ok, t()} | {:exceeded, String.t()}
+  # Fast path: the run has no enforceable budget — no compute timeout
+  # and every resource cap is :infinity.  `check_step` is called on
+  # every loop iteration / statement / call entry, and the slow path
+  # below allocates a new ctx (incrementing `steps`) on every hit, so
+  # short-circuiting here removes a per-step map update plus three
+  # cond branches plus the `System.monotonic_time/0` syscall behind
+  # `check_deadline/1`.  In the default no-limits run this is ~13%
+  # of wall time on tight compute loops; see scratch/robot_graders_*.
+  #
+  # The cost is that `ctx.steps` stops advancing — that field is only
+  # read by `check_limits/1` itself (and is not part of the public
+  # `Pyex.Ctx` contract), so this is safe.
+  def check_step(
+        %__MODULE__{
+          timeout: nil,
+          limits: %Pyex.Limits{
+            max_steps: :infinity,
+            max_memory_bytes: :infinity,
+            max_output_bytes: :infinity
+          }
+        } = ctx
+      ) do
+    {:ok, ctx}
+  end
+
   def check_step(%__MODULE__{} = ctx) do
     case check_limits(ctx) do
       {:exceeded, _kind, message} ->
@@ -723,6 +750,50 @@ defmodule Pyex.Ctx do
   def deref(_ctx, value), do: value
 
   @doc """
+  Looks up `forward_idx` in a heap-stored `py_list`, using a lazy
+  tuple cache.
+
+  Cost model: the cache costs O(N) to build (reverse + List.to_tuple).
+  A list indexed only once is *more* expensive to cache than to walk,
+  so the cache uses **second-access promotion**:
+
+  1. First int subscript on an id: walk the reverse-cons list (the
+     pre-existing O(j) path) and record `:pending` in the cache.
+  2. Second int subscript on the same id: build the tuple, replace
+     `:pending` with it.
+  3. Third+ subscripts: O(1) `:erlang.element/2`.
+
+  Mutations clear the entry via `heap_put/3`, so the next subscript
+  starts over from step 1.
+
+  Returns `{value, updated_ctx}`.  The caller is responsible for
+  having bounds-checked `forward_idx` already.
+  """
+  @spec list_index_lookup(t(), non_neg_integer(), non_neg_integer(), [term()], non_neg_integer()) ::
+          {term(), t()}
+  def list_index_lookup(
+        %__MODULE__{list_index_cache: cache} = ctx,
+        id,
+        forward_idx,
+        reversed,
+        storage_idx
+      ) do
+    case Map.fetch(cache, id) do
+      {:ok, tup} when is_tuple(tup) ->
+        {:erlang.element(forward_idx + 1, tup), ctx}
+
+      {:ok, :pending} ->
+        tup = reversed |> Enum.reverse() |> List.to_tuple()
+        ctx = %{ctx | list_index_cache: Map.put(cache, id, tup)}
+        {:erlang.element(forward_idx + 1, tup), ctx}
+
+      :error ->
+        ctx = %{ctx | list_index_cache: Map.put(cache, id, :pending)}
+        {Enum.at(reversed, storage_idx), ctx}
+    end
+  end
+
+  @doc """
   Recursively dereferences all refs in a value tree.  Used for
   equality comparison and at the API boundary to convert the
   internal heap-ref representation back to plain values.
@@ -804,11 +875,25 @@ defmodule Pyex.Ctx do
   All aliases of the same ref see the new value immediately.
   """
   @spec heap_put(t(), non_neg_integer(), term()) :: t()
-  def heap_put(%__MODULE__{heap: heap} = ctx, id, value) do
+  def heap_put(%__MODULE__{heap: heap, list_index_cache: cache} = ctx, id, value) do
     old_mem = estimate_memory(Map.get(heap, id))
     new_mem = estimate_memory(value)
     delta = max(new_mem - old_mem, 0)
-    %{ctx | heap: Map.put(heap, id, value), memory_bytes: ctx.memory_bytes + delta}
+
+    # Invalidate any cached tuple form for this heap id.  Every
+    # mutation of a Python list goes through here (`.append`,
+    # `.extend`, slice assignment, subscript assignment, etc.), so
+    # invalidating centrally lets `eval_subscript` rely on the
+    # cache being fresh without touching the 200+ construction
+    # sites.  Missing entries are a no-op.
+    cache = if Map.has_key?(cache, id), do: Map.delete(cache, id), else: cache
+
+    %{
+      ctx
+      | heap: Map.put(heap, id, value),
+        memory_bytes: ctx.memory_bytes + delta,
+        list_index_cache: cache
+    }
   end
 
   @doc """

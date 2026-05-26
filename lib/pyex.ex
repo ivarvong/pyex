@@ -48,8 +48,9 @@ defmodule Pyex do
   """
   @spec compile(String.t()) :: {:ok, Parser.ast_node()} | {:error, String.t()}
   def compile(source) when is_binary(source) do
-    with {:ok, tokens} <- Lexer.tokenize(source) do
-      Parser.parse(tokens)
+    with {:ok, tokens} <- Lexer.tokenize(source),
+         {:ok, ast} <- Parser.parse(tokens) do
+      {:ok, Parser.ScopeResolve.resolve(ast)}
     end
   end
 
@@ -82,6 +83,31 @@ defmodule Pyex do
   - `:boto3` -- shorthand for adding `:boto3` to capabilities.
   - `:sql` -- shorthand for adding `:sql` to capabilities.
 
+  ## Return values
+
+  Python values are mapped to Elixir at the boundary. Containers
+  whose semantics match an Elixir native type are unwrapped; the
+  rest are returned in a tagged form so the Python type is not
+  lost.
+
+  | Python type | Elixir shape |
+  | ----------- | ------------ |
+  | `int`, `float`, `str`, `bool`, `None` | scalar (`integer`, `float`, `binary`, `boolean`, `nil`) |
+  | `list` | `[v1, v2, ...]` |
+  | `dict` | `%{k1 => v1, ...}` |
+  | `tuple` | `{:tuple, [v1, v2, ...]}` |
+  | `set` | `{:set, MapSet.t()}` |
+  | `frozenset` | `{:frozenset, MapSet.t()}` |
+  | `range` | `{:range, start, stop, step}` |
+  | `generator` | `{:generator, [v1, ...]}` (materialised) |
+  | class instance | `{:instance, class, fields}` |
+
+  Tagged shapes are used where Elixir's native type would lose
+  information — for example, a Python tuple is *distinct* from
+  a Python list, so collapsing both into `[...]` would be lossy.
+  Container values are converted recursively, so a list of
+  Python tuples surfaces as `[{:tuple, [...]}, {:tuple, [...]}]`.
+
   ## Examples
 
       {:ok, 42, _ctx} = Pyex.run("40 + 2")
@@ -96,6 +122,13 @@ defmodule Pyex do
             "greet" => {:builtin, fn [name] -> "hello " <> name end}
           }
         })
+
+      # Python tuple stays tagged so callers can pattern-match on it:
+      {:ok, {:tuple, [1, 2, 3]}, _ctx} = Pyex.run("(1, 2, 3)")
+
+      # List of tuples — each tuple is tagged:
+      {:ok, [{:tuple, [1, 2]}, {:tuple, [3, 4]}], _ctx} =
+        Pyex.run("[(1, 2), (3, 4)]")
   """
   @spec run(String.t() | Parser.ast_node(), Ctx.t() | keyword()) ::
           {:ok, Interpreter.pyvalue(), Ctx.t()}
@@ -114,7 +147,7 @@ defmodule Pyex do
 
     :telemetry.execute([:pyex, :run, :start], %{system_time: System.system_time()}, %{})
 
-    ctx = %{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
+    ctx = %Ctx{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
 
     # Match CPython's default decimal context (precision 28, banker's rounding).
     # The Elixir Decimal library defaults to :half_up; CPython uses :half_even.
