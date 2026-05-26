@@ -72,7 +72,11 @@ defmodule Pyex do
   - `:limits` -- resource limits as a keyword list or `Pyex.Limits` struct.
     Supported keys: `:timeout`, `:max_steps`, `:max_memory_bytes`,
     `:max_output_bytes`. When `limits: [timeout: N]` is provided,
-    it supersedes a top-level `:timeout`.
+    it supersedes a top-level `:timeout`. Ceilings are **on by
+    default** (10M steps / 50 MB / 1 MB output); unspecified keys take
+    their safe defaults, so partial limits are additive. Pass
+    `limits: :none` to lift every ceiling for trusted code. See
+    `Pyex.Limits` for details.
   - `:network` -- network access policy for the `requests` module.
     A list of rule maps, each with `:allowed_url_prefix` or
     `:dangerously_allow_full_internet_access`, plus optional `:methods`

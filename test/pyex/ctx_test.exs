@@ -154,8 +154,8 @@ defmodule Pyex.CtxTest do
   # this test pins both branches' contract so future edits can't
   # silently regress.
   describe "check_step/1" do
-    test "default ctx (no limits, no timeout) hits the fast path and does not advance steps" do
-      ctx = Ctx.new()
+    test "unbounded ctx (limits: :none) hits the fast path and does not advance steps" do
+      ctx = Ctx.new(limits: :none)
       assert ctx.steps == 0
       assert {:ok, ctx2} = Ctx.check_step(ctx)
       # Fast path: identity-on-fields ctx (no `steps + 1`).
@@ -168,6 +168,16 @@ defmodule Pyex.CtxTest do
         end)
 
       assert ctx3.steps == 0
+    end
+
+    test "default ctx is bounded (safe by default) and takes the slow path" do
+      ctx = Ctx.new()
+      # Safe-by-default ceilings are finite, so the fast path does not fire.
+      assert ctx.limits.max_steps == 10_000_000
+      assert ctx.limits.max_memory_bytes == 50_000_000
+      assert ctx.limits.max_output_bytes == 1_000_000
+      assert {:ok, ctx2} = Ctx.check_step(ctx)
+      assert ctx2.steps == 1
     end
 
     test "timeout set forces the slow path and increments steps" do

@@ -256,6 +256,7 @@ defmodule Pyex.Ctx do
   defp normalize_limits(opts) do
     case Keyword.get(opts, :limits) do
       nil -> %Pyex.Limits{}
+      :none -> Pyex.Limits.unbounded()
       %Pyex.Limits{} = l -> l
       kw when is_list(kw) -> Pyex.Limits.new(kw)
     end
