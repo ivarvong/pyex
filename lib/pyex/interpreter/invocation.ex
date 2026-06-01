@@ -726,7 +726,7 @@ defmodule Pyex.Interpreter.Invocation do
             fun.(derefed_args)
           rescue
             FunctionClauseError ->
-              {:exception, "TypeError: invalid arguments"}
+              {:exception, builtin_clause_error_message(fun, derefed_args)}
 
             e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
               {:exception, "TypeError: #{Exception.message(e)}"}
@@ -794,7 +794,7 @@ defmodule Pyex.Interpreter.Invocation do
         fun.(args)
       rescue
         FunctionClauseError ->
-          {:exception, "TypeError: invalid arguments"}
+          {:exception, builtin_clause_error_message(fun, args)}
 
         e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
           {:exception, "TypeError: #{Exception.message(e)}"}
@@ -825,7 +825,7 @@ defmodule Pyex.Interpreter.Invocation do
             fun.(derefed_args, derefed_kwargs)
           rescue
             FunctionClauseError ->
-              {:exception, "TypeError: invalid arguments"}
+              {:exception, builtin_clause_error_message(fun, derefed_args, derefed_kwargs)}
 
             e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
               {:exception, "TypeError: #{Exception.message(e)}"}
@@ -857,6 +857,69 @@ defmodule Pyex.Interpreter.Invocation do
       {:mutate, new_obj, return_val, new_ctx} -> {:mutate, new_obj, return_val, new_ctx}
       other -> other
     end
+  end
+
+  # Builds a diagnostic Python-level TypeError message when a builtin
+  # raises FunctionClauseError — i.e. the user passed args that hit no
+  # clause head.  Includes the builtin's name (via `Function.info/1`)
+  # and a short summary of the arg shapes, so the LLM consuming the
+  # error can fix its call.  The generic fallback "TypeError: invalid
+  # arguments" is uninformative for self-healing.
+  @spec builtin_clause_error_message(
+          (... -> term()),
+          [Interpreter.pyvalue()],
+          %{optional(String.t()) => Interpreter.pyvalue()}
+        ) :: String.t()
+  defp builtin_clause_error_message(fun, args, kwargs \\ %{}) do
+    name = builtin_name(fun)
+    arg_summary = Enum.map_join(args, ", ", &arg_type_summary/1)
+    kwarg_summary = if map_size(kwargs) == 0, do: "", else: ", " <> kwargs_summary(kwargs)
+
+    "TypeError: #{name}(#{arg_summary}#{kwarg_summary}): no matching clause" <>
+      " (wrong number or types of arguments)"
+  end
+
+  @spec builtin_name((... -> term())) :: String.t()
+  defp builtin_name(fun) do
+    info = Function.info(fun)
+    mod = Keyword.get(info, :module)
+    name = Keyword.get(info, :name)
+    arity = Keyword.get(info, :arity)
+
+    cond do
+      mod == nil or name == nil -> "<builtin>"
+      true -> "#{inspect(mod)}.#{name}/#{arity}"
+    end
+  end
+
+  @spec arg_type_summary(Interpreter.pyvalue()) :: String.t()
+  defp arg_type_summary(value) do
+    case value do
+      v when is_integer(v) -> "int"
+      v when is_float(v) -> "float"
+      v when is_boolean(v) -> "bool"
+      v when is_binary(v) -> "str"
+      nil -> "None"
+      {:py_list, _, _} -> "list"
+      {:py_dict, _, _} -> "dict"
+      {:py_set, _, _} -> "set"
+      {:tuple, _} -> "tuple"
+      {:pyex_decimal, _} -> "Decimal"
+      {:builtin, _} -> "builtin"
+      {:function, _, _, _, _, _, _} -> "function"
+      {:class, _, _, _} -> "class"
+      {:instance, _, _, _} -> "instance"
+      {:generator, _} -> "generator"
+      {:iterator, _} -> "iterator"
+      {tag, _} when is_atom(tag) -> Atom.to_string(tag)
+      {tag, _, _} when is_atom(tag) -> Atom.to_string(tag)
+      _ -> "?"
+    end
+  end
+
+  @spec kwargs_summary(%{optional(String.t()) => Interpreter.pyvalue()}) :: String.t()
+  defp kwargs_summary(kwargs) do
+    Enum.map_join(kwargs, ", ", fn {k, v} -> "#{k}=#{arg_type_summary(v)}" end)
   end
 
   @doc false

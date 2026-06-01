@@ -133,7 +133,7 @@ defmodule Pyex.BannedCallTracer do
   #   `setelement`, `tuple_to_list`, `list_to_tuple`).
   # - Pure conversions (`*_to_binary`, `binary_to_*`, `binary_part`,
   #   `iolist_to_binary`).
-  # - Reflection (`function_exported`, `get_module_info`).
+  # - Reflection (`fun_info`, `function_exported`, `get_module_info`).
   # - Pure hashing / unique identifiers
   #   (`crc32`, `phash2`, `unique_integer`, `make_ref`).
   # - Wall clock / VM stat reads with no side effects on the caller
@@ -209,6 +209,7 @@ defmodule Pyex.BannedCallTracer do
                     {:iolist_to_binary, 1},
                     {:list_to_binary, 1},
                     # reflection
+                    {:fun_info, 1},
                     {:function_exported, 3},
                     {:get_module_info, 2},
                     # pure hashing / unique ids

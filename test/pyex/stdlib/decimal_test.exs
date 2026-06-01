@@ -42,6 +42,61 @@ defmodule Pyex.Stdlib.DecimalTest do
       assert result == "5"
     end
 
+    test "Decimal() with no arguments returns Decimal('0')" do
+      # CPython: Decimal() == Decimal('0').  This is the path
+      # `defaultdict(Decimal)` takes on a missing key.  A regression
+      # here would crash with FunctionClauseError in the builtin
+      # dispatcher — see github issue #4c87eb50 (Sentry) and the
+      # "defaultdict(Decimal) auto-creates Decimal('0') on missing key"
+      # test below for the end-to-end pattern.
+      result =
+        Pyex.run!("""
+        from decimal import Decimal
+        str(Decimal())
+        """)
+
+      assert result == "0"
+    end
+
+    test "defaultdict(Decimal) auto-creates Decimal('0') on missing key" do
+      # Real-world pattern from a sandboxed analytics workload:
+      # accumulating net positions per symbol with `defaultdict(Decimal)`
+      # and `+=`.  The first touch of any symbol invokes the factory with
+      # zero arguments.
+      result =
+        Pyex.run!("""
+        from decimal import Decimal
+        from collections import defaultdict
+        net = defaultdict(Decimal)
+        for sym, side, shares in [
+            ('VTI', 'BUY',  '10.5'),
+            ('VTI', 'SELL', '2.3'),
+            ('BND', 'BUY',  '5.0'),
+        ]:
+            s = Decimal(shares)
+            if side == 'BUY':
+                net[sym] += s
+            else:
+                net[sym] -= s
+        # `net['MISSING']` exercises the no-arg factory path on a key
+        # that was never written to.
+        '|'.join(str(net[k]) for k in ['VTI', 'BND', 'MISSING'])
+        """)
+
+      assert result == "8.2|5.0|0"
+    end
+
+    test "Decimal with too many arguments raises TypeError" do
+      assert {:error, %Pyex.Error{message: msg}} =
+               Pyex.run("""
+               from decimal import Decimal
+               Decimal(1, 2, 3)
+               """)
+
+      assert msg =~ "TypeError"
+      assert msg =~ "Decimal()"
+    end
+
     test "invalid Decimal literal returns InvalidOperation" do
       assert {:error, %Pyex.Error{message: msg}} =
                Pyex.run("""
