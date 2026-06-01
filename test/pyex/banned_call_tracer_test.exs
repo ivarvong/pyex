@@ -43,9 +43,14 @@ defmodule Pyex.BannedCallTracerTest do
     if violations != [] do
       lines =
         violations
-        |> Enum.map(fn %{call: {mod, fun, arity}, beam: beam, line: line} ->
-          short = beam |> Path.basename() |> Path.rootname()
-          "  #{short}:#{line}  #{inspect(mod)}.#{fun}/#{arity}"
+        |> Enum.map(fn
+          %{call: :no_debug_info, beam: beam} ->
+            short = beam |> Path.basename() |> Path.rootname()
+            "  #{short}  (no debug info — tracer cannot inspect this beam)"
+
+          %{call: {mod, fun, arity}, beam: beam, line: line} ->
+            short = beam |> Path.basename() |> Path.rootname()
+            "  #{short}:#{line}  #{inspect(mod)}.#{fun}/#{arity}"
         end)
         |> Enum.join("\n")
 
@@ -61,6 +66,40 @@ defmodule Pyex.BannedCallTracerTest do
       Fix each violation, or — if the call is genuinely necessary — add it to
       the @allowed list in Pyex.BannedCallTracer with a clear justification.
       """)
+    end
+  end
+
+  test "tracer reports a beam without abstract code as a violation, not a silent pass" do
+    # If a beam ever lacks abstract code (e.g. a stripped release with
+    # `strip_beams: true`), the tracer must fail loudly — otherwise the
+    # whole security gate is vacuous: an uninspectable module is reported
+    # clean.  Synthesize a stripped beam and verify the tracer flags it.
+    tmp = Path.join(System.tmp_dir!(), "pyex_no_debug_info_test")
+    File.mkdir_p!(tmp)
+
+    src_beam = Path.join(@beam_dir, "Elixir.Pyex.Stdlib.Time.beam")
+    stripped_beam = Path.join(tmp, "Elixir.Pyex.Stdlib.Time.beam")
+
+    try do
+      # `:beam_lib.strip/1` removes the Dbgi/Abst chunk but keeps the
+      # module loadable.  After stripping, `:beam_lib.chunks/2` returns
+      # `:no_abstract_code` (vs `:no_debug_info` for never-built-with-it).
+      {:ok, bin} = File.read(src_beam)
+      {:ok, {_mod, stripped_bin}} = :beam_lib.strip(bin)
+      File.write!(stripped_beam, stripped_bin)
+
+      # Sanity: confirm the strip actually removed abstract code.
+      {:ok, {_mod, [{:abstract_code, kind}]}} =
+        :beam_lib.chunks(String.to_charlist(stripped_beam), [:abstract_code])
+
+      assert kind in [:no_abstract_code, :no_debug_info],
+             "Expected strip to remove abstract code; got #{inspect(kind)}"
+
+      violations = BannedCallTracer.check_beam(stripped_beam)
+
+      assert [%{call: :no_debug_info, beam: ^stripped_beam, line: 0}] = violations
+    after
+      File.rm_rf!(tmp)
     end
   end
 

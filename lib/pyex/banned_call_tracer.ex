@@ -139,7 +139,7 @@ defmodule Pyex.BannedCallTracer do
   ]
 
   @type violation :: %{
-          call: {module(), atom(), arity()},
+          call: {module(), atom(), arity()} | :no_debug_info,
           beam: Path.t(),
           line: non_neg_integer()
         }
@@ -169,8 +169,16 @@ defmodule Pyex.BannedCallTracer do
       {:ok, {_mod, [{:abstract_code, {:raw_abstract_v1, abstract_code}}]}} ->
         walk(abstract_code, beam_path, [])
 
-      {:ok, {_mod, [{:abstract_code, :no_debug_info}]}} ->
-        []
+      {:ok, {_mod, [{:abstract_code, missing}]}}
+      when missing in [:no_debug_info, :no_abstract_code] ->
+        # A BEAM without abstract code cannot be inspected — the tracer
+        # would see *nothing* and silently report the module clean,
+        # voiding the whole security gate.  `:no_debug_info` means the
+        # module was compiled without `+debug_info`; `:no_abstract_code`
+        # means the chunk was later stripped (e.g. `strip_beams: true`
+        # in a release).  Either way, surface as a violation so the check
+        # fails loudly instead of quietly passing.
+        [%{call: :no_debug_info, beam: beam_path, line: 0}]
 
       {:error, :beam_lib, _reason} ->
         []
