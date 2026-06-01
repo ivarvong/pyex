@@ -153,45 +153,53 @@ defmodule Pyex do
 
     ctx = %Ctx{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
 
-    # Match CPython's default decimal context (precision 28, banker's rounding).
-    # The Elixir Decimal library defaults to :half_up; CPython uses :half_even.
+    # The Elixir Decimal library reads its context (precision, rounding mode)
+    # from the *process dictionary* — mutating it without restoring would leak
+    # Pyex's CPython-matching context into the caller's process and contradict
+    # AGENTS.md's "no process dict / no global state" rule.  Snapshot before
+    # the run, restore unconditionally after.
+    saved_decimal_ctx = Decimal.Context.get()
     Decimal.Context.set(%Decimal.Context{precision: 28, rounding: :half_even})
 
-    env = Builtins.runtime_env(ctx)
+    try do
+      env = Builtins.runtime_env(ctx)
 
-    result = Interpreter.run_with_ctx_result(ast, env, ctx)
+      result = Interpreter.run_with_ctx_result(ast, env, ctx)
 
-    case result do
-      {:ok, value, _env, final_ctx} ->
-        final_ctx = close_open_handles(final_ctx)
+      case result do
+        {:ok, value, _env, final_ctx} ->
+          final_ctx = close_open_handles(final_ctx)
 
-        duration_ms =
-          System.convert_time_unit(System.monotonic_time() - start_mono, :native, :microsecond) /
-            1000.0
+          duration_ms =
+            System.convert_time_unit(System.monotonic_time() - start_mono, :native, :microsecond) /
+              1000.0
 
-        :telemetry.execute([:pyex, :run, :stop], %{duration_ms: duration_ms}, %{
-          compute: Ctx.compute_time(final_ctx)
-        })
+          :telemetry.execute([:pyex, :run, :stop], %{duration_ms: duration_ms}, %{
+            compute: Ctx.compute_time(final_ctx)
+          })
 
-        derefed = Ctx.deep_deref(final_ctx, value)
+          derefed = Ctx.deep_deref(final_ctx, value)
 
-        {:ok, Interpreter.Helpers.to_python_view(derefed),
-         %{final_ctx | duration_ms: duration_ms}}
+          {:ok, Interpreter.Helpers.to_python_view(derefed),
+           %{final_ctx | duration_ms: duration_ms}}
 
-      {:error, msg, final_ctx} ->
-        close_open_handles(final_ctx)
+        {:error, msg, final_ctx} ->
+          close_open_handles(final_ctx)
 
-        duration_ms =
-          System.convert_time_unit(System.monotonic_time() - start_mono, :native, :microsecond) /
-            1000.0
+          duration_ms =
+            System.convert_time_unit(System.monotonic_time() - start_mono, :native, :microsecond) /
+              1000.0
 
-        error = Error.from_message(msg)
+          error = Error.from_message(msg)
 
-        :telemetry.execute([:pyex, :run, :exception], %{duration_ms: duration_ms}, %{
-          error: error
-        })
+          :telemetry.execute([:pyex, :run, :exception], %{duration_ms: duration_ms}, %{
+            error: error
+          })
 
-        {:error, error}
+          {:error, error}
+      end
+    after
+      Decimal.Context.set(saved_decimal_ctx)
     end
   end
 
