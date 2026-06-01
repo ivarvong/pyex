@@ -15,9 +15,23 @@ defmodule Pyex.Stdlib.Requests do
   All HTTP calls emit `:telemetry` events (`[:pyex, :request, :start]`
   and `[:pyex, :request, :stop]`). I/O time is excluded from the
   compute budget via `{:io_call, fn}` signals.
+
+  ## Default request timeout
+
+  When the Python caller does not pass `timeout=`, a host-side default
+  of #{30_000} ms is applied as Req's `receive_timeout`. This matters
+  because `Pyex.Limits.timeout` only bounds compute time — I/O is
+  excluded from the deadline by design — so without a default ceiling
+  here a sandboxed program calling a slow or hung endpoint would block
+  the calling process indefinitely. Pass `timeout=` from Python to
+  override.
   """
 
   @behaviour Pyex.Stdlib.Module
+
+  # Default Req receive_timeout (ms) when the Python caller omits
+  # `timeout=`.  See "Default request timeout" in the moduledoc.
+  @default_receive_timeout_ms 30_000
 
   alias Pyex.PyDict
 
@@ -308,16 +322,23 @@ defmodule Pyex.Stdlib.Requests do
     end
   end
 
+  @doc false
+  # Public for testing only.  Returns the Req option list for the
+  # `timeout=` kwarg, applying the host default when the caller omits it.
   @spec timeout_opts(%{optional(String.t()) => Pyex.Interpreter.pyvalue()}) :: keyword()
-  defp timeout_opts(kwargs) do
+  def timeout_opts(kwargs) do
     case Map.get(kwargs, "timeout") do
       seconds when is_number(seconds) and seconds > 0 ->
         [receive_timeout: round(seconds * 1000)]
 
       _ ->
-        []
+        [receive_timeout: @default_receive_timeout_ms]
     end
   end
+
+  @doc false
+  @spec default_receive_timeout_ms() :: pos_integer()
+  def default_receive_timeout_ms, do: @default_receive_timeout_ms
 
   @spec form_encode(Pyex.Interpreter.pyvalue()) :: String.t()
   defp form_encode({:py_dict, _, _} = dict) do
