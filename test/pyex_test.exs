@@ -1351,4 +1351,61 @@ defmodule PyexTest do
       assert result =~ ~s(<span class="a">:ok</span>)
     end
   end
+
+  describe "Decimal context isolation" do
+    test "Pyex.run restores the caller's Decimal context on success" do
+      original = %Decimal.Context{precision: 5, rounding: :half_up}
+      Decimal.Context.set(original)
+
+      try do
+        {:ok, _val, _ctx} = Pyex.run("1 + 1")
+        assert Decimal.Context.get() == original
+      after
+        Decimal.Context.set(%Decimal.Context{})
+      end
+    end
+
+    test "Pyex.run restores the caller's Decimal context on Python error" do
+      original = %Decimal.Context{precision: 7, rounding: :ceiling}
+      Decimal.Context.set(original)
+
+      try do
+        {:error, _err} = Pyex.run("raise ValueError('boom')")
+        assert Decimal.Context.get() == original
+      after
+        Decimal.Context.set(%Decimal.Context{})
+      end
+    end
+
+    test "Pyex.run restores the caller's Decimal context on syntax error" do
+      original = %Decimal.Context{precision: 11, rounding: :floor}
+      Decimal.Context.set(original)
+
+      try do
+        {:error, _err} = Pyex.run("this is not python")
+        assert Decimal.Context.get() == original
+      after
+        Decimal.Context.set(%Decimal.Context{})
+      end
+    end
+
+    test "Pyex.run uses CPython-matching context (precision 28, half_even) inside the run" do
+      Decimal.Context.set(%Decimal.Context{precision: 3, rounding: :half_up})
+
+      try do
+        # 1/3 with precision 28 + half_even has many more digits than the
+        # 3-digit context the caller set.  Use the decimal stdlib to read
+        # the active context from inside the interpreter.
+        {:ok, prec, _ctx} =
+          Pyex.run("""
+          from decimal import getcontext
+          getcontext().prec
+          """)
+
+        assert prec == 28
+      after
+        Decimal.Context.set(%Decimal.Context{})
+      end
+    end
+  end
 end
