@@ -32,6 +32,12 @@ defmodule Pyex.CtxTest do
         Ctx.new(network: [%{allowed_url_prefix: ""}])
       end
     end
+
+    test "rejects allowed_url_prefix without a scheme and host" do
+      assert_raise ArgumentError, ~r/must be an absolute URL with a scheme and host/, fn ->
+        Ctx.new(network: [%{allowed_url_prefix: "api.example.com/v1/"}])
+      end
+    end
   end
 
   describe "check_network_access/3" do
@@ -40,6 +46,89 @@ defmodule Pyex.CtxTest do
 
       assert {:ok, []} =
                Ctx.check_network_access(ctx, "GET", "HTTPS://API.EXAMPLE.COM/v1/chat")
+    end
+
+    test "allows paths at or below the prefix path" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.openai.com/v1/"}])
+
+      assert {:ok, []} =
+               Ctx.check_network_access(ctx, "GET", "https://api.openai.com/v1/chat/completions")
+    end
+
+    test "denies a host that only shares the prefix as a leading label" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/"}])
+
+      assert {:denied, _} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com.attacker.com/")
+    end
+
+    test "denies the subdomain bypass even without a trailing slash on the prefix" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com"}])
+
+      assert {:denied, _} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com.attacker.com/")
+    end
+
+    test "denies a path that shares the prefix but crosses no segment boundary" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.openai.com/v1"}])
+
+      assert {:denied, _} =
+               Ctx.check_network_access(ctx, "GET", "https://api.openai.com/v1abc/anything")
+
+      assert {:ok, []} = Ctx.check_network_access(ctx, "GET", "https://api.openai.com/v1")
+      assert {:ok, []} = Ctx.check_network_access(ctx, "GET", "https://api.openai.com/v1/chat")
+    end
+
+    test "denies a userinfo host that spoofs the allowed host" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/"}])
+
+      assert {:denied, _} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com@evil.com/x")
+    end
+
+    test "denies a non-matching port on the allowed host" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/"}])
+
+      assert {:denied, _} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com:8443/")
+    end
+
+    test "a bare trailing colon in the prefix matches the host on any port" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "http://localhost:"}])
+
+      assert {:ok, []} = Ctx.check_network_access(ctx, "GET", "http://localhost:51234/bucket/key")
+      assert {:ok, []} = Ctx.check_network_access(ctx, "GET", "http://localhost:8080/")
+    end
+
+    test "ignores the query string when matching the path" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://postman-echo.com/get"}])
+
+      assert {:ok, []} =
+               Ctx.check_network_access(ctx, "GET", "https://postman-echo.com/get?source=pyex")
+    end
+
+    test "denies a path that climbs above the prefix with .. segments" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/v1/"}])
+
+      assert {:denied, _} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com/v1/../../admin")
+    end
+
+    test "denies percent-encoded .. traversal" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/v1/"}])
+
+      assert {:denied, _} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com/v1/%2e%2e/admin")
+
+      assert {:denied, _} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com/v1/..%2f..%2fadmin")
+    end
+
+    test "allows a path segment that merely contains .. as a substring" do
+      ctx = Ctx.new(network: [%{allowed_url_prefix: "https://api.example.com/v1/"}])
+
+      assert {:ok, []} =
+               Ctx.check_network_access(ctx, "GET", "https://api.example.com/v1/version..1")
     end
   end
 

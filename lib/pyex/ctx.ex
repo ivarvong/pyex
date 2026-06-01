@@ -45,8 +45,6 @@ defmodule Pyex.Ctx do
 
   @type network_config :: [network_rule()] | nil
 
-  @url_prefix_pattern ~r/\A([a-z][a-z0-9+\-.]*:\/\/)([^\/?#]*)(.*)\z/i
-
   @type capability :: :boto3 | :sql | atom()
 
   @type generator_mode :: :accumulate | :defer | :defer_inner | :lazy_iter | nil
@@ -139,8 +137,13 @@ defmodule Pyex.Ctx do
   - `:network` -- network access policy for the `requests` module.
 
     A list of rule maps. Each rule may contain:
-    - `:allowed_url_prefix` -- URL prefix that is permitted
-      (use trailing slash to prevent subdomain bypass)
+    - `:allowed_url_prefix` -- absolute URL prefix that is permitted.
+      Matched component-wise: the request's scheme, host, and port must
+      match exactly and its path must fall at or below the prefix path
+      on a segment boundary, so `"https://api.example.com/"` permits
+      `"https://api.example.com/v1"` but never `"...example.com.evil.com/"`
+      or a different port. A bare trailing `":"` (e.g. `"http://localhost:"`)
+      matches the host on any port.
     - `:dangerously_allow_full_internet_access` -- `true` to match any URL
     - `:methods` -- list of HTTP methods allowed (default `["GET", "HEAD"]`)
     - `:headers` -- map of headers to inject into matching requests.
@@ -344,7 +347,17 @@ defmodule Pyex.Ctx do
   end
 
   @spec normalize_allowed_url_prefix(term()) :: String.t()
-  defp normalize_allowed_url_prefix(prefix) when is_binary(prefix) and prefix != "", do: prefix
+  defp normalize_allowed_url_prefix(prefix) when is_binary(prefix) and prefix != "" do
+    uri = URI.parse(prefix)
+
+    if is_nil(uri.scheme) or not host_present?(uri.host) do
+      raise ArgumentError,
+            "network rule :allowed_url_prefix must be an absolute URL with a scheme and host " <>
+              "(e.g. \"https://api.example.com/\"), got: #{inspect(prefix)}"
+    end
+
+    prefix
+  end
 
   defp normalize_allowed_url_prefix(_) do
     raise ArgumentError, "network rule :allowed_url_prefix must be a non-empty string"
@@ -412,21 +425,88 @@ defmodule Pyex.Ctx do
   defp rule_matches_url?(%{dangerously_allow_full_internet_access: true}, _url), do: true
 
   defp rule_matches_url?(%{allowed_url_prefix: prefix}, url),
-    do: String.starts_with?(normalize_url_prefix(url), normalize_url_prefix(prefix))
+    do: url_within_prefix?(URI.parse(url), URI.parse(prefix), prefix)
 
   defp rule_matches_url?(_, _url), do: false
+
+  # Matches component-wise rather than as a raw string prefix. Scheme, host,
+  # and port must be equal, and the URL path must lie at or below the prefix
+  # path on a segment boundary. This closes two `String.starts_with?` bypasses:
+  # the subdomain bypass ("https://api.example.com" vs
+  # "https://api.example.com.attacker.com/") and the path-segment bypass
+  # ("https://host/v1" vs "https://host/v1abc/anything"). Comparing hosts
+  # (never userinfo) also rejects the "https://api.example.com@evil.com/" trick.
+  # A prefix whose authority ends in a bare ":" (e.g. "http://localhost:")
+  # matches the host on any port.
+  @spec url_within_prefix?(URI.t(), URI.t(), String.t()) :: boolean()
+  defp url_within_prefix?(url, prefix, raw_prefix) do
+    url_path = request_path(url.path)
+
+    host_present?(url.host) and
+      downcase(url.scheme) == downcase(prefix.scheme) and
+      downcase(url.host) == downcase(prefix.host) and
+      port_match?(url.port, prefix.port, raw_prefix) and
+      not dot_dot_segment?(url_path) and
+      path_within_prefix?(url_path, request_path(prefix.path))
+  end
+
+  @spec host_present?(term()) :: boolean()
+  defp host_present?(host), do: is_binary(host) and host != ""
+
+  @spec downcase(String.t() | nil) :: String.t() | nil
+  defp downcase(nil), do: nil
+  defp downcase(string), do: String.downcase(string)
+
+  # A bare trailing ":" in the prefix authority (no port digits) is a wildcard
+  # that matches any port; otherwise the effective ports (defaults filled in by
+  # URI.parse) must be equal. The wildcard is read off the raw prefix string so
+  # we never touch URI's opaque `authority` field.
+  @spec port_match?(non_neg_integer() | nil, non_neg_integer() | nil, String.t()) :: boolean()
+  defp port_match?(url_port, prefix_port, raw_prefix),
+    do: any_port_prefix?(raw_prefix) or url_port == prefix_port
+
+  @spec any_port_prefix?(String.t()) :: boolean()
+  defp any_port_prefix?(raw_prefix) do
+    case String.split(raw_prefix, "://", parts: 2) do
+      [_scheme, rest] ->
+        rest |> String.split(["/", "?", "#"], parts: 2) |> hd() |> String.ends_with?(":")
+
+      _ ->
+        false
+    end
+  end
+
+  @spec request_path(String.t() | nil) :: String.t()
+  defp request_path(nil), do: "/"
+  defp request_path(""), do: "/"
+  defp request_path(path), do: path
+
+  @spec path_within_prefix?(String.t(), String.t()) :: boolean()
+  defp path_within_prefix?(url_path, prefix_path) do
+    cond do
+      url_path == prefix_path -> true
+      String.ends_with?(prefix_path, "/") -> String.starts_with?(url_path, prefix_path)
+      true -> String.starts_with?(url_path, prefix_path <> "/")
+    end
+  end
+
+  # A ".." path segment lets a request climb above the prefix subtree once a
+  # client or server applies RFC-3986 dot-segment removal (e.g. "/v1/../../admin"
+  # resolves to "/admin"), so a path containing one is treated as outside the
+  # prefix. URI.parse does not collapse dot-segments, and the check is done on
+  # the percent-decoded path so "%2e%2e" and "%2f"-smuggled separators are
+  # caught too; matching whole segments avoids false positives like "version..1".
+  @spec dot_dot_segment?(String.t()) :: boolean()
+  defp dot_dot_segment?(path) do
+    path
+    |> URI.decode()
+    |> String.split("/")
+    |> Enum.any?(&(&1 == ".."))
+  end
 
   @spec rule_specificity(network_rule()) :: non_neg_integer()
   defp rule_specificity(%{allowed_url_prefix: prefix}), do: byte_size(prefix)
   defp rule_specificity(%{dangerously_allow_full_internet_access: true}), do: 0
-
-  @spec normalize_url_prefix(String.t()) :: String.t()
-  defp normalize_url_prefix(url) do
-    case Regex.run(@url_prefix_pattern, url, capture: :all_but_first) do
-      [scheme, authority, rest] -> String.downcase(scheme) <> String.downcase(authority) <> rest
-      _ -> url
-    end
-  end
 
   @spec build_denial_message([network_rule()], String.t(), String.t()) :: String.t()
   defp build_denial_message(rules, method, url) do
