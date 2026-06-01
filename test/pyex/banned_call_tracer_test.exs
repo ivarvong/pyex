@@ -23,6 +23,7 @@ defmodule Pyex.BannedCallTracerTest do
     Elixir.Mix.Tasks.Pyex
     Elixir.Mix.Tasks.Pyex.Fixture
     Elixir.Mix.Tasks.Pyex.Trace
+    Elixir.Mix.Tasks.Pyex.Bench
     Elixir.Mix.Tasks.Pyex.Bench.Budget
     Elixir.Mix.Tasks.Pyex.Bench.Coordinator
     Elixir.Mix.Tasks.Pyex.Bench.Worker
@@ -136,5 +137,86 @@ defmodule Pyex.BannedCallTracerTest do
 
     assert violations == [],
            "Pyex.Stdlib.Time should be clean (allowlisted calls only), got: #{inspect(violations)}"
+  end
+
+  test "tracer flags a literal capture of a banned function (&File.read/1)" do
+    # Capturing a banned function without invoking it is invisible to
+    # the call-walking pass (no `:call` node is produced).  The
+    # fun-capture walker pass catches it via the `:fun` node the
+    # compiler emits.  Compile a tiny module that captures `&File.read/1`
+    # and verify the tracer reports the violation.
+    violations =
+      compile_fixture_and_check("""
+      defmodule PyexFunCaptureFixture do
+        def get_reader, do: &File.read/1
+      end
+      """)
+
+    assert Enum.any?(violations, fn
+             %{call: {File, :read, 1}} -> true
+             _ -> false
+           end),
+           "Expected &File.read/1 capture to be flagged, got: #{inspect(violations)}"
+  end
+
+  test "tracer flags a banned :erlang BIF (spawn/2) not in the allowlist" do
+    # `:erlang.spawn/2` is process creation — must be flagged even
+    # though `:erlang` is no longer wholesale-banned.
+    violations =
+      compile_fixture_and_check("""
+      defmodule PyexErlangSpawnFixture do
+        def bad, do: :erlang.spawn(:nonode@nohost, fn -> :ok end)
+      end
+      """)
+
+    assert Enum.any?(violations, fn
+             %{call: {:erlang, :spawn, 2}} -> true
+             _ -> false
+           end),
+           "Expected :erlang.spawn/2 to be flagged, got: #{inspect(violations)}"
+  end
+
+  test "tracer permits allowlisted :erlang BIFs (e.g. is_atom/1)" do
+    violations =
+      compile_fixture_and_check("""
+      defmodule PyexErlangAllowedFixture do
+        def safe(x), do: :erlang.is_atom(x)
+      end
+      """)
+
+    refute Enum.any?(violations, fn
+             %{call: {:erlang, :is_atom, 1}} -> true
+             _ -> false
+           end),
+           "Expected :erlang.is_atom/1 to pass, got: #{inspect(violations)}"
+  end
+
+  # Compiles a synthetic module to a temp beam (with debug info) and
+  # returns the tracer's violations.  Cleans up the beam and the loaded
+  # module on exit.
+  defp compile_fixture_and_check(src) do
+    prev_debug_info = Code.get_compiler_option(:debug_info)
+    Code.put_compiler_option(:debug_info, true)
+
+    try do
+      [{mod, bin}] = Code.compile_string(src)
+
+      tmp =
+        Path.join(System.tmp_dir!(), "pyex_tracer_fixture_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp)
+      beam_path = Path.join(tmp, "#{mod}.beam")
+
+      try do
+        File.write!(beam_path, bin)
+        BannedCallTracer.check_beam(beam_path)
+      after
+        File.rm_rf!(tmp)
+        :code.purge(mod)
+        :code.delete(mod)
+      end
+    after
+      Code.put_compiler_option(:debug_info, prev_debug_info)
+    end
   end
 end
