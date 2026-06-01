@@ -59,6 +59,20 @@ defmodule Pyex.BannedCallTracer do
   - Calls through Elixir aliases (resolved before compilation)
   - `apply/3` and `:erlang.apply/3` when both module and function
     are literal atoms, e.g. `apply(File, :read, [path])`
+  - Literal function captures like `&File.read/1` (the captured M/F/A
+    is fully known at compile time, even if the capture is never
+    invoked through a variable — a captured-but-unused dangerous
+    reference is still a red flag in pyex library code).
+
+  ## `:erlang` is allowlisted, not denylisted
+
+  Unlike other modules, `:erlang` has a vast surface where most BIFs
+  are pure (arithmetic, type guards, conversions) and are emitted by
+  the Elixir compiler implicitly.  A denylist on `:erlang` is leaky
+  by construction: any new dangerous BIF added in a future OTP would
+  silently pass.  Instead, pyex library code may only call BIFs in
+  `@erlang_allowed`.  Adding a new BIF requires an explicit allowlist
+  entry — the test will tell you if you missed one.
 
   ## What this cannot catch
 
@@ -87,6 +101,9 @@ defmodule Pyex.BannedCallTracer do
   ]
 
   # Specific functions banned within modules that have some safe functions.
+  # Note: `:erlang` is *not* in this list — it is handled by the allowlist
+  # in `@erlang_allowed` because its BIF surface is too large and dangerous
+  # for a denylist to be exhaustive.
   @banned_functions [
     # Environment
     {System, :get_env, 1},
@@ -99,24 +116,117 @@ defmodule Pyex.BannedCallTracer do
     {System, :cmd, 3},
     {System, :shell, 1},
     {System, :shell, 2},
-    # Erlang-level OS / port escape
+    # Erlang-level OS escape
     {:os, :cmd, 1},
-    {:os, :cmd, 2},
-    {:erlang, :open_port, 2},
-    # Direct spawn variants
-    {:erlang, :spawn, 1},
-    {:erlang, :spawn, 3},
-    {:erlang, :spawn_link, 1},
-    {:erlang, :spawn_link, 3},
-    {:erlang, :spawn_monitor, 1},
-    {:erlang, :spawn_monitor, 3},
-    # Process dictionary — violates purely functional contract
-    {:erlang, :get, 0},
-    {:erlang, :get, 1},
-    {:erlang, :put, 2},
-    {:erlang, :erase, 0},
-    {:erlang, :erase, 1}
+    {:os, :cmd, 2}
   ]
+
+  # Allowlist of `:erlang` BIFs pyex library code may call.  Adding a
+  # new entry requires the same justification as removing one from a
+  # denylist: confirm the BIF is pure and side-effect free.  Categories:
+  #
+  # - Arithmetic / numeric / comparison operators emitted by the
+  #   Elixir compiler for `+`, `-`, `*`, `/`, `++`, `--`, `abs`,
+  #   `ceil`, `floor`, `round`, `trunc`, `max`, `min`, `float`.
+  # - Type guards and introspection (`is_*`, `byte_size`, `length`,
+  #   `tuple_size`, `map_size`, `element`, `hd`, `tl`, `map_get`,
+  #   `setelement`, `tuple_to_list`, `list_to_tuple`).
+  # - Pure conversions (`*_to_binary`, `binary_to_*`, `binary_part`,
+  #   `iolist_to_binary`).
+  # - Reflection (`function_exported`, `get_module_info`).
+  # - Pure hashing / unique identifiers
+  #   (`crc32`, `phash2`, `unique_integer`, `make_ref`).
+  # - Wall clock / VM stat reads with no side effects on the caller
+  #   (`monotonic_time`, `system_time`, `memory`).
+  # - Error raising (`error`, `raise`, `throw`) — pyex *must* be able
+  #   to raise Elixir exceptions; the AGENTS.md "no throw/catch for
+  #   control flow" rule is about pyex semantics, not Elixir errors.
+  #
+  # Explicitly *not* on this list (and therefore banned for pyex
+  # library code, the same way `File.*` is banned):
+  #
+  # - Process spawning: `spawn/1,3`, `spawn_link/1,3`, `spawn_monitor/1,3`,
+  #   `spawn_opt/*`.
+  # - Process dictionary: `get/0,1`, `put/2`, `erase/0,1`.
+  # - Process plumbing: `self/0`, `send/2`, `send_after/3,4`, `exit/1,2`,
+  #   `register/2`, `unregister/1`, `group_leader/0,1`.
+  # - Port escape: `open_port/2`, `port_close/1`, `port_command/2,3`,
+  #   `port_control/3`, `port_info/1,2`, `port_call/3`.
+  # - VM teardown: `halt/0,1,2`.
+  # - Atom-table / term-deserialization DoS: `list_to_atom/1`,
+  #   `binary_to_atom/1,2`, `binary_to_term/1,2`.
+  # - Node escape: `node/0,1`, `nodes/0,1`, `disconnect_node/1`,
+  #   `monitor_node/2`, `set_cookie/1,2`.
+  @erlang_allowed MapSet.new([
+                    # arithmetic / numeric / comparison operators emitted
+                    # by the Elixir compiler (`+`, `*`, `++`, `--`, etc.)
+                    # and used as captures (`&+/2`, `&*/2`).
+                    {:+, 2},
+                    {:*, 2},
+                    {:++, 2},
+                    {:--, 2},
+                    {:abs, 1},
+                    {:ceil, 1},
+                    {:floor, 1},
+                    {:round, 1},
+                    {:trunc, 1},
+                    {:max, 2},
+                    {:min, 2},
+                    {:float, 1},
+                    # type guards and introspection
+                    {:is_atom, 1},
+                    {:is_binary, 1},
+                    {:is_boolean, 1},
+                    {:is_float, 1},
+                    {:is_function, 1},
+                    {:is_function, 2},
+                    {:is_integer, 1},
+                    {:is_list, 1},
+                    {:is_map, 1},
+                    {:is_map_key, 2},
+                    {:is_number, 1},
+                    {:is_tuple, 1},
+                    {:byte_size, 1},
+                    {:length, 1},
+                    {:map_size, 1},
+                    {:tuple_size, 1},
+                    {:element, 2},
+                    {:hd, 1},
+                    {:tl, 1},
+                    {:map_get, 2},
+                    {:setelement, 3},
+                    {:tuple_to_list, 1},
+                    {:list_to_tuple, 1},
+                    # conversions
+                    {:atom_to_binary, 1},
+                    {:binary_part, 3},
+                    {:binary_to_float, 1},
+                    {:binary_to_integer, 1},
+                    {:binary_to_integer, 2},
+                    {:float_to_binary, 2},
+                    {:integer_to_binary, 1},
+                    {:integer_to_binary, 2},
+                    {:iolist_to_binary, 1},
+                    {:list_to_binary, 1},
+                    # reflection
+                    {:function_exported, 3},
+                    {:get_module_info, 2},
+                    # pure hashing / unique ids
+                    {:crc32, 1},
+                    {:phash2, 1},
+                    {:make_ref, 0},
+                    {:unique_integer, 0},
+                    {:unique_integer, 1},
+                    # wall clock / VM stat reads (no side effects on others)
+                    {:monotonic_time, 0},
+                    {:monotonic_time, 1},
+                    {:system_time, 0},
+                    # error raising — Elixir `raise` compiles to these
+                    {:error, 1},
+                    {:error, 3},
+                    {:raise, 3},
+                    {:throw, 1}
+                  ])
 
   # Calls that look banned by module but are explicitly permitted.
   # Entries are {module, function, arity}.
@@ -224,6 +334,26 @@ defmodule Pyex.BannedCallTracer do
     Enum.reduce(args, acc, &walk(&1, beam, &2))
   end
 
+  # Literal external function capture: `&Mod.fun/arity`
+  # Compiles to a `:fun` node referencing the M/F/A.  The capture is
+  # *itself* a reference, not a call, but holding a reference to a
+  # banned function in pyex library code is just as much a red flag
+  # as calling it (the function will be invoked through the variable
+  # later, in a form opaque to static analysis).
+  defp walk(
+         {:fun, ann, {:function, {:atom, _, mod}, {:atom, _, fun}, {:integer, _, arity}}},
+         beam,
+         acc
+       ) do
+    line = :erl_anno.line(ann)
+
+    if banned?(mod, fun, arity) do
+      [%{call: {mod, fun, arity}, beam: beam, line: line} | acc]
+    else
+      acc
+    end
+  end
+
   defp walk(tuple, beam, acc) when is_tuple(tuple) do
     tuple |> Tuple.to_list() |> Enum.reduce(acc, &walk(&1, beam, &2))
   end
@@ -235,6 +365,10 @@ defmodule Pyex.BannedCallTracer do
   defp walk(_other, _beam, acc), do: acc
 
   @spec banned?(module(), atom(), arity()) :: boolean()
+  defp banned?(:erlang, fun, arity) do
+    not MapSet.member?(@erlang_allowed, {fun, arity})
+  end
+
   defp banned?(mod, fun, arity) do
     not allowed?(mod, fun, arity) and
       (mod in @banned_modules or {mod, fun, arity} in @banned_functions)
