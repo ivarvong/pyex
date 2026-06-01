@@ -924,4 +924,32 @@ defmodule Pyex.Stdlib.RequestsTest do
       end
     end
   end
+
+  describe "default request timeout" do
+    test "timeout_opts applies host default when caller omits timeout=" do
+      assert Pyex.Stdlib.Requests.timeout_opts(%{}) ==
+               [receive_timeout: Pyex.Stdlib.Requests.default_receive_timeout_ms()]
+    end
+
+    test "timeout_opts honors caller-supplied timeout= in seconds" do
+      assert Pyex.Stdlib.Requests.timeout_opts(%{"timeout" => 0.25}) ==
+               [receive_timeout: 250]
+    end
+
+    test "timeout_opts falls back to default on zero / negative / non-numeric" do
+      default = [receive_timeout: Pyex.Stdlib.Requests.default_receive_timeout_ms()]
+
+      assert Pyex.Stdlib.Requests.timeout_opts(%{"timeout" => 0}) == default
+      assert Pyex.Stdlib.Requests.timeout_opts(%{"timeout" => -1}) == default
+      assert Pyex.Stdlib.Requests.timeout_opts(%{"timeout" => "5s"}) == default
+      assert Pyex.Stdlib.Requests.timeout_opts(%{"timeout" => nil}) == default
+    end
+
+    test "default is bounded and reasonable" do
+      ms = Pyex.Stdlib.Requests.default_receive_timeout_ms()
+      assert is_integer(ms)
+      assert ms > 0
+      assert ms <= 60_000
+    end
+  end
 end
