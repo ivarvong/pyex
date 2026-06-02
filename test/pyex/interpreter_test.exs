@@ -3286,4 +3286,48 @@ defmodule Pyex.InterpreterTest do
       assert result == 2
     end
   end
+
+  describe "builtin FunctionClauseError diagnostics" do
+    # When a builtin raises FunctionClauseError (i.e. the user passed an
+    # arg shape that hit no clause head), the interpreter catches it and
+    # surfaces a Python-level TypeError.  The message must name the
+    # builtin and summarise the arg shapes so an LLM consumer can
+    # self-correct.  See the original Sentry report (decimal_module
+    # `defp decimal_new([])` missing in a pre-PR-#46 build) for the
+    # motivating crash.
+
+    test "len() with two args names the builtin and shows arg types" do
+      {:error, err} =
+        Pyex.run("""
+        try:
+            len(1, 2)
+        except TypeError as e:
+            raise RuntimeError(str(e))
+        """)
+
+      # Message must contain enough for an LLM to fix its call:
+      # - module + function name
+      # - the arg shapes it actually got
+      # - that it was a clause mismatch
+      assert err.message =~ "builtin_len"
+      assert err.message =~ "int, int"
+      assert err.message =~ "no matching clause"
+    end
+
+    test "rescued message is caught by Python try/except as TypeError" do
+      # Critical: the FunctionClauseError must surface as a Python
+      # TypeError so caller code can catch it, not as an internal
+      # runtime crash.
+      result =
+        Pyex.run!("""
+        try:
+            len(1, 2)
+            "no-error"
+        except TypeError:
+            "caught"
+        """)
+
+      assert result == "caught"
+    end
+  end
 end
