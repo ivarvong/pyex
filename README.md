@@ -9,6 +9,10 @@ Pyex.run!("sorted([3, 1, 2])")
 # => [1, 2, 3]
 ```
 
+> **🤖 Are you an LLM agent, or setting up in a fresh sandbox / CI?**
+> Read [**`SETUP.md`**](SETUP.md) before installing anything — use the
+> precompiled builds.hex.pm recipe, not `apt` or `asdf`.
+
 ## Why this exists
 
 Pyex exists for one shape of problem: running Python written by, or
@@ -397,33 +401,10 @@ host application does. Pyex is a value you compute with.
 
 ## Development
 
-Requires Elixir `~> 1.19` on OTP 28. For local work, the repo pins
-exact versions in `.tool-versions` (use `asdf` or `mise`).
-
-In a **cold environment** — a CI runner, a fresh container, or an
-agent sandbox — install precompiled binaries from
-[builds.hex.pm](https://builds.hex.pm). Do *not* use `apt` (ships
-Elixir 1.14 / OTP 25) or asdf's erlang plugin (compiles OTP from
-source — minutes on a single core). On Ubuntu 24.04 / amd64:
-
-```bash
-OTP=28.5.0.1 EX=1.19.5-otp-28 ROOT="$HOME/beam"   # bump patch versions as needed
-mkdir -p "$ROOT"/{otp,elixir} && cd "$ROOT"
-curl -fsSL -o otp.tar.gz "https://builds.hex.pm/builds/otp/amd64/ubuntu-24.04/OTP-${OTP}.tar.gz"
-curl -fsSL -o elixir.zip "https://builds.hex.pm/builds/elixir/v${EX}.zip"
-tar xf otp.tar.gz -C otp --strip-components=1
-unzip -q elixir.zip -d elixir
-( cd otp && ./Install -minimal "$(pwd)" >/dev/null )   # bakes the abs path into the release
-
-export PATH="$ROOT/otp/bin:$ROOT/elixir/bin:$PATH"
-export ELIXIR_ERL_OPTIONS="+fnu"                        # precompiled OTP defaults to latin1; silences the locale warning
-export HEX_CACERTS_PATH=/etc/ssl/certs/ca-certificates.crt   # precompiled OTP can't find the OS CA store; without this, Hex TLS fails with unknown_ca
-```
-
-Then `mix local.hex --force && mix local.rebar --force`, followed by
-`mix deps.get && mix compile`. `MIX_ENV=prod` skips the dev/test deps
-(ex_doc, dialyxir, benchee, bandit) when you only need to run code,
-not test it.
+Requires Elixir `~> 1.19` on OTP 28. For local work, the repo pins exact
+versions in `.tool-versions` (use `asdf` or `mise`). For a cold environment
+(fresh sandbox, CI, new container), follow [`SETUP.md`](SETUP.md) — precompiled
+builds.hex.pm binaries, not `apt` or `asdf`.
 
 ## License
 
