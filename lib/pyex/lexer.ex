@@ -181,199 +181,172 @@ defmodule Pyex.Lexer do
     hex_2_escape
   ]
 
-  triple_double_string =
-    ignore(string(~S["""]))
-    |> repeat(
-      choice(
-        [string("\\\"") |> replace(?")] ++
-          common_escapes ++
-          [
-            string("\\") |> concat(ascii_char([])) |> reduce(:__unknown_escape__),
-            lookahead_not(string(~S["""])) |> ascii_char([])
-          ]
-      )
-    )
-    |> ignore(string(~S["""]))
-    |> reduce(:__string__)
-    |> unwrap_and_tag(:string)
+  # ===========================================================================
+  # String-literal combinators — the full Python string-prefix matrix.
+  # ===========================================================================
+  #
+  # Python string prefixes are case-insensitive (`r`/`R`, `f`/`F`, `u`/`U`),
+  # the raw-f prefix may appear in either order (`rf`/`fr`), and every prefix
+  # combines with all four quote styles (`"` `'` `"""` `'''`). Rather than
+  # spell out the ~40 near-identical combinators by hand, we build them at
+  # compile time from a handful of body/prefix helper closures.
+  #
+  # `u`/`U` is a legacy no-op prefix: `u"x"` lexes exactly like `"x"`.
+  #
+  # Bytes literals (`b"..."`, `rb"..."`, ...) are intentionally NOT handled
+  # here. They fall through to identifier + string lexing and are stitched
+  # back together by `collapse_bytes_literals/1`, which already covers every
+  # case/order variant.
 
-  triple_single_string =
-    ignore(string("'''"))
-    |> repeat(
+  # Accepted spellings per prefix family.
+  r_prefixes = ~w(r R)
+  f_prefixes = ~w(f F)
+  u_prefixes = ~w(u U)
+  rf_prefixes = ~w(rf fr Rf rF Fr fR RF FR)
+
+  # `choice` matching any spelling in `prefixes` followed immediately by the
+  # opening delimiter `quote` (e.g. ~w(r R) + ~S|"| matches `r"` or `R"`).
+  prefixed = fn prefixes, quote ->
+    choice(Enum.map(prefixes, &string(&1 <> quote)))
+  end
+
+  # --- body builders -------------------------------------------------------
+  # Each returns the `repeat(...)` consuming a string body up to (but not
+  # including) its closing delimiter. `q` is the closing quote char (?\" or
+  # ?'); `close3` is the three-char closing delimiter for triple strings.
+
+  # Cooked single-line body: interprets escapes; stops at the quote/newline.
+  cooked_body = fn q ->
+    repeat(
       choice(
-        [string("\\'") |> replace(?')] ++
+        [string(<<?\\, q>>) |> replace(q)] ++
           common_escapes ++
           [
-            string("\\") |> concat(ascii_char([])) |> reduce(:__unknown_escape__),
-            lookahead_not(string("'''")) |> ascii_char([])
+            string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__unknown_escape__),
+            ascii_char(not: q, not: ?\\, not: ?\n)
           ]
       )
     )
-    |> ignore(string("'''"))
+  end
+
+  # Cooked triple body: interprets escapes; spans newlines; stops at close3.
+  cooked_triple_body = fn q, close3 ->
+    repeat(
+      choice(
+        [string(<<?\\, q>>) |> replace(q)] ++
+          common_escapes ++
+          [
+            string("\\") |> concat(ascii_char([])) |> reduce(:__unknown_escape__),
+            lookahead_not(string(close3)) |> ascii_char([])
+          ]
+      )
+    )
+  end
+
+  # Raw single-line body: backslashes kept verbatim; stops at quote/newline.
+  # A backslash still protects the next char so `\"` does not terminate.
+  raw_body = fn q ->
+    repeat(
+      choice([
+        string(<<?\\, q>>) |> reduce(:__raw_escape__),
+        string("\\\\") |> reduce(:__raw_escape__),
+        string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__raw_escape__),
+        ascii_char(not: q, not: ?\n)
+      ])
+    )
+  end
+
+  # Raw triple body: backslashes kept verbatim; spans newlines; stops at close3.
+  raw_triple_body = fn close3 ->
+    repeat(
+      choice([
+        string("\\") |> concat(ascii_char([])) |> reduce(:__raw_escape__),
+        lookahead_not(string(close3)) |> ascii_char([])
+      ])
+    )
+  end
+
+  # Assemble `ignore(open) body ignore(close)` into one reduced token. `open`
+  # is the prefix+delimiter combinator; `close` is the closing delimiter.
+  string_literal = fn open, close, body, tag ->
+    ignore(open)
+    |> concat(body)
+    |> ignore(string(close))
     |> reduce(:__string__)
-    |> unwrap_and_tag(:string)
+    |> unwrap_and_tag(tag)
+  end
+
+  # --- triple-quoted (tried before their single/double counterparts) -------
+  raw_fstring_triple_double =
+    string_literal.(prefixed.(rf_prefixes, ~S["""]), ~S["""], raw_triple_body.(~S["""]), :fstring)
+
+  raw_fstring_triple_single =
+    string_literal.(prefixed.(rf_prefixes, "'''"), "'''", raw_triple_body.("'''"), :fstring)
 
   fstring_triple_double =
-    string(~S[f"""])
-    |> repeat(
-      choice(
-        [string("\\\"") |> replace(?")] ++
-          common_escapes ++
-          [
-            string("\\") |> concat(ascii_char([])) |> reduce(:__unknown_escape__),
-            lookahead_not(string(~S["""])) |> ascii_char([])
-          ]
-      )
+    string_literal.(
+      prefixed.(f_prefixes, ~S["""]),
+      ~S["""],
+      cooked_triple_body.(?", ~S["""]),
+      :fstring
     )
-    |> ignore(string(~S["""]))
-    |> reduce(:__fstring_triple__)
-    |> unwrap_and_tag(:fstring)
 
   fstring_triple_single =
-    string("f'''")
-    |> repeat(
-      choice(
-        [string("\\'") |> replace(?')] ++
-          common_escapes ++
-          [
-            string("\\") |> concat(ascii_char([])) |> reduce(:__unknown_escape__),
-            lookahead_not(string("'''")) |> ascii_char([])
-          ]
-      )
+    string_literal.(prefixed.(f_prefixes, "'''"), "'''", cooked_triple_body.(?', "'''"), :fstring)
+
+  raw_triple_double =
+    string_literal.(prefixed.(r_prefixes, ~S["""]), ~S["""], raw_triple_body.(~S["""]), :string)
+
+  raw_triple_single =
+    string_literal.(prefixed.(r_prefixes, "'''"), "'''", raw_triple_body.("'''"), :string)
+
+  unicode_triple_double =
+    string_literal.(
+      prefixed.(u_prefixes, ~S["""]),
+      ~S["""],
+      cooked_triple_body.(?", ~S["""]),
+      :string
     )
-    |> ignore(string("'''"))
-    |> reduce(:__fstring_triple__)
-    |> unwrap_and_tag(:fstring)
 
-  double_quoted_string =
-    ignore(string("\""))
-    |> repeat(
-      choice(
-        [string("\\\"") |> replace(?")] ++
-          common_escapes ++
-          [
-            string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__unknown_escape__),
-            ascii_char(not: ?", not: ?\\, not: ?\n)
-          ]
-      )
-    )
-    |> ignore(string("\""))
-    |> reduce(:__string__)
-    |> unwrap_and_tag(:string)
+  unicode_triple_single =
+    string_literal.(prefixed.(u_prefixes, "'''"), "'''", cooked_triple_body.(?', "'''"), :string)
 
-  single_quoted_string =
-    ignore(string("'"))
-    |> repeat(
-      choice(
-        [string("\\'") |> replace(?')] ++
-          common_escapes ++
-          [
-            string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__unknown_escape__),
-            ascii_char(not: ?', not: ?\\, not: ?\n)
-          ]
-      )
-    )
-    |> ignore(string("'"))
-    |> reduce(:__string__)
-    |> unwrap_and_tag(:string)
+  triple_double_string =
+    string_literal.(string(~S["""]), ~S["""], cooked_triple_body.(?", ~S["""]), :string)
 
-  fstring_double =
-    string("f\"")
-    |> repeat(
-      choice(
-        [string("\\\"") |> replace(?")] ++
-          common_escapes ++
-          [
-            string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__unknown_escape__),
-            ascii_char(not: ?", not: ?\\, not: ?\n)
-          ]
-      )
-    )
-    |> ignore(string("\""))
-    |> reduce(:__fstring__)
-    |> unwrap_and_tag(:fstring)
+  triple_single_string =
+    string_literal.(string("'''"), "'''", cooked_triple_body.(?', "'''"), :string)
 
-  fstring_single =
-    string("f'")
-    |> repeat(
-      choice(
-        [string("\\'") |> replace(?')] ++
-          common_escapes ++
-          [
-            string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__unknown_escape__),
-            ascii_char(not: ?', not: ?\\, not: ?\n)
-          ]
-      )
-    )
-    |> ignore(string("'"))
-    |> reduce(:__fstring__)
-    |> unwrap_and_tag(:fstring)
-
-  # Combined raw-f-string prefix: `rf"..."` / `fr"..."` in every case
-  # ordering (rf fr Rf rF Fr fR RF FR).  Body uses raw-string escape
-  # semantics (backslashes kept verbatim) but emits an `:fstring` token so
-  # `{...}` is still interpreted as an embedded expression downstream.
-  raw_fstring_double_prefix =
-    choice(Enum.map(~w(rf fr Rf rF Fr fR RF FR), &string(&1 <> "\"")))
-
-  raw_fstring_single_prefix =
-    choice(Enum.map(~w(rf fr Rf rF Fr fR RF FR), &string(&1 <> "'")))
-
+  # --- single/double-quoted ------------------------------------------------
   raw_fstring_double =
-    ignore(raw_fstring_double_prefix)
-    |> repeat(
-      choice([
-        string("\\\"") |> reduce(:__raw_escape__),
-        string("\\\\") |> reduce(:__raw_escape__),
-        string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__raw_escape__),
-        ascii_char(not: ?", not: ?\n)
-      ])
-    )
-    |> ignore(string("\""))
-    |> reduce(:__string__)
-    |> unwrap_and_tag(:fstring)
+    string_literal.(prefixed.(rf_prefixes, "\""), "\"", raw_body.(?"), :fstring)
 
   raw_fstring_single =
-    ignore(raw_fstring_single_prefix)
-    |> repeat(
-      choice([
-        string("\\'") |> reduce(:__raw_escape__),
-        string("\\\\") |> reduce(:__raw_escape__),
-        string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__raw_escape__),
-        ascii_char(not: ?', not: ?\n)
-      ])
-    )
-    |> ignore(string("'"))
-    |> reduce(:__string__)
-    |> unwrap_and_tag(:fstring)
+    string_literal.(prefixed.(rf_prefixes, "'"), "'", raw_body.(?'), :fstring)
+
+  fstring_double =
+    string_literal.(prefixed.(f_prefixes, "\""), "\"", cooked_body.(?"), :fstring)
+
+  fstring_single =
+    string_literal.(prefixed.(f_prefixes, "'"), "'", cooked_body.(?'), :fstring)
 
   raw_double_string =
-    ignore(string(~S|r"|))
-    |> repeat(
-      choice([
-        string("\\\"") |> reduce(:__raw_escape__),
-        string("\\\\") |> reduce(:__raw_escape__),
-        string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__raw_escape__),
-        ascii_char(not: ?", not: ?\n)
-      ])
-    )
-    |> ignore(string("\""))
-    |> reduce(:__string__)
-    |> unwrap_and_tag(:string)
+    string_literal.(prefixed.(r_prefixes, "\""), "\"", raw_body.(?"), :string)
 
   raw_single_string =
-    ignore(string("r'"))
-    |> repeat(
-      choice([
-        string("\\'") |> reduce(:__raw_escape__),
-        string("\\\\") |> reduce(:__raw_escape__),
-        string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__raw_escape__),
-        ascii_char(not: ?', not: ?\n)
-      ])
-    )
-    |> ignore(string("'"))
-    |> reduce(:__string__)
-    |> unwrap_and_tag(:string)
+    string_literal.(prefixed.(r_prefixes, "'"), "'", raw_body.(?'), :string)
+
+  unicode_double =
+    string_literal.(prefixed.(u_prefixes, "\""), "\"", cooked_body.(?"), :string)
+
+  unicode_single =
+    string_literal.(prefixed.(u_prefixes, "'"), "'", cooked_body.(?'), :string)
+
+  double_quoted_string =
+    string_literal.(string("\""), "\"", cooked_body.(?"), :string)
+
+  single_quoted_string =
+    string_literal.(string("'"), "'", cooked_body.(?'), :string)
 
   identifier_or_keyword =
     ascii_char([?a..?z, ?A..?Z, ?_])
@@ -481,16 +454,26 @@ defmodule Pyex.Lexer do
     choice([
       newline,
       whitespace,
+      # Triple-quoted variants must precede their single/double-quoted
+      # counterparts, since `"""` also starts with `"`.
+      raw_fstring_triple_double,
+      raw_fstring_triple_single,
       fstring_triple_double,
       fstring_triple_single,
+      raw_triple_double,
+      raw_triple_single,
+      unicode_triple_double,
+      unicode_triple_single,
       triple_double_string,
       triple_single_string,
-      fstring_double,
-      fstring_single,
       raw_fstring_double,
       raw_fstring_single,
+      fstring_double,
+      fstring_single,
       raw_double_string,
       raw_single_string,
+      unicode_double,
+      unicode_single,
       double_quoted_string,
       single_quoted_string,
       hex_integer,
@@ -571,65 +554,14 @@ defmodule Pyex.Lexer do
     strip_comments(rest, acc)
   end
 
-  defp strip_comments(<<"r\"", rest::binary>>, acc) do
-    case consume_string(rest, ?") do
-      {:ok, rest, content} ->
-        strip_comments(rest, <<acc::binary, "r\"", content::binary, ?">>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated string literal"}
-    end
-  end
-
-  defp strip_comments(<<"r'", rest::binary>>, acc) do
-    case consume_string(rest, ?') do
-      {:ok, rest, content} ->
-        strip_comments(rest, <<acc::binary, "r'", content::binary, ?'>>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated string literal"}
-    end
-  end
-
-  defp strip_comments(<<"f\"\"\"", rest::binary>>, acc) do
-    case consume_triple(rest, ?") do
-      {:ok, rest, content} ->
-        strip_comments(rest, <<acc::binary, "f\"\"\"", content::binary, "\"\"\"">>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated triple-quoted string literal"}
-    end
-  end
-
-  defp strip_comments(<<"f'''", rest::binary>>, acc) do
-    case consume_triple(rest, ?') do
-      {:ok, rest, content} ->
-        strip_comments(rest, <<acc::binary, "f'''", content::binary, "'''">>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated triple-quoted string literal"}
-    end
-  end
-
-  defp strip_comments(<<"f\"", rest::binary>>, acc) do
-    case consume_string(rest, ?") do
-      {:ok, rest, content} ->
-        strip_comments(rest, <<acc::binary, "f\"", content::binary, ?">>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated string literal"}
-    end
-  end
-
-  defp strip_comments(<<"f'", rest::binary>>, acc) do
-    case consume_string(rest, ?') do
-      {:ok, rest, content} ->
-        strip_comments(rest, <<acc::binary, "f'", content::binary, ?'>>)
-
-      {:error, :unterminated} ->
-        {:error, "SyntaxError: unterminated string literal"}
-    end
-  end
+  # String prefixes (r/R, f/F, u/U, b/B and their two-letter combos) need no
+  # special handling here: a prefix is just letters, which contain no `#` or
+  # quote, so they fall through to the catch-all clause below and are copied
+  # verbatim. The quote that follows is then matched by the clauses below,
+  # which pick triple- vs single-quoted correctly (triple is tried first).
+  # consume_string/consume_triple treat `\<char>` as an escape for BOTH raw
+  # and cooked strings, which is right: in a raw string `\"` still does not
+  # terminate the literal, so the scan finds the same end either way.
 
   defp strip_comments(<<"\"\"\"", rest::binary>>, acc) do
     case consume_triple(rest, ?") do
@@ -977,22 +909,6 @@ defmodule Pyex.Lexer do
   @doc false
   @spec __identifier__([non_neg_integer()]) :: String.t()
   def __identifier__(chars), do: List.to_string(chars)
-
-  @doc false
-  @spec __fstring__([String.t() | non_neg_integer()]) :: String.t()
-  def __fstring__(["f\"" | chars]) do
-    __string__(chars)
-  end
-
-  def __fstring__(["f'" | chars]) do
-    __string__(chars)
-  end
-
-  @doc false
-  @spec __fstring_triple__([String.t() | non_neg_integer()]) :: String.t()
-  def __fstring_triple__([prefix | chars]) when prefix in [~S[f"""], "f'''"] do
-    __string__(chars)
-  end
 
   @doc false
   @spec __hex2_escape__([non_neg_integer()]) :: String.t()

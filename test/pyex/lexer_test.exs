@@ -447,6 +447,53 @@ defmodule Pyex.LexerTest do
     end
   end
 
+  describe "string-prefix case-insensitivity" do
+    test "uppercase F is an f-string, not an identifier plus string" do
+      assert {:ok, [{:fstring, 1, "val {x}"}]} = Lexer.tokenize(~S|F"val {x}"|)
+    end
+
+    test "uppercase R is a raw string, not an identifier plus string" do
+      assert {:ok, [{:string, 1, "\\n"}]} = Lexer.tokenize(~S|R"\n"|)
+    end
+
+    test "uppercase F interpolates end-to-end" do
+      assert Pyex.run!("x = 5\nF'val {x}'") == "val 5"
+    end
+  end
+
+  describe "unicode (u/U) prefix" do
+    test "lowercase u prefix lexes as a plain string" do
+      assert {:ok, [{:string, 1, "café"}]} = Lexer.tokenize(~S|u"café"|)
+    end
+
+    test "uppercase U prefix lexes as a plain string" do
+      assert {:ok, [{:string, 1, "ab"}]} = Lexer.tokenize(~S|U'ab'|)
+    end
+
+    test "u prefix processes escapes like a normal string (it is a no-op)" do
+      assert Pyex.run!(~S|u"a\nb"|) == "a\nb"
+    end
+  end
+
+  describe "raw triple-quoted strings" do
+    test "raw triple-quoted string preserves backslashes" do
+      assert {:ok, [{:string, 1, "\\d+\\.\\d+"}]} = Lexer.tokenize(~S|r"""\d+\.\d+"""|)
+    end
+
+    test "raw triple-quoted string keeps embedded lone quotes" do
+      assert {:ok, [{:string, 1, ~S|he said "hi" ok|}]} =
+               Lexer.tokenize(~S|r"""he said "hi" ok"""|)
+    end
+
+    test "raw-f triple-quoted string keeps backslashes and interpolates" do
+      assert Pyex.run!("x = 5\n" <> ~S|rf"""\d+ {x}"""|) == "\\d+ 5"
+    end
+
+    test "uppercase F triple-quoted string interpolates" do
+      assert Pyex.run!("x = 5\n" <> ~S|F"""val {x}"""|) == "val 5"
+    end
+  end
+
   describe "escape sequences" do
     test "carriage return \\r" do
       assert {:ok, [{:string, 1, "\r"}]} = Lexer.tokenize(~S|"\r"|)
