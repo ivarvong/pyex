@@ -408,6 +408,45 @@ defmodule Pyex.LexerTest do
     end
   end
 
+  describe "raw f-strings" do
+    test "rf prefix emits an fstring token with the expression intact" do
+      assert {:ok, [{:fstring, 1, "val {x}"}]} = Lexer.tokenize(~S|rf"val {x}"|)
+    end
+
+    test "fr prefix (reversed order) emits an fstring token" do
+      assert {:ok, [{:fstring, 1, "val {x}"}]} = Lexer.tokenize(~S|fr"val {x}"|)
+    end
+
+    test "single-quoted rf prefix emits an fstring token" do
+      assert {:ok, [{:fstring, 1, "val {x}"}]} = Lexer.tokenize(~S|rf'val {x}'|)
+    end
+
+    test "every case ordering of the combined prefix lexes identically" do
+      for prefix <- ~w(rf fr Rf rF Fr fR RF FR) do
+        assert {:ok, [{:fstring, 1, "val {x}"}]} =
+                 Lexer.tokenize(prefix <> ~S|"val {x}"|),
+               "prefix #{prefix} did not lex as a raw f-string"
+      end
+    end
+
+    test "raw escape semantics: backslashes are preserved, unlike a plain f-string" do
+      assert {:ok, [{:fstring, 1, "\\n{x}"}]} = Lexer.tokenize(~S|rf"\n{x}"|)
+      assert {:ok, [{:fstring, 1, "\n{x}"}]} = Lexer.tokenize(~S|f"\n{x}"|)
+    end
+
+    test "backslash-quote does not terminate the raw f-string" do
+      assert {:ok, [{:fstring, 1, "it\\'s {x}"}]} = Lexer.tokenize(~S|rf"it\'s {x}"|)
+    end
+
+    test "interpolates an expression end-to-end" do
+      assert Pyex.run!("x = 5\nrf'val {x}'") == "val 5"
+    end
+
+    test "keeps backslashes literal while interpolating end-to-end" do
+      assert Pyex.run!(~S|x = 5| <> "\n" <> ~S|rf"\d+ {x}"|) == "\\d+ 5"
+    end
+  end
+
   describe "escape sequences" do
     test "carriage return \\r" do
       assert {:ok, [{:string, 1, "\r"}]} = Lexer.tokenize(~S|"\r"|)

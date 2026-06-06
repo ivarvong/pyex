@@ -309,6 +309,44 @@ defmodule Pyex.Lexer do
     |> reduce(:__fstring__)
     |> unwrap_and_tag(:fstring)
 
+  # Combined raw-f-string prefix: `rf"..."` / `fr"..."` in every case
+  # ordering (rf fr Rf rF Fr fR RF FR).  Body uses raw-string escape
+  # semantics (backslashes kept verbatim) but emits an `:fstring` token so
+  # `{...}` is still interpreted as an embedded expression downstream.
+  raw_fstring_double_prefix =
+    choice(Enum.map(~w(rf fr Rf rF Fr fR RF FR), &string(&1 <> "\"")))
+
+  raw_fstring_single_prefix =
+    choice(Enum.map(~w(rf fr Rf rF Fr fR RF FR), &string(&1 <> "'")))
+
+  raw_fstring_double =
+    ignore(raw_fstring_double_prefix)
+    |> repeat(
+      choice([
+        string("\\\"") |> reduce(:__raw_escape__),
+        string("\\\\") |> reduce(:__raw_escape__),
+        string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__raw_escape__),
+        ascii_char(not: ?", not: ?\n)
+      ])
+    )
+    |> ignore(string("\""))
+    |> reduce(:__string__)
+    |> unwrap_and_tag(:fstring)
+
+  raw_fstring_single =
+    ignore(raw_fstring_single_prefix)
+    |> repeat(
+      choice([
+        string("\\'") |> reduce(:__raw_escape__),
+        string("\\\\") |> reduce(:__raw_escape__),
+        string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__raw_escape__),
+        ascii_char(not: ?', not: ?\n)
+      ])
+    )
+    |> ignore(string("'"))
+    |> reduce(:__string__)
+    |> unwrap_and_tag(:fstring)
+
   raw_double_string =
     ignore(string(~S|r"|))
     |> repeat(
@@ -449,6 +487,8 @@ defmodule Pyex.Lexer do
       triple_single_string,
       fstring_double,
       fstring_single,
+      raw_fstring_double,
+      raw_fstring_single,
       raw_double_string,
       raw_single_string,
       double_quoted_string,
