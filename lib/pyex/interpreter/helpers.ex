@@ -625,18 +625,23 @@ defmodule Pyex.Interpreter.Helpers do
   @doc """
   Renders a bytes value in Python's repr form: `b'hello\\xc2\\xa9'`.
   Printable ASCII stays as-is; non-printable bytes become `\\xhh` escapes.
+
+  Quote selection follows CPython: single quotes by default, but double
+  quotes when the value contains a `'` and no `"` (so the `'` need not be
+  escaped). The chosen quote is the only quote that gets escaped.
   """
   @spec bytes_repr(binary(), String.t()) :: String.t()
   def bytes_repr(b, prefix) do
+    list = :binary.bin_to_list(b)
+    quote = if ?' in list and ?" not in list, do: ?", else: ?'
+
     inner =
-      b
-      |> :binary.bin_to_list()
-      |> Enum.map_join(fn
+      Enum.map_join(list, fn
         byte when byte == ?\\ ->
           "\\\\"
 
-        byte when byte == ?' ->
-          "\\'"
+        byte when byte == quote ->
+          <<?\\, quote>>
 
         byte when byte == ?\n ->
           "\\n"
@@ -654,7 +659,7 @@ defmodule Pyex.Interpreter.Helpers do
           "\\x" <> String.pad_leading(Integer.to_string(byte, 16) |> String.downcase(), 2, "0")
       end)
 
-    "#{prefix}'#{inner}'"
+    "#{prefix}#{<<quote>>}#{inner}#{<<quote>>}"
   end
 
   # Formats a complex component the way CPython does: strips `.0` when

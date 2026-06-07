@@ -11,15 +11,13 @@ test side evaluates the same literal in pyex and asserts `repr()` matches
 CPython byte-for-byte. `repr` is used as a single uniform comparator that
 works for both `str` and `bytes` results.
 
-The generator enumerates the Python *str* prefix matrix:
+The generator enumerates the full Python string/bytes prefix matrix:
 
   * prefixes : '' r R f F u U  +  rf fr (all case/order variants)
+               +  b B  +  rb br (all case/order variants)
   * quotes   : "  '  \"\"\"  '''
-  * bodies   : plain / escapes (\\n \\t \\d \\\\) / braces ({x} {{x}})
-               / embedded quotes / real newlines
-
-Bytes prefixes (b/B, rb/br) are deliberately excluded for now; see the
-note on the PREFIXES list below.
+  * bodies   : plain / escapes (\\n \\t \\d \\\\ \\u00e9 \\xff) / braces
+               ({x} {{x}}) / embedded quotes / real newlines
 
 CPython is the legality oracle: any (prefix, quote, body) triple that is
 not valid Python raises SyntaxError at compile time and is skipped, so we
@@ -42,30 +40,18 @@ import warnings
 warnings.simplefilter("ignore", SyntaxWarning)
 warnings.simplefilter("ignore", DeprecationWarning)
 
-# Every str prefix we care about, including the empty (no-prefix) case. We
-# list case/order variants explicitly rather than generating them so the
-# fixture documents exactly what is covered.
-#
-# Bytes prefixes (b/B and the rb/br combos) are intentionally NOT generated
-# here yet. pyex's bytes path is a separate subsystem (identifier + string
-# tokens stitched back together by `collapse_bytes_literals/1`) with its own
-# distinct, pre-existing divergences from CPython that this fixture would
-# otherwise drown in:
-#
-#   * raw bytes (rb"\n") are cooked instead of kept raw
-#   * bytes wrongly interpret \u / \N escapes that don't exist in bytes
-#   * repr(bytes) doesn't switch to "double quotes" the way CPython does
-#
-# Those belong to a focused bytes-matrix follow-up. To extend this generator
-# to bytes once that work starts, append:
-#
-#     "b", "B", "rb", "br", "Rb", "rB", "bR", "Br", "RB", "BR",
+# Every prefix we care about, including the empty (no-prefix) case. We list
+# case/order variants explicitly rather than generating them so the fixture
+# documents exactly what is covered: str prefixes (r/f/u and the rf/fr
+# combos) and bytes prefixes (b and the rb/br combos), each case-insensitive.
 PREFIXES = [
     "",
     "r", "R",
     "f", "F",
     "u", "U",
     "rf", "fr", "Rf", "rF", "Fr", "fR", "RF", "FR",
+    "b", "B",
+    "rb", "br", "Rb", "rB", "bR", "Br", "RB", "BR",
 ]
 
 # (open, close) quote delimiters.

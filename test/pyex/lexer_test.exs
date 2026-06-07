@@ -494,6 +494,46 @@ defmodule Pyex.LexerTest do
     end
   end
 
+  describe "byte-string prefixes" do
+    test "plain bytes literal lexes to a bytes token" do
+      assert {:ok, [{:bytes_literal, 1, "ab"}]} = Lexer.tokenize(~S|b"ab"|)
+    end
+
+    test "uppercase B and reversed/raw combos all lex to bytes tokens" do
+      for prefix <- ~w(b B rb br Rb rB bR Br RB BR) do
+        assert {:ok, [{:bytes_literal, 1, "ab"}]} = Lexer.tokenize(prefix <> ~S|"ab"|),
+               "prefix #{prefix} did not lex as a bytes literal"
+      end
+    end
+
+    test "cooked bytes interpret escapes; raw bytes keep them literal" do
+      assert {:ok, [{:bytes_literal, 1, "a\nb"}]} = Lexer.tokenize(~S|b"a\nb"|)
+      assert {:ok, [{:bytes_literal, 1, "a\\nb"}]} = Lexer.tokenize(~S|rb"a\nb"|)
+    end
+
+    test "bytes \\xhh is a single raw byte, not a UTF-8 codepoint" do
+      assert {:ok, [{:bytes_literal, 1, <<0xFF>>}]} = Lexer.tokenize(~S|b"\xff"|)
+    end
+
+    test "bytes do not interpret \\u escapes (kept literal)" do
+      # Source is b"é"; the \u stays literal in a bytes literal.
+      assert {:ok, [{:bytes_literal, 1, "\\u00e9"}]} = Lexer.tokenize("b\"\\u00e9\"")
+    end
+
+    test "raw bytes triple-quoted keeps backslashes and embedded quotes" do
+      assert {:ok, [{:bytes_literal, 1, ~S|a "b" \d|}]} =
+               Lexer.tokenize(~S|rb"""a "b" \d"""|)
+    end
+
+    test "repr switches to double quotes when bytes contain a single quote" do
+      assert Pyex.run!(~S|repr(b"say 'hi'")|) == ~S|b"say 'hi'"|
+    end
+
+    test "repr keeps single quotes and escapes when bytes contain a double quote" do
+      assert Pyex.run!(~S|repr(b'say "hi"')|) == ~S|b'say "hi"'|
+    end
+  end
+
   describe "escape sequences" do
     test "carriage return \\r" do
       assert {:ok, [{:string, 1, "\r"}]} = Lexer.tokenize(~S|"\r"|)

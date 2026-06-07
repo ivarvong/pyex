@@ -1,21 +1,23 @@
 defmodule Pyex.LexerStringPrefixDifferentialTest do
   @moduledoc """
-  Differential test of string-literal lexing against CPython 3.14.
+  Differential test of string/bytes-literal lexing against CPython 3.14.
 
-  The full Python *str* prefix matrix — every prefix (`''`, `r`/`R`, `f`/`F`,
-  `u`/`U`, and the `rf`/`fr` combos in all case/order variants) crossed with
-  all four quote styles (`"`, `'`, `\"\"\"`, `'''`) and a battery of bodies
-  (escapes, braces, embedded quotes, real newlines) — was evaluated by
-  CPython once at fixture-build time and committed to
+  The full Python prefix matrix — every prefix (`''`, `r`/`R`, `f`/`F`,
+  `u`/`U`, `b`/`B`, and the `rf`/`fr` and `rb`/`br` combos in all case/order
+  variants) crossed with all four quote styles (`"`, `'`, `\"\"\"`, `'''`)
+  and a battery of bodies (escapes, braces, embedded quotes, real newlines)
+  — was evaluated by CPython once at fixture-build time and committed to
   `test/fixtures/string_prefix_diff.json`. CPython is also the legality
   oracle: any prefix/quote/body triple that is not valid Python was dropped
   at generation time, so every committed vector is real, valid Python.
 
   This test re-evaluates each literal in pyex and asserts `repr()` matches
-  CPython byte-for-byte. `repr` is a single uniform comparator that pins down
-  both the value AND its exact bytes — it catches the failure mode that a
-  token-kind check misses, e.g. a raw string that lexes to the right *kind*
-  of token but silently interprets a `\\n` it should have kept literal.
+  CPython byte-for-byte. `repr` is a single uniform comparator that works for
+  both `str` and `bytes` results and pins down both the value AND its exact
+  bytes — it catches the failure mode that a token-kind check misses, e.g. a
+  raw string that lexes to the right *kind* of token but silently interprets
+  a `\\n` it should have kept literal, or a bytes repr that picks the wrong
+  quote.
 
   To regenerate:
 
@@ -23,12 +25,6 @@ defmodule Pyex.LexerStringPrefixDifferentialTest do
 
   The generator is a fixed cross-product (no RNG), so a fresh fixture is
   byte-identical to the committed one unless the generator changes.
-
-  Bytes literals (`b"..."`, `rb"..."`, ...) are intentionally out of scope
-  here: they are a separate lexing subsystem with their own pre-existing
-  CPython divergences (raw bytes are cooked, `\\u`/`\\N` are wrongly
-  interpreted, `repr(bytes)` quoting differs). They warrant a focused
-  follow-up; the generator documents exactly how to extend to them.
   """
 
   use ExUnit.Case, async: true
@@ -67,20 +63,22 @@ defmodule Pyex.LexerStringPrefixDifferentialTest do
   end
 
   test "vector count matches what the generator emits (don't ship a stale fixture)" do
-    assert length(@vectors) == 750
+    assert length(@vectors) == 1250
   end
 
-  test "fixture spans every str prefix family and quote style we claim to cover" do
+  test "fixture spans every prefix family and quote style we claim to cover" do
     prefixes = @vectors |> Enum.map(& &1["prefix"]) |> MapSet.new()
     quotes = @vectors |> Enum.map(& &1["quote"]) |> MapSet.new()
+    kinds = @vectors |> Enum.map(& &1["kind"]) |> MapSet.new()
 
-    # Empty prefix plus every case/order variant of r, f, u and rf/fr.
-    for p <- ~w(r R f F u U rf fr Rf rF Fr fR RF FR) do
+    # Empty prefix plus every case/order variant of r, f, u, b and rf/rb.
+    for p <- ~w(r R f F u U b B rf fr Rf rF Fr fR RF FR rb br Rb rB bR Br RB BR) do
       assert p in prefixes, "fixture is missing prefix #{inspect(p)}"
     end
 
     assert "" in prefixes, "fixture is missing the no-prefix case"
     assert MapSet.equal?(quotes, MapSet.new(["\"", "'", "\"\"\"", "'''"]))
+    assert MapSet.equal?(kinds, MapSet.new(["str", "bytes"]))
   end
 
   test "the matrix actually exercises the semantics that distinguish prefixes" do
@@ -90,19 +88,44 @@ defmodule Pyex.LexerStringPrefixDifferentialTest do
     # strings, so the check stays robust to escaping subtleties.
     by_src = Map.new(@vectors, &{&1["src"], &1["expected"]})
 
-    require_keys = [~S|r"a\nb"|, ~S|"a\nb"|, ~S|f"{x}"|, ~S|"{x}"|, ~S|rf"\d+"|]
+    # The `é` keys are spelled with explicit `\\u` (a literal backslash)
+    # rather than a sigil holding the é character, so the source byte-for-byte
+    # matches the fixture (where the body is the 6 chars `é`, not é).
+    bytes_u = "b\"unicode \\u00e9\""
+    str_u = "\"unicode \\u00e9\""
+
+    require_keys = [
+      ~S|r"a\nb"|,
+      ~S|"a\nb"|,
+      ~S|f"{x}"|,
+      ~S|"{x}"|,
+      ~S|rf"\d+"|,
+      ~S|rb"a\nb"|,
+      ~S|b"a\nb"|,
+      bytes_u,
+      str_u,
+      ~S|b"say 'hi'"|
+    ]
 
     for k <- require_keys do
       assert Map.has_key?(by_src, k), "fixture is missing distinguishing vector #{inspect(k)}"
     end
 
     # Raw keeps the backslash; cooked turns `\n` into a newline. The two
-    # must differ, or raw-vs-cooked isn't being tested.
+    # must differ, or raw-vs-cooked isn't being tested (str and bytes).
     assert by_src[~S|r"a\nb"|] != by_src[~S|"a\nb"|]
+    assert by_src[~S|rb"a\nb"|] != by_src[~S|b"a\nb"|]
 
     # f-strings interpolate `{x}` -> "5"; plain strings keep it literal.
     assert by_src[~S|f"{x}"|] == "'5'"
     assert by_src[~S|"{x}"|] != by_src[~S|f"{x}"|]
+
+    # Bytes do NOT interpret `\u`: bytes keep it literal while str turns
+    # `é` into é, so the two results differ.
+    assert by_src[bytes_u] != by_src[str_u]
+
+    # repr(bytes) switches to double quotes when the value contains a `'`.
+    assert by_src[~S|b"say 'hi'"|] == ~S|b"say 'hi'"|
   end
 
   # =========================================================================
