@@ -5998,5 +5998,4005 @@
 "src": "FR'''hex \\xff'''",
 "kind": "str",
 "expected": "'hex \\\\xff'"
+},
+{
+"id": "0750",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0751",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"ab\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0752",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"a\\nb\"",
+"kind": "bytes",
+"expected": "b'a\\nb'"
+},
+{
+"id": "0753",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"a\\tb\"",
+"kind": "bytes",
+"expected": "b'a\\tb'"
+},
+{
+"id": "0754",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"\\d+\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0755",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"a\\\\b\"",
+"kind": "bytes",
+"expected": "b'a\\\\b'"
+},
+{
+"id": "0756",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"{x}\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0757",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"{{x}}\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0758",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"say 'hi'\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "0759",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"tab\there\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0760",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"unicode \\u00e9\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0761",
+"prefix": "b",
+"quote": "\"",
+"src": "b\"hex \\xff\"",
+"kind": "bytes",
+"expected": "b'hex \\xff'"
+},
+{
+"id": "0762",
+"prefix": "b",
+"quote": "'",
+"src": "b''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0763",
+"prefix": "b",
+"quote": "'",
+"src": "b'ab'",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0764",
+"prefix": "b",
+"quote": "'",
+"src": "b'a\\nb'",
+"kind": "bytes",
+"expected": "b'a\\nb'"
+},
+{
+"id": "0765",
+"prefix": "b",
+"quote": "'",
+"src": "b'a\\tb'",
+"kind": "bytes",
+"expected": "b'a\\tb'"
+},
+{
+"id": "0766",
+"prefix": "b",
+"quote": "'",
+"src": "b'\\d+'",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0767",
+"prefix": "b",
+"quote": "'",
+"src": "b'a\\\\b'",
+"kind": "bytes",
+"expected": "b'a\\\\b'"
+},
+{
+"id": "0768",
+"prefix": "b",
+"quote": "'",
+"src": "b'{x}'",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0769",
+"prefix": "b",
+"quote": "'",
+"src": "b'{{x}}'",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0770",
+"prefix": "b",
+"quote": "'",
+"src": "b'say \"hi\"'",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "0771",
+"prefix": "b",
+"quote": "'",
+"src": "b'tab\there'",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0772",
+"prefix": "b",
+"quote": "'",
+"src": "b'unicode \\u00e9'",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0773",
+"prefix": "b",
+"quote": "'",
+"src": "b'hex \\xff'",
+"kind": "bytes",
+"expected": "b'hex \\xff'"
+},
+{
+"id": "0774",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"\"\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0775",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"ab\"\"\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0776",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"a\\nb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\nb'"
+},
+{
+"id": "0777",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"a\\tb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\tb'"
+},
+{
+"id": "0778",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"\\d+\"\"\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0779",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"a\\\\b\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\b'"
+},
+{
+"id": "0780",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"{x}\"\"\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0781",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"{{x}}\"\"\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0782",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"say 'hi'\"\"\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "0783",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"line1\nline2\"\"\"",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "0784",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"tab\there\"\"\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0785",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"unicode \\u00e9\"\"\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0786",
+"prefix": "b",
+"quote": "\"\"\"",
+"src": "b\"\"\"hex \\xff\"\"\"",
+"kind": "bytes",
+"expected": "b'hex \\xff'"
+},
+{
+"id": "0787",
+"prefix": "b",
+"quote": "'''",
+"src": "b''''''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0788",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''ab'''",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0789",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''a\\nb'''",
+"kind": "bytes",
+"expected": "b'a\\nb'"
+},
+{
+"id": "0790",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''a\\tb'''",
+"kind": "bytes",
+"expected": "b'a\\tb'"
+},
+{
+"id": "0791",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''\\d+'''",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0792",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''a\\\\b'''",
+"kind": "bytes",
+"expected": "b'a\\\\b'"
+},
+{
+"id": "0793",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''{x}'''",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0794",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''{{x}}'''",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0795",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''say \"hi\"'''",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "0796",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''line1\nline2'''",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "0797",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''tab\there'''",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0798",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''unicode \\u00e9'''",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0799",
+"prefix": "b",
+"quote": "'''",
+"src": "b'''hex \\xff'''",
+"kind": "bytes",
+"expected": "b'hex \\xff'"
+},
+{
+"id": "0800",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0801",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"ab\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0802",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"a\\nb\"",
+"kind": "bytes",
+"expected": "b'a\\nb'"
+},
+{
+"id": "0803",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"a\\tb\"",
+"kind": "bytes",
+"expected": "b'a\\tb'"
+},
+{
+"id": "0804",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"\\d+\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0805",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"a\\\\b\"",
+"kind": "bytes",
+"expected": "b'a\\\\b'"
+},
+{
+"id": "0806",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"{x}\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0807",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"{{x}}\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0808",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"say 'hi'\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "0809",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"tab\there\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0810",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"unicode \\u00e9\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0811",
+"prefix": "B",
+"quote": "\"",
+"src": "B\"hex \\xff\"",
+"kind": "bytes",
+"expected": "b'hex \\xff'"
+},
+{
+"id": "0812",
+"prefix": "B",
+"quote": "'",
+"src": "B''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0813",
+"prefix": "B",
+"quote": "'",
+"src": "B'ab'",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0814",
+"prefix": "B",
+"quote": "'",
+"src": "B'a\\nb'",
+"kind": "bytes",
+"expected": "b'a\\nb'"
+},
+{
+"id": "0815",
+"prefix": "B",
+"quote": "'",
+"src": "B'a\\tb'",
+"kind": "bytes",
+"expected": "b'a\\tb'"
+},
+{
+"id": "0816",
+"prefix": "B",
+"quote": "'",
+"src": "B'\\d+'",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0817",
+"prefix": "B",
+"quote": "'",
+"src": "B'a\\\\b'",
+"kind": "bytes",
+"expected": "b'a\\\\b'"
+},
+{
+"id": "0818",
+"prefix": "B",
+"quote": "'",
+"src": "B'{x}'",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0819",
+"prefix": "B",
+"quote": "'",
+"src": "B'{{x}}'",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0820",
+"prefix": "B",
+"quote": "'",
+"src": "B'say \"hi\"'",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "0821",
+"prefix": "B",
+"quote": "'",
+"src": "B'tab\there'",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0822",
+"prefix": "B",
+"quote": "'",
+"src": "B'unicode \\u00e9'",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0823",
+"prefix": "B",
+"quote": "'",
+"src": "B'hex \\xff'",
+"kind": "bytes",
+"expected": "b'hex \\xff'"
+},
+{
+"id": "0824",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"\"\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0825",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"ab\"\"\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0826",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"a\\nb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\nb'"
+},
+{
+"id": "0827",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"a\\tb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\tb'"
+},
+{
+"id": "0828",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"\\d+\"\"\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0829",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"a\\\\b\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\b'"
+},
+{
+"id": "0830",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"{x}\"\"\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0831",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"{{x}}\"\"\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0832",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"say 'hi'\"\"\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "0833",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"line1\nline2\"\"\"",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "0834",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"tab\there\"\"\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0835",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"unicode \\u00e9\"\"\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0836",
+"prefix": "B",
+"quote": "\"\"\"",
+"src": "B\"\"\"hex \\xff\"\"\"",
+"kind": "bytes",
+"expected": "b'hex \\xff'"
+},
+{
+"id": "0837",
+"prefix": "B",
+"quote": "'''",
+"src": "B''''''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0838",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''ab'''",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0839",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''a\\nb'''",
+"kind": "bytes",
+"expected": "b'a\\nb'"
+},
+{
+"id": "0840",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''a\\tb'''",
+"kind": "bytes",
+"expected": "b'a\\tb'"
+},
+{
+"id": "0841",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''\\d+'''",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0842",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''a\\\\b'''",
+"kind": "bytes",
+"expected": "b'a\\\\b'"
+},
+{
+"id": "0843",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''{x}'''",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0844",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''{{x}}'''",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0845",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''say \"hi\"'''",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "0846",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''line1\nline2'''",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "0847",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''tab\there'''",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0848",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''unicode \\u00e9'''",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0849",
+"prefix": "B",
+"quote": "'''",
+"src": "B'''hex \\xff'''",
+"kind": "bytes",
+"expected": "b'hex \\xff'"
+},
+{
+"id": "0850",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0851",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"ab\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0852",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"a\\nb\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0853",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"a\\tb\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0854",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"\\d+\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0855",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"a\\\\b\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0856",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"{x}\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0857",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"{{x}}\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0858",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"say 'hi'\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "0859",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"tab\there\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0860",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"unicode \\u00e9\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0861",
+"prefix": "rb",
+"quote": "\"",
+"src": "rb\"hex \\xff\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "0862",
+"prefix": "rb",
+"quote": "'",
+"src": "rb''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0863",
+"prefix": "rb",
+"quote": "'",
+"src": "rb'ab'",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0864",
+"prefix": "rb",
+"quote": "'",
+"src": "rb'a\\nb'",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0865",
+"prefix": "rb",
+"quote": "'",
+"src": "rb'a\\tb'",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0866",
+"prefix": "rb",
+"quote": "'",
+"src": "rb'\\d+'",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0867",
+"prefix": "rb",
+"quote": "'",
+"src": "rb'a\\\\b'",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0868",
+"prefix": "rb",
+"quote": "'",
+"src": "rb'{x}'",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0869",
+"prefix": "rb",
+"quote": "'",
+"src": "rb'{{x}}'",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0870",
+"prefix": "rb",
+"quote": "'",
+"src": "rb'say \"hi\"'",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "0871",
+"prefix": "rb",
+"quote": "'",
+"src": "rb'tab\there'",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0872",
+"prefix": "rb",
+"quote": "'",
+"src": "rb'unicode \\u00e9'",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0873",
+"prefix": "rb",
+"quote": "'",
+"src": "rb'hex \\xff'",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "0874",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"\"\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0875",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"ab\"\"\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0876",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"a\\nb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0877",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"a\\tb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0878",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"\\d+\"\"\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0879",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"a\\\\b\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0880",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"{x}\"\"\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0881",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"{{x}}\"\"\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0882",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"say 'hi'\"\"\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "0883",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"line1\nline2\"\"\"",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "0884",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"tab\there\"\"\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0885",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"unicode \\u00e9\"\"\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0886",
+"prefix": "rb",
+"quote": "\"\"\"",
+"src": "rb\"\"\"hex \\xff\"\"\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "0887",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb''''''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0888",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''ab'''",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0889",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''a\\nb'''",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0890",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''a\\tb'''",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0891",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''\\d+'''",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0892",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''a\\\\b'''",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0893",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''{x}'''",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0894",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''{{x}}'''",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0895",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''say \"hi\"'''",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "0896",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''line1\nline2'''",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "0897",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''tab\there'''",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0898",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''unicode \\u00e9'''",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0899",
+"prefix": "rb",
+"quote": "'''",
+"src": "rb'''hex \\xff'''",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "0900",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0901",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"ab\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0902",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"a\\nb\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0903",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"a\\tb\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0904",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"\\d+\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0905",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"a\\\\b\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0906",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"{x}\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0907",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"{{x}}\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0908",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"say 'hi'\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "0909",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"tab\there\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0910",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"unicode \\u00e9\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0911",
+"prefix": "br",
+"quote": "\"",
+"src": "br\"hex \\xff\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "0912",
+"prefix": "br",
+"quote": "'",
+"src": "br''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0913",
+"prefix": "br",
+"quote": "'",
+"src": "br'ab'",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0914",
+"prefix": "br",
+"quote": "'",
+"src": "br'a\\nb'",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0915",
+"prefix": "br",
+"quote": "'",
+"src": "br'a\\tb'",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0916",
+"prefix": "br",
+"quote": "'",
+"src": "br'\\d+'",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0917",
+"prefix": "br",
+"quote": "'",
+"src": "br'a\\\\b'",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0918",
+"prefix": "br",
+"quote": "'",
+"src": "br'{x}'",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0919",
+"prefix": "br",
+"quote": "'",
+"src": "br'{{x}}'",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0920",
+"prefix": "br",
+"quote": "'",
+"src": "br'say \"hi\"'",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "0921",
+"prefix": "br",
+"quote": "'",
+"src": "br'tab\there'",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0922",
+"prefix": "br",
+"quote": "'",
+"src": "br'unicode \\u00e9'",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0923",
+"prefix": "br",
+"quote": "'",
+"src": "br'hex \\xff'",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "0924",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"\"\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0925",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"ab\"\"\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0926",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"a\\nb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0927",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"a\\tb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0928",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"\\d+\"\"\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0929",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"a\\\\b\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0930",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"{x}\"\"\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0931",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"{{x}}\"\"\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0932",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"say 'hi'\"\"\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "0933",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"line1\nline2\"\"\"",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "0934",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"tab\there\"\"\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0935",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"unicode \\u00e9\"\"\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0936",
+"prefix": "br",
+"quote": "\"\"\"",
+"src": "br\"\"\"hex \\xff\"\"\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "0937",
+"prefix": "br",
+"quote": "'''",
+"src": "br''''''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0938",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''ab'''",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0939",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''a\\nb'''",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0940",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''a\\tb'''",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0941",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''\\d+'''",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0942",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''a\\\\b'''",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0943",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''{x}'''",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0944",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''{{x}}'''",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0945",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''say \"hi\"'''",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "0946",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''line1\nline2'''",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "0947",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''tab\there'''",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0948",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''unicode \\u00e9'''",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0949",
+"prefix": "br",
+"quote": "'''",
+"src": "br'''hex \\xff'''",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "0950",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0951",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"ab\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0952",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"a\\nb\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0953",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"a\\tb\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0954",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"\\d+\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0955",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"a\\\\b\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0956",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"{x}\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0957",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"{{x}}\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0958",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"say 'hi'\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "0959",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"tab\there\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0960",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"unicode \\u00e9\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0961",
+"prefix": "Rb",
+"quote": "\"",
+"src": "Rb\"hex \\xff\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "0962",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0963",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb'ab'",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0964",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb'a\\nb'",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0965",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb'a\\tb'",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0966",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb'\\d+'",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0967",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb'a\\\\b'",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0968",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb'{x}'",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0969",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb'{{x}}'",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0970",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb'say \"hi\"'",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "0971",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb'tab\there'",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0972",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb'unicode \\u00e9'",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0973",
+"prefix": "Rb",
+"quote": "'",
+"src": "Rb'hex \\xff'",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "0974",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"\"\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0975",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"ab\"\"\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0976",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"a\\nb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0977",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"a\\tb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0978",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"\\d+\"\"\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0979",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"a\\\\b\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0980",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"{x}\"\"\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0981",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"{{x}}\"\"\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0982",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"say 'hi'\"\"\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "0983",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"line1\nline2\"\"\"",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "0984",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"tab\there\"\"\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0985",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"unicode \\u00e9\"\"\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0986",
+"prefix": "Rb",
+"quote": "\"\"\"",
+"src": "Rb\"\"\"hex \\xff\"\"\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "0987",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb''''''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "0988",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''ab'''",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "0989",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''a\\nb'''",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "0990",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''a\\tb'''",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "0991",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''\\d+'''",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "0992",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''a\\\\b'''",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "0993",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''{x}'''",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "0994",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''{{x}}'''",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "0995",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''say \"hi\"'''",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "0996",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''line1\nline2'''",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "0997",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''tab\there'''",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "0998",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''unicode \\u00e9'''",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "0999",
+"prefix": "Rb",
+"quote": "'''",
+"src": "Rb'''hex \\xff'''",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1000",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1001",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"ab\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1002",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"a\\nb\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1003",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"a\\tb\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1004",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"\\d+\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1005",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"a\\\\b\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1006",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"{x}\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1007",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"{{x}}\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1008",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"say 'hi'\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "1009",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"tab\there\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1010",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"unicode \\u00e9\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1011",
+"prefix": "rB",
+"quote": "\"",
+"src": "rB\"hex \\xff\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1012",
+"prefix": "rB",
+"quote": "'",
+"src": "rB''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1013",
+"prefix": "rB",
+"quote": "'",
+"src": "rB'ab'",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1014",
+"prefix": "rB",
+"quote": "'",
+"src": "rB'a\\nb'",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1015",
+"prefix": "rB",
+"quote": "'",
+"src": "rB'a\\tb'",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1016",
+"prefix": "rB",
+"quote": "'",
+"src": "rB'\\d+'",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1017",
+"prefix": "rB",
+"quote": "'",
+"src": "rB'a\\\\b'",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1018",
+"prefix": "rB",
+"quote": "'",
+"src": "rB'{x}'",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1019",
+"prefix": "rB",
+"quote": "'",
+"src": "rB'{{x}}'",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1020",
+"prefix": "rB",
+"quote": "'",
+"src": "rB'say \"hi\"'",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "1021",
+"prefix": "rB",
+"quote": "'",
+"src": "rB'tab\there'",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1022",
+"prefix": "rB",
+"quote": "'",
+"src": "rB'unicode \\u00e9'",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1023",
+"prefix": "rB",
+"quote": "'",
+"src": "rB'hex \\xff'",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1024",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"\"\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1025",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"ab\"\"\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1026",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"a\\nb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1027",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"a\\tb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1028",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"\\d+\"\"\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1029",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"a\\\\b\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1030",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"{x}\"\"\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1031",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"{{x}}\"\"\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1032",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"say 'hi'\"\"\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "1033",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"line1\nline2\"\"\"",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "1034",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"tab\there\"\"\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1035",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"unicode \\u00e9\"\"\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1036",
+"prefix": "rB",
+"quote": "\"\"\"",
+"src": "rB\"\"\"hex \\xff\"\"\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1037",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB''''''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1038",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''ab'''",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1039",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''a\\nb'''",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1040",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''a\\tb'''",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1041",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''\\d+'''",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1042",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''a\\\\b'''",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1043",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''{x}'''",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1044",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''{{x}}'''",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1045",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''say \"hi\"'''",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "1046",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''line1\nline2'''",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "1047",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''tab\there'''",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1048",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''unicode \\u00e9'''",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1049",
+"prefix": "rB",
+"quote": "'''",
+"src": "rB'''hex \\xff'''",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1050",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1051",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"ab\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1052",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"a\\nb\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1053",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"a\\tb\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1054",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"\\d+\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1055",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"a\\\\b\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1056",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"{x}\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1057",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"{{x}}\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1058",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"say 'hi'\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "1059",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"tab\there\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1060",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"unicode \\u00e9\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1061",
+"prefix": "bR",
+"quote": "\"",
+"src": "bR\"hex \\xff\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1062",
+"prefix": "bR",
+"quote": "'",
+"src": "bR''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1063",
+"prefix": "bR",
+"quote": "'",
+"src": "bR'ab'",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1064",
+"prefix": "bR",
+"quote": "'",
+"src": "bR'a\\nb'",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1065",
+"prefix": "bR",
+"quote": "'",
+"src": "bR'a\\tb'",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1066",
+"prefix": "bR",
+"quote": "'",
+"src": "bR'\\d+'",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1067",
+"prefix": "bR",
+"quote": "'",
+"src": "bR'a\\\\b'",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1068",
+"prefix": "bR",
+"quote": "'",
+"src": "bR'{x}'",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1069",
+"prefix": "bR",
+"quote": "'",
+"src": "bR'{{x}}'",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1070",
+"prefix": "bR",
+"quote": "'",
+"src": "bR'say \"hi\"'",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "1071",
+"prefix": "bR",
+"quote": "'",
+"src": "bR'tab\there'",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1072",
+"prefix": "bR",
+"quote": "'",
+"src": "bR'unicode \\u00e9'",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1073",
+"prefix": "bR",
+"quote": "'",
+"src": "bR'hex \\xff'",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1074",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"\"\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1075",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"ab\"\"\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1076",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"a\\nb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1077",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"a\\tb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1078",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"\\d+\"\"\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1079",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"a\\\\b\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1080",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"{x}\"\"\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1081",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"{{x}}\"\"\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1082",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"say 'hi'\"\"\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "1083",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"line1\nline2\"\"\"",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "1084",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"tab\there\"\"\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1085",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"unicode \\u00e9\"\"\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1086",
+"prefix": "bR",
+"quote": "\"\"\"",
+"src": "bR\"\"\"hex \\xff\"\"\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1087",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR''''''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1088",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''ab'''",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1089",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''a\\nb'''",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1090",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''a\\tb'''",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1091",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''\\d+'''",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1092",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''a\\\\b'''",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1093",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''{x}'''",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1094",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''{{x}}'''",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1095",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''say \"hi\"'''",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "1096",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''line1\nline2'''",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "1097",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''tab\there'''",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1098",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''unicode \\u00e9'''",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1099",
+"prefix": "bR",
+"quote": "'''",
+"src": "bR'''hex \\xff'''",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1100",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1101",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"ab\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1102",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"a\\nb\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1103",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"a\\tb\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1104",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"\\d+\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1105",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"a\\\\b\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1106",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"{x}\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1107",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"{{x}}\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1108",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"say 'hi'\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "1109",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"tab\there\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1110",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"unicode \\u00e9\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1111",
+"prefix": "Br",
+"quote": "\"",
+"src": "Br\"hex \\xff\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1112",
+"prefix": "Br",
+"quote": "'",
+"src": "Br''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1113",
+"prefix": "Br",
+"quote": "'",
+"src": "Br'ab'",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1114",
+"prefix": "Br",
+"quote": "'",
+"src": "Br'a\\nb'",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1115",
+"prefix": "Br",
+"quote": "'",
+"src": "Br'a\\tb'",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1116",
+"prefix": "Br",
+"quote": "'",
+"src": "Br'\\d+'",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1117",
+"prefix": "Br",
+"quote": "'",
+"src": "Br'a\\\\b'",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1118",
+"prefix": "Br",
+"quote": "'",
+"src": "Br'{x}'",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1119",
+"prefix": "Br",
+"quote": "'",
+"src": "Br'{{x}}'",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1120",
+"prefix": "Br",
+"quote": "'",
+"src": "Br'say \"hi\"'",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "1121",
+"prefix": "Br",
+"quote": "'",
+"src": "Br'tab\there'",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1122",
+"prefix": "Br",
+"quote": "'",
+"src": "Br'unicode \\u00e9'",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1123",
+"prefix": "Br",
+"quote": "'",
+"src": "Br'hex \\xff'",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1124",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"\"\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1125",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"ab\"\"\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1126",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"a\\nb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1127",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"a\\tb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1128",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"\\d+\"\"\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1129",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"a\\\\b\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1130",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"{x}\"\"\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1131",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"{{x}}\"\"\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1132",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"say 'hi'\"\"\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "1133",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"line1\nline2\"\"\"",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "1134",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"tab\there\"\"\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1135",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"unicode \\u00e9\"\"\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1136",
+"prefix": "Br",
+"quote": "\"\"\"",
+"src": "Br\"\"\"hex \\xff\"\"\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1137",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br''''''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1138",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''ab'''",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1139",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''a\\nb'''",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1140",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''a\\tb'''",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1141",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''\\d+'''",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1142",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''a\\\\b'''",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1143",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''{x}'''",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1144",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''{{x}}'''",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1145",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''say \"hi\"'''",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "1146",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''line1\nline2'''",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "1147",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''tab\there'''",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1148",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''unicode \\u00e9'''",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1149",
+"prefix": "Br",
+"quote": "'''",
+"src": "Br'''hex \\xff'''",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1150",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1151",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"ab\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1152",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"a\\nb\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1153",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"a\\tb\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1154",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"\\d+\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1155",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"a\\\\b\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1156",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"{x}\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1157",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"{{x}}\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1158",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"say 'hi'\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "1159",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"tab\there\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1160",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"unicode \\u00e9\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1161",
+"prefix": "RB",
+"quote": "\"",
+"src": "RB\"hex \\xff\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1162",
+"prefix": "RB",
+"quote": "'",
+"src": "RB''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1163",
+"prefix": "RB",
+"quote": "'",
+"src": "RB'ab'",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1164",
+"prefix": "RB",
+"quote": "'",
+"src": "RB'a\\nb'",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1165",
+"prefix": "RB",
+"quote": "'",
+"src": "RB'a\\tb'",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1166",
+"prefix": "RB",
+"quote": "'",
+"src": "RB'\\d+'",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1167",
+"prefix": "RB",
+"quote": "'",
+"src": "RB'a\\\\b'",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1168",
+"prefix": "RB",
+"quote": "'",
+"src": "RB'{x}'",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1169",
+"prefix": "RB",
+"quote": "'",
+"src": "RB'{{x}}'",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1170",
+"prefix": "RB",
+"quote": "'",
+"src": "RB'say \"hi\"'",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "1171",
+"prefix": "RB",
+"quote": "'",
+"src": "RB'tab\there'",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1172",
+"prefix": "RB",
+"quote": "'",
+"src": "RB'unicode \\u00e9'",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1173",
+"prefix": "RB",
+"quote": "'",
+"src": "RB'hex \\xff'",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1174",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"\"\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1175",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"ab\"\"\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1176",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"a\\nb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1177",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"a\\tb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1178",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"\\d+\"\"\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1179",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"a\\\\b\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1180",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"{x}\"\"\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1181",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"{{x}}\"\"\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1182",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"say 'hi'\"\"\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "1183",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"line1\nline2\"\"\"",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "1184",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"tab\there\"\"\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1185",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"unicode \\u00e9\"\"\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1186",
+"prefix": "RB",
+"quote": "\"\"\"",
+"src": "RB\"\"\"hex \\xff\"\"\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1187",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB''''''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1188",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''ab'''",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1189",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''a\\nb'''",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1190",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''a\\tb'''",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1191",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''\\d+'''",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1192",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''a\\\\b'''",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1193",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''{x}'''",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1194",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''{{x}}'''",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1195",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''say \"hi\"'''",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "1196",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''line1\nline2'''",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "1197",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''tab\there'''",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1198",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''unicode \\u00e9'''",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1199",
+"prefix": "RB",
+"quote": "'''",
+"src": "RB'''hex \\xff'''",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1200",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1201",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"ab\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1202",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"a\\nb\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1203",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"a\\tb\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1204",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"\\d+\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1205",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"a\\\\b\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1206",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"{x}\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1207",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"{{x}}\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1208",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"say 'hi'\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "1209",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"tab\there\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1210",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"unicode \\u00e9\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1211",
+"prefix": "BR",
+"quote": "\"",
+"src": "BR\"hex \\xff\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1212",
+"prefix": "BR",
+"quote": "'",
+"src": "BR''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1213",
+"prefix": "BR",
+"quote": "'",
+"src": "BR'ab'",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1214",
+"prefix": "BR",
+"quote": "'",
+"src": "BR'a\\nb'",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1215",
+"prefix": "BR",
+"quote": "'",
+"src": "BR'a\\tb'",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1216",
+"prefix": "BR",
+"quote": "'",
+"src": "BR'\\d+'",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1217",
+"prefix": "BR",
+"quote": "'",
+"src": "BR'a\\\\b'",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1218",
+"prefix": "BR",
+"quote": "'",
+"src": "BR'{x}'",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1219",
+"prefix": "BR",
+"quote": "'",
+"src": "BR'{{x}}'",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1220",
+"prefix": "BR",
+"quote": "'",
+"src": "BR'say \"hi\"'",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "1221",
+"prefix": "BR",
+"quote": "'",
+"src": "BR'tab\there'",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1222",
+"prefix": "BR",
+"quote": "'",
+"src": "BR'unicode \\u00e9'",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1223",
+"prefix": "BR",
+"quote": "'",
+"src": "BR'hex \\xff'",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1224",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"\"\"\"",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1225",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"ab\"\"\"",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1226",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"a\\nb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1227",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"a\\tb\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1228",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"\\d+\"\"\"",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1229",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"a\\\\b\"\"\"",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1230",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"{x}\"\"\"",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1231",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"{{x}}\"\"\"",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1232",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"say 'hi'\"\"\"",
+"kind": "bytes",
+"expected": "b\"say 'hi'\""
+},
+{
+"id": "1233",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"line1\nline2\"\"\"",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "1234",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"tab\there\"\"\"",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1235",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"unicode \\u00e9\"\"\"",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1236",
+"prefix": "BR",
+"quote": "\"\"\"",
+"src": "BR\"\"\"hex \\xff\"\"\"",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
+},
+{
+"id": "1237",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR''''''",
+"kind": "bytes",
+"expected": "b''"
+},
+{
+"id": "1238",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''ab'''",
+"kind": "bytes",
+"expected": "b'ab'"
+},
+{
+"id": "1239",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''a\\nb'''",
+"kind": "bytes",
+"expected": "b'a\\\\nb'"
+},
+{
+"id": "1240",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''a\\tb'''",
+"kind": "bytes",
+"expected": "b'a\\\\tb'"
+},
+{
+"id": "1241",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''\\d+'''",
+"kind": "bytes",
+"expected": "b'\\\\d+'"
+},
+{
+"id": "1242",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''a\\\\b'''",
+"kind": "bytes",
+"expected": "b'a\\\\\\\\b'"
+},
+{
+"id": "1243",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''{x}'''",
+"kind": "bytes",
+"expected": "b'{x}'"
+},
+{
+"id": "1244",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''{{x}}'''",
+"kind": "bytes",
+"expected": "b'{{x}}'"
+},
+{
+"id": "1245",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''say \"hi\"'''",
+"kind": "bytes",
+"expected": "b'say \"hi\"'"
+},
+{
+"id": "1246",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''line1\nline2'''",
+"kind": "bytes",
+"expected": "b'line1\\nline2'"
+},
+{
+"id": "1247",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''tab\there'''",
+"kind": "bytes",
+"expected": "b'tab\\there'"
+},
+{
+"id": "1248",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''unicode \\u00e9'''",
+"kind": "bytes",
+"expected": "b'unicode \\\\u00e9'"
+},
+{
+"id": "1249",
+"prefix": "BR",
+"quote": "'''",
+"src": "BR'''hex \\xff'''",
+"kind": "bytes",
+"expected": "b'hex \\\\xff'"
 }
 ]
