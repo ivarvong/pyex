@@ -1,0 +1,6002 @@
+[
+{
+"id": "0000",
+"prefix": "",
+"quote": "\"",
+"src": "\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0001",
+"prefix": "",
+"quote": "\"",
+"src": "\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0002",
+"prefix": "",
+"quote": "\"",
+"src": "\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0003",
+"prefix": "",
+"quote": "\"",
+"src": "\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0004",
+"prefix": "",
+"quote": "\"",
+"src": "\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0005",
+"prefix": "",
+"quote": "\"",
+"src": "\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0006",
+"prefix": "",
+"quote": "\"",
+"src": "\"{x}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0007",
+"prefix": "",
+"quote": "\"",
+"src": "\"{{x}}\"",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0008",
+"prefix": "",
+"quote": "\"",
+"src": "\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0009",
+"prefix": "",
+"quote": "\"",
+"src": "\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0010",
+"prefix": "",
+"quote": "\"",
+"src": "\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0011",
+"prefix": "",
+"quote": "\"",
+"src": "\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0012",
+"prefix": "",
+"quote": "'",
+"src": "''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0013",
+"prefix": "",
+"quote": "'",
+"src": "'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0014",
+"prefix": "",
+"quote": "'",
+"src": "'a\\nb'",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0015",
+"prefix": "",
+"quote": "'",
+"src": "'a\\tb'",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0016",
+"prefix": "",
+"quote": "'",
+"src": "'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0017",
+"prefix": "",
+"quote": "'",
+"src": "'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0018",
+"prefix": "",
+"quote": "'",
+"src": "'{x}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0019",
+"prefix": "",
+"quote": "'",
+"src": "'{{x}}'",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0020",
+"prefix": "",
+"quote": "'",
+"src": "'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0021",
+"prefix": "",
+"quote": "'",
+"src": "'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0022",
+"prefix": "",
+"quote": "'",
+"src": "'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0023",
+"prefix": "",
+"quote": "'",
+"src": "'hex \\xff'",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0024",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0025",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0026",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0027",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0028",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0029",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0030",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0031",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0032",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0033",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0034",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0035",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0036",
+"prefix": "",
+"quote": "\"\"\"",
+"src": "\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0037",
+"prefix": "",
+"quote": "'''",
+"src": "''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0038",
+"prefix": "",
+"quote": "'''",
+"src": "'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0039",
+"prefix": "",
+"quote": "'''",
+"src": "'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0040",
+"prefix": "",
+"quote": "'''",
+"src": "'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0041",
+"prefix": "",
+"quote": "'''",
+"src": "'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0042",
+"prefix": "",
+"quote": "'''",
+"src": "'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0043",
+"prefix": "",
+"quote": "'''",
+"src": "'''{x}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0044",
+"prefix": "",
+"quote": "'''",
+"src": "'''{{x}}'''",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0045",
+"prefix": "",
+"quote": "'''",
+"src": "'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0046",
+"prefix": "",
+"quote": "'''",
+"src": "'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0047",
+"prefix": "",
+"quote": "'''",
+"src": "'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0048",
+"prefix": "",
+"quote": "'''",
+"src": "'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0049",
+"prefix": "",
+"quote": "'''",
+"src": "'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0050",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0051",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0052",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0053",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0054",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0055",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0056",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"{x}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0057",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"{{x}}\"",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0058",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0059",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0060",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0061",
+"prefix": "r",
+"quote": "\"",
+"src": "r\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0062",
+"prefix": "r",
+"quote": "'",
+"src": "r''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0063",
+"prefix": "r",
+"quote": "'",
+"src": "r'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0064",
+"prefix": "r",
+"quote": "'",
+"src": "r'a\\nb'",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0065",
+"prefix": "r",
+"quote": "'",
+"src": "r'a\\tb'",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0066",
+"prefix": "r",
+"quote": "'",
+"src": "r'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0067",
+"prefix": "r",
+"quote": "'",
+"src": "r'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0068",
+"prefix": "r",
+"quote": "'",
+"src": "r'{x}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0069",
+"prefix": "r",
+"quote": "'",
+"src": "r'{{x}}'",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0070",
+"prefix": "r",
+"quote": "'",
+"src": "r'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0071",
+"prefix": "r",
+"quote": "'",
+"src": "r'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0072",
+"prefix": "r",
+"quote": "'",
+"src": "r'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0073",
+"prefix": "r",
+"quote": "'",
+"src": "r'hex \\xff'",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0074",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0075",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0076",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0077",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0078",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0079",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0080",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0081",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0082",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0083",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0084",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0085",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0086",
+"prefix": "r",
+"quote": "\"\"\"",
+"src": "r\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0087",
+"prefix": "r",
+"quote": "'''",
+"src": "r''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0088",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0089",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0090",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0091",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0092",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0093",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''{x}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0094",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''{{x}}'''",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0095",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0096",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0097",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0098",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0099",
+"prefix": "r",
+"quote": "'''",
+"src": "r'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0100",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0101",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0102",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0103",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0104",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0105",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0106",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"{x}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0107",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"{{x}}\"",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0108",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0109",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0110",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0111",
+"prefix": "R",
+"quote": "\"",
+"src": "R\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0112",
+"prefix": "R",
+"quote": "'",
+"src": "R''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0113",
+"prefix": "R",
+"quote": "'",
+"src": "R'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0114",
+"prefix": "R",
+"quote": "'",
+"src": "R'a\\nb'",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0115",
+"prefix": "R",
+"quote": "'",
+"src": "R'a\\tb'",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0116",
+"prefix": "R",
+"quote": "'",
+"src": "R'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0117",
+"prefix": "R",
+"quote": "'",
+"src": "R'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0118",
+"prefix": "R",
+"quote": "'",
+"src": "R'{x}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0119",
+"prefix": "R",
+"quote": "'",
+"src": "R'{{x}}'",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0120",
+"prefix": "R",
+"quote": "'",
+"src": "R'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0121",
+"prefix": "R",
+"quote": "'",
+"src": "R'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0122",
+"prefix": "R",
+"quote": "'",
+"src": "R'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0123",
+"prefix": "R",
+"quote": "'",
+"src": "R'hex \\xff'",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0124",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0125",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0126",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0127",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0128",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0129",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0130",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0131",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0132",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0133",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0134",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0135",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0136",
+"prefix": "R",
+"quote": "\"\"\"",
+"src": "R\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0137",
+"prefix": "R",
+"quote": "'''",
+"src": "R''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0138",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0139",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0140",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0141",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0142",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0143",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''{x}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0144",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''{{x}}'''",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0145",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0146",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0147",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0148",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0149",
+"prefix": "R",
+"quote": "'''",
+"src": "R'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0150",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0151",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0152",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0153",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0154",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0155",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0156",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"{x}\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0157",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"{{x}}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0158",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0159",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0160",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0161",
+"prefix": "f",
+"quote": "\"",
+"src": "f\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0162",
+"prefix": "f",
+"quote": "'",
+"src": "f''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0163",
+"prefix": "f",
+"quote": "'",
+"src": "f'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0164",
+"prefix": "f",
+"quote": "'",
+"src": "f'a\\nb'",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0165",
+"prefix": "f",
+"quote": "'",
+"src": "f'a\\tb'",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0166",
+"prefix": "f",
+"quote": "'",
+"src": "f'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0167",
+"prefix": "f",
+"quote": "'",
+"src": "f'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0168",
+"prefix": "f",
+"quote": "'",
+"src": "f'{x}'",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0169",
+"prefix": "f",
+"quote": "'",
+"src": "f'{{x}}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0170",
+"prefix": "f",
+"quote": "'",
+"src": "f'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0171",
+"prefix": "f",
+"quote": "'",
+"src": "f'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0172",
+"prefix": "f",
+"quote": "'",
+"src": "f'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0173",
+"prefix": "f",
+"quote": "'",
+"src": "f'hex \\xff'",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0174",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0175",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0176",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0177",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0178",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0179",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0180",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0181",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0182",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0183",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0184",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0185",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0186",
+"prefix": "f",
+"quote": "\"\"\"",
+"src": "f\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0187",
+"prefix": "f",
+"quote": "'''",
+"src": "f''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0188",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0189",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0190",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0191",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0192",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0193",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''{x}'''",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0194",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''{{x}}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0195",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0196",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0197",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0198",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0199",
+"prefix": "f",
+"quote": "'''",
+"src": "f'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0200",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0201",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0202",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0203",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0204",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0205",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0206",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"{x}\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0207",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"{{x}}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0208",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0209",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0210",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0211",
+"prefix": "F",
+"quote": "\"",
+"src": "F\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0212",
+"prefix": "F",
+"quote": "'",
+"src": "F''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0213",
+"prefix": "F",
+"quote": "'",
+"src": "F'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0214",
+"prefix": "F",
+"quote": "'",
+"src": "F'a\\nb'",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0215",
+"prefix": "F",
+"quote": "'",
+"src": "F'a\\tb'",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0216",
+"prefix": "F",
+"quote": "'",
+"src": "F'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0217",
+"prefix": "F",
+"quote": "'",
+"src": "F'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0218",
+"prefix": "F",
+"quote": "'",
+"src": "F'{x}'",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0219",
+"prefix": "F",
+"quote": "'",
+"src": "F'{{x}}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0220",
+"prefix": "F",
+"quote": "'",
+"src": "F'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0221",
+"prefix": "F",
+"quote": "'",
+"src": "F'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0222",
+"prefix": "F",
+"quote": "'",
+"src": "F'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0223",
+"prefix": "F",
+"quote": "'",
+"src": "F'hex \\xff'",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0224",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0225",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0226",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0227",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0228",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0229",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0230",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0231",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0232",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0233",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0234",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0235",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0236",
+"prefix": "F",
+"quote": "\"\"\"",
+"src": "F\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0237",
+"prefix": "F",
+"quote": "'''",
+"src": "F''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0238",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0239",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0240",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0241",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0242",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0243",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''{x}'''",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0244",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''{{x}}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0245",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0246",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0247",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0248",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0249",
+"prefix": "F",
+"quote": "'''",
+"src": "F'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0250",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0251",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0252",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0253",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0254",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0255",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0256",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"{x}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0257",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"{{x}}\"",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0258",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0259",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0260",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0261",
+"prefix": "u",
+"quote": "\"",
+"src": "u\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0262",
+"prefix": "u",
+"quote": "'",
+"src": "u''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0263",
+"prefix": "u",
+"quote": "'",
+"src": "u'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0264",
+"prefix": "u",
+"quote": "'",
+"src": "u'a\\nb'",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0265",
+"prefix": "u",
+"quote": "'",
+"src": "u'a\\tb'",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0266",
+"prefix": "u",
+"quote": "'",
+"src": "u'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0267",
+"prefix": "u",
+"quote": "'",
+"src": "u'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0268",
+"prefix": "u",
+"quote": "'",
+"src": "u'{x}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0269",
+"prefix": "u",
+"quote": "'",
+"src": "u'{{x}}'",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0270",
+"prefix": "u",
+"quote": "'",
+"src": "u'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0271",
+"prefix": "u",
+"quote": "'",
+"src": "u'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0272",
+"prefix": "u",
+"quote": "'",
+"src": "u'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0273",
+"prefix": "u",
+"quote": "'",
+"src": "u'hex \\xff'",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0274",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0275",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0276",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0277",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0278",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0279",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0280",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0281",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0282",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0283",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0284",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0285",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0286",
+"prefix": "u",
+"quote": "\"\"\"",
+"src": "u\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0287",
+"prefix": "u",
+"quote": "'''",
+"src": "u''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0288",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0289",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0290",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0291",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0292",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0293",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''{x}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0294",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''{{x}}'''",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0295",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0296",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0297",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0298",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0299",
+"prefix": "u",
+"quote": "'''",
+"src": "u'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0300",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0301",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0302",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0303",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0304",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0305",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0306",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"{x}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0307",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"{{x}}\"",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0308",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0309",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0310",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0311",
+"prefix": "U",
+"quote": "\"",
+"src": "U\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0312",
+"prefix": "U",
+"quote": "'",
+"src": "U''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0313",
+"prefix": "U",
+"quote": "'",
+"src": "U'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0314",
+"prefix": "U",
+"quote": "'",
+"src": "U'a\\nb'",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0315",
+"prefix": "U",
+"quote": "'",
+"src": "U'a\\tb'",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0316",
+"prefix": "U",
+"quote": "'",
+"src": "U'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0317",
+"prefix": "U",
+"quote": "'",
+"src": "U'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0318",
+"prefix": "U",
+"quote": "'",
+"src": "U'{x}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0319",
+"prefix": "U",
+"quote": "'",
+"src": "U'{{x}}'",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0320",
+"prefix": "U",
+"quote": "'",
+"src": "U'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0321",
+"prefix": "U",
+"quote": "'",
+"src": "U'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0322",
+"prefix": "U",
+"quote": "'",
+"src": "U'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0323",
+"prefix": "U",
+"quote": "'",
+"src": "U'hex \\xff'",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0324",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0325",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0326",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0327",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0328",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0329",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0330",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0331",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0332",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0333",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0334",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0335",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0336",
+"prefix": "U",
+"quote": "\"\"\"",
+"src": "U\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0337",
+"prefix": "U",
+"quote": "'''",
+"src": "U''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0338",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0339",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\nb'"
+},
+{
+"id": "0340",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\tb'"
+},
+{
+"id": "0341",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0342",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\b'"
+},
+{
+"id": "0343",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''{x}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0344",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''{{x}}'''",
+"kind": "str",
+"expected": "'{{x}}'"
+},
+{
+"id": "0345",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0346",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0347",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0348",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \u00e9'"
+},
+{
+"id": "0349",
+"prefix": "U",
+"quote": "'''",
+"src": "U'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \u00ff'"
+},
+{
+"id": "0350",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0351",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0352",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0353",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0354",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0355",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0356",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"{x}\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0357",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"{{x}}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0358",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0359",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0360",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0361",
+"prefix": "rf",
+"quote": "\"",
+"src": "rf\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0362",
+"prefix": "rf",
+"quote": "'",
+"src": "rf''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0363",
+"prefix": "rf",
+"quote": "'",
+"src": "rf'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0364",
+"prefix": "rf",
+"quote": "'",
+"src": "rf'a\\nb'",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0365",
+"prefix": "rf",
+"quote": "'",
+"src": "rf'a\\tb'",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0366",
+"prefix": "rf",
+"quote": "'",
+"src": "rf'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0367",
+"prefix": "rf",
+"quote": "'",
+"src": "rf'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0368",
+"prefix": "rf",
+"quote": "'",
+"src": "rf'{x}'",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0369",
+"prefix": "rf",
+"quote": "'",
+"src": "rf'{{x}}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0370",
+"prefix": "rf",
+"quote": "'",
+"src": "rf'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0371",
+"prefix": "rf",
+"quote": "'",
+"src": "rf'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0372",
+"prefix": "rf",
+"quote": "'",
+"src": "rf'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0373",
+"prefix": "rf",
+"quote": "'",
+"src": "rf'hex \\xff'",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0374",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0375",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0376",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0377",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0378",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0379",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0380",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0381",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0382",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0383",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0384",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0385",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0386",
+"prefix": "rf",
+"quote": "\"\"\"",
+"src": "rf\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0387",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0388",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0389",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0390",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0391",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0392",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0393",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''{x}'''",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0394",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''{{x}}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0395",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0396",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0397",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0398",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0399",
+"prefix": "rf",
+"quote": "'''",
+"src": "rf'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0400",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0401",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0402",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0403",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0404",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0405",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0406",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"{x}\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0407",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"{{x}}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0408",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0409",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0410",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0411",
+"prefix": "fr",
+"quote": "\"",
+"src": "fr\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0412",
+"prefix": "fr",
+"quote": "'",
+"src": "fr''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0413",
+"prefix": "fr",
+"quote": "'",
+"src": "fr'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0414",
+"prefix": "fr",
+"quote": "'",
+"src": "fr'a\\nb'",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0415",
+"prefix": "fr",
+"quote": "'",
+"src": "fr'a\\tb'",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0416",
+"prefix": "fr",
+"quote": "'",
+"src": "fr'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0417",
+"prefix": "fr",
+"quote": "'",
+"src": "fr'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0418",
+"prefix": "fr",
+"quote": "'",
+"src": "fr'{x}'",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0419",
+"prefix": "fr",
+"quote": "'",
+"src": "fr'{{x}}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0420",
+"prefix": "fr",
+"quote": "'",
+"src": "fr'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0421",
+"prefix": "fr",
+"quote": "'",
+"src": "fr'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0422",
+"prefix": "fr",
+"quote": "'",
+"src": "fr'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0423",
+"prefix": "fr",
+"quote": "'",
+"src": "fr'hex \\xff'",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0424",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0425",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0426",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0427",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0428",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0429",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0430",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0431",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0432",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0433",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0434",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0435",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0436",
+"prefix": "fr",
+"quote": "\"\"\"",
+"src": "fr\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0437",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0438",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0439",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0440",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0441",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0442",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0443",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''{x}'''",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0444",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''{{x}}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0445",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0446",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0447",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0448",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0449",
+"prefix": "fr",
+"quote": "'''",
+"src": "fr'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0450",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0451",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0452",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0453",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0454",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0455",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0456",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"{x}\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0457",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"{{x}}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0458",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0459",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0460",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0461",
+"prefix": "Rf",
+"quote": "\"",
+"src": "Rf\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0462",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0463",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0464",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf'a\\nb'",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0465",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf'a\\tb'",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0466",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0467",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0468",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf'{x}'",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0469",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf'{{x}}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0470",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0471",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0472",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0473",
+"prefix": "Rf",
+"quote": "'",
+"src": "Rf'hex \\xff'",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0474",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0475",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0476",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0477",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0478",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0479",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0480",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0481",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0482",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0483",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0484",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0485",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0486",
+"prefix": "Rf",
+"quote": "\"\"\"",
+"src": "Rf\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0487",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0488",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0489",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0490",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0491",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0492",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0493",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''{x}'''",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0494",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''{{x}}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0495",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0496",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0497",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0498",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0499",
+"prefix": "Rf",
+"quote": "'''",
+"src": "Rf'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0500",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0501",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0502",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0503",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0504",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0505",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0506",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"{x}\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0507",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"{{x}}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0508",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0509",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0510",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0511",
+"prefix": "rF",
+"quote": "\"",
+"src": "rF\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0512",
+"prefix": "rF",
+"quote": "'",
+"src": "rF''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0513",
+"prefix": "rF",
+"quote": "'",
+"src": "rF'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0514",
+"prefix": "rF",
+"quote": "'",
+"src": "rF'a\\nb'",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0515",
+"prefix": "rF",
+"quote": "'",
+"src": "rF'a\\tb'",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0516",
+"prefix": "rF",
+"quote": "'",
+"src": "rF'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0517",
+"prefix": "rF",
+"quote": "'",
+"src": "rF'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0518",
+"prefix": "rF",
+"quote": "'",
+"src": "rF'{x}'",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0519",
+"prefix": "rF",
+"quote": "'",
+"src": "rF'{{x}}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0520",
+"prefix": "rF",
+"quote": "'",
+"src": "rF'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0521",
+"prefix": "rF",
+"quote": "'",
+"src": "rF'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0522",
+"prefix": "rF",
+"quote": "'",
+"src": "rF'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0523",
+"prefix": "rF",
+"quote": "'",
+"src": "rF'hex \\xff'",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0524",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0525",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0526",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0527",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0528",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0529",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0530",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0531",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0532",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0533",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0534",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0535",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0536",
+"prefix": "rF",
+"quote": "\"\"\"",
+"src": "rF\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0537",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0538",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0539",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0540",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0541",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0542",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0543",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''{x}'''",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0544",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''{{x}}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0545",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0546",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0547",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0548",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0549",
+"prefix": "rF",
+"quote": "'''",
+"src": "rF'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0550",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0551",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0552",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0553",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0554",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0555",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0556",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"{x}\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0557",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"{{x}}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0558",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0559",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0560",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0561",
+"prefix": "Fr",
+"quote": "\"",
+"src": "Fr\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0562",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0563",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0564",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr'a\\nb'",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0565",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr'a\\tb'",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0566",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0567",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0568",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr'{x}'",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0569",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr'{{x}}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0570",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0571",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0572",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0573",
+"prefix": "Fr",
+"quote": "'",
+"src": "Fr'hex \\xff'",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0574",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0575",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0576",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0577",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0578",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0579",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0580",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0581",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0582",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0583",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0584",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0585",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0586",
+"prefix": "Fr",
+"quote": "\"\"\"",
+"src": "Fr\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0587",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0588",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0589",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0590",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0591",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0592",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0593",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''{x}'''",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0594",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''{{x}}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0595",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0596",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0597",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0598",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0599",
+"prefix": "Fr",
+"quote": "'''",
+"src": "Fr'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0600",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0601",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0602",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0603",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0604",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0605",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0606",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"{x}\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0607",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"{{x}}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0608",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0609",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0610",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0611",
+"prefix": "fR",
+"quote": "\"",
+"src": "fR\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0612",
+"prefix": "fR",
+"quote": "'",
+"src": "fR''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0613",
+"prefix": "fR",
+"quote": "'",
+"src": "fR'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0614",
+"prefix": "fR",
+"quote": "'",
+"src": "fR'a\\nb'",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0615",
+"prefix": "fR",
+"quote": "'",
+"src": "fR'a\\tb'",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0616",
+"prefix": "fR",
+"quote": "'",
+"src": "fR'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0617",
+"prefix": "fR",
+"quote": "'",
+"src": "fR'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0618",
+"prefix": "fR",
+"quote": "'",
+"src": "fR'{x}'",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0619",
+"prefix": "fR",
+"quote": "'",
+"src": "fR'{{x}}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0620",
+"prefix": "fR",
+"quote": "'",
+"src": "fR'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0621",
+"prefix": "fR",
+"quote": "'",
+"src": "fR'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0622",
+"prefix": "fR",
+"quote": "'",
+"src": "fR'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0623",
+"prefix": "fR",
+"quote": "'",
+"src": "fR'hex \\xff'",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0624",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0625",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0626",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0627",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0628",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0629",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0630",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0631",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0632",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0633",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0634",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0635",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0636",
+"prefix": "fR",
+"quote": "\"\"\"",
+"src": "fR\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0637",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0638",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0639",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0640",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0641",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0642",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0643",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''{x}'''",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0644",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''{{x}}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0645",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0646",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0647",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0648",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0649",
+"prefix": "fR",
+"quote": "'''",
+"src": "fR'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0650",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0651",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0652",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0653",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0654",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0655",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0656",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"{x}\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0657",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"{{x}}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0658",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0659",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0660",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0661",
+"prefix": "RF",
+"quote": "\"",
+"src": "RF\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0662",
+"prefix": "RF",
+"quote": "'",
+"src": "RF''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0663",
+"prefix": "RF",
+"quote": "'",
+"src": "RF'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0664",
+"prefix": "RF",
+"quote": "'",
+"src": "RF'a\\nb'",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0665",
+"prefix": "RF",
+"quote": "'",
+"src": "RF'a\\tb'",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0666",
+"prefix": "RF",
+"quote": "'",
+"src": "RF'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0667",
+"prefix": "RF",
+"quote": "'",
+"src": "RF'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0668",
+"prefix": "RF",
+"quote": "'",
+"src": "RF'{x}'",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0669",
+"prefix": "RF",
+"quote": "'",
+"src": "RF'{{x}}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0670",
+"prefix": "RF",
+"quote": "'",
+"src": "RF'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0671",
+"prefix": "RF",
+"quote": "'",
+"src": "RF'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0672",
+"prefix": "RF",
+"quote": "'",
+"src": "RF'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0673",
+"prefix": "RF",
+"quote": "'",
+"src": "RF'hex \\xff'",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0674",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0675",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0676",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0677",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0678",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0679",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0680",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0681",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0682",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0683",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0684",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0685",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0686",
+"prefix": "RF",
+"quote": "\"\"\"",
+"src": "RF\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0687",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0688",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0689",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0690",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0691",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0692",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0693",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''{x}'''",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0694",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''{{x}}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0695",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0696",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0697",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0698",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0699",
+"prefix": "RF",
+"quote": "'''",
+"src": "RF'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0700",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0701",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"ab\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0702",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"a\\nb\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0703",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"a\\tb\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0704",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"\\d+\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0705",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"a\\\\b\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0706",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"{x}\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0707",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"{{x}}\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0708",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"say 'hi'\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0709",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"tab\there\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0710",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"unicode \\u00e9\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0711",
+"prefix": "FR",
+"quote": "\"",
+"src": "FR\"hex \\xff\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0712",
+"prefix": "FR",
+"quote": "'",
+"src": "FR''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0713",
+"prefix": "FR",
+"quote": "'",
+"src": "FR'ab'",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0714",
+"prefix": "FR",
+"quote": "'",
+"src": "FR'a\\nb'",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0715",
+"prefix": "FR",
+"quote": "'",
+"src": "FR'a\\tb'",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0716",
+"prefix": "FR",
+"quote": "'",
+"src": "FR'\\d+'",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0717",
+"prefix": "FR",
+"quote": "'",
+"src": "FR'a\\\\b'",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0718",
+"prefix": "FR",
+"quote": "'",
+"src": "FR'{x}'",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0719",
+"prefix": "FR",
+"quote": "'",
+"src": "FR'{{x}}'",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0720",
+"prefix": "FR",
+"quote": "'",
+"src": "FR'say \"hi\"'",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0721",
+"prefix": "FR",
+"quote": "'",
+"src": "FR'tab\there'",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0722",
+"prefix": "FR",
+"quote": "'",
+"src": "FR'unicode \\u00e9'",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0723",
+"prefix": "FR",
+"quote": "'",
+"src": "FR'hex \\xff'",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0724",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"\"\"\"",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0725",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"ab\"\"\"",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0726",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"a\\nb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0727",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"a\\tb\"\"\"",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0728",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"\\d+\"\"\"",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0729",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"a\\\\b\"\"\"",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0730",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"{x}\"\"\"",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0731",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"{{x}}\"\"\"",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0732",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"say 'hi'\"\"\"",
+"kind": "str",
+"expected": "\"say 'hi'\""
+},
+{
+"id": "0733",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"line1\nline2\"\"\"",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0734",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"tab\there\"\"\"",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0735",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"unicode \\u00e9\"\"\"",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0736",
+"prefix": "FR",
+"quote": "\"\"\"",
+"src": "FR\"\"\"hex \\xff\"\"\"",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+},
+{
+"id": "0737",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR''''''",
+"kind": "str",
+"expected": "''"
+},
+{
+"id": "0738",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''ab'''",
+"kind": "str",
+"expected": "'ab'"
+},
+{
+"id": "0739",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''a\\nb'''",
+"kind": "str",
+"expected": "'a\\\\nb'"
+},
+{
+"id": "0740",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''a\\tb'''",
+"kind": "str",
+"expected": "'a\\\\tb'"
+},
+{
+"id": "0741",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''\\d+'''",
+"kind": "str",
+"expected": "'\\\\d+'"
+},
+{
+"id": "0742",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''a\\\\b'''",
+"kind": "str",
+"expected": "'a\\\\\\\\b'"
+},
+{
+"id": "0743",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''{x}'''",
+"kind": "str",
+"expected": "'5'"
+},
+{
+"id": "0744",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''{{x}}'''",
+"kind": "str",
+"expected": "'{x}'"
+},
+{
+"id": "0745",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''say \"hi\"'''",
+"kind": "str",
+"expected": "'say \"hi\"'"
+},
+{
+"id": "0746",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''line1\nline2'''",
+"kind": "str",
+"expected": "'line1\\nline2'"
+},
+{
+"id": "0747",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''tab\there'''",
+"kind": "str",
+"expected": "'tab\\there'"
+},
+{
+"id": "0748",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''unicode \\u00e9'''",
+"kind": "str",
+"expected": "'unicode \\\\u00e9'"
+},
+{
+"id": "0749",
+"prefix": "FR",
+"quote": "'''",
+"src": "FR'''hex \\xff'''",
+"kind": "str",
+"expected": "'hex \\\\xff'"
+}
+]
