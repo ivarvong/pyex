@@ -182,21 +182,22 @@ defmodule Pyex.Lexer do
   ]
 
   # ===========================================================================
-  # String-literal combinators — the full Python string-prefix matrix.
+  # String/bytes-literal combinators — the full Python prefix matrix.
   # ===========================================================================
   #
-  # Python string prefixes are case-insensitive (`r`/`R`, `f`/`F`, `u`/`U`),
-  # the raw-f prefix may appear in either order (`rf`/`fr`), and every prefix
-  # combines with all four quote styles (`"` `'` `"""` `'''`). Rather than
-  # spell out the ~40 near-identical combinators by hand, we build them at
-  # compile time from a handful of body/prefix helper closures.
+  # Python string prefixes are case-insensitive (`r`/`R`, `f`/`F`, `u`/`U`,
+  # `b`/`B`), the two-letter raw combos may appear in either order (`rf`/`fr`,
+  # `rb`/`br`), and every prefix combines with all four quote styles (`"` `'`
+  # `"""` `'''`). Rather than spell out the ~70 near-identical combinators by
+  # hand, we build them at compile time from a handful of body/prefix helper
+  # closures.
   #
   # `u`/`U` is a legacy no-op prefix: `u"x"` lexes exactly like `"x"`.
   #
-  # Bytes literals (`b"..."`, `rb"..."`, ...) are intentionally NOT handled
-  # here. They fall through to identifier + string lexing and are stitched
-  # back together by `collapse_bytes_literals/1`, which already covers every
-  # case/order variant.
+  # Bytes literals (`b"..."`, `rb"..."`, ...) get their own combinators
+  # further down. They differ from str literals in three ways: `\u`/`\U`/`\N`
+  # are NOT escapes (kept verbatim), `\xhh` is a single raw byte (not a
+  # UTF-8-encoded codepoint), and the body is assembled as raw bytes.
 
   # Accepted spellings per prefix family.
   r_prefixes = ~w(r R)
@@ -348,6 +349,121 @@ defmodule Pyex.Lexer do
   single_quoted_string =
     string_literal.(string("'"), "'", cooked_body.(?'), :string)
 
+  # --- bytes literals ------------------------------------------------------
+  # `b`/`B` cook escapes; the raw combos (`rb`/`br` and case variants) keep
+  # backslashes verbatim. Unlike str, bytes do not recognise `\u`/`\U`/`\N`,
+  # and `\xhh` is a single raw byte.
+  b_prefixes = ~w(b B)
+  rb_prefixes = ~w(rb br Rb rB bR Br RB BR)
+
+  # `\xhh` as a single raw byte (str uses a UTF-8-encoded codepoint instead).
+  bytes_hex_escape =
+    ignore(string("\\x"))
+    |> concat(hex_char)
+    |> concat(hex_char)
+    |> reduce(:__bytes_hex_escape__)
+
+  # Bytes escape table: the common single-char escapes plus `\xhh`, but NO
+  # `\u`/`\U` (those stay literal in bytes).
+  bytes_escapes = [
+    string("\\n") |> replace(?\n),
+    string("\\t") |> replace(?\t),
+    string("\\r") |> replace(?\r),
+    string("\\0") |> replace(0),
+    string("\\a") |> replace(?\a),
+    string("\\b") |> replace(?\b),
+    string("\\f") |> replace(?\f),
+    string("\\v") |> replace(?\v),
+    string("\\\\") |> replace(?\\),
+    bytes_hex_escape
+  ]
+
+  # Bytes body builders, mirroring the str ones but reducing via `__bytes__`
+  # (assemble raw bytes) and using the bytes-only escape table.
+  cooked_bytes_body = fn q ->
+    repeat(
+      choice(
+        [string(<<?\\, q>>) |> replace(q)] ++
+          bytes_escapes ++
+          [
+            string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__bytes__),
+            ascii_char(not: q, not: ?\\, not: ?\n)
+          ]
+      )
+    )
+  end
+
+  cooked_bytes_triple_body = fn q, close3 ->
+    repeat(
+      choice(
+        [string(<<?\\, q>>) |> replace(q)] ++
+          bytes_escapes ++
+          [
+            string("\\") |> concat(ascii_char([])) |> reduce(:__bytes__),
+            lookahead_not(string(close3)) |> ascii_char([])
+          ]
+      )
+    )
+  end
+
+  raw_bytes_body = fn q ->
+    repeat(
+      choice([
+        string(<<?\\, q>>) |> reduce(:__bytes__),
+        string("\\\\") |> reduce(:__bytes__),
+        string("\\") |> concat(ascii_char(not: ?\n)) |> reduce(:__bytes__),
+        ascii_char(not: q, not: ?\n)
+      ])
+    )
+  end
+
+  raw_bytes_triple_body = fn close3 ->
+    repeat(
+      choice([
+        string("\\") |> concat(ascii_char([])) |> reduce(:__bytes__),
+        lookahead_not(string(close3)) |> ascii_char([])
+      ])
+    )
+  end
+
+  bytes_literal = fn open, close, body ->
+    ignore(open)
+    |> concat(body)
+    |> ignore(string(close))
+    |> reduce(:__bytes__)
+    |> unwrap_and_tag(:bytes_literal)
+  end
+
+  # Triple-quoted (tried before single/double, since `"""` starts with `"`).
+  raw_bytes_triple_double =
+    bytes_literal.(prefixed.(rb_prefixes, ~S["""]), ~S["""], raw_bytes_triple_body.(~S["""]))
+
+  raw_bytes_triple_single =
+    bytes_literal.(prefixed.(rb_prefixes, "'''"), "'''", raw_bytes_triple_body.("'''"))
+
+  cooked_bytes_triple_double =
+    bytes_literal.(
+      prefixed.(b_prefixes, ~S["""]),
+      ~S["""],
+      cooked_bytes_triple_body.(?", ~S["""])
+    )
+
+  cooked_bytes_triple_single =
+    bytes_literal.(prefixed.(b_prefixes, "'''"), "'''", cooked_bytes_triple_body.(?', "'''"))
+
+  # Single/double-quoted.
+  raw_bytes_double =
+    bytes_literal.(prefixed.(rb_prefixes, "\""), "\"", raw_bytes_body.(?"))
+
+  raw_bytes_single =
+    bytes_literal.(prefixed.(rb_prefixes, "'"), "'", raw_bytes_body.(?'))
+
+  cooked_bytes_double =
+    bytes_literal.(prefixed.(b_prefixes, "\""), "\"", cooked_bytes_body.(?"))
+
+  cooked_bytes_single =
+    bytes_literal.(prefixed.(b_prefixes, "'"), "'", cooked_bytes_body.(?'))
+
   identifier_or_keyword =
     ascii_char([?a..?z, ?A..?Z, ?_])
     |> repeat(ascii_char([?a..?z, ?A..?Z, ?0..?9, ?_]))
@@ -464,6 +580,10 @@ defmodule Pyex.Lexer do
       raw_triple_single,
       unicode_triple_double,
       unicode_triple_single,
+      raw_bytes_triple_double,
+      raw_bytes_triple_single,
+      cooked_bytes_triple_double,
+      cooked_bytes_triple_single,
       triple_double_string,
       triple_single_string,
       raw_fstring_double,
@@ -474,6 +594,10 @@ defmodule Pyex.Lexer do
       raw_single_string,
       unicode_double,
       unicode_single,
+      raw_bytes_double,
+      raw_bytes_single,
+      cooked_bytes_double,
+      cooked_bytes_single,
       double_quoted_string,
       single_quoted_string,
       hex_integer,
@@ -521,7 +645,6 @@ defmodule Pyex.Lexer do
 
             tokens =
               tokens
-              |> collapse_bytes_literals()
               |> collapse_complex_literals()
               |> suppress_bracketed_newlines()
               |> merge_adjacent_strings()
@@ -649,36 +772,6 @@ defmodule Pyex.Lexer do
   @spec check_tokens([raw_token() | token()]) :: :ok | {:error, String.t()}
   defp check_tokens([_ | rest]), do: check_tokens(rest)
   defp check_tokens([]), do: :ok
-
-  # Collapses `b"..."`, `rb"..."`, `br"..."` into a single `:bytes_literal`
-  # token.  The original string body is kept verbatim because bytes literals
-  # interpret escapes slightly differently (e.g. non-ASCII is rejected),
-  # but we accept UTF-8 bytes as-is for simplicity.
-  @spec collapse_bytes_literals([token()]) :: [token()]
-  defp collapse_bytes_literals(tokens), do: do_collapse_bytes(tokens, [])
-
-  defp do_collapse_bytes([], acc), do: Enum.reverse(acc)
-
-  defp do_collapse_bytes([{:name, line, prefix}, {:string, _, value} | rest], acc)
-       when prefix in ["b", "rb", "br", "B", "rB", "Rb", "BR", "bR", "Br", "RB"] do
-    # The lexer treats the string body as Unicode: `b"\xff"` becomes
-    # UTF-8 `<<0xC3, 0xBF>>`.  Bytes literals should hold raw bytes, so
-    # re-encode each codepoint as a single byte (codepoints > 0xFF
-    # would be invalid in a real bytes literal, we truncate mod 256).
-    raw = codepoints_to_bytes(value)
-    do_collapse_bytes(rest, [{:bytes_literal, line, raw} | acc])
-  end
-
-  defp do_collapse_bytes([token | rest], acc),
-    do: do_collapse_bytes(rest, [token | acc])
-
-  @spec codepoints_to_bytes(String.t()) :: binary()
-  defp codepoints_to_bytes(s) do
-    s
-    |> String.to_charlist()
-    |> Enum.map(fn cp -> rem(cp, 256) end)
-    |> :erlang.list_to_binary()
-  end
 
   # Collapses `2j`, `2.5J`, `0j` into a single `:complex_literal` token
   # carrying the imaginary part as a float.
@@ -965,6 +1058,28 @@ defmodule Pyex.Lexer do
       # as `<<c::utf8>>` would double-encode and corrupt the string.
       c when is_integer(c) and c >= 0x80 and c <= 0xFF -> <<c>>
       c when is_integer(c) -> <<c::utf8>>
+      s when is_binary(s) -> s
+    end)
+    |> IO.iodata_to_binary()
+  end
+
+  @doc false
+  @spec __bytes_hex_escape__([non_neg_integer()]) :: binary()
+  def __bytes_hex_escape__(hex_chars) do
+    # `\xhh` in a bytes literal is a single raw byte (not a UTF-8 codepoint).
+    byte = hex_chars |> List.to_string() |> String.to_integer(16)
+    <<byte>>
+  end
+
+  @doc false
+  @spec __bytes__([non_neg_integer() | binary()]) :: binary()
+  def __bytes__(parts) do
+    # Every integer here is a raw source byte (0..255) or a control byte from
+    # an escape `replace`; every binary is already raw bytes from an escape
+    # reducer. Assemble them verbatim — no UTF-8 re-encoding.
+    parts
+    |> Enum.map(fn
+      c when is_integer(c) -> <<c>>
       s when is_binary(s) -> s
     end)
     |> IO.iodata_to_binary()
