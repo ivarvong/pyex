@@ -1362,4 +1362,22 @@ defmodule Pyex.BuiltinsTest do
       assert result == "app.py"
     end
   end
+
+  describe "functools.reduce()" do
+    test "reduces a list" do
+      assert Pyex.run!("""
+             import functools
+             functools.reduce(lambda a, b: a + b, [1, 2, 3, 4])
+             """) == 10
+    end
+
+    test "raises a catchable TypeError on a non-iterable" do
+      assert_raise RuntimeError, ~r/TypeError.*not iterable/, fn ->
+        Pyex.run!("""
+        import functools
+        functools.reduce(lambda a, b: a + b, 5)
+        """)
+      end
+    end
+  end
 end

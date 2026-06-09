@@ -235,6 +235,27 @@ defmodule Pyex.CtxTest do
     end
   end
 
+  describe "remaining_compute_ms/1" do
+    test "returns :infinity when no timeout is configured" do
+      assert Ctx.remaining_compute_ms(Ctx.new()) == :infinity
+    end
+
+    test "reports the budget left, clamped to zero once overrun" do
+      fresh = Ctx.new(timeout: 5000)
+      remaining = Ctx.remaining_compute_ms(fresh)
+      assert is_integer(remaining)
+      assert remaining > 0 and remaining <= 5000
+
+      overrun = %Ctx{
+        timeout: 1,
+        compute: 2000.0,
+        compute_started_at: System.monotonic_time()
+      }
+
+      assert Ctx.remaining_compute_ms(overrun) == 0
+    end
+  end
+
   # The hot path through `check_step/1` is taken on every loop
   # iteration, statement, call entry, and generator yield.  A fast
   # path skips the cond chain, the per-step ctx allocation, and the

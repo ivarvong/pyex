@@ -2193,6 +2193,7 @@ defmodule Pyex.Interpreter do
           | {:mutate_arg, non_neg_integer(), pyvalue(), pyvalue(), Env.t(), Ctx.t()}
           | {{:register_route, String.t(), String.t(), pyvalue()}, Env.t(), Ctx.t()}
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
+          | {{:yielded, pyvalue() | coroutine_signal(), [cont_frame()]}, Env.t(), Ctx.t()}
 
   @doc false
   @spec call_function(
@@ -4194,7 +4195,7 @@ defmodule Pyex.Interpreter do
 
   defp rewrite_self_reference(other, _name, _decorated), do: other
 
-  @spec with_context_var(node()) :: String.t() | nil
+  @spec with_context_var(Parser.ast_node()) :: String.t() | nil
   defp with_context_var({:var, _, [name]}), do: name
   defp with_context_var(_), do: nil
 
