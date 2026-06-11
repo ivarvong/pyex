@@ -259,7 +259,7 @@ defmodule Pyex.Interpreter.BuiltinResults do
 
       {:reduce_call, func, iterable, initial} ->
         case Interpreter.to_iterable(iterable, env, ctx) do
-          {{:exception, _} = signal, env, ctx} ->
+          {:exception, _} = signal ->
             {signal, env, ctx}
 
           {:ok, items, env, ctx} ->

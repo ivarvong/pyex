@@ -17,15 +17,15 @@ defmodule Pyex.Stdlib.Re do
   @spec module_value() :: Pyex.Stdlib.Module.module_value()
   def module_value do
     %{
-      "match" => {:builtin, &do_match/1},
-      "search" => {:builtin, &do_search/1},
-      "findall" => {:builtin, &do_findall/1},
-      "finditer" => {:builtin, &do_finditer/1},
-      "sub" => {:builtin_kw, &do_sub/2},
-      "split" => {:builtin_kw, &do_split/2},
+      "match" => with_ctx(&do_match/2),
+      "search" => with_ctx(&do_search/2),
+      "findall" => with_ctx(&do_findall/2),
+      "finditer" => with_ctx(&do_finditer/2),
+      "sub" => with_ctx_kw(&do_sub/3),
+      "split" => with_ctx_kw(&do_split/3),
       "compile" => {:builtin, &do_compile/1},
       "escape" => {:builtin, &do_escape/1},
-      "fullmatch" => {:builtin, &do_fullmatch/1},
+      "fullmatch" => with_ctx(&do_fullmatch/2),
       "IGNORECASE" => 2,
       "I" => 2,
       "DOTALL" => 4,
@@ -35,24 +35,24 @@ defmodule Pyex.Stdlib.Re do
     }
   end
 
-  @spec do_match([Pyex.Interpreter.pyvalue()]) ::
+  @spec do_match([Pyex.Interpreter.pyvalue()], Pyex.Ctx.t()) ::
           Pyex.Interpreter.pyvalue() | {:exception, String.t()}
-  defp do_match([pattern, string]) when is_binary(pattern) and is_binary(string),
-    do: do_match_with_flags(pattern, string, 0)
+  defp do_match([pattern, string], ctx) when is_binary(pattern) and is_binary(string),
+    do: do_match_with_flags(pattern, string, 0, ctx)
 
-  defp do_match([pattern, string, flags])
+  defp do_match([pattern, string, flags], ctx)
        when is_binary(pattern) and is_binary(string) and is_integer(flags),
-       do: do_match_with_flags(pattern, string, flags)
+       do: do_match_with_flags(pattern, string, flags, ctx)
 
-  @spec do_match_with_flags(String.t(), String.t(), integer()) ::
+  @spec do_match_with_flags(String.t(), String.t(), integer(), Pyex.Ctx.t()) ::
           Pyex.Interpreter.pyvalue() | {:exception, String.t()}
-  defp do_match_with_flags(pattern, string, flags) do
+  defp do_match_with_flags(pattern, string, flags, ctx) do
     opts = flags_to_regex_opts(flags)
     anchored = "\\A" <> pattern
 
     case Regex.compile(anchored, opts) do
       {:ok, re} ->
-        case safe_regex(fn -> Regex.run(re, string, return: :index) end) do
+        case safe_regex(fn -> Regex.run(re, string, return: :index) end, regex_deadline_ms(ctx)) do
           {:ok, nil} -> nil
           {:ok, indices} -> make_match_object(re, string, indices)
           {:exception, _} = err -> err
@@ -63,23 +63,23 @@ defmodule Pyex.Stdlib.Re do
     end
   end
 
-  @spec do_search([Pyex.Interpreter.pyvalue()]) ::
+  @spec do_search([Pyex.Interpreter.pyvalue()], Pyex.Ctx.t()) ::
           Pyex.Interpreter.pyvalue() | {:exception, String.t()}
-  defp do_search([pattern, string]) when is_binary(pattern) and is_binary(string),
-    do: do_search_with_flags(pattern, string, 0)
+  defp do_search([pattern, string], ctx) when is_binary(pattern) and is_binary(string),
+    do: do_search_with_flags(pattern, string, 0, ctx)
 
-  defp do_search([pattern, string, flags])
+  defp do_search([pattern, string, flags], ctx)
        when is_binary(pattern) and is_binary(string) and is_integer(flags),
-       do: do_search_with_flags(pattern, string, flags)
+       do: do_search_with_flags(pattern, string, flags, ctx)
 
-  @spec do_search_with_flags(String.t(), String.t(), integer()) ::
+  @spec do_search_with_flags(String.t(), String.t(), integer(), Pyex.Ctx.t()) ::
           Pyex.Interpreter.pyvalue() | {:exception, String.t()}
-  defp do_search_with_flags(pattern, string, flags) do
+  defp do_search_with_flags(pattern, string, flags, ctx) do
     opts = flags_to_regex_opts(flags)
 
     case Regex.compile(pattern, opts) do
       {:ok, re} ->
-        case safe_regex(fn -> Regex.run(re, string, return: :index) end) do
+        case safe_regex(fn -> Regex.run(re, string, return: :index) end, regex_deadline_ms(ctx)) do
           {:ok, nil} -> nil
           {:ok, indices} -> make_match_object(re, string, indices)
           {:exception, _} = err -> err
@@ -90,22 +90,22 @@ defmodule Pyex.Stdlib.Re do
     end
   end
 
-  @spec do_fullmatch([Pyex.Interpreter.pyvalue()]) ::
+  @spec do_fullmatch([Pyex.Interpreter.pyvalue()], Pyex.Ctx.t()) ::
           Pyex.Interpreter.pyvalue() | {:exception, String.t()}
-  defp do_fullmatch([pattern, string]) when is_binary(pattern) and is_binary(string),
-    do: do_fullmatch_with_flags(pattern, string, 0)
+  defp do_fullmatch([pattern, string], ctx) when is_binary(pattern) and is_binary(string),
+    do: do_fullmatch_with_flags(pattern, string, 0, ctx)
 
-  defp do_fullmatch([pattern, string, flags])
+  defp do_fullmatch([pattern, string, flags], ctx)
        when is_binary(pattern) and is_binary(string) and is_integer(flags),
-       do: do_fullmatch_with_flags(pattern, string, flags)
+       do: do_fullmatch_with_flags(pattern, string, flags, ctx)
 
-  defp do_fullmatch_with_flags(pattern, string, flags) do
+  defp do_fullmatch_with_flags(pattern, string, flags, ctx) do
     opts = flags_to_regex_opts(flags)
     wrapped = "\\A(?:" <> pattern <> ")\\z"
 
     case Regex.compile(wrapped, opts) do
       {:ok, re} ->
-        case safe_regex(fn -> Regex.run(re, string, return: :index) end) do
+        case safe_regex(fn -> Regex.run(re, string, return: :index) end, regex_deadline_ms(ctx)) do
           {:ok, nil} -> nil
           {:ok, indices} -> make_match_object(re, string, indices)
           {:exception, _} = err -> err
@@ -120,23 +120,23 @@ defmodule Pyex.Stdlib.Re do
   defp do_escape([s]) when is_binary(s), do: Regex.escape(s)
   defp do_escape(_), do: {:exception, "TypeError: re.escape() expects a string"}
 
-  @spec do_findall([Pyex.Interpreter.pyvalue()]) ::
+  @spec do_findall([Pyex.Interpreter.pyvalue()], Pyex.Ctx.t()) ::
           [Pyex.Interpreter.pyvalue()] | {:exception, String.t()}
-  defp do_findall([pattern, string]) when is_binary(pattern) and is_binary(string) do
-    do_findall_with_flags(pattern, string, 0)
+  defp do_findall([pattern, string], ctx) when is_binary(pattern) and is_binary(string) do
+    do_findall_with_flags(pattern, string, 0, ctx)
   end
 
-  defp do_findall([pattern, string, flags])
+  defp do_findall([pattern, string, flags], ctx)
        when is_binary(pattern) and is_binary(string) and is_integer(flags) do
-    do_findall_with_flags(pattern, string, flags)
+    do_findall_with_flags(pattern, string, flags, ctx)
   end
 
-  defp do_findall_with_flags(pattern, string, flags) do
+  defp do_findall_with_flags(pattern, string, flags, ctx) do
     opts = flags_to_regex_opts(flags)
 
     case Regex.compile(pattern, opts) do
       {:ok, re} ->
-        case safe_regex(fn -> Regex.scan(re, string) end) do
+        case safe_regex(fn -> Regex.scan(re, string) end, regex_deadline_ms(ctx)) do
           {:ok, []} ->
             []
 
@@ -158,25 +158,25 @@ defmodule Pyex.Stdlib.Re do
     end
   end
 
-  @spec do_finditer([Pyex.Interpreter.pyvalue()]) ::
+  @spec do_finditer([Pyex.Interpreter.pyvalue()], Pyex.Ctx.t()) ::
           {:generator, [map()]} | {:exception, String.t()}
-  defp do_finditer([pattern, string]) when is_binary(pattern) and is_binary(string) do
-    do_finditer_with_flags(pattern, string, 0)
+  defp do_finditer([pattern, string], ctx) when is_binary(pattern) and is_binary(string) do
+    do_finditer_with_flags(pattern, string, 0, ctx)
   end
 
-  defp do_finditer([pattern, string, flags])
+  defp do_finditer([pattern, string, flags], ctx)
        when is_binary(pattern) and is_binary(string) and is_integer(flags) do
-    do_finditer_with_flags(pattern, string, flags)
+    do_finditer_with_flags(pattern, string, flags, ctx)
   end
 
-  @spec do_finditer_with_flags(String.t(), String.t(), integer()) ::
+  @spec do_finditer_with_flags(String.t(), String.t(), integer(), Pyex.Ctx.t()) ::
           {:generator, [map()]} | {:exception, String.t()}
-  defp do_finditer_with_flags(pattern, string, flags) do
+  defp do_finditer_with_flags(pattern, string, flags, ctx) do
     opts = flags_to_regex_opts(flags)
 
     case Regex.compile(pattern, opts) do
       {:ok, re} ->
-        case safe_regex(fn -> Regex.scan(re, string, return: :index) end) do
+        case safe_regex(fn -> Regex.scan(re, string, return: :index) end, regex_deadline_ms(ctx)) do
           {:ok, results} ->
             match_objects = Enum.map(results, &make_match_object(re, string, &1))
             {:generator, match_objects}
@@ -190,33 +190,34 @@ defmodule Pyex.Stdlib.Re do
     end
   end
 
-  @spec do_sub([Pyex.Interpreter.pyvalue()], map()) :: String.t() | {:exception, String.t()}
-  defp do_sub([pattern, replacement, string], kwargs)
+  @spec do_sub([Pyex.Interpreter.pyvalue()], map(), Pyex.Ctx.t()) ::
+          String.t() | {:exception, String.t()}
+  defp do_sub([pattern, replacement, string], kwargs, ctx)
        when is_binary(pattern) and is_binary(replacement) and is_binary(string) do
     count = Map.get(kwargs, "count", 0)
     flags = Map.get(kwargs, "flags", 0)
-    do_sub_impl(pattern, replacement, string, count, flags)
+    do_sub_impl(pattern, replacement, string, count, flags, ctx)
   end
 
-  defp do_sub([pattern, replacement, string, count], kwargs)
+  defp do_sub([pattern, replacement, string, count], kwargs, ctx)
        when is_binary(pattern) and is_binary(replacement) and is_binary(string) and
               is_integer(count) do
     flags = Map.get(kwargs, "flags", 0)
-    do_sub_impl(pattern, replacement, string, count, flags)
+    do_sub_impl(pattern, replacement, string, count, flags, ctx)
   end
 
-  defp do_sub([pattern, replacement, string, count, flags], _kwargs)
+  defp do_sub([pattern, replacement, string, count, flags], _kwargs, ctx)
        when is_binary(pattern) and is_binary(replacement) and is_binary(string) and
               is_integer(count) and is_integer(flags) do
-    do_sub_impl(pattern, replacement, string, count, flags)
+    do_sub_impl(pattern, replacement, string, count, flags, ctx)
   end
 
-  defp do_sub(_args, _kwargs),
+  defp do_sub(_args, _kwargs, _ctx),
     do: {:exception, "TypeError: re.sub() expects (pattern, repl, string[, count, flags])"}
 
-  @spec do_sub_impl(String.t(), String.t(), String.t(), integer(), integer()) ::
+  @spec do_sub_impl(String.t(), String.t(), String.t(), integer(), integer(), Pyex.Ctx.t()) ::
           String.t() | {:exception, String.t()}
-  defp do_sub_impl(pattern, replacement, string, count, flags) do
+  defp do_sub_impl(pattern, replacement, string, count, flags, ctx) do
     opts = flags_to_regex_opts(flags)
 
     case Regex.compile(pattern, opts) do
@@ -228,13 +229,16 @@ defmodule Pyex.Stdlib.Re do
         replace_opts =
           if count > 0, do: [global: false], else: []
 
-        case safe_regex(fn ->
-               if count > 0 and count > 1 do
-                 apply_n_replacements(re, string, elixir_repl, count)
-               else
-                 Regex.replace(re, string, elixir_repl, replace_opts)
-               end
-             end) do
+        case safe_regex(
+               fn ->
+                 if count > 0 and count > 1 do
+                   apply_n_replacements(re, string, elixir_repl, count)
+                 else
+                   Regex.replace(re, string, elixir_repl, replace_opts)
+                 end
+               end,
+               regex_deadline_ms(ctx)
+             ) do
           {:ok, result} -> result
           {:exception, _} = err -> err
         end
@@ -275,39 +279,40 @@ defmodule Pyex.Stdlib.Re do
     end)
   end
 
-  @spec do_split([Pyex.Interpreter.pyvalue()], map()) :: [String.t()] | {:exception, String.t()}
-  defp do_split([pattern, string], kwargs)
+  @spec do_split([Pyex.Interpreter.pyvalue()], map(), Pyex.Ctx.t()) ::
+          [String.t()] | {:exception, String.t()}
+  defp do_split([pattern, string], kwargs, ctx)
        when is_binary(pattern) and is_binary(string) do
     maxsplit = Map.get(kwargs, "maxsplit", 0)
     flags = Map.get(kwargs, "flags", 0)
-    do_split_impl(pattern, string, maxsplit, flags)
+    do_split_impl(pattern, string, maxsplit, flags, ctx)
   end
 
-  defp do_split([pattern, string, maxsplit], kwargs)
+  defp do_split([pattern, string, maxsplit], kwargs, ctx)
        when is_binary(pattern) and is_binary(string) and is_integer(maxsplit) do
     flags = Map.get(kwargs, "flags", 0)
-    do_split_impl(pattern, string, maxsplit, flags)
+    do_split_impl(pattern, string, maxsplit, flags, ctx)
   end
 
-  defp do_split([pattern, string, maxsplit, flags], _kwargs)
+  defp do_split([pattern, string, maxsplit, flags], _kwargs, ctx)
        when is_binary(pattern) and is_binary(string) and is_integer(maxsplit) and
               is_integer(flags) do
-    do_split_impl(pattern, string, maxsplit, flags)
+    do_split_impl(pattern, string, maxsplit, flags, ctx)
   end
 
-  defp do_split(_args, _kwargs),
+  defp do_split(_args, _kwargs, _ctx),
     do: {:exception, "TypeError: re.split() expects (pattern, string[, maxsplit, flags])"}
 
-  @spec do_split_impl(String.t(), String.t(), integer(), integer()) ::
+  @spec do_split_impl(String.t(), String.t(), integer(), integer(), Pyex.Ctx.t()) ::
           [String.t()] | {:exception, String.t()}
-  defp do_split_impl(pattern, string, maxsplit, flags) do
+  defp do_split_impl(pattern, string, maxsplit, flags, ctx) do
     opts = flags_to_regex_opts(flags)
 
     case Regex.compile(pattern, opts) do
       {:ok, re} ->
         split_opts = if maxsplit > 0, do: [parts: maxsplit + 1], else: []
 
-        case safe_regex(fn -> Regex.split(re, string, split_opts) end) do
+        case safe_regex(fn -> Regex.split(re, string, split_opts) end, regex_deadline_ms(ctx)) do
           {:ok, result} -> result
           {:exception, _} = err -> err
         end
@@ -348,95 +353,134 @@ defmodule Pyex.Stdlib.Re do
     %{
       "pattern" => pattern,
       "match" =>
-        {:builtin,
-         fn
-           [string] when is_binary(string) ->
-             anchored = "\\A" <> pattern
+        with_ctx(fn
+          [string], ctx when is_binary(string) ->
+            anchored = "\\A" <> pattern
 
-             case Regex.compile(anchored) do
-               {:ok, anchored_re} ->
-                 case safe_regex(fn -> Regex.run(anchored_re, string, return: :index) end) do
-                   {:ok, nil} -> nil
-                   {:ok, indices} -> make_match_object(anchored_re, string, indices)
-                   {:exception, _} = err -> err
-                 end
+            case Regex.compile(anchored) do
+              {:ok, anchored_re} ->
+                case safe_regex(
+                       fn -> Regex.run(anchored_re, string, return: :index) end,
+                       regex_deadline_ms(ctx)
+                     ) do
+                  {:ok, nil} -> nil
+                  {:ok, indices} -> make_match_object(anchored_re, string, indices)
+                  {:exception, _} = err -> err
+                end
 
-               {:error, {msg, _}} ->
-                 {:exception, "re.error: #{msg}"}
-             end
-         end},
+              {:error, {msg, _}} ->
+                {:exception, "re.error: #{msg}"}
+            end
+        end),
       "search" =>
-        {:builtin,
-         fn
-           [string] when is_binary(string) ->
-             case safe_regex(fn -> Regex.run(re, string, return: :index) end) do
-               {:ok, nil} -> nil
-               {:ok, indices} -> make_match_object(re, string, indices)
-               {:exception, _} = err -> err
-             end
-         end},
+        with_ctx(fn
+          [string], ctx when is_binary(string) ->
+            case safe_regex(
+                   fn -> Regex.run(re, string, return: :index) end,
+                   regex_deadline_ms(ctx)
+                 ) do
+              {:ok, nil} -> nil
+              {:ok, indices} -> make_match_object(re, string, indices)
+              {:exception, _} = err -> err
+            end
+        end),
       "findall" =>
-        {:builtin,
-         fn
-           [string] when is_binary(string) ->
-             case safe_regex(fn -> Regex.scan(re, string) end) do
-               {:ok, []} ->
-                 []
+        with_ctx(fn
+          [string], ctx when is_binary(string) ->
+            case safe_regex(fn -> Regex.scan(re, string) end, regex_deadline_ms(ctx)) do
+              {:ok, []} ->
+                []
 
-               {:ok, [[_full] | _] = results} ->
-                 Enum.map(results, fn [m | _] -> m end)
+              {:ok, [[_full] | _] = results} ->
+                Enum.map(results, fn [m | _] -> m end)
 
-               {:ok, [[_full | _groups] | _] = results} ->
-                 Enum.map(results, fn
-                   [_full | [single]] -> single
-                   [_full | groups] -> {:tuple, groups}
-                 end)
+              {:ok, [[_full | _groups] | _] = results} ->
+                Enum.map(results, fn
+                  [_full | [single]] -> single
+                  [_full | groups] -> {:tuple, groups}
+                end)
 
-               {:exception, _} = err ->
-                 err
-             end
-         end},
+              {:exception, _} = err ->
+                err
+            end
+        end),
       "finditer" =>
-        {:builtin,
-         fn
-           [string] when is_binary(string) ->
-             case safe_regex(fn -> Regex.scan(re, string, return: :index) end) do
-               {:ok, results} ->
-                 match_objects = Enum.map(results, &make_match_object(re, string, &1))
-                 {:generator, match_objects}
+        with_ctx(fn
+          [string], ctx when is_binary(string) ->
+            case safe_regex(
+                   fn -> Regex.scan(re, string, return: :index) end,
+                   regex_deadline_ms(ctx)
+                 ) do
+              {:ok, results} ->
+                match_objects = Enum.map(results, &make_match_object(re, string, &1))
+                {:generator, match_objects}
 
-               {:exception, _} = err ->
-                 err
-             end
-         end},
+              {:exception, _} = err ->
+                err
+            end
+        end),
       "sub" =>
-        {:builtin,
-         fn
-           [replacement, string]
-           when is_binary(replacement) and is_binary(string) ->
-             case safe_regex(fn -> Regex.replace(re, string, replacement) end) do
-               {:ok, result} -> result
-               {:exception, _} = err -> err
-             end
-         end},
+        with_ctx(fn
+          [replacement, string], ctx
+          when is_binary(replacement) and is_binary(string) ->
+            case safe_regex(
+                   fn -> Regex.replace(re, string, replacement) end,
+                   regex_deadline_ms(ctx)
+                 ) do
+              {:ok, result} -> result
+              {:exception, _} = err -> err
+            end
+        end),
       "split" =>
-        {:builtin,
-         fn
-           [string] when is_binary(string) ->
-             case safe_regex(fn -> Regex.split(re, string) end) do
-               {:ok, result} -> result
-               {:exception, _} = err -> err
-             end
-         end}
+        with_ctx(fn
+          [string], ctx when is_binary(string) ->
+            case safe_regex(fn -> Regex.split(re, string) end, regex_deadline_ms(ctx)) do
+              {:ok, result} -> result
+              {:exception, _} = err -> err
+            end
+        end)
     }
   end
 
-  @spec safe_regex((-> result)) :: {:ok, result} | {:exception, String.t()}
+  @typep ctx_call ::
+           {:ctx_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
+
+  # Wraps a ctx-aware implementation as a positional builtin. The interpreter
+  # invokes the returned `:ctx_call` closure with the live env and ctx, giving
+  # the regex helpers access to the run's remaining compute budget.
+  @spec with_ctx(([Pyex.Interpreter.pyvalue()], Pyex.Ctx.t() -> term())) ::
+          {:builtin, ([Pyex.Interpreter.pyvalue()] -> ctx_call())}
+  defp with_ctx(impl) do
+    {:builtin, fn args -> {:ctx_call, fn env, ctx -> {impl.(args, ctx), env, ctx} end} end}
+  end
+
+  # As `with_ctx/1`, for keyword-accepting builtins.
+  @spec with_ctx_kw(([Pyex.Interpreter.pyvalue()], map(), Pyex.Ctx.t() -> term())) ::
+          {:builtin_kw, ([Pyex.Interpreter.pyvalue()], map() -> ctx_call())}
+  defp with_ctx_kw(impl) do
+    {:builtin_kw,
+     fn args, kwargs -> {:ctx_call, fn env, ctx -> {impl.(args, kwargs, ctx), env, ctx} end} end}
+  end
+
+  # Bounds a single regex evaluation by the run's remaining compute budget,
+  # capped at the @regex_timeout_ms ReDoS safety ceiling. A tight
+  # `limits: [timeout: ...]` therefore also bounds catastrophic-backtracking
+  # patterns, instead of a regex running up to the fixed ceiling regardless of
+  # the caller's budget.
+  @spec regex_deadline_ms(Pyex.Ctx.t()) :: pos_integer()
+  defp regex_deadline_ms(ctx) do
+    case Pyex.Ctx.remaining_compute_ms(ctx) do
+      :infinity -> @regex_timeout_ms
+      remaining -> remaining |> min(@regex_timeout_ms) |> max(1)
+    end
+  end
+
+  @spec safe_regex((-> result), pos_integer()) :: {:ok, result} | {:exception, String.t()}
         when result: term()
-  defp safe_regex(fun) do
+  defp safe_regex(fun, deadline_ms) do
     task = Task.async(fun)
 
-    case Task.yield(task, @regex_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+    case Task.yield(task, deadline_ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> {:ok, result}
       nil -> {:exception, "re.error: regex evaluation timed out (possible ReDoS)"}
     end

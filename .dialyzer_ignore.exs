@@ -29,27 +29,14 @@
   # but is silent on 1.20.  MapSet's parameterized type is opaque;
   # the analyzer never constructs MapSet values outside the module.
   {"lib/pyex/parser/scope_resolve.ex", :contract_with_opaque},
-  # The with-statement eval clause calls eval/3 on the context manager expression,
-  # but Dialyzer cannot narrow the union type through pattern matching on
-  # {:with, _, [expr, as_name, body]} and thinks expr could be an atom.
-  {"lib/pyex/interpreter.ex", :call},
-  # defaultdict auto-insert returns a 5-tuple {:defaultdict_auto_insert, ...} from
-  # eval_subscript. Dialyzer cannot trace this tagged tuple through the case match.
+  # eval_subscript returns a 5-tuple {:defaultdict_auto_insert, default_val,
+  # new_dict, env, ctx} that doesn't fit eval_result() (3-tuple). Properly
+  # typing this requires handling the cascade into all eval callers and is
+  # deferred as design debt.
   {"lib/pyex/interpreter.ex", :pattern_match},
-  # extract_exception_type_name/1 and with_update_cm/3 are called from the
-  # {:with, ...} eval clause but Dialyzer's call graph analysis cannot trace
-  # through the complex union-typed control flow. Both are genuinely reachable.
-  {"lib/pyex/interpreter.ex", :unused_fun},
-  # call_dunder/call_dunder_mut return {:exception, _} inside the {:ok, ...} tuple.
-  # {:exception, _} is a control-flow signal, not a pyvalue(), so Dialyzer sees
-  # the pattern match as impossible. These are reachable at runtime.
-  {"lib/pyex/interpreter/builtin_results.ex", :pattern_match},
   # eval_param_defaults wraps evaluated defaults in {:__evaluated__, val}.
   # Parser.param() type does not include this wrapper, but it is valid at runtime.
   {"lib/pyex/interpreter/call_support.ex", :pattern_match},
-  # resume_generator can return {:yielded, val, cont, gen_env, ctx} at runtime
-  # (in defer mode). Dialyzer's type inference doesn't fully track this path.
-  {"lib/pyex/interpreter/dunder.ex", :pattern_match},
   # Defensive fallback patterns in json encoding: format_decode_error's
   # catch-all and indent_at's non-integer indent branch are unreachable
   # given the current call sites, but kept as guards for future inputs.

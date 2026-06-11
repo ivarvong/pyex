@@ -280,7 +280,7 @@ defmodule Pyex.Interpreter.Dunder do
         # value here because __exit__ doesn't take a return path.
         {:done, env, ctx}
 
-      {:yielded, _next_val, _next_cont, _next_gen_env, ctx} ->
+      {{:yielded, _next_val, _next_cont}, _next_gen_env, ctx} ->
         {:done, env, ctx}
 
       {{:exception, _} = exc, _gen_env, ctx} ->

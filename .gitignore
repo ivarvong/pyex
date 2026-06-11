@@ -29,3 +29,6 @@ pyex-*.tar
 .tool-versions
 /scratch/
 *.xlsx
+
+# macOS Finder metadata.
+.DS_Store

@@ -744,6 +744,22 @@ defmodule Pyex.Ctx do
     elapsed_us / 1000
   end
 
+  @doc """
+  Returns the compute time remaining before the deadline, in milliseconds.
+
+  `:infinity` when no compute timeout is configured. Never negative — a run
+  that has already overrun its budget reports `0`. Callers that perform a
+  single long-running compute step (e.g. a regex evaluation) can use this to
+  bound that step by the run's remaining budget instead of an unrelated fixed
+  ceiling.
+  """
+  @spec remaining_compute_ms(t()) :: non_neg_integer() | :infinity
+  def remaining_compute_ms(%__MODULE__{timeout: nil}), do: :infinity
+
+  def remaining_compute_ms(%__MODULE__{timeout: timeout} = ctx) do
+    max(timeout - round(compute_time(ctx)), 0)
+  end
+
   @spec native_to_microseconds(integer()) :: integer()
   defp native_to_microseconds(native) do
     System.convert_time_unit(native, :native, :microsecond)
