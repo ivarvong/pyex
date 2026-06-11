@@ -63,6 +63,36 @@ patterns work unchanged.
   async functions.  Replaces the parallel `:async_function` tag
   that would have required N parallel pattern-match clauses.
 
+## [0.2.0](https://github.com/ivarvong/pyex/compare/v0.1.0...v0.2.0) (2026-06-11)
+
+
+### Features
+
+* add library-conformance test category, fix pydantic shim drift it surfaced ([#67](https://github.com/ivarvong/pyex/issues/67)) ([6623a04](https://github.com/ivarvong/pyex/commit/6623a041c6ceeaf5cd2d1d32bd824b3de3f60065))
+* async/await as cooperative coroutines (Phase 1) + lazy itertools.islice ([#58](https://github.com/ivarvong/pyex/issues/58)) ([41509e6](https://github.com/ivarvong/pyex/commit/41509e66fce59a27b7d4e2450a870c0e5b51ee0c))
+* cooperative scheduling — close the four CPython divergences ([#59](https://github.com/ivarvong/pyex/issues/59)) ([1c324f9](https://github.com/ivarvong/pyex/commit/1c324f98a9063f522da9006b68f1fa46ce352f32))
+* **limits:** enable safe-by-default resource ceilings ([#71](https://github.com/ivarvong/pyex/issues/71)) ([95b4799](https://github.com/ivarvong/pyex/commit/95b4799dce469a9f3d64ac27f4bc4afbab4f19a4))
+
+
+### Bug Fixes
+
+* **banned_call_tracer:** invert :erlang to allowlist + catch fun captures ([#76](https://github.com/ivarvong/pyex/issues/76)) ([ace95fd](https://github.com/ivarvong/pyex/commit/ace95fdbf8f6dc78e58b91d52e8e65974eccbaf3))
+* **banned_call_tracer:** treat missing abstract code as a violation ([#75](https://github.com/ivarvong/pyex/issues/75)) ([ddb5569](https://github.com/ivarvong/pyex/commit/ddb55695e279efe7d3c3fce3c75150862d378b8b))
+* **ctx:** match network allowlist component-wise, not by string prefix ([#72](https://github.com/ivarvong/pyex/issues/72)) ([b64ddc3](https://github.com/ivarvong/pyex/commit/b64ddc33fca06d348ca2029d58b77a450b1329c8))
+* **decimal:** regression tests + informative builtin clause errors ([#77](https://github.com/ivarvong/pyex/issues/77)) ([754a34a](https://github.com/ivarvong/pyex/commit/754a34af24e844ea61ff6d2127b2f0a42481cc93))
+* **lexer:** complete the bytes-literal prefix matrix + repr quoting ([#85](https://github.com/ivarvong/pyex/issues/85)) ([048263b](https://github.com/ivarvong/pyex/commit/048263bd4261ce9fec37a0ab7fd1bbcc67245c66))
+* **lexer:** complete the Python string-prefix matrix (rf/fr, R/F, u/U, raw triples) ([#81](https://github.com/ivarvong/pyex/issues/81)) ([6b3b405](https://github.com/ivarvong/pyex/commit/6b3b4056f299984b18b0e94162b34eec96d8e4a2))
+* **parser:** accept paren tuple targets in comprehension for-clauses ([#68](https://github.com/ivarvong/pyex/issues/68)) ([ebde436](https://github.com/ivarvong/pyex/commit/ebde4364b04ee11b2ecaa0aa4bd97be74b3db11e))
+* **pyex:** snapshot and restore caller's Decimal context across run/2 ([#74](https://github.com/ivarvong/pyex/issues/74)) ([ec0dfc4](https://github.com/ivarvong/pyex/commit/ec0dfc4235ed31845a0890adcb7e9b21a40157d7))
+* **requests:** apply a host default receive_timeout when caller omits timeout= ([#73](https://github.com/ivarvong/pyex/issues/73)) ([b924a63](https://github.com/ivarvong/pyex/commit/b924a634f479718ca439089eceac7ec7f612fbdb))
+* thread yielded signals through assign + return ([#61](https://github.com/ivarvong/pyex/issues/61)) ([b2964f5](https://github.com/ivarvong/pyex/commit/b2964f5483281484e50db9f124e23ffff2da61c2))
+
+
+### Performance Improvements
+
+* default-limits short-circuit, list-index cache, scope resolution ([#69](https://github.com/ivarvong/pyex/issues/69)) ([07b0850](https://github.com/ivarvong/pyex/commit/07b08508833f918da80ce36a51eb8df293a138fb))
+* fix O(n²) list.append, dict insert, zipfile.writestr, and deque.append ([#55](https://github.com/ivarvong/pyex/issues/55)) ([80b2f55](https://github.com/ivarvong/pyex/commit/80b2f55210d107e9269e25a0979611bddc0bd93c))
+
 ## 0.1.0 — 2026-02-13
 
 Initial release.
