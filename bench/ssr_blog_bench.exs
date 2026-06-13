@@ -7,7 +7,7 @@
 # Run with: mix run bench/ssr_blog_bench.exs
 
 alias Pyex.{Ctx, Lambda}
-alias Pyex.Filesystem.Memory
+alias Pyex.FS, as: Memory
 
 # ---------- Non-streaming source (original) ----------
 

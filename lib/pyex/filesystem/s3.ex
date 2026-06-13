@@ -5,9 +5,12 @@ defmodule Pyex.Filesystem.S3 do
   All paths are prefixed with a configurable key prefix within
   a single bucket. Works with any S3-compatible store (AWS S3,
   MinIO, Cloudflare R2, Backblaze B2, etc.) by setting `:endpoint_url`.
-  """
 
-  @behaviour Pyex.Filesystem
+  Implements [`VFS.Mountable`](https://hexdocs.pm/vfs) so an `%S3{}` can be
+  used directly as a `Pyex.Ctx` filesystem or mounted into a `%VFS{}`. The
+  bare `read/2`, `write/4`, `exists?/2`, `list_dir/2`, and `delete/2`
+  functions remain for direct use and return Python-style error strings.
+  """
 
   @type t :: %__MODULE__{
           bucket: String.t(),
@@ -43,7 +46,6 @@ defmodule Pyex.Filesystem.S3 do
     }
   end
 
-  @impl Pyex.Filesystem
   @spec read(t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def read(%__MODULE__{} = fs, path) do
     with :ok <- validate_path(path) do
@@ -65,8 +67,7 @@ defmodule Pyex.Filesystem.S3 do
     end
   end
 
-  @impl Pyex.Filesystem
-  @spec write(t(), String.t(), String.t(), Pyex.Filesystem.mode()) ::
+  @spec write(t(), String.t(), String.t(), :write | :append) ::
           {:ok, t()} | {:error, String.t()}
   def write(%__MODULE__{} = fs, path, content, mode) do
     with :ok <- validate_path(path) do
@@ -74,7 +75,7 @@ defmodule Pyex.Filesystem.S3 do
     end
   end
 
-  @spec write_validated(t(), String.t(), String.t(), Pyex.Filesystem.mode()) ::
+  @spec write_validated(t(), String.t(), String.t(), :write | :append) ::
           {:ok, t()} | {:error, String.t()}
   defp write_validated(fs, path, content, mode) do
     full_content =
@@ -103,7 +104,6 @@ defmodule Pyex.Filesystem.S3 do
     end
   end
 
-  @impl Pyex.Filesystem
   @spec exists?(t(), String.t()) :: boolean()
   def exists?(%__MODULE__{} = fs, path) do
     case validate_path(path) do
@@ -120,7 +120,6 @@ defmodule Pyex.Filesystem.S3 do
     end
   end
 
-  @impl Pyex.Filesystem
   @spec list_dir(t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
   def list_dir(%__MODULE__{} = fs, path) do
     with :ok <- validate_path(path) do
@@ -143,7 +142,6 @@ defmodule Pyex.Filesystem.S3 do
     end
   end
 
-  @impl Pyex.Filesystem
   @spec delete(t(), String.t()) :: {:ok, t()} | {:error, String.t()}
   def delete(%__MODULE__{} = fs, path) do
     with :ok <- validate_path(path) do
@@ -242,4 +240,67 @@ defmodule Pyex.Filesystem.S3 do
   end
 
   defp parse_list_response(_body, _prefix), do: []
+end
+
+defimpl VFS.Mountable, for: Pyex.Filesystem.S3 do
+  @moduledoc false
+  use VFS.Skeleton
+
+  alias Pyex.Filesystem.S3
+  alias VFS.{Error, Stat}
+
+  @epoch DateTime.from_unix!(0)
+
+  def capabilities(_), do: MapSet.new([:read, :write])
+
+  def exists?(%S3{} = s3, path), do: {S3.exists?(s3, path), s3}
+
+  # S3 is an object store with no real directories, so a path either names an
+  # object (`:regular`) or doesn't exist. `size` is reported as 0 to avoid a
+  # full GET — Pyex only reads `stat.type`, never the size, off an S3 backend.
+  def stat(%S3{} = s3, path) do
+    if S3.exists?(s3, path),
+      do: {:ok, Stat.regular(0, @epoch), s3},
+      else: {:error, Error.new(:enoent, path: path)}
+  end
+
+  def stream_read(%S3{} = s3, path, _opts) do
+    case S3.read(s3, path) do
+      {:ok, body} -> {:ok, [body], s3}
+      {:error, msg} -> {:error, classify(msg, path)}
+    end
+  end
+
+  def write_file(%S3{} = s3, path, content, _opts) do
+    case S3.write(s3, path, content, :write) do
+      {:ok, s3} -> {:ok, s3}
+      {:error, msg} -> {:error, classify(msg, path)}
+    end
+  end
+
+  def readdir(%S3{} = s3, path) do
+    case S3.list_dir(s3, path) do
+      {:ok, names} -> {:ok, names, s3}
+      {:error, msg} -> {:error, classify(msg, path)}
+    end
+  end
+
+  def rm(%S3{} = s3, path, _opts) do
+    case S3.delete(s3, path) do
+      {:ok, s3} -> {:ok, s3}
+      {:error, msg} -> {:error, classify(msg, path)}
+    end
+  end
+
+  # Object writes create the implied prefix, so an explicit mkdir is a no-op.
+  def mkdir(%S3{} = s3, _path, _opts), do: {:ok, s3}
+
+  # The bare S3 functions return Python-style strings; map them back to the
+  # POSIX-shaped kinds the protocol expects. Anything unrecognized is `:eio`,
+  # preserving the original message for logs.
+  defp classify("FileNotFoundError" <> _, path), do: Error.new(:enoent, path: path)
+  defp classify("FileExistsError" <> _, path), do: Error.new(:eexist, path: path)
+  defp classify("NotADirectoryError" <> _, path), do: Error.new(:enotdir, path: path)
+  defp classify("PermissionError" <> _, path), do: Error.new(:eacces, path: path)
+  defp classify(msg, path), do: Error.new(:eio, path: path, message: msg)
 end

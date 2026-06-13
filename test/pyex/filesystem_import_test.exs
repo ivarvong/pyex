@@ -1,7 +1,8 @@
 defmodule Pyex.FilesystemImportTest do
   use ExUnit.Case, async: true
 
-  alias Pyex.{Ctx, Error, Filesystem.Memory}
+  alias Pyex.{Ctx, Error}
+  alias Pyex.FS, as: Memory
 
   defp run_with_fs!(code, files) do
     fs = Memory.new(files)

@@ -610,7 +610,7 @@ defmodule Pyex.InterpreterTest do
           os.makedirs("public/posts", exist_ok=True)
           "ok"
           """,
-          filesystem: Pyex.Filesystem.Memory.new()
+          filesystem: Pyex.FS.from_map()
         )
 
       assert result == "ok"

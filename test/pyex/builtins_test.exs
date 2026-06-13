@@ -1132,7 +1132,7 @@ defmodule Pyex.BuiltinsTest do
 
   describe "open() with keyword args" do
     test "open(path, 'w', newline='') accepted without error" do
-      fs = Pyex.Filesystem.Memory.new()
+      fs = Pyex.FS.from_map()
 
       result =
         Pyex.run!(
@@ -1148,7 +1148,7 @@ defmodule Pyex.BuiltinsTest do
     end
 
     test "open(file='path', mode='w') works" do
-      fs = Pyex.Filesystem.Memory.new()
+      fs = Pyex.FS.from_map()
 
       result =
         Pyex.run!(
@@ -1164,7 +1164,7 @@ defmodule Pyex.BuiltinsTest do
     end
 
     test "open(path, mode='w') works" do
-      fs = Pyex.Filesystem.Memory.new()
+      fs = Pyex.FS.from_map()
 
       result =
         Pyex.run!(
@@ -1180,7 +1180,7 @@ defmodule Pyex.BuiltinsTest do
     end
 
     test "open(path, 'w', encoding='utf-8') accepted" do
-      fs = Pyex.Filesystem.Memory.new()
+      fs = Pyex.FS.from_map()
 
       result =
         Pyex.run!(
@@ -1196,7 +1196,7 @@ defmodule Pyex.BuiltinsTest do
     end
 
     test "backward compat: open(path, 'r') still works" do
-      fs = Pyex.Filesystem.Memory.new(%{"test.txt" => "hello"})
+      fs = Pyex.FS.from_map(%{"test.txt" => "hello"})
 
       result =
         Pyex.run!(
@@ -1213,7 +1213,7 @@ defmodule Pyex.BuiltinsTest do
     end
 
     test "backward compat: open(path) defaults to read mode" do
-      fs = Pyex.Filesystem.Memory.new(%{"test.txt" => "world"})
+      fs = Pyex.FS.from_map(%{"test.txt" => "world"})
 
       result =
         Pyex.run!(
@@ -1230,7 +1230,7 @@ defmodule Pyex.BuiltinsTest do
     end
 
     test "open with multiple kwargs" do
-      fs = Pyex.Filesystem.Memory.new()
+      fs = Pyex.FS.from_map()
 
       result =
         Pyex.run!(
@@ -1246,7 +1246,7 @@ defmodule Pyex.BuiltinsTest do
     end
 
     test "open in append mode with kwargs" do
-      fs = Pyex.Filesystem.Memory.new(%{"log.txt" => "line1\n"})
+      fs = Pyex.FS.from_map(%{"log.txt" => "line1\n"})
 
       result =
         Pyex.run!(
@@ -1265,7 +1265,7 @@ defmodule Pyex.BuiltinsTest do
       assert {:error, %Pyex.Error{message: msg}} =
                Pyex.run(
                  ~S|open("out.txt", "w", nope=1)|,
-                 filesystem: Pyex.Filesystem.Memory.new()
+                 filesystem: Pyex.FS.from_map()
                )
 
       assert msg =~ "TypeError"
@@ -1276,7 +1276,7 @@ defmodule Pyex.BuiltinsTest do
       assert {:error, %Pyex.Error{message: msg}} =
                Pyex.run(
                  ~S|open("out.txt", file="other.txt")|,
-                 filesystem: Pyex.Filesystem.Memory.new()
+                 filesystem: Pyex.FS.from_map()
                )
 
       assert msg =~ "TypeError"

@@ -35,9 +35,7 @@ defmodule Mix.Tasks.Pyex do
     case read_source(path) do
       {:ok, code} ->
         ctx =
-          Pyex.Ctx.new(
-            filesystem: Pyex.Filesystem.Memory.new(%{"spreadsheet.py" => @spreadsheet})
-          )
+          Pyex.Ctx.new(filesystem: Pyex.FS.from_map(%{"spreadsheet.py" => @spreadsheet}))
 
         case Pyex.run(code, ctx) do
           {:ok, nil, ctx} ->
@@ -67,9 +65,10 @@ defmodule Mix.Tasks.Pyex do
     end
   end
 
-  defp sync_out(ctx) do
-    case ctx.filesystem.files |> Map.delete("spreadsheet.py") |> Map.to_list() do
-      [{name, data}] ->
+  defp sync_out(%{filesystem: %VFS.Memory{tree: tree}}) do
+    case tree |> Map.delete("/spreadsheet.py") |> Map.to_list() do
+      [{vpath, data}] ->
+        name = String.replace_prefix(vpath, "/", "")
         File.write!(name, data, [:binary])
         IO.puts("wrote #{name}")
 
@@ -77,6 +76,8 @@ defmodule Mix.Tasks.Pyex do
         :ok
     end
   end
+
+  defp sync_out(_ctx), do: :ok
 
   defp read_source("-") do
     case IO.read(:stdio, :eof) do

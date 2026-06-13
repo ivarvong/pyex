@@ -13,7 +13,8 @@ defmodule Pyex.FilesystemModuleCompositionTest do
 
   use ExUnit.Case, async: true
 
-  alias Pyex.{Ctx, Error, Filesystem.Memory}
+  alias Pyex.{Ctx, Error}
+  alias Pyex.FS, as: Memory
 
   defp run_with_files!(code, files) do
     fs = Memory.new(files)

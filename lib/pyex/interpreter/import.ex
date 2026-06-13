@@ -98,7 +98,7 @@ defmodule Pyex.Interpreter.Import do
   def import_hint("http." <> _), do: ". Use 'import requests' instead"
 
   def import_hint("sys"), do: ". Use 'import os' for environ access"
-  def import_hint("pathlib"), do: ". Use the filesystem option with Pyex.Filesystem.Memory"
+  def import_hint("pathlib"), do: ". Use the filesystem option for file operations"
   def import_hint("io"), do: ". Use the filesystem option for file operations"
 
   def import_hint(_) do
@@ -271,7 +271,7 @@ defmodule Pyex.Interpreter.Import do
                {{:exception, "OSError: no filesystem configured"}, env, ctx}
 
              fs ->
-               case fs.__struct__.list_dir(fs, path) do
+               case Pyex.FS.list_dir(fs, path) do
                  {:ok, entries} ->
                    {entries, env, ctx}
 
@@ -342,7 +342,7 @@ defmodule Pyex.Interpreter.Import do
       :error ->
         path = String.replace(name, ".", "/") <> ".py"
 
-        case ctx.filesystem.__struct__.read(ctx.filesystem, path) do
+        case Pyex.FS.read(ctx.filesystem, path) do
           {:ok, source} ->
             case Pyex.compile(source) do
               {:ok, ast} ->

@@ -579,7 +579,7 @@ defmodule Pyex.AsyncConformanceTest do
     end
 
     test "async write+read against an in-memory filesystem" do
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
 
       assert {:ok, "hello", _ctx} =
                Pyex.run(

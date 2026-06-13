@@ -1,7 +1,7 @@
 Code.require_file("test/support/fixture.ex")
 
 fixture = Pyex.Test.Fixture.load!("lru_cache")
-fs = Pyex.Filesystem.Memory.new(fixture.input_fs)
+fs = Pyex.FS.from_map(fixture.input_fs)
 {:ok, ast} = Pyex.compile(fixture.source)
 
 times =

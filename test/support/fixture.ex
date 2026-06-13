@@ -113,7 +113,7 @@ defmodule Pyex.Test.Fixture do
           error: String.t() | nil
         }
   def run_pyex(%__MODULE__{source: source, input_fs: input_fs, timeout: timeout}) do
-    fs = Pyex.Filesystem.Memory.new(input_fs)
+    fs = Pyex.FS.from_map(input_fs)
 
     case Pyex.run(source, filesystem: fs, limits: [timeout: timeout]) do
       {:ok, _value, ctx} ->
@@ -191,8 +191,10 @@ defmodule Pyex.Test.Fixture do
     end
   end
 
-  defp diff_filesystem(input_fs, %Pyex.Filesystem.Memory{files: files}) do
-    Enum.reduce(files, %{}, fn {path, content}, acc ->
+  defp diff_filesystem(input_fs, %VFS.Memory{tree: tree}) do
+    Enum.reduce(tree, %{}, fn {vpath, content}, acc ->
+      path = String.replace_prefix(vpath, "/", "")
+
       if Map.get(input_fs, path) != content do
         Map.put(acc, path, content)
       else

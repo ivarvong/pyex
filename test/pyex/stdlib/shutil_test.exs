@@ -1,7 +1,7 @@
 defmodule Pyex.Stdlib.ShutilTest do
   use ExUnit.Case, async: true
 
-  alias Pyex.Filesystem.Memory
+  alias Pyex.FS, as: Memory
 
   test "copytree move and rmtree work" do
     fs =

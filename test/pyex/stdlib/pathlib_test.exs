@@ -1,7 +1,7 @@
 defmodule Pyex.Stdlib.PathlibTest do
   use ExUnit.Case, async: true
 
-  alias Pyex.Filesystem.Memory
+  alias Pyex.FS, as: Memory
 
   describe "pathlib.Path" do
     test "glob returns path objects with usable stem values" do

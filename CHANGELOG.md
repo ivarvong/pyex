@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Filesystem now runs on the `vfs` package
+
+The home-grown `Pyex.Filesystem` behaviour and its `Memory` backend are
+gone. `Pyex.Ctx`'s `:filesystem` now holds any
+[`VFS.Mountable`](https://hexdocs.pm/vfs) — a `VFS.Memory`, a `%VFS{}`
+mount table, the S3 backend, or your own — so a single filesystem value
+can be threaded through Pyex and any other `vfs`-based tool.
+
+- **`filesystem:` accepts a `VFS.Mountable` or a plain `%{path => content}`
+  map** (the map is wrapped as a seeded `VFS.Memory`). Paths stay
+  cwd-relative in Python (`open("data.txt")`); they are rooted at `/` in
+  the VFS namespace, so `ctx.filesystem` round-trips as a normal `%VFS{}`.
+- **New `Pyex.FS`** is the boundary module: pyex-namespace path mapping
+  (`to_vfs/1`) and `%VFS.Error{}` → Python-exception-string translation.
+- **`Pyex.Filesystem.S3`** now implements `VFS.Mountable` (its bare
+  `read/2`/`write/4`/… functions remain for direct use).
+- **Removed:** `Pyex.Filesystem`, `Pyex.Filesystem.Memory`. Replace
+  `Pyex.Filesystem.Memory.new(map)` with a bare `map` or
+  `VFS.Memory.new(%{"/..." => ...})`.
+
 ### Async / await — cooperative scheduling
 
 `async def`, `await`, `async for`, `async with`, async list
