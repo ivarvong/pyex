@@ -225,7 +225,7 @@ defmodule Pyex.IntegrationTest do
       csv_data =
         "name,department,salary\nAlice,Engineering,95000\nBob,Marketing,72000\nCarol,Engineering,105000\nDave,Marketing,68000\nEve,Engineering,88000\n"
 
-      fs = Pyex.Filesystem.Memory.new(%{"employees.csv" => csv_data})
+      fs = Pyex.FS.from_map(%{"employees.csv" => csv_data})
 
       result =
         Pyex.run!(
@@ -268,7 +268,7 @@ defmodule Pyex.IntegrationTest do
 
     test "parse and transform CSV data with list comprehensions" do
       csv_data = "product,price,quantity\nWidget,9.99,100\nGadget,24.99,50\nGizmo,4.99,200\n"
-      fs = Pyex.Filesystem.Memory.new(%{"inventory.csv" => csv_data})
+      fs = Pyex.FS.from_map(%{"inventory.csv" => csv_data})
 
       result =
         Pyex.run!(
@@ -912,7 +912,7 @@ defmodule Pyex.IntegrationTest do
   describe "context managers" do
     test "with statement for file read and processing" do
       fs =
-        Pyex.Filesystem.Memory.new(%{
+        Pyex.FS.from_map(%{
           "data.txt" => "hello world\nfoo bar\nbaz qux\n"
         })
 
@@ -938,7 +938,7 @@ defmodule Pyex.IntegrationTest do
     end
 
     test "write file in context manager and read it back" do
-      fs = Pyex.Filesystem.Memory.new()
+      fs = Pyex.FS.from_map()
 
       result =
         Pyex.run!(

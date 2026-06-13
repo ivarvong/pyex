@@ -106,7 +106,7 @@ by default.
 
 ```elixir
 Pyex.run(source,
-  filesystem: Pyex.Filesystem.Memory.new(%{"data.json" => json}),
+  filesystem: %{"data.json" => json},
   env: %{"API_KEY" => key},
   modules: %{"db" => %{"query" => {:builtin, &my_query/1}}},
   network: [%{allowed_url_prefix: "https://api.example.com/"}],
@@ -121,8 +121,10 @@ Elixir that decides what each AST node means. That makes the threat
 model unusually simple to reason about.
 
 - **No host filesystem.** `open()` reads and writes the
-  `Pyex.Filesystem` backend you pass in (`Memory`, `S3`, or your
-  own). Without a backend, file I/O fails closed.
+  [`VFS`](https://hexdocs.pm/vfs) backend you pass in as `filesystem:`
+  — a `%{path => content}` map, a `VFS.Memory`, an S3-backed
+  `Pyex.Filesystem.S3`, a `%VFS{}` mount table, or your own
+  `VFS.Mountable`. Without one, file I/O fails closed. See `Pyex.FS`.
 - **No subprocess, shell, or `os.exec`.** Not implemented. There is
   no path from Python source to a host process.
 - **No native code.** No `ctypes`, no C extension loading, no

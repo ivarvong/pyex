@@ -6,7 +6,7 @@ fixtures =
   Fixture.list_all()
   |> Enum.map(fn name ->
     fixture = Fixture.load!(name)
-    fs = Pyex.Filesystem.Memory.new(fixture.input_fs)
+    fs = Pyex.FS.from_map(fixture.input_fs)
     {:ok, ast} = Pyex.compile(fixture.source)
     {name, ast, fs}
   end)

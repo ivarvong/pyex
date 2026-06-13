@@ -21,8 +21,9 @@ defmodule Pyex.BannedCallTracer do
 
   ### Filesystem (`File`, `:file`)
   Any call into `File.*` or the Erlang `:file` module. Filesystem access
-  goes through the pluggable `Pyex.Filesystem` behaviour so callers can
-  inject Memory or S3 backends. Direct `File.*` calls would bypass that.
+  goes through the pluggable [`VFS`](https://hexdocs.pm/vfs) backend (see
+  `Pyex.FS`) so callers can inject in-memory or S3 filesystems. Direct
+  `File.*` calls would bypass that.
 
   ### Environment (`System.get_env`, `System.put_env`, `System.delete_env`)
   Real OS environment variables are not visible to sandboxed code.

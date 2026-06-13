@@ -139,7 +139,7 @@ defmodule Pyex.TelemetryTest do
 
   describe "handle/2 telemetry with file operations" do
     test "write handler counts file ops" do
-      fs = Pyex.Filesystem.Memory.new()
+      fs = Pyex.FS.from_map()
       ctx = Pyex.Ctx.new(filesystem: fs)
       {:ok, app} = Lambda.boot(@file_app_source, ctx: ctx)
 
@@ -153,7 +153,7 @@ defmodule Pyex.TelemetryTest do
     end
 
     test "read handler counts file ops" do
-      fs = Pyex.Filesystem.Memory.new(%{"data.txt" => "content"})
+      fs = Pyex.FS.from_map(%{"data.txt" => "content"})
       ctx = Pyex.Ctx.new(filesystem: fs)
       {:ok, app} = Lambda.boot(@file_app_source, ctx: ctx)
 
@@ -164,7 +164,7 @@ defmodule Pyex.TelemetryTest do
     end
 
     test "file ops count increases with multiple operations" do
-      fs = Pyex.Filesystem.Memory.new()
+      fs = Pyex.FS.from_map()
       ctx = Pyex.Ctx.new(filesystem: fs)
       {:ok, app} = Lambda.boot(@file_app_source, ctx: ctx)
 
@@ -248,7 +248,7 @@ defmodule Pyex.TelemetryTest do
     end
 
     test "file ops are per-request, not cumulative" do
-      fs = Pyex.Filesystem.Memory.new()
+      fs = Pyex.FS.from_map()
       ctx = Pyex.Ctx.new(filesystem: fs)
       {:ok, app} = Lambda.boot(@file_app_source, ctx: ctx)
 

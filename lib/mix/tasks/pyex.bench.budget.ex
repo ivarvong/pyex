@@ -42,7 +42,7 @@ defmodule Mix.Tasks.Pyex.Bench.Budget do
     IO.puts("Benchmarking #{path} × #{n} runs#{if profile?, do: " (profiling)", else: ""}...")
     IO.puts("Warming up...\n")
 
-    fs = Pyex.Filesystem.Memory.new(%{"spreadsheet.py" => @spreadsheet})
+    fs = Pyex.FS.from_map(%{"spreadsheet.py" => @spreadsheet})
 
     # Warmup run — discarded
     Pyex.run(source, Pyex.Ctx.new(filesystem: fs))

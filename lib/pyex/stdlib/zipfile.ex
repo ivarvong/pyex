@@ -323,7 +323,7 @@ defmodule Pyex.Stdlib.Zipfile do
   defp resolve_write_target(path, "x", ctx) when is_binary(path) do
     %{filesystem: fs} = ctx
 
-    if fs && fs.__struct__.exists?(fs, path) do
+    if fs && Pyex.FS.exists?(fs, path) do
       {:exception, "FileExistsError: [Errno 17] File exists: '#{path}'"}
     else
       {:ok, %{kind: :path, filename: path, path: path, handle: nil}, ctx}

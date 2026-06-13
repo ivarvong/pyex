@@ -410,7 +410,7 @@ IO.puts("(how many times slower Pyex is for pure computation)")
 IO.puts("\n### Lambda (FastAPI HTTP handlers)\n")
 
 alias Pyex.{Ctx, Lambda}
-alias Pyex.Filesystem.Memory
+alias Pyex.FS, as: Memory
 
 blog_source = ~S"""
 import fastapi

@@ -84,7 +84,7 @@ defmodule Pyex.Path do
   """
   @spec file?(term(), String.t()) :: boolean()
   def file?(fs, path) do
-    match?({:ok, _}, fs.__struct__.read(fs, path))
+    Pyex.FS.stat(fs, path) == {:ok, :regular}
   end
 
   @doc """
@@ -92,10 +92,7 @@ defmodule Pyex.Path do
   """
   @spec dir?(term(), String.t()) :: boolean()
   def dir?(fs, path) do
-    case fs.__struct__.list_dir(fs, path) do
-      {:ok, _} -> true
-      {:error, _} -> false
-    end
+    Pyex.FS.stat(fs, path) == {:ok, :directory}
   end
 
   @doc """
@@ -103,45 +100,26 @@ defmodule Pyex.Path do
   """
   @spec list_dir(term(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
   def list_dir(fs, path) do
-    fs.__struct__.list_dir(fs, path)
+    Pyex.FS.list_dir(fs, path)
   end
 
   @doc """
   Creates a directory and any missing parents.
   """
   @spec mkdir_p(term(), String.t()) :: {:ok, term()}
-  def mkdir_p(%Pyex.Filesystem.Memory{} = fs, path), do: Pyex.Filesystem.Memory.mkdir(fs, path)
-  def mkdir_p(fs, _path), do: {:ok, fs}
+  def mkdir_p(fs, path), do: Pyex.FS.mkdir_p(fs, path)
 
   @doc """
   Deletes a file path.
   """
   @spec unlink(term(), String.t()) :: {:ok, term()} | {:error, String.t()}
-  def unlink(fs, path), do: fs.__struct__.delete(fs, path)
+  def unlink(fs, path), do: Pyex.FS.delete(fs, path)
 
   @doc """
   Deletes a directory tree.
   """
   @spec delete_tree(term(), String.t()) :: {:ok, term()} | {:error, String.t()}
-  def delete_tree(%Pyex.Filesystem.Memory{} = fs, path),
-    do: Pyex.Filesystem.Memory.delete_tree(fs, path)
-
-  def delete_tree(fs, path) do
-    case walk(fs, path) do
-      {:ok, entries} ->
-        entries
-        |> Enum.flat_map(fn {_root, _dirs, files} -> files end)
-        |> Enum.reduce_while({:ok, fs}, fn file, {:ok, acc_fs} ->
-          case unlink(acc_fs, file) do
-            {:ok, acc_fs} -> {:cont, {:ok, acc_fs}}
-            {:error, _} = error -> {:halt, error}
-          end
-        end)
-
-      {:error, _} = error ->
-        error
-    end
-  end
+  def delete_tree(fs, path), do: Pyex.FS.delete_tree(fs, path)
 
   @doc """
   Recursively walks a directory tree.
@@ -161,9 +139,9 @@ defmodule Pyex.Path do
   """
   @spec copyfile(term(), String.t(), String.t()) :: {:ok, term()} | {:error, String.t()}
   def copyfile(fs, src, dest) do
-    with {:ok, content} <- fs.__struct__.read(fs, src),
+    with {:ok, content} <- Pyex.FS.read(fs, src),
          {:ok, fs} <- mkdir_p(fs, dirname(dest)),
-         {:ok, fs} <- fs.__struct__.write(fs, dest, content, :write) do
+         {:ok, fs} <- Pyex.FS.write(fs, dest, content, :write) do
       {:ok, fs}
     end
   end
@@ -310,7 +288,7 @@ defmodule Pyex.Path do
   defp expand_segment(fs, current, segment, final?) do
     cond do
       wildcard?(segment) ->
-        case fs.__struct__.list_dir(fs, current) do
+        case Pyex.FS.list_dir(fs, current) do
           {:ok, entries} ->
             entries
             |> Enum.filter(&glob_match?(&1, segment))
@@ -323,7 +301,7 @@ defmodule Pyex.Path do
 
       final? ->
         path = join_glob_path(current, segment)
-        if fs.__struct__.exists?(fs, path), do: [path], else: []
+        if Pyex.FS.exists?(fs, path), do: [path], else: []
 
       true ->
         path = join_glob_path(current, segment)

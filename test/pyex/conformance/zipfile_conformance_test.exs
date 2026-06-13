@@ -23,7 +23,7 @@ defmodule Pyex.Conformance.ZipfileTest do
 
   import Pyex.Test.Oracle
 
-  alias Pyex.Filesystem.Memory
+  alias Pyex.FS, as: Memory
 
   # ---------------------------------------------------------------------------
   # File-backed parity helper

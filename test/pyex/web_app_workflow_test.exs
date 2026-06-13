@@ -16,7 +16,8 @@ defmodule Pyex.WebAppWorkflowTest do
 
   use ExUnit.Case, async: false
 
-  alias Pyex.{Ctx, Error, Filesystem.Memory}
+  alias Pyex.{Ctx, Error}
+  alias Pyex.FS, as: Memory
 
   @api_client_py """
   \"\"\"HTTP client for the items service.

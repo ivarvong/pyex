@@ -4,7 +4,7 @@
 # Run with: mix run bench/readme_bench.exs
 
 alias Pyex.{Ctx, Lambda}
-alias Pyex.Filesystem.Memory
+alias Pyex.FS, as: Memory
 
 # ---------- Programs ----------
 

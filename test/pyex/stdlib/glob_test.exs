@@ -1,7 +1,7 @@
 defmodule Pyex.Stdlib.GlobTest do
   use ExUnit.Case, async: true
 
-  alias Pyex.Filesystem.Memory
+  alias Pyex.FS, as: Memory
 
   describe "glob.glob" do
     test "matches files in an absolute directory" do

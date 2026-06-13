@@ -1,5 +1,16 @@
 # Pyex VFS migration plan — integrating with JustBash without depending on it
 
+> **Status (superseded):** This plan predates the standalone
+> [`vfs`](https://hexdocs.pm/vfs) hex package. Rather than *porting*
+> JustBash's filesystem into pyex (the approach below), pyex now depends on
+> `vfs` directly: `Pyex.Ctx`'s `:filesystem` holds a `VFS.Mountable`, and
+> `Pyex.FS` is the thin boundary that maps pyex's cwd-relative paths to
+> absolute VFS paths and `%VFS.Error{}` to Python exception strings. The
+> JustBash interop story is unchanged in spirit — a shared `%VFS{}` threads
+> through both — but it lands once JustBash itself adopts `vfs`. The
+> sections below are kept for historical context on the callback surface
+> and S3 considerations.
+
 **Constraint:** JustBash is fixed as-is. Pyex adapts. Pyex must not
 hard-depend on JustBash — standalone use matters.
 

@@ -6,7 +6,7 @@
 # Runs the full integer stats program at several data sizes and reports
 # p50/p95/p99/min/max timing.
 
-alias Pyex.Filesystem.Memory
+alias Pyex.FS, as: Memory
 
 defmodule MathOracleBench do
   def python_source(_row_count) do

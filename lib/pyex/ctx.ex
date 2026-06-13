@@ -18,7 +18,7 @@ defmodule Pyex.Ctx do
   Use `Ctx.new/1` when you need to share a context across
   multiple calls (e.g. Lambda boot + handle):
 
-      ctx = Ctx.new(filesystem: Memory.new())
+      ctx = Ctx.new(filesystem: VFS.Memory.new())
       {:ok, app} = Lambda.boot(source, ctx: ctx)
   """
 
@@ -50,7 +50,7 @@ defmodule Pyex.Ctx do
   @type generator_mode :: :accumulate | :defer | :defer_inner | :lazy_iter | nil
 
   @type t :: %__MODULE__{
-          filesystem: term(),
+          filesystem: VFS.Mountable.t() | nil,
           handles: %{optional(non_neg_integer()) => file_handle()},
           next_handle: non_neg_integer(),
           env: %{optional(String.t()) => String.t()},
@@ -123,8 +123,9 @@ defmodule Pyex.Ctx do
   Creates a fresh live context that captures output and execution counters.
 
   Options:
-  - `:filesystem` -- a filesystem backend struct (e.g. `Pyex.Filesystem.Memory.new()`).
-    The implementing module is derived automatically from the struct.
+  - `:filesystem` -- a `VFS.Mountable` backend (e.g. `VFS.Memory.new(%{"/a.txt" => "hi"})`
+    or a `%VFS{}` mount table), or a plain `%{path => content}` map which is
+    wrapped as a seeded in-memory backend. See `Pyex.FS`.
   - `:env` -- a map of environment variables accessible via `os.environ`
   - `:modules` -- custom Python modules available via `import`. A map from
     module name strings to either a `%{String.t() => pyvalue()}` map or a
@@ -202,7 +203,7 @@ defmodule Pyex.Ctx do
               "Valid options: #{inspect(@valid_keys)}"
     end
 
-    fs = Keyword.get(opts, :filesystem)
+    fs = normalize_filesystem(Keyword.get(opts, :filesystem))
     env = Keyword.get(opts, :env, %{})
     modules = Keyword.get(opts, :modules, %{}) |> normalize_modules()
 
@@ -236,6 +237,24 @@ defmodule Pyex.Ctx do
       file: file,
       limits: limits
     }
+  end
+
+  # Accepts any `VFS.Mountable` struct as-is, or a plain `%{path => content}`
+  # map (wrapped as a seeded in-memory backend via `Pyex.FS.from_map/1`).
+  @spec normalize_filesystem(term()) :: VFS.Mountable.t() | nil
+  defp normalize_filesystem(nil), do: nil
+
+  defp normalize_filesystem(fs) when is_struct(fs) do
+    VFS.assert_implemented!(fs)
+    fs
+  end
+
+  defp normalize_filesystem(map) when is_map(map), do: Pyex.FS.from_map(map)
+
+  defp normalize_filesystem(other) do
+    raise ArgumentError,
+          "filesystem must be a VFS.Mountable struct or a %{path => content} map, " <>
+            "got: #{inspect(other)}"
   end
 
   @spec normalize_modules(%{optional(String.t()) => map() | module()}) ::
@@ -1016,11 +1035,9 @@ defmodule Pyex.Ctx do
   end
 
   def open_handle(%__MODULE__{filesystem: fs} = ctx, path, mode) do
-    mod = fs.__struct__
-
     case mode do
       :read ->
-        case mod.read(fs, path) do
+        case Pyex.FS.read(fs, path) do
           {:ok, content} ->
             id = ctx.next_handle
             handle = %{path: path, mode: :read, buffer: content}
@@ -1086,7 +1103,7 @@ defmodule Pyex.Ctx do
   def close_handle(%__MODULE__{handles: handles, filesystem: fs} = ctx, id) do
     case Map.fetch(handles, id) do
       {:ok, %{mode: mode, path: path, buffer: buffer}} when mode in [:write, :append] ->
-        case fs.__struct__.write(fs, path, buffer, mode) do
+        case Pyex.FS.write(fs, path, buffer, mode) do
           {:ok, new_fs} ->
             ctx = %{ctx | handles: Map.delete(handles, id), filesystem: new_fs}
             ctx = record(ctx, :file_op, {:close, id})

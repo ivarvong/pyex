@@ -1,7 +1,7 @@
 defmodule Pyex.Stdlib.SandboxGapsTest do
   use ExUnit.Case, async: true
 
-  @fs_opts [filesystem: Pyex.Filesystem.Memory.new()]
+  @fs_opts [filesystem: Pyex.FS.from_map()]
 
   # ---------------------------------------------------------------------------
   # Gap 1: json.load(f) / json.dump(obj, f)
