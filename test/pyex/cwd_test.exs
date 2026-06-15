@@ -115,6 +115,16 @@ defmodule Pyex.CwdTest do
       assert msg =~ "FileNotFoundError"
     end
 
+    test "os.chdir onto a file raises NotADirectoryError" do
+      code = """
+      import os
+      os.chdir("f.txt")
+      """
+
+      assert {:error, msg} = run!(code, filesystem: %{"f.txt" => "x"})
+      assert msg =~ "NotADirectoryError"
+    end
+
     test "the cwd persists on the returned ctx" do
       code = """
       import os
@@ -146,6 +156,59 @@ defmodule Pyex.CwdTest do
       {value, ctx} = run!(~s|open("/x").read()|, filesystem: vfs)
       assert value == "1"
       assert %VFS{} = ctx.filesystem
+    end
+  end
+
+  describe "multi-mount %VFS{} through the Python layer" do
+    defp two_mounts do
+      VFS.new()
+      |> VFS.mount("/", VFS.Memory.new(%{"/root.txt" => "r"}))
+      |> VFS.mount("/data", VFS.Memory.new(%{"/x.txt" => "data-x", "/sub/b.txt" => "B"}))
+    end
+
+    test "files under a mounted backend are readable and the mountpoint shows as a synthetic dir" do
+      code = """
+      import os
+      [open("/data/x.txt").read(), open("/root.txt").read(), sorted(os.listdir("/"))]
+      """
+
+      {[data_x, root, root_listing], ctx} = run!(code, filesystem: two_mounts())
+
+      assert data_x == "data-x"
+      assert root == "r"
+      # "/data" is a synthetic directory contributed by the mount table.
+      assert "data" in root_listing
+      assert "root.txt" in root_listing
+      assert %VFS{} = ctx.filesystem
+    end
+
+    test "glob matches files inside a mounted backend" do
+      code = """
+      import glob
+      sorted(glob.glob("/data/*.txt"))
+      """
+
+      {value, _ctx} = run!(code, filesystem: two_mounts())
+      assert value == ["/data/x.txt"]
+    end
+
+    test "os.walk descends into a mounted backend" do
+      code = """
+      import os
+      sorted(root for root, dirs, files in os.walk("/data"))
+      """
+
+      {value, _ctx} = run!(code, filesystem: two_mounts())
+      assert value == ["/data", "/data/sub"]
+    end
+
+    test "a write into a mounted backend lands in that mount and threads back" do
+      code = """
+      open("/data/new.txt", "w").write("written")
+      """
+
+      {_value, ctx} = run!(code, filesystem: two_mounts())
+      assert {:ok, "written", _} = VFS.read_file(ctx.filesystem, "/data/new.txt")
     end
   end
 end

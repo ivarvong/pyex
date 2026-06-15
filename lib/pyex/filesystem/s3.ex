@@ -370,9 +370,10 @@ defimpl VFS.Mountable, for: Pyex.Filesystem.S3 do
 
   @epoch DateTime.from_unix!(0)
 
-  # S3 has no symlinks and no per-object POSIX modes, so the mutation surface is
-  # read + write; mkdir is a no-op (directories are implicit prefixes).
-  def capabilities(_), do: MapSet.new([:read, :write])
+  # S3 has no symlinks and no per-object POSIX modes. `:mkdir` is advertised
+  # because `mkdir/3` succeeds (directories are implicit prefixes); the
+  # capability set must agree with the behavior.
+  def capabilities(_), do: MapSet.new([:read, :write, :mkdir])
 
   def stat(%S3{} = s3, path) do
     case S3.core_stat(s3, path) do
@@ -384,10 +385,19 @@ defimpl VFS.Mountable, for: Pyex.Filesystem.S3 do
 
   def exists?(%S3{} = s3, path), do: {match?({:ok, _}, S3.core_stat(s3, path)), s3}
 
-  def stream_read(%S3{} = s3, path, _opts) do
+  def stream_read(%S3{} = s3, path, opts) do
     case S3.core_get(s3, path) do
-      {:ok, body} -> {:ok, [body], s3}
-      {:error, err} -> {:error, err}
+      {:ok, body} ->
+        # Honor the documented :chunk_size / :byte_range / :line_range opts via
+        # the same helper VFS.Memory uses, so a direct VFS.stream_read against
+        # S3 behaves like any other backend.
+        case VFS.StreamOptions.apply(body, opts) do
+          {:ok, stream} -> {:ok, stream, s3}
+          {:error, reason} -> {:error, VFS.Error.new(reason, path: path)}
+        end
+
+      {:error, err} ->
+        {:error, err}
     end
   end
 

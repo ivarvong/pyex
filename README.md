@@ -124,7 +124,9 @@ model unusually simple to reason about.
   [`VFS`](https://hexdocs.pm/vfs) backend you pass in as `filesystem:`
   — a `%{path => content}` map, a `VFS.Memory`, an S3-backed
   `Pyex.Filesystem.S3`, a `%VFS{}` mount table, or your own
-  `VFS.Mountable`. Without one, file I/O fails closed. See `Pyex.FS`.
+  `VFS.Mountable`. Without one, file I/O fails closed. One filesystem
+  value threads through Pyex and any other `vfs` tool unchanged — see the
+  [VFS integration guide](docs/integrating-vfs.md) and `Pyex.FS`.
 - **No subprocess, shell, or `os.exec`.** Not implemented. There is
   no path from Python source to a host process.
 - **No native code.** No `ctypes`, no C extension loading, no

@@ -170,6 +170,10 @@ defmodule Pyex.FS do
           {:ok, [String.t()], fs()} | {:error, String.t()}
   def readdir(fs, cwd, path) do
     case VFS.readdir(fs, resolve(cwd, path)) do
+      # `VFS.readdir` may return a Stream for paginated/unbounded backends; the
+      # interpreter materializes it here because `os.listdir`/`iterdir` are
+      # eager. A backend with genuinely unbounded listings would need a lazy
+      # path — none of Pyex's backends (Memory, S3) are unbounded.
       {:ok, names, fs} -> {:ok, Enum.to_list(names), fs}
       {:error, err} -> {:error, py_error(err, path)}
     end
@@ -265,19 +269,39 @@ defmodule Pyex.FS do
   @doc """
   Translates a `%VFS.Error{}` into the Python exception string Pyex surfaces,
   naming `path` in the caller's namespace.
+
+  Every `t:VFS.Error.kind/0` maps to a concrete CPython exception with its
+  POSIX errno. Kinds that carry a backend-specific `:message` (e.g. an S3
+  `:eio` with the failing HTTP status) append it in parentheses so the cause
+  survives into the traceback.
   """
   @spec py_error(VFS.Error.t(), String.t()) :: String.t()
-  def py_error(%VFS.Error{kind: kind}, path) do
-    case kind do
-      :enoent -> "FileNotFoundError: [Errno 2] No such file or directory: '#{path}'"
-      :enotdir -> "NotADirectoryError: [Errno 20] Not a directory: '#{path}'"
-      :eisdir -> "IsADirectoryError: [Errno 21] Is a directory: '#{path}'"
-      :eexist -> "FileExistsError: [Errno 17] File exists: '#{path}'"
-      :eacces -> "PermissionError: [Errno 13] Permission denied: '#{path}'"
-      :erofs -> "OSError: [Errno 30] Read-only file system: '#{path}'"
-      :exdev -> "OSError: [Errno 18] Invalid cross-device link: '#{path}'"
-      :einval -> "OSError: [Errno 22] Invalid argument: '#{path}'"
-      other -> "OSError: #{other}: '#{path}'"
-    end
+  def py_error(%VFS.Error{kind: kind} = error, path) do
+    base =
+      case kind do
+        :enoent -> "FileNotFoundError: [Errno 2] No such file or directory: '#{path}'"
+        :enotdir -> "NotADirectoryError: [Errno 20] Not a directory: '#{path}'"
+        :eisdir -> "IsADirectoryError: [Errno 21] Is a directory: '#{path}'"
+        :eexist -> "FileExistsError: [Errno 17] File exists: '#{path}'"
+        :eacces -> "PermissionError: [Errno 13] Permission denied: '#{path}'"
+        :erofs -> "OSError: [Errno 30] Read-only file system: '#{path}'"
+        :exdev -> "OSError: [Errno 18] Invalid cross-device link: '#{path}'"
+        :einval -> "OSError: [Errno 22] Invalid argument: '#{path}'"
+        :eio -> "OSError: [Errno 5] Input/output error: '#{path}'"
+        :enotsup -> "OSError: [Errno 95] Operation not supported: '#{path}'"
+        :eloop -> "OSError: [Errno 40] Too many levels of symbolic links: '#{path}'"
+      end
+
+    base <> detail(error)
   end
+
+  # Append a backend-specific message when it isn't VFS.Error's default
+  # ("<kind> at <path>"), so causes like "S3 returned 500" reach the user.
+  @spec detail(VFS.Error.t()) :: String.t()
+  defp detail(%VFS.Error{kind: kind, path: epath, message: message})
+       when is_binary(message) do
+    if message == "#{inspect(kind)} at #{epath}", do: "", else: " (#{message})"
+  end
+
+  defp detail(_error), do: ""
 end

@@ -678,5 +678,34 @@ defmodule Pyex.Filesystem.S3Test do
       assert_received {:deleted, "/test-bucket/pyex/d/a.txt"}
       assert_received {:deleted, "/test-bucket/pyex/d/sub/b.txt"}
     end
+
+    test "advertised capabilities agree with the implemented behavior", %{fs: fs} do
+      caps = VFS.capabilities(fs)
+      # mkdir/3 returns {:ok, ...}, so :mkdir must be advertised.
+      assert {:ok, ^fs} = VFS.mkdir(fs, "/anything")
+      assert MapSet.member?(caps, :mkdir)
+      assert MapSet.subset?(MapSet.new([:read, :write, :mkdir]), caps)
+    end
+
+    test "write_file append reads existing then writes the concatenation", %{
+      bypass: bypass,
+      fs: fs
+    } do
+      Bypass.expect(bypass, fn conn ->
+        case {conn.method, conn.request_path} do
+          {"GET", "/test-bucket/pyex/log.txt"} ->
+            Plug.Conn.resp(conn, 200, "line1\n")
+
+          {"PUT", "/test-bucket/pyex/log.txt"} ->
+            {:ok, body, conn} = Plug.Conn.read_body(conn)
+            assert body == "line1\nline2\n"
+            Plug.Conn.resp(conn, 200, "")
+        end
+      end)
+
+      # VFS.write_file truncates; append is Pyex.FS's read-concat-write. This
+      # asserts the S3 core's own append path stays correct under the protocol.
+      assert {:ok, _fs} = S3.write(fs, "log.txt", "line2\n", :append)
+    end
   end
 end

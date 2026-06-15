@@ -542,14 +542,16 @@ defmodule Pyex.Interpreter.Import do
                {nil, env, %{ctx | cwd: target}}
 
              fs ->
-               case Pyex.Path.dir?(fs, ctx.cwd, path) do
-                 {true, fs} ->
+               case Pyex.FS.stat(fs, ctx.cwd, path) do
+                 {:ok, :directory, fs} ->
                    {nil, env, %{ctx | cwd: target, filesystem: fs}}
 
-                 {false, fs} ->
-                   {{:exception,
-                     "FileNotFoundError: [Errno 2] No such file or directory: '#{path}'"}, env,
-                    %{ctx | filesystem: fs}}
+                 {:ok, :regular, fs} ->
+                   {{:exception, "NotADirectoryError: [Errno 20] Not a directory: '#{path}'"},
+                    env, %{ctx | filesystem: fs}}
+
+                 {:error, msg} ->
+                   {{:exception, msg}, env, ctx}
                end
            end
          end}

@@ -59,7 +59,7 @@ defmodule Pyex.MixProject do
   defp docs do
     [
       main: "Pyex",
-      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
+      extras: ["README.md", "docs/integrating-vfs.md", "CHANGELOG.md", "LICENSE"],
       source_ref: "v#{@version}",
       groups_for_modules: [
         "Core API": [
