@@ -707,5 +707,57 @@ defmodule Pyex.Filesystem.S3Test do
       # asserts the S3 core's own append path stays correct under the protocol.
       assert {:ok, _fs} = S3.write(fs, "log.txt", "line2\n", :append)
     end
+
+    test "readdir follows the continuation token past the 1000-key page cap",
+         %{bypass: bypass, fs: fs} do
+      Bypass.expect(bypass, "GET", "/test-bucket/", fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        case conn.query_params["continuation-token"] do
+          nil ->
+            Plug.Conn.resp(
+              conn,
+              200,
+              "<Key>pyex/d/a.txt</Key>" <>
+                "<IsTruncated>true</IsTruncated><NextContinuationToken>TOK</NextContinuationToken>"
+            )
+
+          "TOK" ->
+            Plug.Conn.resp(conn, 200, "<Key>pyex/d/b.txt</Key>")
+        end
+      end)
+
+      assert {:ok, ["a.txt", "b.txt"], _fs} = VFS.readdir(fs, "/d")
+    end
+
+    test "recursive rm paginates and deletes every key across pages",
+         %{bypass: bypass, fs: fs} do
+      test_pid = self()
+
+      Bypass.expect(bypass, fn conn ->
+        conn = Plug.Conn.fetch_query_params(conn)
+
+        case {conn.method, conn.query_params["continuation-token"]} do
+          {"GET", nil} ->
+            Plug.Conn.resp(
+              conn,
+              200,
+              "<Key>pyex/d/a.txt</Key>" <>
+                "<IsTruncated>true</IsTruncated><NextContinuationToken>TOK</NextContinuationToken>"
+            )
+
+          {"GET", "TOK"} ->
+            Plug.Conn.resp(conn, 200, "<Key>pyex/d/b.txt</Key>")
+
+          {"DELETE", _} ->
+            send(test_pid, {:deleted, conn.request_path})
+            Plug.Conn.resp(conn, 204, "")
+        end
+      end)
+
+      assert {:ok, _fs} = VFS.rm(fs, "/d", recursive: true)
+      assert_received {:deleted, "/test-bucket/pyex/d/a.txt"}
+      assert_received {:deleted, "/test-bucket/pyex/d/b.txt"}
+    end
   end
 end

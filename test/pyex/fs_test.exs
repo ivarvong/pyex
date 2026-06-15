@@ -71,6 +71,23 @@ defmodule Pyex.FSTest do
       error = VFS.Error.new(:enoent, path: "/project/missing.txt")
       assert Pyex.FS.py_error(error, "missing.txt") =~ "'missing.txt'"
     end
+
+    test "emits a [:pyex, :fs, :error] telemetry event with structured context" do
+      handler = "test-fs-error-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler,
+        [:pyex, :fs, :error],
+        fn _event, _measurements, meta, pid -> send(pid, {:fs_error, meta}) end,
+        self()
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      Pyex.FS.py_error(VFS.Error.new(:eio, path: "/data/x", mount: "/data"), "x")
+
+      assert_received {:fs_error, %{kind: :eio, mount: "/data", vfs_path: "/data/x", path: "x"}}
+    end
   end
 
   describe "from_map/1 validates the seed" do

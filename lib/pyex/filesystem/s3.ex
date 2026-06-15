@@ -168,9 +168,18 @@ defmodule Pyex.Filesystem.S3 do
   @spec core_readdir(t(), String.t()) :: {:ok, [String.t()]} | {:error, VFS.Error.t()}
   def core_readdir(%__MODULE__{} = fs, path) do
     with :ok <- check_path(path) do
-      case list_request(fs, dir_prefix(fs, path), delimiter: true) do
-        {:ok, body, prefix} -> {:ok, parse_list_response(body, prefix)}
-        {:error, _} = error -> error
+      prefix = dir_prefix(fs, path)
+
+      case list_all(fs, prefix, delimiter: true) do
+        {:ok, pages} ->
+          {:ok,
+           pages
+           |> Enum.flat_map(&parse_list_response(&1, prefix))
+           |> Enum.uniq()
+           |> Enum.sort()}
+
+        {:error, _} = error ->
+          error
       end
     end
   end
@@ -198,10 +207,10 @@ defmodule Pyex.Filesystem.S3 do
 
   @spec delete_tree(t(), String.t()) :: {:ok, t()} | {:error, VFS.Error.t()}
   defp delete_tree(fs, path) do
-    case list_request(fs, dir_prefix(fs, path), delimiter: false) do
-      {:ok, body, _prefix} ->
-        body
-        |> all_keys()
+    case list_all(fs, dir_prefix(fs, path), delimiter: false) do
+      {:ok, pages} ->
+        pages
+        |> Enum.flat_map(&all_keys/1)
         |> Enum.reduce_while({:ok, fs}, fn key, {:ok, fs} ->
           case Req.delete(base_url(fs) <> "/#{key}", req_opts(fs)) do
             {:ok, %{status: s}} when s in [200, 204] ->
@@ -228,20 +237,61 @@ defmodule Pyex.Filesystem.S3 do
     end
   end
 
+  # A single ListObjectsV2 page. Used by implicit_dir?/2, which only needs to
+  # know whether *any* child exists (max_keys: 1), so pagination is irrelevant.
   @spec list_request(t(), String.t(), keyword()) ::
           {:ok, binary() | map(), String.t()} | {:error, VFS.Error.t()}
   defp list_request(fs, prefix, opts) do
+    case list_page(fs, prefix, opts, nil) do
+      {:ok, body, _next} -> {:ok, body, prefix}
+      {:error, _} = error -> error
+    end
+  end
+
+  # Every ListObjectsV2 page under `prefix`, following the continuation token.
+  # ListObjectsV2 caps each response at 1000 keys; without this, readdir would
+  # silently truncate and a recursive delete would report success while leaving
+  # everything past the first page live.
+  @spec list_all(t(), String.t(), keyword()) ::
+          {:ok, [binary() | map()]} | {:error, VFS.Error.t()}
+  defp list_all(fs, prefix, opts), do: list_all(fs, prefix, opts, nil, [])
+
+  defp list_all(fs, prefix, opts, token, acc) do
+    case list_page(fs, prefix, opts, token) do
+      {:ok, body, nil} -> {:ok, Enum.reverse([body | acc])}
+      {:ok, body, next} -> list_all(fs, prefix, opts, next, [body | acc])
+      {:error, _} = error -> error
+    end
+  end
+
+  # One page; returns `{:ok, body, next_continuation_token | nil}`.
+  @spec list_page(t(), String.t(), keyword(), String.t() | nil) ::
+          {:ok, binary() | map(), String.t() | nil} | {:error, VFS.Error.t()}
+  defp list_page(fs, prefix, opts, token) do
     params =
       [{"list-type", "2"}, {"prefix", prefix}]
       |> maybe_param(Keyword.get(opts, :delimiter, false), {"delimiter", "/"})
       |> maybe_param(Keyword.get(opts, :max_keys), fn n -> {"max-keys", to_string(n)} end)
+      |> maybe_param(token, fn t -> {"continuation-token", t} end)
 
     case Req.get(base_url(fs) <> "/", [{:params, params} | req_opts(fs, decode_body: false)]) do
-      {:ok, %{status: 200, body: body}} -> {:ok, body, prefix}
+      {:ok, %{status: 200, body: body}} -> {:ok, body, next_token(body)}
       {:ok, %{status: s, body: b}} -> {:error, http_error(prefix, "S3 LIST returned #{s}", b)}
       {:error, reason} -> {:error, transport_error(prefix, reason)}
     end
   end
+
+  @spec next_token(binary() | map()) :: String.t() | nil
+  defp next_token(body) when is_binary(body) do
+    if Regex.match?(~r{<IsTruncated>\s*true\s*</IsTruncated>}, body) do
+      case Regex.run(~r{<NextContinuationToken>([^<]+)</NextContinuationToken>}, body) do
+        [_, token] -> token
+        _ -> nil
+      end
+    end
+  end
+
+  defp next_token(_), do: nil
 
   @spec dir_prefix(t(), String.t()) :: String.t()
   defp dir_prefix(fs, path) do

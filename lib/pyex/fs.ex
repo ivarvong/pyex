@@ -133,8 +133,7 @@ defmodule Pyex.FS do
 
   @spec write_payload(fs(), VFS.Path.t(), binary(), mode(), String.t()) ::
           {:ok, binary(), fs()} | {:error, String.t()}
-  defp write_payload(fs, _vpath, content, mode, _path) when mode in [:write, :read],
-    do: {:ok, content, fs}
+  defp write_payload(fs, _vpath, content, :write, _path), do: {:ok, content, fs}
 
   defp write_payload(fs, vpath, content, :append, path) do
     case VFS.read_file(fs, vpath) do
@@ -274,9 +273,20 @@ defmodule Pyex.FS do
   POSIX errno. Kinds that carry a backend-specific `:message` (e.g. an S3
   `:eio` with the failing HTTP status) append it in parentheses so the cause
   survives into the traceback.
+
+  Also emits a `[:pyex, :fs, :error]` telemetry event carrying the structured
+  `%{kind, mount, vfs_path, path}` — the flattened Python string loses the kind
+  and which mount failed, so this is the channel to recover them for logging or
+  metrics. Errors are cold, so the unconditional emit is cheap.
   """
   @spec py_error(VFS.Error.t(), String.t()) :: String.t()
-  def py_error(%VFS.Error{kind: kind} = error, path) do
+  def py_error(%VFS.Error{kind: kind, mount: mount, path: vfs_path} = error, path) do
+    :telemetry.execute(
+      [:pyex, :fs, :error],
+      %{},
+      %{kind: kind, mount: mount, vfs_path: vfs_path, path: path}
+    )
+
     base =
       case kind do
         :enoent -> "FileNotFoundError: [Errno 2] No such file or directory: '#{path}'"
@@ -295,12 +305,16 @@ defmodule Pyex.FS do
     base <> detail(error)
   end
 
-  # Append a backend-specific message when it isn't VFS.Error's default
-  # ("<kind> at <path>"), so causes like "S3 returned 500" reach the user.
+  # Append a backend-specific message (e.g. "S3 returned 500") so the cause
+  # reaches the traceback, but not VFS.Error's auto-generated default. The
+  # default is recomputed *by vfs* for the same kind/path rather than
+  # reconstructing its format here, so a change to vfs's default wording can't
+  # silently start appending a redundant suffix.
   @spec detail(VFS.Error.t()) :: String.t()
   defp detail(%VFS.Error{kind: kind, path: epath, message: message})
        when is_binary(message) do
-    if message == "#{inspect(kind)} at #{epath}", do: "", else: " (#{message})"
+    default = VFS.Error.message(VFS.Error.new(kind, path: epath))
+    if message == default, do: "", else: " (#{message})"
   end
 
   defp detail(_error), do: ""

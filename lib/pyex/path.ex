@@ -309,12 +309,15 @@ defmodule Pyex.Path do
   defp expand_glob(fs, _cwd, paths, []), do: {paths, fs}
 
   defp expand_glob(fs, cwd, paths, [segment | rest]) do
-    {next_paths, fs} =
+    # Accumulate per-path expansions reversed, then concat once — appending to
+    # `acc` each step would be quadratic in the number of matches.
+    {rev_chunks, fs} =
       Enum.reduce(paths, {[], fs}, fn current, {acc, fs} ->
         {expanded, fs} = expand_segment(fs, cwd, current, segment, rest == [])
-        {acc ++ expanded, fs}
+        {[expanded | acc], fs}
       end)
 
+    next_paths = rev_chunks |> Enum.reverse() |> Enum.concat()
     expand_glob(fs, cwd, next_paths, rest)
   end
 
@@ -324,19 +327,24 @@ defmodule Pyex.Path do
       wildcard?(segment) ->
         case list_dir(fs, cwd, current) do
           {:ok, entries, fs} ->
-            entries
-            |> Enum.filter(&glob_match?(&1, segment))
-            |> Enum.map(&join_glob_path(current, &1))
-            |> Enum.reduce({[], fs}, fn path, {acc, fs} ->
-              if final? do
-                {acc ++ [path], fs}
-              else
-                case dir?(fs, cwd, path) do
-                  {true, fs} -> {acc ++ [path], fs}
-                  {false, fs} -> {acc, fs}
+            {rev_matched, fs} =
+              entries
+              |> Enum.filter(&glob_match?(&1, segment))
+              |> Enum.map(&join_glob_path(current, &1))
+              |> Enum.reduce({[], fs}, fn path, {acc, fs} ->
+                # Final segment matches outright; intermediate segments must be
+                # directories. Prepend and reverse once to stay linear.
+                if final? do
+                  {[path | acc], fs}
+                else
+                  case dir?(fs, cwd, path) do
+                    {true, fs} -> {[path | acc], fs}
+                    {false, fs} -> {acc, fs}
+                  end
                 end
-              end
-            end)
+              end)
+
+            {Enum.reverse(rev_matched), fs}
 
           {:error, _} ->
             {[], fs}
@@ -381,12 +389,15 @@ defmodule Pyex.Path do
     dirs = Enum.sort(dirs)
     files = Enum.sort(files)
 
-    {child_entries, fs} =
+    # Recurse into each subdir, threading fs; accumulate reversed and concat
+    # once rather than `acc ++ sub` per child (quadratic in subtree count).
+    {rev_children, fs} =
       Enum.reduce(dirs, {[], fs}, fn dir, {acc, fs} ->
         {sub, fs} = do_walk(fs, cwd, join_glob_path(root, dir))
-        {acc ++ sub, fs}
+        {[sub | acc], fs}
       end)
 
+    child_entries = rev_children |> Enum.reverse() |> Enum.concat()
     {[{root, dirs, files} | child_entries], fs}
   end
 

@@ -72,10 +72,11 @@ rooted at `/`). Set `cwd:` to share a coherent view with a shell:
 Pyex.run(~s|open("data.txt").read()|, filesystem: %{"project/data.txt" => "hi"}, cwd: "/project")
 ```
 
-`os.getcwd()` returns the cwd and `os.chdir(path)` updates it (validating the
-target is a directory). `open()` binds its resolved absolute path at open time,
-so a later `chdir` never moves where a buffered write flushes — matching
-CPython.
+`os.getcwd()` returns the cwd and `os.chdir(path)` updates it. With a
+filesystem configured it validates the target is a directory (raising
+`NotADirectoryError`/`FileNotFoundError` otherwise); with no filesystem it sets
+the cwd unchecked. `open()` binds its resolved absolute path at open time, so a
+later `chdir` never moves where a buffered write flushes — matching CPython.
 
 ## The sharing pattern (agent loops)
 
@@ -135,6 +136,27 @@ to a concrete CPython exception in `Pyex.FS.py_error/2`:
 
 A backend-specific `:message` (e.g. an S3 HTTP status on `:eio`) is appended so
 the cause reaches the traceback.
+
+### Observability
+
+`vfs` wraps its data-flow ops (`read_file`, `write_file`, `mkdir`, `rm`,
+`walk`, `materialize`) in `:telemetry.span/3`, so attaching to `[:vfs, _, _]`
+gives you per-op timing and the `%VFS.Error{}` on failures for free.
+
+Pyex adds one event at its own boundary: `[:pyex, :fs, :error]`, emitted by
+`Pyex.FS.py_error/2` with `%{kind, mount, vfs_path, path}`. The Python-facing
+exception is a flat string that loses the structured kind and which mount
+failed; this event is the channel to recover them for logging or metrics.
+
+## Known limitations
+
+- `glob`/`pathlib.Path.glob` support `*` and `?` but not the recursive `**`
+  pattern. A `**` segment is treated literally, not as a recursive descent.
+- `os.walk` is eager — it materializes the whole tree before yielding (Python's
+  `os.walk` is a generator). `VFS.walk/3` is lazy; a future change could route
+  `os.walk` through it for early-`break` efficiency on large/remote trees.
+- S3 append (`open(path, "a")`) is read-modify-write and **not** atomic — there
+  is no `If-Match` precondition, so concurrent appenders can lose updates.
 
 ## The boundary module: `Pyex.FS`
 
