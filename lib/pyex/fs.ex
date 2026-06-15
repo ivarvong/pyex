@@ -1,107 +1,129 @@
 defmodule Pyex.FS do
   @moduledoc """
-  Pyex's filesystem facade over a [`VFS.Mountable`](https://hexdocs.pm/vfs).
+  Pyex's filesystem boundary over a [`VFS.Mountable`](https://hexdocs.pm/vfs).
 
   The interpreter stores a `VFS.Mountable` (a `%VFS{}` mount table, a bare
-  `VFS.Memory`, or any backend implementing the protocol) in `Pyex.Ctx`'s
-  `:filesystem` field. This module is the single boundary that translates
-  between two worlds:
+  `VFS.Memory`, an S3 backend, or any conformant struct) in `Pyex.Ctx`'s
+  `:filesystem` field, and a current working directory in `:cwd`. This module
+  is the single place that reconciles Pyex's world with VFS's:
 
-    * **Path namespace.** Python code uses cwd-relative paths
-      (`open("data.txt")`, `os.listdir("posts")`). VFS paths are absolute,
-      with a leading `/`. `to_vfs/1` maps the former onto the latter, rooting
-      every Python path at `/` and collapsing the absolute/relative
-      distinction the way Pyex always has — `"posts/a.md"`, `"/posts/a.md"`,
-      and `"posts/a.md/"` all address `/posts/a.md`.
+    * **Paths.** Python code uses cwd-relative paths (`open("data.txt")`,
+      `os.listdir("posts")`). `resolve/2` turns a Python path into an
+      absolute, normalized VFS path: an absolute path (leading `/`) is taken
+      as-is; a relative path is joined onto the cwd. With the default cwd of
+      `"/"` this matches how Pyex has always behaved, but a non-root cwd (as a
+      shell sharing the same `%VFS{}` would set) now resolves correctly —
+      `open("data.txt")` under cwd `/project` reads `/project/data.txt`.
 
-    * **Errors.** VFS returns `%VFS.Error{kind: atom}` structs; Pyex surfaces
-      Python-style exception strings (`"FileNotFoundError: [Errno 2] ..."`).
-      `py_error/2` does that mapping, naming the path in the caller's own
-      namespace.
+    * **State threading.** VFS is immutable: every op returns the
+      possibly-updated filesystem as the last element of its success tuple, so
+      lazy/caching backends and `%VFS{}` mount tables stay coherent. Every
+      function here that touches a backend — reads included — returns that
+      updated value, and callers thread it back into `ctx.filesystem`. Nothing
+      drops it on the floor.
 
-  The public functions deliberately mirror the shapes the interpreter relied
-  on before the VFS migration (`read/2` returns `{:ok, content}`, `write/4`
-  takes a `:write | :append` mode, etc.), so call sites read the same.
-
-  > #### Reads don't thread state {: .info}
-  >
-  > `read/2` discards the `VFS.Mountable` returned by `VFS.read_file/2`. For
-  > the in-memory and S3 backends a read never mutates state, so this is
-  > lossless. A lazy backend that warms a cache on read would lose that
-  > warming; thread the filesystem yourself via `VFS.read_file/2` if you add
-  > one.
+    * **Errors.** VFS returns `%VFS.Error{kind: atom}`; Pyex surfaces Python
+      exception strings (`"FileNotFoundError: [Errno 2] ..."`). `py_error/2`
+      maps between them, naming the path as the caller wrote it.
   """
 
   @type fs :: VFS.Mountable.t()
+  @type cwd :: VFS.Path.t()
   @type mode :: :read | :write | :append
 
-  @doc """
-  Builds an in-memory filesystem, optionally seeded with files.
+  @root "/"
 
-  Keys are Pyex-namespace paths (no leading slash required); they are mapped
-  into the VFS namespace via `to_vfs/1`. Equivalent to `from_map/1`.
+  # ── construction ──────────────────────────────────────────────────────────
+
+  @doc """
+  Builds an in-memory filesystem, optionally seeded with files. Alias for
+  `from_map/1`.
   """
   @spec new(%{optional(String.t()) => binary()}) :: VFS.Memory.t()
   def new(files \\ %{}) when is_map(files), do: from_map(files)
 
   @doc """
-  Wraps a `%{path => content}` map as a seeded `VFS.Memory` backend, mapping
-  each key into the VFS namespace.
+  Wraps a `%{path => content}` map as a seeded `VFS.Memory` backend.
+
+  Keys are treated as absolute filesystem locations (rooted at `/`), so
+  `%{"posts/a.md" => ...}` seeds `/posts/a.md`. Raises `ArgumentError` (with a
+  Pyex-flavored message) if the seed is internally inconsistent — a path that
+  is both a file and a directory, or a literal `"/"` key.
   """
   @spec from_map(%{optional(String.t()) => binary()}) :: VFS.Memory.t()
   def from_map(files \\ %{}) when is_map(files) do
     files
     |> Map.new(fn {path, content} -> {to_vfs(path), content} end)
     |> VFS.Memory.new()
+  rescue
+    e in ArgumentError ->
+      reraise ArgumentError,
+              "invalid filesystem seed: #{Exception.message(e)}",
+              __STACKTRACE__
   end
 
-  @doc """
-  Maps a Pyex-namespace path onto an absolute VFS path.
+  # ── path resolution ───────────────────────────────────────────────────────
 
-  Strips leading and trailing slashes, then roots the result at `/`. The empty
-  path (and `"/"`) map to the VFS root `"/"`.
+  @doc """
+  Resolves a Python path against `cwd` into an absolute, normalized VFS path.
+
+  An absolute path (leading `/`) ignores the cwd; a relative path is joined
+  onto it; the empty path is the cwd itself.
+
+  ## Examples
+
+      iex> Pyex.FS.resolve("/project", "data.txt")
+      "/project/data.txt"
+
+      iex> Pyex.FS.resolve("/project", "/etc/hosts")
+      "/etc/hosts"
+
+      iex> Pyex.FS.resolve("/a/b", "../c")
+      "/a/c"
+  """
+  @spec resolve(cwd(), String.t()) :: VFS.Path.t()
+  def resolve(cwd, "" = _path), do: VFS.Path.normalize(cwd)
+  def resolve(_cwd, "/" <> _ = path), do: VFS.Path.normalize(path)
+  def resolve(cwd, path), do: VFS.Path.join(VFS.Path.normalize(cwd), path)
+
+  @doc """
+  Roots a path at `/` without reference to any cwd. Used for seed-map keys,
+  which are absolute filesystem locations.
 
   ## Examples
 
       iex> Pyex.FS.to_vfs("posts/a.md")
       "/posts/a.md"
 
-      iex> Pyex.FS.to_vfs("/posts/a.md/")
-      "/posts/a.md"
-
       iex> Pyex.FS.to_vfs("")
       "/"
   """
   @spec to_vfs(String.t()) :: VFS.Path.t()
-  def to_vfs(path) when is_binary(path) do
-    case path |> String.trim_leading("/") |> String.trim_trailing("/") do
-      "" -> "/"
-      trimmed -> "/" <> trimmed
-    end
-  end
+  def to_vfs(path) when is_binary(path), do: resolve(@root, path)
+
+  # ── threaded, cwd-aware primitives ────────────────────────────────────────
 
   @doc """
-  Reads the full contents of a file.
+  Reads a file, threading back the (possibly cache-updated) filesystem.
   """
-  @spec read(fs(), String.t()) :: {:ok, binary()} | {:error, String.t()}
-  def read(fs, path) do
-    case VFS.read_file(fs, to_vfs(path)) do
-      {:ok, content, _fs} -> {:ok, content}
+  @spec read_file(fs(), cwd(), String.t()) :: {:ok, binary(), fs()} | {:error, String.t()}
+  def read_file(fs, cwd, path) do
+    case VFS.read_file(fs, resolve(cwd, path)) do
+      {:ok, content, fs} -> {:ok, content, fs}
       {:error, err} -> {:error, py_error(err, path)}
     end
   end
 
   @doc """
-  Writes content to a file, returning the updated filesystem.
-
-  Mode `:write` truncates; `:append` concatenates onto the existing contents
-  (treating a missing file as empty).
+  Writes content to a file. Mode `:write` truncates, `:append` concatenates
+  onto the existing contents (a missing file reads as empty).
   """
-  @spec write(fs(), String.t(), binary(), mode()) :: {:ok, fs()} | {:error, String.t()}
-  def write(fs, path, content, mode) do
-    vpath = to_vfs(path)
+  @spec write_file(fs(), cwd(), String.t(), binary(), mode()) ::
+          {:ok, fs()} | {:error, String.t()}
+  def write_file(fs, cwd, path, content, mode) do
+    vpath = resolve(cwd, path)
 
-    with {:ok, data} <- resolve_write_content(fs, vpath, content, mode, path) do
+    with {:ok, data, fs} <- write_payload(fs, vpath, content, mode, path) do
       case VFS.write_file(fs, vpath, data) do
         {:ok, fs} -> {:ok, fs}
         {:error, err} -> {:error, py_error(err, path)}
@@ -109,47 +131,46 @@ defmodule Pyex.FS do
     end
   end
 
-  @spec resolve_write_content(fs(), VFS.Path.t(), binary(), mode(), String.t()) ::
-          {:ok, binary()} | {:error, String.t()}
-  defp resolve_write_content(_fs, _vpath, content, mode, _path) when mode in [:write, :read],
-    do: {:ok, content}
+  @spec write_payload(fs(), VFS.Path.t(), binary(), mode(), String.t()) ::
+          {:ok, binary(), fs()} | {:error, String.t()}
+  defp write_payload(fs, _vpath, content, mode, _path) when mode in [:write, :read],
+    do: {:ok, content, fs}
 
-  defp resolve_write_content(fs, vpath, content, :append, path) do
+  defp write_payload(fs, vpath, content, :append, path) do
     case VFS.read_file(fs, vpath) do
-      {:ok, existing, _fs} -> {:ok, existing <> content}
-      {:error, %VFS.Error{kind: :enoent}} -> {:ok, content}
+      {:ok, existing, fs} -> {:ok, existing <> content, fs}
+      {:error, %VFS.Error{kind: :enoent}} -> {:ok, content, fs}
       {:error, err} -> {:error, py_error(err, path)}
     end
   end
 
   @doc """
-  Returns true if the path exists (file or directory).
+  Returns whether a path exists, threading back the filesystem.
   """
-  @spec exists?(fs(), String.t()) :: boolean()
-  def exists?(fs, path) do
-    {exists, _fs} = VFS.exists?(fs, to_vfs(path))
-    exists
-  end
+  @spec exists(fs(), cwd(), String.t()) :: {boolean(), fs()}
+  def exists(fs, cwd, path), do: VFS.exists?(fs, resolve(cwd, path))
 
   @doc """
-  Returns the entry type at `path`: `{:ok, :regular}` for a file,
-  `{:ok, :directory}` for a directory, or `{:error, reason}`.
+  Returns the entry type at `path` (`:regular` or `:directory`), threading the
+  filesystem.
   """
-  @spec stat(fs(), String.t()) :: {:ok, VFS.Stat.type()} | {:error, String.t()}
-  def stat(fs, path) do
-    case VFS.stat(fs, to_vfs(path)) do
-      {:ok, %VFS.Stat{type: type}, _fs} -> {:ok, type}
+  @spec stat(fs(), cwd(), String.t()) ::
+          {:ok, VFS.Stat.type(), fs()} | {:error, String.t()}
+  def stat(fs, cwd, path) do
+    case VFS.stat(fs, resolve(cwd, path)) do
+      {:ok, %VFS.Stat{type: type}, fs} -> {:ok, type, fs}
       {:error, err} -> {:error, py_error(err, path)}
     end
   end
 
   @doc """
-  Lists the entry names directly under a directory.
+  Lists the entry names directly under a directory, threading the filesystem.
   """
-  @spec list_dir(fs(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
-  def list_dir(fs, path) do
-    case VFS.readdir(fs, to_vfs(path)) do
-      {:ok, names, _fs} -> {:ok, Enum.to_list(names)}
+  @spec readdir(fs(), cwd(), String.t()) ::
+          {:ok, [String.t()], fs()} | {:error, String.t()}
+  def readdir(fs, cwd, path) do
+    case VFS.readdir(fs, resolve(cwd, path)) do
+      {:ok, names, fs} -> {:ok, Enum.to_list(names), fs}
       {:error, err} -> {:error, py_error(err, path)}
     end
   end
@@ -157,37 +178,89 @@ defmodule Pyex.FS do
   @doc """
   Deletes a single file, returning the updated filesystem.
   """
-  @spec delete(fs(), String.t()) :: {:ok, fs()} | {:error, String.t()}
-  def delete(fs, path) do
-    case VFS.rm(fs, to_vfs(path)) do
+  @spec rm(fs(), cwd(), String.t()) :: {:ok, fs()} | {:error, String.t()}
+  def rm(fs, cwd, path) do
+    case VFS.rm(fs, resolve(cwd, path)) do
       {:ok, fs} -> {:ok, fs}
       {:error, err} -> {:error, py_error(err, path)}
     end
   end
 
   @doc """
-  Creates a directory and any missing parents. Best-effort: an existing
-  directory is a no-op, and a path that can't be created leaves the
-  filesystem unchanged rather than raising.
+  Creates a directory and any missing parents. An existing directory is a
+  no-op; a genuine failure (e.g. an ancestor that is a file) surfaces.
   """
-  @spec mkdir_p(fs(), String.t()) :: {:ok, fs()}
-  def mkdir_p(fs, path) do
-    case VFS.mkdir(fs, to_vfs(path), parents: true) do
+  @spec mkdir_p(fs(), cwd(), String.t()) :: {:ok, fs()} | {:error, String.t()}
+  def mkdir_p(fs, cwd, path) do
+    case VFS.mkdir(fs, resolve(cwd, path), parents: true) do
       {:ok, fs} -> {:ok, fs}
-      {:error, _err} -> {:ok, fs}
+      {:error, err} -> {:error, py_error(err, path)}
     end
   end
 
   @doc """
   Recursively deletes a directory tree, returning the updated filesystem.
   """
-  @spec delete_tree(fs(), String.t()) :: {:ok, fs()} | {:error, String.t()}
-  def delete_tree(fs, path) do
-    case VFS.rm(fs, to_vfs(path), recursive: true) do
+  @spec rm_rf(fs(), cwd(), String.t()) :: {:ok, fs()} | {:error, String.t()}
+  def rm_rf(fs, cwd, path) do
+    case VFS.rm(fs, resolve(cwd, path), recursive: true) do
       {:ok, fs} -> {:ok, fs}
       {:error, err} -> {:error, py_error(err, path)}
     end
   end
+
+  # ── inspection convenience ────────────────────────────────────────────────
+  #
+  # Root-relative (cwd = "/"), filesystem-dropping wrappers over the threaded
+  # primitives above, mirroring the shapes the interpreter relied on before the
+  # VFS migration. Convenient for seeding fixtures and inspecting a final
+  # filesystem state; the interpreter itself uses the threaded `*_file` /
+  # `exists` / `readdir` / `rm` forms so no backend state is lost.
+
+  @doc """
+  Reads a file rooted at `/`, returning just `{:ok, content}`.
+  """
+  @spec read(fs(), String.t()) :: {:ok, binary()} | {:error, String.t()}
+  def read(fs, path) do
+    case read_file(fs, @root, path) do
+      {:ok, content, _fs} -> {:ok, content}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc """
+  Writes a file rooted at `/`, returning the updated filesystem.
+  """
+  @spec write(fs(), String.t(), binary(), mode()) :: {:ok, fs()} | {:error, String.t()}
+  def write(fs, path, content, mode), do: write_file(fs, @root, path, content, mode)
+
+  @doc """
+  Returns whether a path (rooted at `/`) exists.
+  """
+  @spec exists?(fs(), String.t()) :: boolean()
+  def exists?(fs, path) do
+    {exists, _fs} = exists(fs, @root, path)
+    exists
+  end
+
+  @doc """
+  Lists a directory rooted at `/`, returning just `{:ok, names}`.
+  """
+  @spec list_dir(fs(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
+  def list_dir(fs, path) do
+    case readdir(fs, @root, path) do
+      {:ok, names, _fs} -> {:ok, names}
+      {:error, _} = err -> err
+    end
+  end
+
+  @doc """
+  Deletes a file rooted at `/`, returning the updated filesystem.
+  """
+  @spec delete(fs(), String.t()) :: {:ok, fs()} | {:error, String.t()}
+  def delete(fs, path), do: rm(fs, @root, path)
+
+  # ── error mapping ─────────────────────────────────────────────────────────
 
   @doc """
   Translates a `%VFS.Error{}` into the Python exception string Pyex surfaces,
@@ -202,6 +275,8 @@ defmodule Pyex.FS do
       :eexist -> "FileExistsError: [Errno 17] File exists: '#{path}'"
       :eacces -> "PermissionError: [Errno 13] Permission denied: '#{path}'"
       :erofs -> "OSError: [Errno 30] Read-only file system: '#{path}'"
+      :exdev -> "OSError: [Errno 18] Invalid cross-device link: '#{path}'"
+      :einval -> "OSError: [Errno 22] Invalid argument: '#{path}'"
       other -> "OSError: #{other}: '#{path}'"
     end
   end

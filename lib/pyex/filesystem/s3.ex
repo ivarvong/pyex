@@ -46,74 +46,30 @@ defmodule Pyex.Filesystem.S3 do
     }
   end
 
+  # ── legacy string API ─────────────────────────────────────────────────────
+  #
+  # Thin wrappers over the structured core (`core_*`, which return
+  # `%VFS.Error{}`). Kept for direct callers and tested by `s3_test.exs`; they
+  # render errors as the Python-style strings Pyex historically surfaced.
+
   @spec read(t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
-  def read(%__MODULE__{} = fs, path) do
-    with :ok <- validate_path(path) do
-      url = object_url(fs, path)
-
-      case Req.get(url, req_opts(fs, decode_body: false)) do
-        {:ok, %{status: 200, body: body}} ->
-          {:ok, body}
-
-        {:ok, %{status: 404}} ->
-          {:error, "FileNotFoundError: [Errno 2] No such file or directory: '#{path}'"}
-
-        {:ok, %{status: status, body: body}} ->
-          {:error, "IOError: S3 returned #{status}: #{inspect(body)}"}
-
-        {:error, reason} ->
-          {:error, "IOError: #{inspect(reason)}"}
-      end
-    end
-  end
+  def read(%__MODULE__{} = fs, path), do: legacy(core_get(fs, path))
 
   @spec write(t(), String.t(), String.t(), :write | :append) ::
           {:ok, t()} | {:error, String.t()}
-  def write(%__MODULE__{} = fs, path, content, mode) do
-    with :ok <- validate_path(path) do
-      write_validated(fs, path, content, mode)
-    end
-  end
+  def write(%__MODULE__{} = fs, path, content, mode),
+    do: legacy(core_put(fs, path, content, mode))
 
-  @spec write_validated(t(), String.t(), String.t(), :write | :append) ::
-          {:ok, t()} | {:error, String.t()}
-  defp write_validated(fs, path, content, mode) do
-    full_content =
-      case mode do
-        :write ->
-          content
-
-        :append ->
-          case read(fs, path) do
-            {:ok, existing} -> existing <> content
-            {:error, _} -> content
-          end
-      end
-
-    url = object_url(fs, path)
-
-    case Req.put(url, [{:body, full_content} | req_opts(fs)]) do
-      {:ok, %{status: status}} when status in [200, 201] ->
-        {:ok, fs}
-
-      {:ok, %{status: status, body: body}} ->
-        {:error, "IOError: S3 PUT returned #{status}: #{inspect(body)}"}
-
-      {:error, reason} ->
-        {:error, "IOError: #{inspect(reason)}"}
-    end
-  end
-
+  # Object existence (a single HEAD). The VFS `stat`/`exists?` add
+  # implicit-directory detection on top; this bare helper stays cheap.
   @spec exists?(t(), String.t()) :: boolean()
   def exists?(%__MODULE__{} = fs, path) do
-    case validate_path(path) do
+    case check_path(path) do
       {:error, _} ->
         false
 
       :ok ->
-        url = object_url(fs, path)
-
-        case Req.head(url, req_opts(fs)) do
+        case Req.head(object_url(fs, path), req_opts(fs)) do
           {:ok, %{status: 200}} -> true
           _ -> false
         end
@@ -121,43 +77,217 @@ defmodule Pyex.Filesystem.S3 do
   end
 
   @spec list_dir(t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
-  def list_dir(%__MODULE__{} = fs, path) do
-    with :ok <- validate_path(path) do
-      prefix = s3_key(fs, path)
-      prefix = if prefix == "", do: "", else: String.trim_trailing(prefix, "/") <> "/"
-      url = base_url(fs) <> "/"
-      params = [{"list-type", "2"}, {"prefix", prefix}, {"delimiter", "/"}]
+  def list_dir(%__MODULE__{} = fs, path), do: legacy(core_readdir(fs, path))
 
-      case Req.get(url, [{:params, params} | req_opts(fs, decode_body: false)]) do
-        {:ok, %{status: 200, body: body}} ->
-          entries = parse_list_response(body, prefix)
-          {:ok, entries}
+  @spec delete(t(), String.t()) :: {:ok, t()} | {:error, String.t()}
+  def delete(%__MODULE__{} = fs, path), do: legacy(core_delete(fs, path, recursive: false))
 
-        {:ok, %{status: status, body: body}} ->
-          {:error, "IOError: S3 LIST returned #{status}: #{inspect(body)}"}
+  @spec legacy({:ok, payload} | {:error, VFS.Error.t()}) ::
+          {:ok, payload} | {:error, String.t()}
+        when payload: term()
+  defp legacy({:ok, _} = ok), do: ok
 
-        {:error, reason} ->
-          {:error, "IOError: #{inspect(reason)}"}
+  defp legacy({:error, %VFS.Error{kind: :enoent, path: p}}),
+    do: {:error, "FileNotFoundError: [Errno 2] No such file or directory: '#{p}'"}
+
+  defp legacy({:error, %VFS.Error{message: m}}) when is_binary(m), do: {:error, "IOError: #{m}"}
+  defp legacy({:error, %VFS.Error{kind: kind, path: p}}), do: {:error, "IOError: #{kind}: '#{p}'"}
+
+  # ── structured core ───────────────────────────────────────────────────────
+  #
+  # Each returns `{:ok, payload} | {:error, %VFS.Error{}}`. The 404→`:enoent`
+  # and HTTP-status→`:eio` mapping (carrying the original status/body in the
+  # message) is the single source of truth both the legacy strings and the
+  # `VFS.Mountable` impl derive from.
+
+  @doc false
+  @spec core_get(t(), String.t()) :: {:ok, binary()} | {:error, VFS.Error.t()}
+  def core_get(%__MODULE__{} = fs, path) do
+    with :ok <- check_path(path) do
+      case Req.get(object_url(fs, path), req_opts(fs, decode_body: false)) do
+        {:ok, %{status: 200, body: body}} -> {:ok, body}
+        {:ok, %{status: 404}} -> {:error, VFS.Error.new(:enoent, path: path)}
+        {:ok, %{status: s, body: b}} -> {:error, http_error(path, "S3 returned #{s}", b)}
+        {:error, reason} -> {:error, transport_error(path, reason)}
       end
     end
   end
 
-  @spec delete(t(), String.t()) :: {:ok, t()} | {:error, String.t()}
-  def delete(%__MODULE__{} = fs, path) do
-    with :ok <- validate_path(path) do
-      url = object_url(fs, path)
+  @doc false
+  @spec core_put(t(), String.t(), binary(), :write | :append) ::
+          {:ok, t()} | {:error, VFS.Error.t()}
+  def core_put(%__MODULE__{} = fs, path, content, mode) do
+    with :ok <- check_path(path) do
+      full_content =
+        case mode do
+          :write ->
+            content
 
-      case Req.delete(url, req_opts(fs)) do
-        {:ok, %{status: status}} when status in [200, 204] ->
-          {:ok, fs}
+          :append ->
+            case core_get(fs, path) do
+              {:ok, existing} -> existing <> content
+              {:error, _} -> content
+            end
+        end
 
-        {:ok, %{status: status, body: body}} ->
-          {:error, "IOError: S3 DELETE returned #{status}: #{inspect(body)}"}
-
-        {:error, reason} ->
-          {:error, "IOError: #{inspect(reason)}"}
+      case Req.put(object_url(fs, path), [{:body, full_content} | req_opts(fs)]) do
+        {:ok, %{status: s}} when s in [200, 201] -> {:ok, fs}
+        {:ok, %{status: s, body: b}} -> {:error, http_error(path, "S3 PUT returned #{s}", b)}
+        {:error, reason} -> {:error, transport_error(path, reason)}
       end
     end
+  end
+
+  # HEAD the object for a file stat; if absent, a non-empty listing under
+  # `path/` makes it an implicit directory (S3 has no real directories).
+  @doc false
+  @spec core_stat(t(), String.t()) ::
+          {:ok, %{type: :regular | :directory, size: non_neg_integer()}}
+          | {:error, VFS.Error.t()}
+  def core_stat(%__MODULE__{} = fs, path) do
+    with :ok <- check_path(path) do
+      case Req.head(object_url(fs, path), req_opts(fs)) do
+        {:ok, %{status: 200} = resp} ->
+          {:ok, %{type: :regular, size: object_size(resp)}}
+
+        {:ok, %{status: 404}} ->
+          if implicit_dir?(fs, path),
+            do: {:ok, %{type: :directory, size: 0}},
+            else: {:error, VFS.Error.new(:enoent, path: path)}
+
+        {:ok, %{status: s, body: b}} ->
+          {:error, http_error(path, "S3 HEAD returned #{s}", b)}
+
+        {:error, reason} ->
+          {:error, transport_error(path, reason)}
+      end
+    end
+  end
+
+  @doc false
+  @spec core_readdir(t(), String.t()) :: {:ok, [String.t()]} | {:error, VFS.Error.t()}
+  def core_readdir(%__MODULE__{} = fs, path) do
+    with :ok <- check_path(path) do
+      case list_request(fs, dir_prefix(fs, path), delimiter: true) do
+        {:ok, body, prefix} -> {:ok, parse_list_response(body, prefix)}
+        {:error, _} = error -> error
+      end
+    end
+  end
+
+  # Non-recursive deletes one object; recursive lists every key under the
+  # prefix (no delimiter) and deletes each.
+  @doc false
+  @spec core_delete(t(), String.t(), keyword()) :: {:ok, t()} | {:error, VFS.Error.t()}
+  def core_delete(%__MODULE__{} = fs, path, opts) do
+    with :ok <- check_path(path) do
+      if Keyword.get(opts, :recursive, false),
+        do: delete_tree(fs, path),
+        else: delete_object(fs, path)
+    end
+  end
+
+  @spec delete_object(t(), String.t()) :: {:ok, t()} | {:error, VFS.Error.t()}
+  defp delete_object(fs, path) do
+    case Req.delete(object_url(fs, path), req_opts(fs)) do
+      {:ok, %{status: s}} when s in [200, 204] -> {:ok, fs}
+      {:ok, %{status: s, body: b}} -> {:error, http_error(path, "S3 DELETE returned #{s}", b)}
+      {:error, reason} -> {:error, transport_error(path, reason)}
+    end
+  end
+
+  @spec delete_tree(t(), String.t()) :: {:ok, t()} | {:error, VFS.Error.t()}
+  defp delete_tree(fs, path) do
+    case list_request(fs, dir_prefix(fs, path), delimiter: false) do
+      {:ok, body, _prefix} ->
+        body
+        |> all_keys()
+        |> Enum.reduce_while({:ok, fs}, fn key, {:ok, fs} ->
+          case Req.delete(base_url(fs) <> "/#{key}", req_opts(fs)) do
+            {:ok, %{status: s}} when s in [200, 204] ->
+              {:cont, {:ok, fs}}
+
+            {:ok, %{status: s, body: b}} ->
+              {:halt, {:error, http_error(path, "S3 DELETE returned #{s}", b)}}
+
+            {:error, reason} ->
+              {:halt, {:error, transport_error(path, reason)}}
+          end
+        end)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @spec implicit_dir?(t(), String.t()) :: boolean()
+  defp implicit_dir?(fs, path) do
+    case list_request(fs, dir_prefix(fs, path), delimiter: true, max_keys: 1) do
+      {:ok, body, prefix} -> parse_list_response(body, prefix) != []
+      {:error, _} -> false
+    end
+  end
+
+  @spec list_request(t(), String.t(), keyword()) ::
+          {:ok, binary() | map(), String.t()} | {:error, VFS.Error.t()}
+  defp list_request(fs, prefix, opts) do
+    params =
+      [{"list-type", "2"}, {"prefix", prefix}]
+      |> maybe_param(Keyword.get(opts, :delimiter, false), {"delimiter", "/"})
+      |> maybe_param(Keyword.get(opts, :max_keys), fn n -> {"max-keys", to_string(n)} end)
+
+    case Req.get(base_url(fs) <> "/", [{:params, params} | req_opts(fs, decode_body: false)]) do
+      {:ok, %{status: 200, body: body}} -> {:ok, body, prefix}
+      {:ok, %{status: s, body: b}} -> {:error, http_error(prefix, "S3 LIST returned #{s}", b)}
+      {:error, reason} -> {:error, transport_error(prefix, reason)}
+    end
+  end
+
+  @spec dir_prefix(t(), String.t()) :: String.t()
+  defp dir_prefix(fs, path) do
+    case s3_key(fs, path) do
+      "" -> ""
+      key -> String.trim_trailing(key, "/") <> "/"
+    end
+  end
+
+  defp maybe_param(params, false, _entry), do: params
+  defp maybe_param(params, nil, _entry), do: params
+  defp maybe_param(params, value, fun) when is_function(fun, 1), do: params ++ [fun.(value)]
+  defp maybe_param(params, _value, entry), do: params ++ [entry]
+
+  @spec object_size(map()) :: non_neg_integer()
+  defp object_size(resp) do
+    case Req.Response.get_header(resp, "content-length") do
+      [len | _] -> String.to_integer(len)
+      _ -> 0
+    end
+  rescue
+    _ -> 0
+  end
+
+  @spec all_keys(binary() | map()) :: [String.t()]
+  defp all_keys(body) when is_binary(body) do
+    ~r/<Key>([^<]+)<\/Key>/ |> Regex.scan(body) |> Enum.map(fn [_, key] -> key end)
+  end
+
+  defp all_keys(_), do: []
+
+  @spec http_error(String.t(), String.t(), term()) :: VFS.Error.t()
+  defp http_error(path, prefix, body),
+    do: VFS.Error.new(:eio, path: path, message: "#{prefix}: #{inspect(body)}")
+
+  @spec transport_error(String.t(), term()) :: VFS.Error.t()
+  defp transport_error(path, reason),
+    do: VFS.Error.new(:eio, path: path, message: inspect(reason))
+
+  @spec check_path(String.t()) :: :ok | {:error, VFS.Error.t()}
+  defp check_path(path) do
+    if String.contains?(String.trim_leading(path, "/"), ".."),
+      do:
+        {:error,
+         VFS.Error.new(:einval, path: path, message: "path traversal not allowed: '#{path}'")},
+      else: :ok
   end
 
   @spec req_opts(t(), keyword()) :: keyword()
@@ -178,17 +308,6 @@ defmodule Pyex.Filesystem.S3 do
 
   defp base_url(%__MODULE__{bucket: bucket, region: region}) do
     "https://#{bucket}.s3.#{region}.amazonaws.com"
-  end
-
-  @spec validate_path(String.t()) :: :ok | {:error, String.t()}
-  defp validate_path(path) do
-    normalized = String.trim_leading(path, "/")
-
-    if String.contains?(normalized, "..") do
-      {:error, "IOError: path traversal not allowed: '#{path}'"}
-    else
-      :ok
-    end
   end
 
   @spec s3_key(t(), String.t()) :: String.t()
@@ -247,60 +366,46 @@ defimpl VFS.Mountable, for: Pyex.Filesystem.S3 do
   use VFS.Skeleton
 
   alias Pyex.Filesystem.S3
-  alias VFS.{Error, Stat}
+  alias VFS.Stat
 
   @epoch DateTime.from_unix!(0)
 
+  # S3 has no symlinks and no per-object POSIX modes, so the mutation surface is
+  # read + write; mkdir is a no-op (directories are implicit prefixes).
   def capabilities(_), do: MapSet.new([:read, :write])
 
-  def exists?(%S3{} = s3, path), do: {S3.exists?(s3, path), s3}
-
-  # S3 is an object store with no real directories, so a path either names an
-  # object (`:regular`) or doesn't exist. `size` is reported as 0 to avoid a
-  # full GET — Pyex only reads `stat.type`, never the size, off an S3 backend.
   def stat(%S3{} = s3, path) do
-    if S3.exists?(s3, path),
-      do: {:ok, Stat.regular(0, @epoch), s3},
-      else: {:error, Error.new(:enoent, path: path)}
+    case S3.core_stat(s3, path) do
+      {:ok, %{type: :regular, size: size}} -> {:ok, Stat.regular(size, @epoch), s3}
+      {:ok, %{type: :directory}} -> {:ok, Stat.directory(@epoch), s3}
+      {:error, err} -> {:error, err}
+    end
   end
 
+  def exists?(%S3{} = s3, path), do: {match?({:ok, _}, S3.core_stat(s3, path)), s3}
+
   def stream_read(%S3{} = s3, path, _opts) do
-    case S3.read(s3, path) do
+    case S3.core_get(s3, path) do
       {:ok, body} -> {:ok, [body], s3}
-      {:error, msg} -> {:error, classify(msg, path)}
+      {:error, err} -> {:error, err}
     end
   end
 
   def write_file(%S3{} = s3, path, content, _opts) do
-    case S3.write(s3, path, content, :write) do
-      {:ok, s3} -> {:ok, s3}
-      {:error, msg} -> {:error, classify(msg, path)}
-    end
+    S3.core_put(s3, path, content, :write)
   end
 
   def readdir(%S3{} = s3, path) do
-    case S3.list_dir(s3, path) do
+    case S3.core_readdir(s3, path) do
       {:ok, names} -> {:ok, names, s3}
-      {:error, msg} -> {:error, classify(msg, path)}
+      {:error, err} -> {:error, err}
     end
   end
 
-  def rm(%S3{} = s3, path, _opts) do
-    case S3.delete(s3, path) do
-      {:ok, s3} -> {:ok, s3}
-      {:error, msg} -> {:error, classify(msg, path)}
-    end
+  def rm(%S3{} = s3, path, opts) do
+    S3.core_delete(s3, path, recursive: Keyword.get(opts, :recursive, false))
   end
 
   # Object writes create the implied prefix, so an explicit mkdir is a no-op.
   def mkdir(%S3{} = s3, _path, _opts), do: {:ok, s3}
-
-  # The bare S3 functions return Python-style strings; map them back to the
-  # POSIX-shaped kinds the protocol expects. Anything unrecognized is `:eio`,
-  # preserving the original message for logs.
-  defp classify("FileNotFoundError" <> _, path), do: Error.new(:enoent, path: path)
-  defp classify("FileExistsError" <> _, path), do: Error.new(:eexist, path: path)
-  defp classify("NotADirectoryError" <> _, path), do: Error.new(:enotdir, path: path)
-  defp classify("PermissionError" <> _, path), do: Error.new(:eacces, path: path)
-  defp classify(msg, path), do: Error.new(:eio, path: path, message: msg)
 end

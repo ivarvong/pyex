@@ -50,7 +50,8 @@ defmodule Pyex.Ctx do
   @type generator_mode :: :accumulate | :defer | :defer_inner | :lazy_iter | nil
 
   @type t :: %__MODULE__{
-          filesystem: VFS.Mountable.t() | nil,
+          filesystem: term(),
+          cwd: String.t(),
           handles: %{optional(non_neg_integer()) => file_handle()},
           next_handle: non_neg_integer(),
           env: %{optional(String.t()) => String.t()},
@@ -86,6 +87,7 @@ defmodule Pyex.Ctx do
         }
 
   defstruct filesystem: nil,
+            cwd: "/",
             handles: %{},
             next_handle: 0,
             env: %{},
@@ -126,6 +128,10 @@ defmodule Pyex.Ctx do
   - `:filesystem` -- a `VFS.Mountable` backend (e.g. `VFS.Memory.new(%{"/a.txt" => "hi"})`
     or a `%VFS{}` mount table), or a plain `%{path => content}` map which is
     wrapped as a seeded in-memory backend. See `Pyex.FS`.
+  - `:cwd` -- the current working directory relative paths resolve against,
+    an absolute path string (default `"/"`). Set this to a shell's cwd when
+    sharing a filesystem so `open("rel")` resolves the same way `cat rel` does.
+    `os.chdir`/`os.getcwd` read and update it.
   - `:env` -- a map of environment variables accessible via `os.environ`
   - `:modules` -- custom Python modules available via `import`. A map from
     module name strings to either a `%{String.t() => pyvalue()}` map or a
@@ -181,6 +187,7 @@ defmodule Pyex.Ctx do
   """
   @valid_keys [
     :filesystem,
+    :cwd,
     :env,
     :modules,
     :timeout,
@@ -204,6 +211,7 @@ defmodule Pyex.Ctx do
     end
 
     fs = normalize_filesystem(Keyword.get(opts, :filesystem))
+    cwd = normalize_cwd(Keyword.get(opts, :cwd, "/"))
     env = Keyword.get(opts, :env, %{})
     modules = Keyword.get(opts, :modules, %{}) |> normalize_modules()
 
@@ -226,6 +234,7 @@ defmodule Pyex.Ctx do
 
     %__MODULE__{
       filesystem: fs,
+      cwd: cwd,
       env: env,
       modules: modules,
       timeout: timeout,
@@ -255,6 +264,14 @@ defmodule Pyex.Ctx do
     raise ArgumentError,
           "filesystem must be a VFS.Mountable struct or a %{path => content} map, " <>
             "got: #{inspect(other)}"
+  end
+
+  # The cwd is an absolute VFS path. A relative or empty value is rooted at "/".
+  @spec normalize_cwd(term()) :: VFS.Path.t()
+  defp normalize_cwd(cwd) when is_binary(cwd), do: Pyex.FS.resolve("/", cwd)
+
+  defp normalize_cwd(other) do
+    raise ArgumentError, "cwd must be a path string, got: #{inspect(other)}"
   end
 
   @spec normalize_modules(%{optional(String.t()) => map() | module()}) ::
@@ -700,6 +717,14 @@ defmodule Pyex.Ctx do
   end
 
   @doc """
+  Resets the compute clock at the start of a run, returning the context.
+  """
+  @spec reset_compute(t()) :: t()
+  def reset_compute(%__MODULE__{} = ctx) do
+    %{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
+  end
+
+  @doc """
   Checks whether accumulated compute time has exceeded the budget.
 
   Returns `:ok` if within budget (or no timeout set),
@@ -1035,14 +1060,26 @@ defmodule Pyex.Ctx do
   end
 
   def open_handle(%__MODULE__{filesystem: fs} = ctx, path, mode) do
+    # Resolve against the cwd at open time and bind the absolute path to the
+    # handle, so a later os.chdir doesn't move where this file flushes — CPython
+    # binds the path when the file is opened.
+    resolved = Pyex.FS.resolve(ctx.cwd, path)
+
     case mode do
       :read ->
-        case Pyex.FS.read(fs, path) do
-          {:ok, content} ->
+        case Pyex.FS.read_file(fs, ctx.cwd, path) do
+          {:ok, content, fs} ->
             id = ctx.next_handle
-            handle = %{path: path, mode: :read, buffer: content}
-            ctx = %{ctx | handles: Map.put(ctx.handles, id, handle), next_handle: id + 1}
-            ctx = record(ctx, :file_op, {:open, path, mode, id})
+            handle = %{path: resolved, mode: :read, buffer: content}
+
+            ctx = %{
+              ctx
+              | filesystem: fs,
+                handles: Map.put(ctx.handles, id, handle),
+                next_handle: id + 1
+            }
+
+            ctx = record(ctx, :file_op, {:open, resolved, mode, id})
             {:ok, id, ctx}
 
           {:error, _} = err ->
@@ -1051,9 +1088,9 @@ defmodule Pyex.Ctx do
 
       write_mode when write_mode in [:write, :append] ->
         id = ctx.next_handle
-        handle = %{path: path, mode: write_mode, buffer: ""}
+        handle = %{path: resolved, mode: write_mode, buffer: ""}
         ctx = %{ctx | handles: Map.put(ctx.handles, id, handle), next_handle: id + 1}
-        ctx = record(ctx, :file_op, {:open, path, write_mode, id})
+        ctx = record(ctx, :file_op, {:open, resolved, write_mode, id})
         {:ok, id, ctx}
     end
   end
@@ -1103,7 +1140,8 @@ defmodule Pyex.Ctx do
   def close_handle(%__MODULE__{handles: handles, filesystem: fs} = ctx, id) do
     case Map.fetch(handles, id) do
       {:ok, %{mode: mode, path: path, buffer: buffer}} when mode in [:write, :append] ->
-        case Pyex.FS.write(fs, path, buffer, mode) do
+        # `path` is already absolute (resolved at open time), so cwd is moot.
+        case Pyex.FS.write_file(fs, "/", path, buffer, mode) do
           {:ok, new_fs} ->
             ctx = %{ctx | handles: Map.delete(handles, id), filesystem: new_fs}
             ctx = record(ctx, :file_op, {:close, id})

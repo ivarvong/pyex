@@ -1,9 +1,25 @@
 defmodule Pyex.Path do
   @moduledoc """
   Filesystem and path helpers shared across Pyex APIs.
+
+  The pure helpers (`join/1`, `basename/1`, `dirname/1`, `splitext/1`, …)
+  operate on path strings alone. The filesystem helpers take a `VFS.Mountable`
+  and the current working directory, resolve relative paths against it (see
+  `Pyex.FS.resolve/2`), and thread the possibly-updated filesystem back out as
+  the last element of their result — callers store it in `ctx.filesystem`.
+
+  `walk/3` and `glob/3` resolve against the cwd for filesystem access but build
+  their *output* paths in the caller's namespace, so `os.walk("/posts")` yields
+  `/posts/...` and `os.walk("posts")` yields `posts/...`, matching CPython.
   """
 
+  alias Pyex.FS
+
+  @type fs :: VFS.Mountable.t()
+  @type cwd :: VFS.Path.t()
   @type pathlike :: String.t() | term()
+
+  # ── pure path-string helpers ──────────────────────────────────────────────
 
   @doc """
   Coerces a Python path-like value to a path string.
@@ -71,77 +87,87 @@ defmodule Pyex.Path do
     ext
   end
 
+  # ── filesystem helpers (cwd-aware, state-threading) ───────────────────────
+
   @doc """
-  Returns true when the path exists.
+  Returns `{exists?, fs}` for a path (file or directory).
   """
-  @spec exists?(term(), String.t()) :: boolean()
-  def exists?(fs, path) do
-    file?(fs, path) or dir?(fs, path)
+  @spec exists?(fs(), cwd(), String.t()) :: {boolean(), fs()}
+  def exists?(fs, cwd, path), do: FS.exists(fs, cwd, path)
+
+  @doc """
+  Returns `{file?, fs}` — true when the path is a regular file.
+  """
+  @spec file?(fs(), cwd(), String.t()) :: {boolean(), fs()}
+  def file?(fs, cwd, path) do
+    case FS.stat(fs, cwd, path) do
+      {:ok, :regular, fs} -> {true, fs}
+      {:ok, _other, fs} -> {false, fs}
+      {:error, _} -> {false, fs}
+    end
   end
 
   @doc """
-  Returns true when the path exists and is a regular file.
+  Returns `{dir?, fs}` — true when the path behaves like a directory.
   """
-  @spec file?(term(), String.t()) :: boolean()
-  def file?(fs, path) do
-    Pyex.FS.stat(fs, path) == {:ok, :regular}
+  @spec dir?(fs(), cwd(), String.t()) :: {boolean(), fs()}
+  def dir?(fs, cwd, path) do
+    case FS.stat(fs, cwd, path) do
+      {:ok, :directory, fs} -> {true, fs}
+      {:ok, _other, fs} -> {false, fs}
+      {:error, _} -> {false, fs}
+    end
   end
 
   @doc """
-  Returns true when the path exists and behaves like a directory.
+  Lists a directory, returning `{:ok, names, fs}` or `{:error, reason}`.
   """
-  @spec dir?(term(), String.t()) :: boolean()
-  def dir?(fs, path) do
-    Pyex.FS.stat(fs, path) == {:ok, :directory}
-  end
-
-  @doc """
-  Lists a directory, returning child names.
-  """
-  @spec list_dir(term(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
-  def list_dir(fs, path) do
-    Pyex.FS.list_dir(fs, path)
-  end
+  @spec list_dir(fs(), cwd(), String.t()) :: {:ok, [String.t()], fs()} | {:error, String.t()}
+  def list_dir(fs, cwd, path), do: FS.readdir(fs, cwd, path)
 
   @doc """
   Creates a directory and any missing parents.
   """
-  @spec mkdir_p(term(), String.t()) :: {:ok, term()}
-  def mkdir_p(fs, path), do: Pyex.FS.mkdir_p(fs, path)
+  @spec mkdir_p(fs(), cwd(), String.t()) :: {:ok, fs()} | {:error, String.t()}
+  def mkdir_p(fs, cwd, path), do: FS.mkdir_p(fs, cwd, path)
 
   @doc """
   Deletes a file path.
   """
-  @spec unlink(term(), String.t()) :: {:ok, term()} | {:error, String.t()}
-  def unlink(fs, path), do: Pyex.FS.delete(fs, path)
+  @spec unlink(fs(), cwd(), String.t()) :: {:ok, fs()} | {:error, String.t()}
+  def unlink(fs, cwd, path), do: FS.rm(fs, cwd, path)
 
   @doc """
   Deletes a directory tree.
   """
-  @spec delete_tree(term(), String.t()) :: {:ok, term()} | {:error, String.t()}
-  def delete_tree(fs, path), do: Pyex.FS.delete_tree(fs, path)
+  @spec delete_tree(fs(), cwd(), String.t()) :: {:ok, fs()} | {:error, String.t()}
+  def delete_tree(fs, cwd, path), do: FS.rm_rf(fs, cwd, path)
 
   @doc """
-  Recursively walks a directory tree.
+  Recursively walks a directory tree, returning `{:ok, entries, fs}` where each
+  entry is a `{root, dirs, files}` triple in the caller's path namespace.
   """
-  @spec walk(term(), String.t()) ::
-          {:ok, [{String.t(), [String.t()], [String.t()]}]} | {:error, String.t()}
-  def walk(fs, path) do
-    if dir?(fs, path) do
-      {:ok, do_walk(fs, normalize_dir(path))}
-    else
-      {:error, "FileNotFoundError: [Errno 2] No such file or directory: '#{path}'"}
+  @spec walk(fs(), cwd(), String.t()) ::
+          {:ok, [{String.t(), [String.t()], [String.t()]}], fs()} | {:error, String.t()}
+  def walk(fs, cwd, path) do
+    case dir?(fs, cwd, path) do
+      {true, fs} ->
+        {entries, fs} = do_walk(fs, cwd, normalize_dir(path))
+        {:ok, entries, fs}
+
+      {false, _fs} ->
+        {:error, "FileNotFoundError: [Errno 2] No such file or directory: '#{path}'"}
     end
   end
 
   @doc """
   Copies a single file.
   """
-  @spec copyfile(term(), String.t(), String.t()) :: {:ok, term()} | {:error, String.t()}
-  def copyfile(fs, src, dest) do
-    with {:ok, content} <- Pyex.FS.read(fs, src),
-         {:ok, fs} <- mkdir_p(fs, dirname(dest)),
-         {:ok, fs} <- Pyex.FS.write(fs, dest, content, :write) do
+  @spec copyfile(fs(), cwd(), String.t(), String.t()) :: {:ok, fs()} | {:error, String.t()}
+  def copyfile(fs, cwd, src, dest) do
+    with {:ok, content, fs} <- FS.read_file(fs, cwd, src),
+         {:ok, fs} <- mkdir_p(fs, cwd, dirname(dest)),
+         {:ok, fs} <- FS.write_file(fs, cwd, dest, content, :write) do
       {:ok, fs}
     end
   end
@@ -149,25 +175,25 @@ defmodule Pyex.Path do
   @doc """
   Copies a directory tree.
   """
-  @spec copytree(term(), String.t(), String.t()) :: {:ok, term()} | {:error, String.t()}
-  def copytree(fs, src, dest) do
-    with true <- dir?(fs, src),
-         {:ok, fs} <- mkdir_p(fs, dest),
-         {:ok, entries} <- walk(fs, src) do
+  @spec copytree(fs(), cwd(), String.t(), String.t()) :: {:ok, fs()} | {:error, String.t()}
+  def copytree(fs, cwd, src, dest) do
+    with {true, fs} <- dir?(fs, cwd, src),
+         {:ok, fs} <- mkdir_p(fs, cwd, dest),
+         {:ok, entries, fs} <- walk(fs, cwd, src) do
       Enum.reduce_while(entries, {:ok, fs}, fn {root, dirs, files}, {:ok, acc_fs} ->
         rel_root = relative_from(src, root)
         target_root = if rel_root == "", do: dest, else: join([dest, rel_root])
 
-        with {:ok, acc_fs} <- mkdir_p(acc_fs, target_root),
-             {:ok, acc_fs} <- ensure_dirs(acc_fs, target_root, dirs),
-             {:ok, acc_fs} <- copy_files(acc_fs, root, target_root, files) do
+        with {:ok, acc_fs} <- mkdir_p(acc_fs, cwd, target_root),
+             {:ok, acc_fs} <- ensure_dirs(acc_fs, cwd, target_root, dirs),
+             {:ok, acc_fs} <- copy_files(acc_fs, cwd, target_root, files) do
           {:cont, {:ok, acc_fs}}
         else
           {:error, _} = error -> {:halt, error}
         end
       end)
     else
-      false -> {:error, "FileNotFoundError: [Errno 2] No such file or directory: '#{src}'"}
+      {false, _fs} -> {:error, "FileNotFoundError: [Errno 2] No such file or directory: '#{src}'"}
       {:error, _} = error -> error
     end
   end
@@ -175,31 +201,35 @@ defmodule Pyex.Path do
   @doc """
   Moves a file or directory tree.
   """
-  @spec move(term(), String.t(), String.t()) :: {:ok, term()} | {:error, String.t()}
-  def move(fs, src, dest) do
-    cond do
-      file?(fs, src) ->
-        with {:ok, fs} <- copyfile(fs, src, dest),
-             {:ok, fs} <- unlink(fs, src) do
+  @spec move(fs(), cwd(), String.t(), String.t()) :: {:ok, fs()} | {:error, String.t()}
+  def move(fs, cwd, src, dest) do
+    case file?(fs, cwd, src) do
+      {true, fs} ->
+        with {:ok, fs} <- copyfile(fs, cwd, src, dest),
+             {:ok, fs} <- unlink(fs, cwd, src) do
           {:ok, fs}
         end
 
-      dir?(fs, src) ->
-        with {:ok, fs} <- copytree(fs, src, dest),
-             {:ok, fs} <- delete_tree(fs, src) do
-          {:ok, fs}
-        end
+      {false, fs} ->
+        case dir?(fs, cwd, src) do
+          {true, fs} ->
+            with {:ok, fs} <- copytree(fs, cwd, src, dest),
+                 {:ok, fs} <- delete_tree(fs, cwd, src) do
+              {:ok, fs}
+            end
 
-      true ->
-        {:error, "FileNotFoundError: [Errno 2] No such file or directory: '#{src}'"}
+          {false, _fs} ->
+            {:error, "FileNotFoundError: [Errno 2] No such file or directory: '#{src}'"}
+        end
     end
   end
 
   @doc """
-  Expands a glob pattern against the configured filesystem.
+  Expands a glob pattern against the filesystem, returning `{:ok, paths, fs}`.
+  Output paths are in the pattern's namespace (absolute if the pattern was).
   """
-  @spec glob(term(), String.t()) :: {:ok, [String.t()]}
-  def glob(fs, pattern) do
+  @spec glob(fs(), cwd(), String.t()) :: {:ok, [String.t()], fs()}
+  def glob(fs, cwd, pattern) do
     absolute? = String.starts_with?(pattern, "/")
 
     segments =
@@ -209,7 +239,8 @@ defmodule Pyex.Path do
 
     initial = if absolute?, do: "/", else: ""
 
-    {:ok, expand_glob(fs, [initial], segments)}
+    {paths, fs} = expand_glob(fs, cwd, [initial], segments)
+    {:ok, paths |> Enum.reject(&(&1 == "")) |> Enum.uniq(), fs}
   end
 
   @doc """
@@ -237,6 +268,8 @@ defmodule Pyex.Path do
       Regex.match?(~r/\A#{escaped}\z/, name)
     end
   end
+
+  # ── private ───────────────────────────────────────────────────────────────
 
   @spec splitext_basename(String.t()) :: {String.t(), String.t()}
   defp splitext_basename(base) do
@@ -272,40 +305,52 @@ defmodule Pyex.Path do
     |> Kernel.||(byte_size(base))
   end
 
-  @spec expand_glob(term(), [String.t()], [String.t()]) :: [String.t()]
-  defp expand_glob(_fs, paths, []), do: paths |> Enum.reject(&(&1 == "")) |> Enum.uniq()
+  @spec expand_glob(fs(), cwd(), [String.t()], [String.t()]) :: {[String.t()], fs()}
+  defp expand_glob(fs, _cwd, paths, []), do: {paths, fs}
 
-  defp expand_glob(fs, paths, [segment | rest]) do
-    next_paths =
-      Enum.flat_map(paths, fn current ->
-        expand_segment(fs, current, segment, rest == [])
+  defp expand_glob(fs, cwd, paths, [segment | rest]) do
+    {next_paths, fs} =
+      Enum.reduce(paths, {[], fs}, fn current, {acc, fs} ->
+        {expanded, fs} = expand_segment(fs, cwd, current, segment, rest == [])
+        {acc ++ expanded, fs}
       end)
 
-    expand_glob(fs, next_paths, rest)
+    expand_glob(fs, cwd, next_paths, rest)
   end
 
-  @spec expand_segment(term(), String.t(), String.t(), boolean()) :: [String.t()]
-  defp expand_segment(fs, current, segment, final?) do
+  @spec expand_segment(fs(), cwd(), String.t(), String.t(), boolean()) :: {[String.t()], fs()}
+  defp expand_segment(fs, cwd, current, segment, final?) do
     cond do
       wildcard?(segment) ->
-        case Pyex.FS.list_dir(fs, current) do
-          {:ok, entries} ->
+        case list_dir(fs, cwd, current) do
+          {:ok, entries, fs} ->
             entries
             |> Enum.filter(&glob_match?(&1, segment))
             |> Enum.map(&join_glob_path(current, &1))
-            |> Enum.filter(fn path -> final? or dir?(fs, path) end)
+            |> Enum.reduce({[], fs}, fn path, {acc, fs} ->
+              if final? do
+                {acc ++ [path], fs}
+              else
+                case dir?(fs, cwd, path) do
+                  {true, fs} -> {acc ++ [path], fs}
+                  {false, fs} -> {acc, fs}
+                end
+              end
+            end)
 
           {:error, _} ->
-            []
+            {[], fs}
         end
 
       final? ->
         path = join_glob_path(current, segment)
-        if Pyex.FS.exists?(fs, path), do: [path], else: []
+        {exists, fs} = exists?(fs, cwd, path)
+        {if(exists, do: [path], else: []), fs}
 
       true ->
         path = join_glob_path(current, segment)
-        if dir?(fs, path), do: [path], else: []
+        {is_dir, fs} = dir?(fs, cwd, path)
+        {if(is_dir, do: [path], else: []), fs}
     end
   end
 
@@ -319,24 +364,30 @@ defmodule Pyex.Path do
   defp normalize_dir("/"), do: "/"
   defp normalize_dir(path), do: String.trim_trailing(path, "/")
 
-  @spec do_walk(term(), String.t()) :: [{String.t(), [String.t()], [String.t()]}]
-  defp do_walk(fs, root) do
-    {:ok, entries} = list_dir(fs, root)
+  @spec do_walk(fs(), cwd(), String.t()) :: {[{String.t(), [String.t()], [String.t()]}], fs()}
+  defp do_walk(fs, cwd, root) do
+    {:ok, entries, fs} = list_dir(fs, cwd, root)
 
-    {dirs, files} =
-      Enum.reduce(entries, {[], []}, fn entry, {dirs, files} ->
+    {dirs, files, fs} =
+      Enum.reduce(entries, {[], [], fs}, fn entry, {dirs, files, fs} ->
         full = join_glob_path(root, entry)
 
-        if dir?(fs, full) do
-          {[entry | dirs], files}
-        else
-          {dirs, [full | files]}
+        case dir?(fs, cwd, full) do
+          {true, fs} -> {[entry | dirs], files, fs}
+          {false, fs} -> {dirs, [full | files], fs}
         end
       end)
 
     dirs = Enum.sort(dirs)
     files = Enum.sort(files)
-    [{root, dirs, files} | Enum.flat_map(dirs, &do_walk(fs, join_glob_path(root, &1)))]
+
+    {child_entries, fs} =
+      Enum.reduce(dirs, {[], fs}, fn dir, {acc, fs} ->
+        {sub, fs} = do_walk(fs, cwd, join_glob_path(root, dir))
+        {acc ++ sub, fs}
+      end)
+
+    {[{root, dirs, files} | child_entries], fs}
   end
 
   @spec relative_from(String.t(), String.t()) :: String.t()
@@ -351,24 +402,22 @@ defmodule Pyex.Path do
     end
   end
 
-  @spec ensure_dirs(term(), String.t(), [String.t()]) :: {:ok, term()} | {:error, String.t()}
-  defp ensure_dirs(fs, root, dirs) do
-    {:ok,
-     Enum.reduce(dirs, fs, fn dir, acc_fs ->
-       {:ok, acc_fs} = mkdir_p(acc_fs, join([root, dir]))
-       acc_fs
-     end)}
+  @spec ensure_dirs(fs(), cwd(), String.t(), [String.t()]) :: {:ok, fs()} | {:error, String.t()}
+  defp ensure_dirs(fs, cwd, root, dirs) do
+    Enum.reduce_while(dirs, {:ok, fs}, fn dir, {:ok, acc_fs} ->
+      case mkdir_p(acc_fs, cwd, join([root, dir])) do
+        {:ok, acc_fs} -> {:cont, {:ok, acc_fs}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
-  @spec copy_files(term(), String.t(), String.t(), [String.t()]) ::
-          {:ok, term()} | {:error, String.t()}
-  defp copy_files(fs, root, target_root, files) do
+  @spec copy_files(fs(), cwd(), String.t(), [String.t()]) :: {:ok, fs()} | {:error, String.t()}
+  defp copy_files(fs, cwd, target_root, files) do
     Enum.reduce_while(files, {:ok, fs}, fn src_file, {:ok, acc_fs} ->
-      file_name = basename(src_file)
-      src = if root in ["", "/"], do: src_file, else: src_file
-      dest = join([target_root, file_name])
+      dest = join([target_root, basename(src_file)])
 
-      case copyfile(acc_fs, src, dest) do
+      case copyfile(acc_fs, cwd, src_file, dest) do
         {:ok, acc_fs} -> {:cont, {:ok, acc_fs}}
         {:error, _} = error -> {:halt, error}
       end

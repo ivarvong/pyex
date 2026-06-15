@@ -11,13 +11,27 @@ mount table, the S3 backend, or your own — so a single filesystem value
 can be threaded through Pyex and any other `vfs`-based tool.
 
 - **`filesystem:` accepts a `VFS.Mountable` or a plain `%{path => content}`
-  map** (the map is wrapped as a seeded `VFS.Memory`). Paths stay
-  cwd-relative in Python (`open("data.txt")`); they are rooted at `/` in
-  the VFS namespace, so `ctx.filesystem` round-trips as a normal `%VFS{}`.
-- **New `Pyex.FS`** is the boundary module: pyex-namespace path mapping
-  (`to_vfs/1`) and `%VFS.Error{}` → Python-exception-string translation.
-- **`Pyex.Filesystem.S3`** now implements `VFS.Mountable` (its bare
-  `read/2`/`write/4`/… functions remain for direct use).
+  map** (the map is wrapped as a seeded `VFS.Memory`). `ctx.filesystem`
+  round-trips as the same backend you passed — hand it to the next tool.
+- **Working directory.** `Pyex.Ctx` gains a `:cwd` (default `"/"`).
+  Relative Python paths (`open("data.txt")`) resolve against it, and
+  `os.chdir`/`os.getcwd` now actually read and update it (previously
+  `os.chdir` silently ignored its argument). Set `cwd:` to a shell's cwd
+  when sharing a filesystem so `open("rel")` resolves the same way
+  `cat rel` does. Absolute paths are unaffected.
+- **Faithful state threading.** Every filesystem op — reads included —
+  threads the possibly-updated `VFS.Mountable` back into `ctx.filesystem`,
+  matching VFS's immutable contract so lazy/caching backends and `%VFS{}`
+  mount tables stay coherent.
+- **New `Pyex.FS`** is the boundary module: cwd-aware path resolution
+  (`resolve/2`), state-threaded primitives, and `%VFS.Error{}` → Python
+  exception-string translation. A small root-relative convenience layer
+  (`read/2`, `write/4`, `exists?/2`, `list_dir/2`, `delete/2`) is kept for
+  seeding fixtures and inspecting final state.
+- **`Pyex.Filesystem.S3`** implements `VFS.Mountable` with a structured
+  core: directory-aware `stat` (implicit-prefix detection), recursive `rm`,
+  and POSIX error kinds. Its bare `read/2`/`write/4`/… functions remain
+  for direct use.
 - **Removed:** `Pyex.Filesystem`, `Pyex.Filesystem.Memory`. Replace
   `Pyex.Filesystem.Memory.new(map)` with a bare `map` or
   `VFS.Memory.new(%{"/..." => ...})`.

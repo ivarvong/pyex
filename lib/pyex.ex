@@ -151,7 +151,7 @@ defmodule Pyex do
 
     :telemetry.execute([:pyex, :run, :start], %{system_time: System.system_time()}, %{})
 
-    ctx = %Ctx{ctx | compute: 0.0, compute_started_at: System.monotonic_time()}
+    ctx = Ctx.reset_compute(ctx)
 
     # The Elixir Decimal library reads its context (precision, rounding mode)
     # from the *process dictionary* — mutating it without restoring would leak

@@ -22,7 +22,7 @@ defmodule Pyex.Stdlib.Shutil do
           {:ctx_call, (Env.t(), Ctx.t() -> {term(), Env.t(), Ctx.t()})} | {:exception, String.t()}
   defp copyfile([src, dest]) do
     with {:ok, src} <- coerce(src), {:ok, dest} <- coerce(dest) do
-      ctx_fs_call(fn fs -> Pyex.Path.copyfile(fs, src, dest) end, dest)
+      ctx_fs_call(fn fs, cwd -> Pyex.Path.copyfile(fs, cwd, src, dest) end, dest)
     end
   end
 
@@ -32,7 +32,7 @@ defmodule Pyex.Stdlib.Shutil do
           {:ctx_call, (Env.t(), Ctx.t() -> {term(), Env.t(), Ctx.t()})} | {:exception, String.t()}
   defp copytree([src, dest]) do
     with {:ok, src} <- coerce(src), {:ok, dest} <- coerce(dest) do
-      ctx_fs_call(fn fs -> Pyex.Path.copytree(fs, src, dest) end, dest)
+      ctx_fs_call(fn fs, cwd -> Pyex.Path.copytree(fs, cwd, src, dest) end, dest)
     end
   end
 
@@ -42,7 +42,7 @@ defmodule Pyex.Stdlib.Shutil do
           {:ctx_call, (Env.t(), Ctx.t() -> {term(), Env.t(), Ctx.t()})} | {:exception, String.t()}
   defp rmtree([path]) do
     with {:ok, path} <- coerce(path) do
-      ctx_fs_call(fn fs -> Pyex.Path.delete_tree(fs, path) end, nil)
+      ctx_fs_call(fn fs, cwd -> Pyex.Path.delete_tree(fs, cwd, path) end, nil)
     end
   end
 
@@ -52,7 +52,7 @@ defmodule Pyex.Stdlib.Shutil do
           {:ctx_call, (Env.t(), Ctx.t() -> {term(), Env.t(), Ctx.t()})} | {:exception, String.t()}
   defp move([src, dest]) do
     with {:ok, src} <- coerce(src), {:ok, dest} <- coerce(dest) do
-      ctx_fs_call(fn fs -> Pyex.Path.move(fs, src, dest) end, dest)
+      ctx_fs_call(fn fs, cwd -> Pyex.Path.move(fs, cwd, src, dest) end, dest)
     end
   end
 
@@ -66,8 +66,10 @@ defmodule Pyex.Stdlib.Shutil do
     end
   end
 
-  @spec ctx_fs_call((term() -> {:ok, term()} | {:error, String.t()}), String.t() | nil) ::
-          {:ctx_call, (Env.t(), Ctx.t() -> {term(), Env.t(), Ctx.t()})}
+  @spec ctx_fs_call(
+          (term(), VFS.Path.t() -> {:ok, term()} | {:error, String.t()}),
+          String.t() | nil
+        ) :: {:ctx_call, (Env.t(), Ctx.t() -> {term(), Env.t(), Ctx.t()})}
   defp ctx_fs_call(fun, return_path) do
     {:ctx_call,
      fn env, ctx ->
@@ -76,7 +78,7 @@ defmodule Pyex.Stdlib.Shutil do
            {{:exception, "OSError: no filesystem configured"}, env, ctx}
 
          fs ->
-           case fun.(fs) do
+           case fun.(fs, ctx.cwd) do
              {:ok, fs} -> {return_path, env, %{ctx | filesystem: fs}}
              {:error, msg} -> {{:exception, msg}, env, ctx}
            end

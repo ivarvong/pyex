@@ -617,4 +617,66 @@ defmodule Pyex.Filesystem.S3Test do
       assert {:ok, _} = S3.write(fs, "deep/nested/file.txt", "hello", :write)
     end
   end
+
+  # The S3 struct implements VFS.Mountable; these exercise the protocol surface
+  # the legacy string functions don't cover — directory-aware stat and
+  # recursive removal.
+  describe "VFS.Mountable" do
+    test "stat of an object is a regular file", %{bypass: bypass, fs: fs} do
+      Bypass.expect_once(bypass, "HEAD", "/test-bucket/pyex/a.txt", fn conn ->
+        conn |> Plug.Conn.put_resp_header("content-length", "5") |> Plug.Conn.resp(200, "")
+      end)
+
+      assert {:ok, %VFS.Stat{type: :regular}, _fs} = VFS.stat(fs, "/a.txt")
+    end
+
+    test "stat of a prefix with children is a directory", %{bypass: bypass, fs: fs} do
+      Bypass.expect(bypass, fn conn ->
+        case conn.method do
+          "HEAD" -> Plug.Conn.resp(conn, 404, "")
+          "GET" -> Plug.Conn.resp(conn, 200, "<Key>pyex/d/child.txt</Key>")
+        end
+      end)
+
+      assert {:ok, %VFS.Stat{type: :directory}, _fs} = VFS.stat(fs, "/d")
+    end
+
+    test "stat of a missing path is enoent", %{bypass: bypass, fs: fs} do
+      Bypass.expect(bypass, fn conn ->
+        case conn.method do
+          "HEAD" -> Plug.Conn.resp(conn, 404, "")
+          "GET" -> Plug.Conn.resp(conn, 200, "")
+        end
+      end)
+
+      assert {:error, %VFS.Error{kind: :enoent}} = VFS.stat(fs, "/nope")
+    end
+
+    test "read_file streams an object's body", %{bypass: bypass, fs: fs} do
+      Bypass.expect_once(bypass, "GET", "/test-bucket/pyex/hello.txt", fn conn ->
+        Plug.Conn.resp(conn, 200, "world")
+      end)
+
+      assert {:ok, "world", _fs} = VFS.read_file(fs, "/hello.txt")
+    end
+
+    test "recursive rm deletes every key under the prefix", %{bypass: bypass, fs: fs} do
+      test_pid = self()
+
+      Bypass.expect(bypass, fn conn ->
+        case conn.method do
+          "GET" ->
+            Plug.Conn.resp(conn, 200, "<Key>pyex/d/a.txt</Key><Key>pyex/d/sub/b.txt</Key>")
+
+          "DELETE" ->
+            send(test_pid, {:deleted, conn.request_path})
+            Plug.Conn.resp(conn, 204, "")
+        end
+      end)
+
+      assert {:ok, _fs} = VFS.rm(fs, "/d", recursive: true)
+      assert_received {:deleted, "/test-bucket/pyex/d/a.txt"}
+      assert_received {:deleted, "/test-bucket/pyex/d/sub/b.txt"}
+    end
+  end
 end

@@ -271,9 +271,9 @@ defmodule Pyex.Interpreter.Import do
                {{:exception, "OSError: no filesystem configured"}, env, ctx}
 
              fs ->
-               case Pyex.FS.list_dir(fs, path) do
-                 {:ok, entries} ->
-                   {entries, env, ctx}
+               case Pyex.Path.list_dir(fs, ctx.cwd, path) do
+                 {:ok, entries, fs} ->
+                   {entries, env, %{ctx | filesystem: fs}}
 
                  {:error, msg} ->
                    {{:exception, msg}, env, ctx}
@@ -303,14 +303,14 @@ defmodule Pyex.Interpreter.Import do
                {{:exception, "OSError: no filesystem configured"}, env, ctx}
 
              fs ->
-               case Pyex.Path.walk(fs, path) do
-                 {:ok, entries} ->
+               case Pyex.Path.walk(fs, ctx.cwd, path) do
+                 {:ok, entries, fs} ->
                    rows =
                      Enum.map(entries, fn {root, dirs, files} ->
                        {:tuple, [root, dirs, Enum.map(files, &Pyex.Path.basename/1)]}
                      end)
 
-                   {token, ctx} = Ctx.new_iterator(ctx, rows)
+                   {token, ctx} = Ctx.new_iterator(%{ctx | filesystem: fs}, rows)
                    {token, env, ctx}
 
                  {:error, msg} ->
@@ -340,10 +340,14 @@ defmodule Pyex.Interpreter.Import do
         {:ok, to_module_value(name, cached), ctx}
 
       :error ->
+        # Module files resolve from the filesystem root (sys.path-style), not
+        # the cwd, so an import means the same thing wherever the program is.
         path = String.replace(name, ".", "/") <> ".py"
 
-        case Pyex.FS.read(ctx.filesystem, path) do
-          {:ok, source} ->
+        case Pyex.FS.read_file(ctx.filesystem, "/", path) do
+          {:ok, source, fs} ->
+            ctx = %{ctx | filesystem: fs}
+
             case Pyex.compile(source) do
               {:ok, ast} ->
                 mod_env =
@@ -403,8 +407,12 @@ defmodule Pyex.Interpreter.Import do
         {:ctx_call,
          fn env, ctx ->
            case ctx.filesystem do
-             nil -> {false, env, ctx}
-             fs -> {Pyex.Path.exists?(fs, path), env, ctx}
+             nil ->
+               {false, env, ctx}
+
+             fs ->
+               {exists, fs} = Pyex.Path.exists?(fs, ctx.cwd, path)
+               {exists, env, %{ctx | filesystem: fs}}
            end
          end}
 
@@ -444,8 +452,12 @@ defmodule Pyex.Interpreter.Import do
         {:ctx_call,
          fn env, ctx ->
            case ctx.filesystem do
-             nil -> {false, env, ctx}
-             fs -> {Pyex.Path.file?(fs, path), env, ctx}
+             nil ->
+               {false, env, ctx}
+
+             fs ->
+               {is_file, fs} = Pyex.Path.file?(fs, ctx.cwd, path)
+               {is_file, env, %{ctx | filesystem: fs}}
            end
          end}
 
@@ -460,8 +472,12 @@ defmodule Pyex.Interpreter.Import do
         {:ctx_call,
          fn env, ctx ->
            case ctx.filesystem do
-             nil -> {false, env, ctx}
-             fs -> {Pyex.Path.dir?(fs, path), env, ctx}
+             nil ->
+               {false, env, ctx}
+
+             fs ->
+               {is_dir, fs} = Pyex.Path.dir?(fs, ctx.cwd, path)
+               {is_dir, env, %{ctx | filesystem: fs}}
            end
          end}
 
@@ -480,8 +496,10 @@ defmodule Pyex.Interpreter.Import do
                {{:exception, "OSError: no filesystem configured"}, env, ctx}
 
              fs ->
-               {:ok, fs} = Pyex.Path.mkdir_p(fs, path)
-               {nil, env, %{ctx | filesystem: fs}}
+               case Pyex.Path.mkdir_p(fs, ctx.cwd, path) do
+                 {:ok, fs} -> {nil, env, %{ctx | filesystem: fs}}
+                 {:error, msg} -> {{:exception, msg}, env, ctx}
+               end
            end
          end}
 
@@ -500,16 +518,44 @@ defmodule Pyex.Interpreter.Import do
     end
   end
 
-  @spec os_getcwd([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
-  defp os_getcwd([]), do: "/"
+  @spec os_getcwd([Interpreter.pyvalue()]) ::
+          {:ctx_call, (Pyex.Env.t(), Ctx.t() -> {term(), Pyex.Env.t(), Ctx.t()})}
+          | {:exception, String.t()}
+  defp os_getcwd([]) do
+    {:ctx_call, fn env, ctx -> {ctx.cwd, env, ctx} end}
+  end
 
   defp os_getcwd(_args), do: {:exception, "TypeError: getcwd() takes no arguments"}
 
-  @spec os_chdir([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  @spec os_chdir([Interpreter.pyvalue()]) ::
+          {:ctx_call, (Pyex.Env.t(), Ctx.t() -> {term(), Pyex.Env.t(), Ctx.t()})}
+          | {:exception, String.t()}
   defp os_chdir([path]) do
     case Pyex.Path.coerce(path) do
-      {:ok, _path} -> nil
-      :error -> {:exception, "TypeError: chdir: path should be string"}
+      {:ok, path} ->
+        {:ctx_call,
+         fn env, ctx ->
+           target = Pyex.FS.resolve(ctx.cwd, path)
+
+           case ctx.filesystem do
+             nil ->
+               {nil, env, %{ctx | cwd: target}}
+
+             fs ->
+               case Pyex.Path.dir?(fs, ctx.cwd, path) do
+                 {true, fs} ->
+                   {nil, env, %{ctx | cwd: target, filesystem: fs}}
+
+                 {false, fs} ->
+                   {{:exception,
+                     "FileNotFoundError: [Errno 2] No such file or directory: '#{path}'"}, env,
+                    %{ctx | filesystem: fs}}
+               end
+           end
+         end}
+
+      :error ->
+        {:exception, "TypeError: chdir: path should be string"}
     end
   end
 

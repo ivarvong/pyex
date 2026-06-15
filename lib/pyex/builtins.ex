@@ -33,7 +33,7 @@ defmodule Pyex.Builtins do
   `__file__` from the provided context.
   """
   @spec runtime_env(Ctx.t()) :: Env.t()
-  def runtime_env(%Ctx{} = ctx) do
+  def runtime_env(ctx) do
     env = Env.put(env(), "__name__", "__main__")
 
     if is_binary(ctx.file) do
