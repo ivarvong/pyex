@@ -21,6 +21,13 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   @doc false
   @spec safe_binop(atom(), term(), term()) :: term()
+  # Bitwise &/|/^ on two bools yields a bool in CPython (True & True is
+  # True, not 1); with any non-bool operand it falls through to int.
+  def safe_binop(op, l, r)
+      when is_boolean(l) and is_boolean(r) and op in [:amp, :pipe, :caret] do
+    safe_binop(op, Helpers.bool_to_int(l), Helpers.bool_to_int(r)) == 1
+  end
+
   def safe_binop(op, l, r) when is_boolean(l) or is_boolean(r) do
     case op do
       op
@@ -139,6 +146,15 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   def ordering_compare(op, {:tuple, a}, {:tuple, b}), do: ord_cmp(op, a, b)
 
+  # bytes order lexicographically by byte value (Erlang binary order matches).
+  def ordering_compare(op, {:bytes, a}, {:bytes, b}), do: ord_cmp(op, a, b)
+
+  # set/frozenset comparisons are subset/superset (a partial order), not
+  # element ordering. Cross set/frozenset comparisons are allowed.
+  def ordering_compare(op, {sl, a}, {sr, b})
+      when sl in [:set, :frozenset] and sr in [:set, :frozenset],
+      do: set_order(op, a, b)
+
   def ordering_compare(op, l, r) when is_boolean(l) and is_number(r),
     do: ordering_compare(op, bool_to_int(l), r)
 
@@ -149,6 +165,13 @@ defmodule Pyex.Interpreter.BinaryOps do
     {:exception,
      "TypeError: '<' not supported between instances of '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
   end
+
+  # Subset/superset ordering for sets: `<` proper subset, `<=` subset,
+  # `>` proper superset, `>=` superset.
+  defp set_order(:lt, a, b), do: MapSet.subset?(a, b) and MapSet.size(a) < MapSet.size(b)
+  defp set_order(:lte, a, b), do: MapSet.subset?(a, b)
+  defp set_order(:gt, a, b), do: MapSet.subset?(b, a) and MapSet.size(b) < MapSet.size(a)
+  defp set_order(:gte, a, b), do: MapSet.subset?(b, a)
 
   @doc false
   @spec binop_result(term(), term(), term()) :: {term(), term(), term()}
@@ -320,6 +343,12 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:star, l, r) when is_integer(l) and is_binary(r),
     do: dispatch(:star, r, l)
 
+  defp dispatch(:star, {:bytes, b}, r) when is_integer(r),
+    do: {:bytes, :binary.copy(b, max(r, 0))}
+
+  defp dispatch(:star, l, {:bytes, b}) when is_integer(l),
+    do: dispatch(:star, {:bytes, b}, l)
+
   defp dispatch(:star, l, r) when is_integer(l) and is_list(r),
     do: Helpers.repeat_list(r, l)
 
@@ -478,6 +507,11 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   # -- equality -------------------------------------------------------
 
+  # set and frozenset compare equal by element membership, across types.
+  defp dispatch(:eq, {sl, a}, {sr, b})
+       when sl in [:set, :frozenset] and sr in [:set, :frozenset],
+       do: MapSet.size(a) == MapSet.size(b) and MapSet.subset?(a, b)
+
   defp dispatch(:eq, {:py_dict, lm, _}, {:py_dict, rm, _}), do: lm == rm
   defp dispatch(:eq, {:py_dict, lm, _}, rm) when is_map(rm), do: lm == rm
   defp dispatch(:eq, lm, {:py_dict, rm, _}) when is_map(lm), do: lm == rm
@@ -517,6 +551,10 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:eq, r, :infinity) when is_number(r), do: false
   defp dispatch(:eq, r, :neg_infinity) when is_number(r), do: false
   defp dispatch(:eq, l, r), do: l == r
+
+  defp dispatch(:neq, {sl, a}, {sr, b})
+       when sl in [:set, :frozenset] and sr in [:set, :frozenset],
+       do: not (MapSet.size(a) == MapSet.size(b) and MapSet.subset?(a, b))
 
   defp dispatch(:neq, {:py_dict, lm, _}, {:py_dict, rm, _}), do: lm != rm
   defp dispatch(:neq, {:py_dict, lm, _}, rm) when is_map(rm), do: lm != rm
@@ -568,14 +606,33 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:in, l, r) when is_binary(l) and is_binary(r),
     do: String.contains?(r, l)
 
+  defp dispatch(:in, l, {:bytes, b}) when is_boolean(l),
+    do: dispatch(:in, Helpers.bool_to_int(l), {:bytes, b})
+
+  defp dispatch(:in, l, {:bytes, b}) when is_integer(l), do: l in :binary.bin_to_list(b)
+
+  defp dispatch(:in, {:bytes, sub}, {:bytes, b}),
+    do: sub == "" or :binary.match(b, sub) != :nomatch
+
   defp dispatch(:in, l, {:py_dict, _, _} = dict),
-    do: PyDict.has_key?(Pyex.Builtins.visible_dict(dict), l)
+    do: hashed_member(l, fn k -> PyDict.has_key?(Pyex.Builtins.visible_dict(dict), k) end)
 
   defp dispatch(:in, l, r) when is_map(r),
-    do: Map.has_key?(Pyex.Builtins.visible_dict(r), PyDict.canonical_key(l))
+    do:
+      hashed_member(l, fn k ->
+        Map.has_key?(Pyex.Builtins.visible_dict(r), PyDict.canonical_key(k))
+      end)
 
-  defp dispatch(:in, l, {:set, s}), do: MapSet.member?(s, PyDict.canonical_key(l))
-  defp dispatch(:in, l, {:frozenset, s}), do: MapSet.member?(s, PyDict.canonical_key(l))
+  # A set element is tested as a frozenset (CPython's rule), so it never
+  # raises — and the container holds its elements, not the set, so False.
+  defp dispatch(:in, {:set, inner}, {st, s}) when st in [:set, :frozenset],
+    do: MapSet.member?(s, PyDict.canonical_key({:frozenset, inner}))
+
+  defp dispatch(:in, l, {:set, s}),
+    do: hashed_member(l, fn k -> MapSet.member?(s, PyDict.canonical_key(k)) end)
+
+  defp dispatch(:in, l, {:frozenset, s}),
+    do: hashed_member(l, fn k -> MapSet.member?(s, PyDict.canonical_key(k)) end)
 
   defp dispatch(:in, l, {:range, start, stop, step}) when is_integer(l) do
     cond do
@@ -1192,4 +1249,24 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp op_str(:lte), do: "<="
   defp op_str(:gte), do: ">="
   defp op_str(_), do: "?"
+
+  # Membership in a hash container raises on an unhashable key, as CPython
+  # does (`[1] in {1, 2}` is a TypeError). A set element is the exception:
+  # CPython treats it as a frozenset for the test, so it never raises —
+  # and since the container holds its elements, not the set, it's False.
+  defp hashed_member(l, check) do
+    if unhashable?(l) do
+      {:exception, "TypeError: unhashable type: '#{Helpers.py_type(l)}'"}
+    else
+      check.(l)
+    end
+  end
+
+  defp unhashable?({:py_list, _, _}), do: true
+  defp unhashable?(l) when is_list(l), do: true
+  defp unhashable?({:py_dict, _, _}), do: true
+  defp unhashable?({:set, _}), do: true
+  defp unhashable?({:bytearray, _}), do: true
+  defp unhashable?(m) when is_map(m), do: not is_struct(m)
+  defp unhashable?(_), do: false
 end

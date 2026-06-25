@@ -1,0 +1,8717 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "code": "(3) + (3)",
+      "result": "6"
+    },
+    {
+      "code": "(3) + (2.5)",
+      "result": "5.5"
+    },
+    {
+      "code": "(3) + (True)",
+      "result": "4"
+    },
+    {
+      "code": "(3) + ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) + ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) + ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) + ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) + (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) + ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) + (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) + (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) + (3)",
+      "result": "5.5"
+    },
+    {
+      "code": "(2.5) + (2.5)",
+      "result": "5.0"
+    },
+    {
+      "code": "(2.5) + (True)",
+      "result": "3.5"
+    },
+    {
+      "code": "(2.5) + ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) + ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) + ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) + ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) + (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) + ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) + (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) + (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) + (3)",
+      "result": "4"
+    },
+    {
+      "code": "(True) + (2.5)",
+      "result": "3.5"
+    },
+    {
+      "code": "(True) + (True)",
+      "result": "2"
+    },
+    {
+      "code": "(True) + ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) + ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) + ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) + ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) + (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) + ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) + (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) + (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') + (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') + (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') + (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') + ('ab')",
+      "result": "'abab'"
+    },
+    {
+      "code": "('ab') + ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') + ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') + ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') + (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') + ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') + (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') + (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) + (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) + (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) + (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) + ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) + ([1, 2])",
+      "result": "[1, 2, 1, 2]"
+    },
+    {
+      "code": "([1, 2]) + ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) + ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) + (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) + ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) + (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) + (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) + (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) + (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) + (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) + ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) + ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) + ((1, 2))",
+      "result": "(1, 2, 1, 2)"
+    },
+    {
+      "code": "((1, 2)) + ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) + (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) + ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) + (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) + (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) + (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) + (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) + (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) + ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) + ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) + ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) + ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) + (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) + ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) + (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) + (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) + (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) + (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) + (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) + ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) + ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) + ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) + ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) + (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) + ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) + (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) + (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) + (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) + (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) + (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) + ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) + ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) + ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) + ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) + (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) + ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) + (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) + (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') + (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') + (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') + (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') + ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') + ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') + ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') + ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') + (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') + ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') + (b'ab')",
+      "result": "b'abab'"
+    },
+    {
+      "code": "(b'ab') + (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) + (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) + (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) + (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) + ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) + ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) + ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) + ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) + (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) + ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) + (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) + (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) - (3)",
+      "result": "0"
+    },
+    {
+      "code": "(3) - (2.5)",
+      "result": "0.5"
+    },
+    {
+      "code": "(3) - (True)",
+      "result": "2"
+    },
+    {
+      "code": "(3) - ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) - ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) - ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) - ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) - (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) - ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) - (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) - (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) - (3)",
+      "result": "-0.5"
+    },
+    {
+      "code": "(2.5) - (2.5)",
+      "result": "0.0"
+    },
+    {
+      "code": "(2.5) - (True)",
+      "result": "1.5"
+    },
+    {
+      "code": "(2.5) - ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) - ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) - ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) - ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) - (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) - ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) - (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) - (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) - (3)",
+      "result": "-2"
+    },
+    {
+      "code": "(True) - (2.5)",
+      "result": "-1.5"
+    },
+    {
+      "code": "(True) - (True)",
+      "result": "0"
+    },
+    {
+      "code": "(True) - ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) - ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) - ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) - ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) - (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) - ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) - (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) - (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') - (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') - (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') - (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') - ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') - ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') - ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') - ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') - (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') - ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') - (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') - (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) - (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) - (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) - (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) - ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) - ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) - ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) - ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) - (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) - ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) - (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) - (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) - (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) - (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) - (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) - ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) - ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) - ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) - ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) - (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) - ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) - (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) - (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) - (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) - (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) - (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) - ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) - ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) - ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) - ({1, 2})",
+      "result": "set()"
+    },
+    {
+      "code": "({1, 2}) - (frozenset({1, 2}))",
+      "result": "set()"
+    },
+    {
+      "code": "({1, 2}) - ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) - (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) - (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) - (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) - (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) - (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) - ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) - ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) - ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) - ({1, 2})",
+      "result": "frozenset()"
+    },
+    {
+      "code": "(frozenset({1, 2})) - (frozenset({1, 2}))",
+      "result": "frozenset()"
+    },
+    {
+      "code": "(frozenset({1, 2})) - ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) - (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) - (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) - (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) - (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) - (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) - ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) - ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) - ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) - ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) - (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) - ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) - (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) - (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') - (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') - (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') - (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') - ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') - ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') - ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') - ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') - (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') - ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') - (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') - (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) - (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) - (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) - (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) - ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) - ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) - ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) - ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) - (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) - ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) - (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) - (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) * (3)",
+      "result": "9"
+    },
+    {
+      "code": "(3) * (2.5)",
+      "result": "7.5"
+    },
+    {
+      "code": "(3) * (True)",
+      "result": "3"
+    },
+    {
+      "code": "(3) * ('ab')",
+      "result": "'ababab'"
+    },
+    {
+      "code": "(3) * ([1, 2])",
+      "result": "[1, 2, 1, 2, 1, 2]"
+    },
+    {
+      "code": "(3) * ((1, 2))",
+      "result": "(1, 2, 1, 2, 1, 2)"
+    },
+    {
+      "code": "(3) * ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) * (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) * ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) * (b'ab')",
+      "result": "b'ababab'"
+    },
+    {
+      "code": "(3) * (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) * (3)",
+      "result": "7.5"
+    },
+    {
+      "code": "(2.5) * (2.5)",
+      "result": "6.25"
+    },
+    {
+      "code": "(2.5) * (True)",
+      "result": "2.5"
+    },
+    {
+      "code": "(2.5) * ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) * ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) * ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) * ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) * (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) * ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) * (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) * (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) * (3)",
+      "result": "3"
+    },
+    {
+      "code": "(True) * (2.5)",
+      "result": "2.5"
+    },
+    {
+      "code": "(True) * (True)",
+      "result": "1"
+    },
+    {
+      "code": "(True) * ('ab')",
+      "result": "'ab'"
+    },
+    {
+      "code": "(True) * ([1, 2])",
+      "result": "[1, 2]"
+    },
+    {
+      "code": "(True) * ((1, 2))",
+      "result": "(1, 2)"
+    },
+    {
+      "code": "(True) * ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) * (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) * ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) * (b'ab')",
+      "result": "b'ab'"
+    },
+    {
+      "code": "(True) * (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') * (3)",
+      "result": "'ababab'"
+    },
+    {
+      "code": "('ab') * (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') * (True)",
+      "result": "'ab'"
+    },
+    {
+      "code": "('ab') * ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') * ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') * ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') * ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') * (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') * ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') * (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') * (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) * (3)",
+      "result": "[1, 2, 1, 2, 1, 2]"
+    },
+    {
+      "code": "([1, 2]) * (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) * (True)",
+      "result": "[1, 2]"
+    },
+    {
+      "code": "([1, 2]) * ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) * ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) * ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) * ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) * (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) * ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) * (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) * (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) * (3)",
+      "result": "(1, 2, 1, 2, 1, 2)"
+    },
+    {
+      "code": "((1, 2)) * (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) * (True)",
+      "result": "(1, 2)"
+    },
+    {
+      "code": "((1, 2)) * ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) * ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) * ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) * ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) * (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) * ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) * (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) * (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) * (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) * (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) * (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) * ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) * ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) * ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) * ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) * (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) * ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) * (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) * (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) * (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) * (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) * (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) * ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) * ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) * ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) * ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) * (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) * ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) * (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) * (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) * (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) * (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) * (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) * ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) * ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) * ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) * ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) * (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) * ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) * (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) * (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') * (3)",
+      "result": "b'ababab'"
+    },
+    {
+      "code": "(b'ab') * (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') * (True)",
+      "result": "b'ab'"
+    },
+    {
+      "code": "(b'ab') * ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') * ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') * ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') * ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') * (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') * ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') * (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') * (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) * (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) * (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) * (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) * ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) * ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) * ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) * ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) * (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) * ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) * (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) * (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) / (3)",
+      "result": "1.0"
+    },
+    {
+      "code": "(3) / (2.5)",
+      "result": "1.2"
+    },
+    {
+      "code": "(3) / (True)",
+      "result": "3.0"
+    },
+    {
+      "code": "(3) / ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) / ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) / ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) / ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) / (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) / ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) / (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) / (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) / (3)",
+      "result": "0.8333333333333334"
+    },
+    {
+      "code": "(2.5) / (2.5)",
+      "result": "1.0"
+    },
+    {
+      "code": "(2.5) / (True)",
+      "result": "2.5"
+    },
+    {
+      "code": "(2.5) / ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) / ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) / ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) / ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) / (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) / ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) / (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) / (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) / (3)",
+      "result": "0.3333333333333333"
+    },
+    {
+      "code": "(True) / (2.5)",
+      "result": "0.4"
+    },
+    {
+      "code": "(True) / (True)",
+      "result": "1.0"
+    },
+    {
+      "code": "(True) / ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) / ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) / ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) / ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) / (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) / ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) / (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) / (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') / (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') / (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') / (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') / ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') / ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') / ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') / ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') / (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') / ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') / (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') / (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) / (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) / (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) / (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) / ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) / ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) / ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) / ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) / (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) / ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) / (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) / (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) / (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) / (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) / (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) / ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) / ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) / ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) / ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) / (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) / ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) / (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) / (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) / (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) / (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) / (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) / ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) / ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) / ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) / ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) / (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) / ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) / (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) / (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) / (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) / (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) / (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) / ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) / ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) / ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) / ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) / (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) / ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) / (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) / (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) / (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) / (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) / (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) / ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) / ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) / ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) / ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) / (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) / ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) / (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) / (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') / (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') / (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') / (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') / ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') / ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') / ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') / ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') / (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') / ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') / (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') / (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) / (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) / (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) / (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) / ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) / ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) / ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) / ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) / (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) / ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) / (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) / (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) // (3)",
+      "result": "1"
+    },
+    {
+      "code": "(3) // (2.5)",
+      "result": "1.0"
+    },
+    {
+      "code": "(3) // (True)",
+      "result": "3"
+    },
+    {
+      "code": "(3) // ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) // ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) // ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) // ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) // (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) // ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) // (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) // (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) // (3)",
+      "result": "0.0"
+    },
+    {
+      "code": "(2.5) // (2.5)",
+      "result": "1.0"
+    },
+    {
+      "code": "(2.5) // (True)",
+      "result": "2.0"
+    },
+    {
+      "code": "(2.5) // ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) // ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) // ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) // ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) // (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) // ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) // (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) // (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) // (3)",
+      "result": "0"
+    },
+    {
+      "code": "(True) // (2.5)",
+      "result": "0.0"
+    },
+    {
+      "code": "(True) // (True)",
+      "result": "1"
+    },
+    {
+      "code": "(True) // ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) // ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) // ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) // ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) // (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) // ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) // (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) // (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') // (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') // (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') // (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') // ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') // ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') // ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') // ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') // (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') // ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') // (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') // (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) // (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) // (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) // (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) // ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) // ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) // ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) // ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) // (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) // ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) // (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) // (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) // (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) // (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) // (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) // ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) // ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) // ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) // ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) // (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) // ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) // (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) // (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) // (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) // (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) // (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) // ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) // ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) // ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) // ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) // (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) // ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) // (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) // (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) // (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) // (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) // (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) // ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) // ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) // ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) // ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) // (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) // ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) // (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) // (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) // (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) // (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) // (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) // ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) // ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) // ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) // ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) // (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) // ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) // (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) // (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') // (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') // (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') // (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') // ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') // ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') // ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') // ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') // (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') // ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') // (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') // (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) // (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) // (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) // (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) // ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) // ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) // ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) // ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) // (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) // ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) // (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) // (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ** (3)",
+      "result": "27"
+    },
+    {
+      "code": "(3) ** (2.5)",
+      "result": "15.588457268119896"
+    },
+    {
+      "code": "(3) ** (True)",
+      "result": "3"
+    },
+    {
+      "code": "(3) ** ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ** ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ** ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ** ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ** (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ** ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ** (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ** (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ** (3)",
+      "result": "15.625"
+    },
+    {
+      "code": "(2.5) ** (2.5)",
+      "result": "9.882117688026186"
+    },
+    {
+      "code": "(2.5) ** (True)",
+      "result": "2.5"
+    },
+    {
+      "code": "(2.5) ** ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ** ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ** ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ** ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ** (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ** ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ** (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ** (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ** (3)",
+      "result": "1"
+    },
+    {
+      "code": "(True) ** (2.5)",
+      "result": "1.0"
+    },
+    {
+      "code": "(True) ** (True)",
+      "result": "1"
+    },
+    {
+      "code": "(True) ** ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ** ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ** ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ** ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ** (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ** ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ** (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ** (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ** (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ** (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ** (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ** ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ** ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ** ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ** ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ** (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ** ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ** (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ** (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ** (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ** (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ** (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ** ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ** ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ** ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ** ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ** (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ** ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ** (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ** (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ** (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ** (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ** (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ** ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ** ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ** ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ** ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ** (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ** ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ** (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ** (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ** (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ** (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ** (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ** ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ** ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ** ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ** ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ** (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ** ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ** (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ** (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ** (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ** (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ** (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ** ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ** ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ** ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ** ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ** (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ** ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ** (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ** (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ** (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ** (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ** (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ** ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ** ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ** ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ** ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ** (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ** ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ** (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ** (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ** (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ** (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ** (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ** ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ** ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ** ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ** ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ** (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ** ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ** (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ** (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ** (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ** (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ** (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ** ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ** ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ** ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ** ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ** (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ** ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ** (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ** (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) == (3)",
+      "result": "True"
+    },
+    {
+      "code": "(3) == (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(3) == (True)",
+      "result": "False"
+    },
+    {
+      "code": "(3) == ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "(3) == ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "(3) == ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "(3) == ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(3) == (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(3) == ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "(3) == (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "(3) == (None)",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) == (3)",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) == (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) == (True)",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) == ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) == ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) == ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) == ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) == (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) == ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) == (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) == (None)",
+      "result": "False"
+    },
+    {
+      "code": "(True) == (3)",
+      "result": "False"
+    },
+    {
+      "code": "(True) == (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(True) == (True)",
+      "result": "True"
+    },
+    {
+      "code": "(True) == ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "(True) == ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "(True) == ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "(True) == ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(True) == (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(True) == ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "(True) == (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "(True) == (None)",
+      "result": "False"
+    },
+    {
+      "code": "('ab') == (3)",
+      "result": "False"
+    },
+    {
+      "code": "('ab') == (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "('ab') == (True)",
+      "result": "False"
+    },
+    {
+      "code": "('ab') == ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "('ab') == ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "('ab') == ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "('ab') == ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "('ab') == (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "('ab') == ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "('ab') == (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "('ab') == (None)",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) == (3)",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) == (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) == (True)",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) == ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) == ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) == ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) == ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) == (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) == ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) == (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) == (None)",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) == (3)",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) == (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) == (True)",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) == ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) == ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) == ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) == ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) == (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) == ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) == (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) == (None)",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) == (3)",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) == (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) == (True)",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) == ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) == ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) == ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) == ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) == (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) == ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) == (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) == (None)",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) == (3)",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) == (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) == (True)",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) == ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) == ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) == ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) == ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) == (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) == ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) == (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) == (None)",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) == (3)",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) == (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) == (True)",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) == ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) == ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) == ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) == ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) == (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) == ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "({1: 2}) == (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) == (None)",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') == (3)",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') == (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') == (True)",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') == ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') == ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') == ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') == ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') == (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') == ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') == (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') == (None)",
+      "result": "False"
+    },
+    {
+      "code": "(None) == (3)",
+      "result": "False"
+    },
+    {
+      "code": "(None) == (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(None) == (True)",
+      "result": "False"
+    },
+    {
+      "code": "(None) == ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "(None) == ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "(None) == ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "(None) == ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(None) == (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(None) == ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "(None) == (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "(None) == (None)",
+      "result": "True"
+    },
+    {
+      "code": "(3) != (3)",
+      "result": "False"
+    },
+    {
+      "code": "(3) != (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(3) != (True)",
+      "result": "True"
+    },
+    {
+      "code": "(3) != ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "(3) != ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "(3) != ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "(3) != ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "(3) != (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "(3) != ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "(3) != (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "(3) != (None)",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) != (3)",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) != (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) != (True)",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) != ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) != ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) != ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) != ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) != (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) != ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) != (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) != (None)",
+      "result": "True"
+    },
+    {
+      "code": "(True) != (3)",
+      "result": "True"
+    },
+    {
+      "code": "(True) != (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(True) != (True)",
+      "result": "False"
+    },
+    {
+      "code": "(True) != ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "(True) != ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "(True) != ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "(True) != ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "(True) != (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "(True) != ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "(True) != (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "(True) != (None)",
+      "result": "True"
+    },
+    {
+      "code": "('ab') != (3)",
+      "result": "True"
+    },
+    {
+      "code": "('ab') != (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "('ab') != (True)",
+      "result": "True"
+    },
+    {
+      "code": "('ab') != ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "('ab') != ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "('ab') != ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "('ab') != ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "('ab') != (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "('ab') != ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "('ab') != (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "('ab') != (None)",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) != (3)",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) != (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) != (True)",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) != ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) != ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) != ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) != ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) != (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) != ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) != (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) != (None)",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) != (3)",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) != (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) != (True)",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) != ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) != ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) != ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) != ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) != (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) != ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) != (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) != (None)",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) != (3)",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) != (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) != (True)",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) != ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) != ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) != ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) != ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) != (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) != ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) != (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) != (None)",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) != (3)",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) != (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) != (True)",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) != ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) != ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) != ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) != ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) != (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) != ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) != (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) != (None)",
+      "result": "True"
+    },
+    {
+      "code": "({1: 2}) != (3)",
+      "result": "True"
+    },
+    {
+      "code": "({1: 2}) != (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "({1: 2}) != (True)",
+      "result": "True"
+    },
+    {
+      "code": "({1: 2}) != ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "({1: 2}) != ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "({1: 2}) != ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "({1: 2}) != ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "({1: 2}) != (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "({1: 2}) != ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) != (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "({1: 2}) != (None)",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') != (3)",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') != (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') != (True)",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') != ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') != ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') != ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') != ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') != (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') != ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') != (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') != (None)",
+      "result": "True"
+    },
+    {
+      "code": "(None) != (3)",
+      "result": "True"
+    },
+    {
+      "code": "(None) != (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(None) != (True)",
+      "result": "True"
+    },
+    {
+      "code": "(None) != ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "(None) != ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "(None) != ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "(None) != ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "(None) != (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "(None) != ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "(None) != (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "(None) != (None)",
+      "result": "False"
+    },
+    {
+      "code": "(3) < (3)",
+      "result": "False"
+    },
+    {
+      "code": "(3) < (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(3) < (True)",
+      "result": "False"
+    },
+    {
+      "code": "(3) < ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) < ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) < ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) < ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) < (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) < ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) < (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) < (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) < (3)",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) < (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) < (True)",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) < ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) < ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) < ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) < ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) < (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) < ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) < (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) < (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) < (3)",
+      "result": "True"
+    },
+    {
+      "code": "(True) < (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(True) < (True)",
+      "result": "False"
+    },
+    {
+      "code": "(True) < ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) < ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) < ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) < ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) < (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) < ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) < (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) < (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') < (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') < (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') < (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') < ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "('ab') < ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') < ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') < ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') < (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') < ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') < (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') < (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) < (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) < (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) < (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) < ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) < ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) < ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) < ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) < (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) < ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) < (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) < (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) < (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) < (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) < (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) < ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) < ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) < ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) < ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) < (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) < ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) < (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) < (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) < (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) < (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) < (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) < ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) < ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) < ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) < ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) < (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) < ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) < (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) < (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) < (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) < (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) < (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) < ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) < ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) < ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) < ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) < (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) < ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) < (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) < (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) < (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) < (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) < (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) < ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) < ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) < ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) < ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) < (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) < ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) < (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) < (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') < (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') < (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') < (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') < ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') < ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') < ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') < ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') < (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') < ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') < (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') < (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) < (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) < (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) < (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) < ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) < ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) < ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) < ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) < (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) < ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) < (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) < (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) <= (3)",
+      "result": "True"
+    },
+    {
+      "code": "(3) <= (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(3) <= (True)",
+      "result": "False"
+    },
+    {
+      "code": "(3) <= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) <= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) <= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) <= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) <= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) <= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) <= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) <= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) <= (3)",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) <= (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) <= (True)",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) <= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) <= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) <= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) <= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) <= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) <= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) <= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) <= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) <= (3)",
+      "result": "True"
+    },
+    {
+      "code": "(True) <= (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(True) <= (True)",
+      "result": "True"
+    },
+    {
+      "code": "(True) <= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) <= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) <= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) <= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) <= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) <= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) <= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) <= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') <= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') <= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') <= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') <= ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "('ab') <= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') <= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') <= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') <= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') <= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') <= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') <= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) <= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) <= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) <= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) <= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) <= ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) <= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) <= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) <= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) <= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) <= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) <= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) <= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) <= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) <= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) <= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) <= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) <= ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) <= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) <= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) <= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) <= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) <= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) <= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) <= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) <= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) <= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) <= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) <= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) <= ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) <= (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) <= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) <= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) <= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) <= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) <= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) <= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) <= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) <= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) <= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) <= ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) <= (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) <= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) <= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) <= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) <= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) <= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) <= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) <= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) <= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) <= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) <= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) <= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) <= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) <= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) <= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') <= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') <= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') <= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') <= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') <= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') <= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') <= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') <= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') <= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') <= (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') <= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) <= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) <= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) <= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) <= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) <= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) <= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) <= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) <= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) <= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) <= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) <= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) > (3)",
+      "result": "False"
+    },
+    {
+      "code": "(3) > (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(3) > (True)",
+      "result": "True"
+    },
+    {
+      "code": "(3) > ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) > ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) > ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) > ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) > (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) > ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) > (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) > (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) > (3)",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) > (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) > (True)",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) > ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) > ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) > ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) > ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) > (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) > ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) > (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) > (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) > (3)",
+      "result": "False"
+    },
+    {
+      "code": "(True) > (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(True) > (True)",
+      "result": "False"
+    },
+    {
+      "code": "(True) > ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) > ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) > ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) > ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) > (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) > ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) > (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) > (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') > (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') > (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') > (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') > ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "('ab') > ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') > ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') > ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') > (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') > ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') > (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') > (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) > (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) > (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) > (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) > ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) > ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) > ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) > ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) > (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) > ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) > (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) > (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) > (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) > (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) > (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) > ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) > ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) > ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) > ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) > (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) > ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) > (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) > (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) > (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) > (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) > (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) > ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) > ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) > ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) > ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) > (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) > ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) > (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) > (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) > (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) > (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) > (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) > ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) > ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) > ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) > ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) > (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) > ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) > (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) > (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) > (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) > (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) > (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) > ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) > ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) > ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) > ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) > (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) > ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) > (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) > (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') > (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') > (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') > (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') > ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') > ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') > ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') > ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') > (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') > ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') > (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') > (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) > (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) > (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) > (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) > ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) > ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) > ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) > ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) > (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) > ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) > (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) > (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >= (3)",
+      "result": "True"
+    },
+    {
+      "code": "(3) >= (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(3) >= (True)",
+      "result": "True"
+    },
+    {
+      "code": "(3) >= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >= (3)",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) >= (2.5)",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) >= (True)",
+      "result": "True"
+    },
+    {
+      "code": "(2.5) >= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >= (3)",
+      "result": "False"
+    },
+    {
+      "code": "(True) >= (2.5)",
+      "result": "False"
+    },
+    {
+      "code": "(True) >= (True)",
+      "result": "True"
+    },
+    {
+      "code": "(True) >= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >= ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "('ab') >= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >= ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "([1, 2]) >= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >= ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "((1, 2)) >= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >= ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) >= (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "({1, 2}) >= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >= ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) >= (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "(frozenset({1, 2})) >= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >= (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') >= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >= (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >= (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >= (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >= ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >= ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >= ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >= ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >= (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >= ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >= (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >= (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) & (3)",
+      "result": "3"
+    },
+    {
+      "code": "(3) & (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) & (True)",
+      "result": "1"
+    },
+    {
+      "code": "(3) & ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) & ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) & ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) & ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) & (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) & ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) & (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) & (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) & (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) & (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) & (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) & ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) & ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) & ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) & ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) & (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) & ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) & (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) & (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) & (3)",
+      "result": "1"
+    },
+    {
+      "code": "(True) & (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) & (True)",
+      "result": "True"
+    },
+    {
+      "code": "(True) & ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) & ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) & ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) & ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) & (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) & ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) & (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) & (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') & (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') & (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') & (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') & ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') & ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') & ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') & ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') & (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') & ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') & (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') & (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) & (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) & (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) & (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) & ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) & ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) & ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) & ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) & (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) & ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) & (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) & (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) & (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) & (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) & (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) & ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) & ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) & ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) & ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) & (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) & ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) & (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) & (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) & (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) & (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) & (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) & ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) & ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) & ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) & ({1, 2})",
+      "result": "{1, 2}"
+    },
+    {
+      "code": "({1, 2}) & (frozenset({1, 2}))",
+      "result": "{1, 2}"
+    },
+    {
+      "code": "({1, 2}) & ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) & (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) & (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) & (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) & (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) & (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) & ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) & ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) & ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) & ({1, 2})",
+      "result": "frozenset({1, 2})"
+    },
+    {
+      "code": "(frozenset({1, 2})) & (frozenset({1, 2}))",
+      "result": "frozenset({1, 2})"
+    },
+    {
+      "code": "(frozenset({1, 2})) & ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) & (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) & (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) & (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) & (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) & (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) & ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) & ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) & ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) & ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) & (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) & ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) & (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) & (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') & (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') & (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') & (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') & ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') & ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') & ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') & ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') & (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') & ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') & (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') & (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) & (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) & (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) & (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) & ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) & ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) & ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) & ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) & (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) & ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) & (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) & (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) | (3)",
+      "result": "3"
+    },
+    {
+      "code": "(3) | (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) | (True)",
+      "result": "3"
+    },
+    {
+      "code": "(3) | ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) | ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) | ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) | ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) | (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) | ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) | (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) | (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) | (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) | (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) | (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) | ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) | ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) | ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) | ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) | (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) | ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) | (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) | (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) | (3)",
+      "result": "3"
+    },
+    {
+      "code": "(True) | (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) | (True)",
+      "result": "True"
+    },
+    {
+      "code": "(True) | ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) | ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) | ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) | ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) | (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) | ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) | (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) | (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') | (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') | (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') | (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') | ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') | ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') | ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') | ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') | (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') | ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') | (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') | (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) | (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) | (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) | (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) | ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) | ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) | ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) | ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) | (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) | ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) | (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) | (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) | (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) | (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) | (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) | ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) | ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) | ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) | ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) | (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) | ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) | (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) | (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) | (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) | (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) | (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) | ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) | ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) | ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) | ({1, 2})",
+      "result": "{1, 2}"
+    },
+    {
+      "code": "({1, 2}) | (frozenset({1, 2}))",
+      "result": "{1, 2}"
+    },
+    {
+      "code": "({1, 2}) | ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) | (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) | (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) | (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) | (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) | (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) | ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) | ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) | ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) | ({1, 2})",
+      "result": "frozenset({1, 2})"
+    },
+    {
+      "code": "(frozenset({1, 2})) | (frozenset({1, 2}))",
+      "result": "frozenset({1, 2})"
+    },
+    {
+      "code": "(frozenset({1, 2})) | ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) | (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) | (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) | (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) | (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) | (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) | ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) | ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) | ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) | ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) | (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) | ({1: 2})",
+      "result": "{1: 2}"
+    },
+    {
+      "code": "({1: 2}) | (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) | (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') | (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') | (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') | (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') | ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') | ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') | ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') | ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') | (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') | ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') | (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') | (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) | (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) | (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) | (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) | ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) | ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) | ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) | ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) | (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) | ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) | (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) | (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ^ (3)",
+      "result": "0"
+    },
+    {
+      "code": "(3) ^ (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ^ (True)",
+      "result": "2"
+    },
+    {
+      "code": "(3) ^ ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ^ ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ^ ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ^ ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ^ (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ^ ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ^ (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) ^ (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ^ (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ^ (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ^ (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ^ ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ^ ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ^ ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ^ ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ^ (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ^ ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ^ (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) ^ (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ^ (3)",
+      "result": "2"
+    },
+    {
+      "code": "(True) ^ (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ^ (True)",
+      "result": "False"
+    },
+    {
+      "code": "(True) ^ ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ^ ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ^ ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ^ ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ^ (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ^ ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ^ (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) ^ (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ^ (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ^ (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ^ (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ^ ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ^ ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ^ ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ^ ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ^ (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ^ ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ^ (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') ^ (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ^ (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ^ (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ^ (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ^ ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ^ ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ^ ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ^ ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ^ (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ^ ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ^ (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) ^ (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ^ (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ^ (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ^ (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ^ ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ^ ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ^ ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ^ ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ^ (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ^ ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ^ (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) ^ (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ^ (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ^ (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ^ (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ^ ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ^ ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ^ ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ^ ({1, 2})",
+      "result": "set()"
+    },
+    {
+      "code": "({1, 2}) ^ (frozenset({1, 2}))",
+      "result": "set()"
+    },
+    {
+      "code": "({1, 2}) ^ ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ^ (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) ^ (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ^ (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ^ (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ^ (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ^ ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ^ ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ^ ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ^ ({1, 2})",
+      "result": "frozenset()"
+    },
+    {
+      "code": "(frozenset({1, 2})) ^ (frozenset({1, 2}))",
+      "result": "frozenset()"
+    },
+    {
+      "code": "(frozenset({1, 2})) ^ ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ^ (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) ^ (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ^ (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ^ (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ^ (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ^ ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ^ ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ^ ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ^ ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ^ (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ^ ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ^ (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) ^ (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ^ (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ^ (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ^ (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ^ ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ^ ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ^ ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ^ ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ^ (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ^ ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ^ (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') ^ (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ^ (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ^ (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ^ (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ^ ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ^ ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ^ ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ^ ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ^ (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ^ ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ^ (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) ^ (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) << (3)",
+      "result": "24"
+    },
+    {
+      "code": "(3) << (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) << (True)",
+      "result": "6"
+    },
+    {
+      "code": "(3) << ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) << ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) << ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) << ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) << (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) << ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) << (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) << (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) << (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) << (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) << (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) << ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) << ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) << ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) << ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) << (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) << ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) << (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) << (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) << (3)",
+      "result": "8"
+    },
+    {
+      "code": "(True) << (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) << (True)",
+      "result": "2"
+    },
+    {
+      "code": "(True) << ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) << ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) << ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) << ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) << (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) << ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) << (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) << (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') << (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') << (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') << (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') << ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') << ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') << ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') << ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') << (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') << ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') << (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') << (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) << (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) << (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) << (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) << ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) << ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) << ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) << ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) << (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) << ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) << (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) << (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) << (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) << (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) << (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) << ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) << ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) << ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) << ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) << (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) << ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) << (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) << (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) << (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) << (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) << (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) << ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) << ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) << ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) << ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) << (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) << ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) << (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) << (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) << (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) << (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) << (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) << ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) << ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) << ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) << ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) << (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) << ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) << (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) << (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) << (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) << (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) << (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) << ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) << ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) << ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) << ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) << (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) << ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) << (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) << (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') << (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') << (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') << (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') << ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') << ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') << ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') << ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') << (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') << ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') << (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') << (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) << (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) << (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) << (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) << ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) << ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) << ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) << ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) << (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) << ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) << (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) << (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >> (3)",
+      "result": "0"
+    },
+    {
+      "code": "(3) >> (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >> (True)",
+      "result": "1"
+    },
+    {
+      "code": "(3) >> ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >> ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >> ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >> ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >> (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >> ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >> (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) >> (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >> (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >> (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >> (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >> ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >> ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >> ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >> ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >> (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >> ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >> (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) >> (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >> (3)",
+      "result": "0"
+    },
+    {
+      "code": "(True) >> (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >> (True)",
+      "result": "0"
+    },
+    {
+      "code": "(True) >> ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >> ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >> ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >> ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >> (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >> ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >> (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) >> (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >> (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >> (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >> (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >> ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >> ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >> ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >> ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >> (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >> ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >> (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') >> (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >> (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >> (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >> (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >> ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >> ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >> ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >> ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >> (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >> ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >> (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) >> (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >> (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >> (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >> (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >> ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >> ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >> ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >> ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >> (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >> ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >> (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) >> (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >> (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >> (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >> (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >> ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >> ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >> ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >> ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >> (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >> ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >> (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) >> (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >> (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >> (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >> (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >> ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >> ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >> ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >> ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >> (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >> ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >> (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) >> (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >> (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >> (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >> (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >> ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >> ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >> ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >> ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >> (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >> ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >> (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) >> (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >> (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >> (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >> (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >> ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >> ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >> ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >> ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >> (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >> ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >> (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') >> (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >> (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >> (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >> (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >> ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >> ([1, 2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >> ((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >> ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >> (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >> ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >> (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) >> (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) in (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) in (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) in (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) in ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(3) in ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "(3) in ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "(3) in ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(3) in (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(3) in ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "(3) in (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "(3) in (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) in (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) in (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) in (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) in ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) in ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) in ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) in ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) in (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) in ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "(2.5) in (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(2.5) in (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) in (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) in (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) in (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) in ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(True) in ([1, 2])",
+      "result": "True"
+    },
+    {
+      "code": "(True) in ((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "(True) in ({1, 2})",
+      "result": "True"
+    },
+    {
+      "code": "(True) in (frozenset({1, 2}))",
+      "result": "True"
+    },
+    {
+      "code": "(True) in ({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "(True) in (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "(True) in (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') in (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') in (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') in (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') in ('ab')",
+      "result": "True"
+    },
+    {
+      "code": "('ab') in ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "('ab') in ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "('ab') in ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "('ab') in (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "('ab') in ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "('ab') in (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "('ab') in (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) in (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) in (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) in (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) in ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) in ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) in ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "([1, 2]) in ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) in (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) in ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) in (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "([1, 2]) in (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) in (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) in (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) in (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) in ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) in ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) in ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) in ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) in (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) in ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "((1, 2)) in (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "((1, 2)) in (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) in (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) in (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) in (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) in ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) in ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) in ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) in ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) in (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "({1, 2}) in ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) in (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1, 2}) in (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) in (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) in (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) in (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) in ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) in ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) in ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) in ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) in (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) in ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "(frozenset({1, 2})) in (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(frozenset({1, 2})) in (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) in (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) in (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) in (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) in ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) in ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) in ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "({1: 2}) in ({1, 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) in (frozenset({1, 2}))",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) in ({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) in (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "({1: 2}) in (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') in (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') in (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') in (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') in ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(b'ab') in ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') in ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') in ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') in (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') in ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "(b'ab') in (b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "(b'ab') in (None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) in (3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) in (2.5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) in (True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) in ('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) in ([1, 2])",
+      "result": "False"
+    },
+    {
+      "code": "(None) in ((1, 2))",
+      "result": "False"
+    },
+    {
+      "code": "(None) in ({1, 2})",
+      "result": "False"
+    },
+    {
+      "code": "(None) in (frozenset({1, 2}))",
+      "result": "False"
+    },
+    {
+      "code": "(None) in ({1: 2})",
+      "result": "False"
+    },
+    {
+      "code": "(None) in (b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "(None) in (None)",
+      "error": "TypeError"
+    }
+  ]
+}
