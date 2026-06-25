@@ -905,67 +905,15 @@ defmodule Pyex.Interpreter do
                 end
             end
 
-          {:class, class_name, _, class_attrs} = class_val ->
-            case attr do
-              "__class__" ->
-                {Builtins.type_class(), env, ctx}
+          {:class, class_name, _, _} = class_val ->
+            case ClassLookup.class_attribute(class_val, attr) do
+              {:ok, value} ->
+                {value, env, ctx}
 
-              "__name__" ->
-                {Map.get(class_attrs, "__name__", class_name), env, ctx}
-
-              "__qualname__" ->
-                {Map.get(class_attrs, "__qualname__", class_name), env, ctx}
-
-              "__mro__" ->
-                mro =
-                  ClassLookup.c3_linearize(class_val)
-                  |> Enum.map(fn {:class, _, _, _} = c -> c end)
-
-                object_class = {:class, "object", [], %{"__name__" => "object"}}
-
-                mro_with_object =
-                  if Enum.any?(mro, fn {:class, n, _, _} -> n == "object" end) do
-                    mro
-                  else
-                    mro ++ [object_class]
-                  end
-
-                {{:tuple, mro_with_object}, env, ctx}
-
-              "__bases__" ->
-                {:class, _, bases, _} = class_val
-                {{:tuple, bases}, env, ctx}
-
-              "__dict__" ->
-                visible = ClassLookup.visible_attrs(class_attrs)
-                pairs = Enum.map(visible, fn {k, v} -> {k, v} end)
-                {PyDict.from_pairs(pairs), env, ctx}
-
-              _ ->
-                case Map.get(class_attrs, attr) do
-                  nil ->
-                    case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
-                      {:ok, {:function, _, _, _, _, _, _} = func, _owner} ->
-                        {{:bound_method, class_val, func}, env, ctx}
-
-                      {:ok, {:builtin_kw, _} = bkw, _owner} ->
-                        {{:bound_method, class_val, bkw}, env, ctx}
-
-                      {:ok, value, _owner} ->
-                        {value, env, ctx}
-
-                      :error ->
-                        {{:exception,
-                          "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"},
-                         env, ctx}
-                    end
-
-                  {:builtin_kw, _} = bkw ->
-                    {{:bound_method, class_val, bkw}, env, ctx}
-
-                  value ->
-                    {value, env, ctx}
-                end
+              :error ->
+                {{:exception,
+                  "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"}, env,
+                 ctx}
             end
 
           {:complex, r, i} ->
@@ -1710,81 +1658,14 @@ defmodule Pyex.Interpreter do
             end
         end
 
-      {:class, class_name, _, class_attrs} = class_val ->
-        case attr do
-          "__class__" ->
-            {Builtins.type_class(), env, ctx}
+      {:class, class_name, _, _} = class_val ->
+        case ClassLookup.class_attribute(class_val, attr) do
+          {:ok, value} ->
+            {value, env, ctx}
 
-          "__mro__" ->
-            mro =
-              ClassLookup.c3_linearize(class_val)
-              |> Enum.map(fn {:class, _, _, _} = c -> c end)
-
-            # Match CPython: every class's MRO ends with `object`.
-            object_class = {:class, "object", [], %{"__name__" => "object"}}
-
-            mro_with_object =
-              if Enum.any?(mro, fn {:class, n, _, _} -> n == "object" end) do
-                mro
-              else
-                mro ++ [object_class]
-              end
-
-            {{:tuple, mro_with_object}, env, ctx}
-
-          "__bases__" ->
-            {:class, _, bases, _} = class_val
-            {{:tuple, bases}, env, ctx}
-
-          "__name__" ->
-            case Map.fetch(class_attrs, "__name__") do
-              {:ok, v} -> {v, env, ctx}
-              :error -> {class_name, env, ctx}
-            end
-
-          "__dict__" ->
-            # Expose a read-only view of class attrs as a dict
-            visible = ClassLookup.visible_attrs(class_attrs)
-            pairs = Enum.map(visible, fn {k, v} -> {k, v} end)
-            {PyDict.from_pairs(pairs), env, ctx}
-
-          _ ->
-            case Map.get(class_attrs, attr) do
-              nil ->
-                case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
-                  {:ok, {:function, _, _, _, _, _, _} = func, _owner} ->
-                    {{:bound_method, class_val, func}, env, ctx}
-
-                  {:ok, {:builtin_kw, _} = bkw, _owner} ->
-                    {{:bound_method, class_val, bkw}, env, ctx}
-
-                  {:ok, {:staticmethod, func}, _owner} ->
-                    {func, env, ctx}
-
-                  {:ok, {:classmethod, func}, _owner} ->
-                    {{:bound_method, class_val, func}, env, ctx}
-
-                  {:ok, value, _owner} ->
-                    {value, env, ctx}
-
-                  :error ->
-                    {{:exception,
-                      "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"},
-                     env, ctx}
-                end
-
-              {:staticmethod, func} ->
-                {func, env, ctx}
-
-              {:classmethod, func} ->
-                {{:bound_method, class_val, func}, env, ctx}
-
-              {:builtin_kw, _} = bkw ->
-                {{:bound_method, class_val, bkw}, env, ctx}
-
-              value ->
-                {value, env, ctx}
-            end
+          :error ->
+            {{:exception,
+              "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"}, env, ctx}
         end
 
       {:builtin_type, "dict", _} ->
