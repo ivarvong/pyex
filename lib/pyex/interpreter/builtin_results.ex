@@ -57,6 +57,22 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:iter_to_frozenset, val} ->
         iter_to_collection(val, &{:frozenset, MapSet.new(&1)}, env, ctx)
 
+      {:iter_any, val} ->
+        iter_to_collection(val, &Enum.any?(&1, fn x -> Builtins.truthy?(x) end), env, ctx)
+
+      {:iter_all, val} ->
+        iter_to_collection(val, &Enum.all?(&1, fn x -> Builtins.truthy?(x) end), env, ctx)
+
+      {:iter_enumerate, val, start} ->
+        iter_to_collection(
+          val,
+          fn items ->
+            items |> Enum.with_index(start) |> Enum.map(fn {v, i} -> {:tuple, [i, v]} end)
+          end,
+          env,
+          ctx
+        )
+
       {:iter_instance, inst} ->
         handle_iter_instance(inst, env, ctx)
 
@@ -232,6 +248,16 @@ defmodule Pyex.Interpreter.BuiltinResults do
           {:ok, items, env, ctx} -> Interpreter.eval_sort(items, key_fn, reverse, env, ctx)
           {:exception, _} = signal -> {signal, env, ctx}
         end
+
+      {:iter_enumerate, val, start} ->
+        iter_to_collection(
+          val,
+          fn items ->
+            items |> Enum.with_index(start) |> Enum.map(fn {v, i} -> {:tuple, [i, v]} end)
+          end,
+          env,
+          ctx
+        )
 
       {:min_call, items, key_fn} ->
         Interpreter.eval_minmax(items, key_fn, :min, env, ctx)

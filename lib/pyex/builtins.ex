@@ -646,6 +646,16 @@ defmodule Pyex.Builtins do
 
   defp extract_minmax_items([{:tuple, items}]), do: {:ok, items}
 
+  # The remaining single-arg iterable types (keys for dicts, ints for
+  # bytes, chars for str), matching sorted()/list().
+  defp extract_minmax_items([{:py_dict, _, _} = dict]), do: {:ok, PyDict.keys(visible_dict(dict))}
+
+  defp extract_minmax_items([map]) when is_map(map),
+    do: {:ok, map |> visible_dict() |> Map.keys()}
+
+  defp extract_minmax_items([{:bytes, bin}]), do: {:ok, :binary.bin_to_list(bin)}
+  defp extract_minmax_items([str]) when is_binary(str), do: {:ok, String.codepoints(str)}
+
   defp extract_minmax_items(args) when length(args) >= 2, do: {:ok, args}
   defp extract_minmax_items(_), do: {:error, "TypeError: expected iterable argument"}
 
@@ -667,8 +677,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_sum([{:instance, _, _} = inst, start]), do: {:iter_sum, inst, start}
-  defp builtin_sum([{:iterator, _} = it, start]), do: {:iter_sum, it, start}
+  defp builtin_sum([val, start]), do: {:iter_sum, val, start}
 
   @spec sum_with_start([Interpreter.pyvalue()], Interpreter.pyvalue()) ::
           Interpreter.pyvalue() | {:exception, String.t()}
@@ -782,11 +791,10 @@ defmodule Pyex.Builtins do
         [map] when is_map(map) ->
           map |> visible_dict() |> Map.keys()
 
-        [{:instance, _, _} = inst] ->
-          {:needs_iter, inst}
-
-        [{:iterator, _} = it] ->
-          {:needs_iter, it}
+        # Anything else iterable (bytes, custom __iter__, ...) defers to
+        # the one coercion; non-iterables surface its TypeError.
+        [val] ->
+          {:needs_iter, val}
 
         _ ->
           :error
@@ -863,15 +871,15 @@ defmodule Pyex.Builtins do
           String.codepoints(str)
 
         _ ->
-          nil
+          :defer
       end
 
     case items do
       {:exception, _} = err ->
         err
 
-      nil ->
-        {:exception, "TypeError: enumerate() requires an iterable"}
+      :defer ->
+        {:iter_enumerate, iterable, start}
 
       _ ->
         items
@@ -944,6 +952,7 @@ defmodule Pyex.Builtins do
   defp to_list(str) when is_binary(str), do: {:ok, String.codepoints(str)}
   defp to_list({:py_dict, _, _} = dict), do: {:ok, PyDict.keys(visible_dict(dict))}
   defp to_list(map) when is_map(map), do: {:ok, map |> visible_dict() |> Map.keys()}
+  defp to_list({:bytes, bin}), do: {:ok, :binary.bin_to_list(bin)}
   defp to_list(_), do: :error
 
   @spec builtin_bool([Interpreter.pyvalue()]) ::
@@ -992,8 +1001,10 @@ defmodule Pyex.Builtins do
 
   defp builtin_list([{:py_dict, _, _} = dict]), do: PyDict.keys(visible_dict(dict))
   defp builtin_list([map]) when is_map(map), do: map |> visible_dict() |> Map.keys()
-  defp builtin_list([{:instance, _, _} = inst]), do: {:iter_to_list, inst}
-  defp builtin_list([{:iterator, _} = it]), do: {:iter_to_list, it}
+  # Any other single arg defers to the one iterable coercion
+  # (Interpreter.to_iterable), which also yields the right TypeError for
+  # non-iterables. New iterable types are then supported everywhere at once.
+  defp builtin_list([val]), do: {:iter_to_list, val}
 
   @spec mutable_element?(Interpreter.pyvalue()) :: boolean()
   defp mutable_element?({:py_dict, _, _}), do: true
@@ -1276,8 +1287,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_tuple([{:instance, _, _} = inst]), do: {:iter_to_tuple, inst}
-  defp builtin_tuple([{:iterator, _} = it]), do: {:iter_to_tuple, it}
+  defp builtin_tuple([val]), do: {:iter_to_tuple, val}
 
   @spec builtin_set([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
@@ -1297,8 +1307,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_set([{:instance, _, _} = inst]), do: {:iter_to_set, inst}
-  defp builtin_set([{:iterator, _} = it]), do: {:iter_to_set, it}
+  defp builtin_set([val]), do: {:iter_to_set, val}
 
   @spec builtin_frozenset([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
@@ -1324,8 +1333,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_frozenset([{:instance, _, _} = inst]), do: {:iter_to_frozenset, inst}
-  defp builtin_frozenset([{:iterator, _} = it]), do: {:iter_to_frozenset, it}
+  defp builtin_frozenset([val]), do: {:iter_to_frozenset, val}
 
   @spec builtin_round([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
@@ -1531,8 +1539,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_any([val]),
-    do: {:exception, "TypeError: argument of type '#{pytype(val)}' is not iterable"}
+  defp builtin_any([val]), do: {:iter_any, val}
 
   @spec builtin_all([Interpreter.pyvalue()]) :: boolean() | {:exception, String.t()}
   defp builtin_all([{:py_list, reversed, _}]), do: Enum.all?(Enum.reverse(reversed), &truthy?/1)
@@ -1547,8 +1554,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_all([val]),
-    do: {:exception, "TypeError: argument of type '#{pytype(val)}' is not iterable"}
+  defp builtin_all([val]), do: {:iter_all, val}
 
   @spec builtin_map([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
