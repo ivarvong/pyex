@@ -140,6 +140,23 @@ defmodule Pyex.Builtins do
     MapSet.new(captures ++ extras)
   end
 
+  @doc """
+  True for builtins that materialize a new sequence from an iterable and
+  must preserve their elements' *identity* (CPython shallow-copy
+  semantics): the result holds the same inner objects as the source.
+  These receive shallow-deref'd args so nested heap references survive —
+  deep-deref would flatten them and force a fresh allocation, silently
+  breaking `list(x)[0] is x[0]`.
+
+  The captures must match the local-capture form bound in the env, so the
+  list is built here. It's four entries; rebuilding per call is free
+  relative to the deref it gates.
+  """
+  @spec shallow_arg_builtin?(function()) :: boolean()
+  def shallow_arg_builtin?(fun) do
+    fun in [&builtin_list/1, &builtin_tuple/1, &builtin_reversed/1, &builtin_sorted/2]
+  end
+
   @spec all() :: [{String.t(), ([Interpreter.pyvalue()] -> Interpreter.pyvalue())}]
   defp all do
     [
