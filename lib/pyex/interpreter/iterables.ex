@@ -33,8 +33,9 @@ defmodule Pyex.Interpreter.Iterables do
   def to_iterable({:set, set}, env, ctx), do: {:ok, MapSet.to_list(set), env, ctx}
   def to_iterable({:frozenset, set}, env, ctx), do: {:ok, MapSet.to_list(set), env, ctx}
 
-  # Iterating bytes yields its integer byte values, as in CPython.
+  # Iterating bytes/bytearray yields its integer byte values, as in CPython.
   def to_iterable({:bytes, bin}, env, ctx), do: {:ok, :binary.bin_to_list(bin), env, ctx}
+  def to_iterable({:bytearray, bin}, env, ctx), do: {:ok, :binary.bin_to_list(bin), env, ctx}
 
   def to_iterable({:range, _, _, _} = range, env, ctx) do
     case Builtins.range_to_list(range) do

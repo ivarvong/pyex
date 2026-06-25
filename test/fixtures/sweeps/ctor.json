@@ -1,0 +1,1365 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "code": "int(42)",
+      "result": "42"
+    },
+    {
+      "code": "int(-5)",
+      "result": "-5"
+    },
+    {
+      "code": "int(0)",
+      "result": "0"
+    },
+    {
+      "code": "int(3.14)",
+      "result": "3"
+    },
+    {
+      "code": "int(1e3)",
+      "result": "1000"
+    },
+    {
+      "code": "int(3.0)",
+      "result": "3"
+    },
+    {
+      "code": "int(True)",
+      "result": "1"
+    },
+    {
+      "code": "int(False)",
+      "result": "0"
+    },
+    {
+      "code": "int(None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "int(1j)",
+      "error": "TypeError"
+    },
+    {
+      "code": "int('42')",
+      "result": "42"
+    },
+    {
+      "code": "int('  10  ')",
+      "result": "10"
+    },
+    {
+      "code": "int('0x1f')",
+      "error": "ValueError"
+    },
+    {
+      "code": "int('1_000')",
+      "result": "1000"
+    },
+    {
+      "code": "int('3.14')",
+      "error": "ValueError"
+    },
+    {
+      "code": "int('abc')",
+      "error": "ValueError"
+    },
+    {
+      "code": "int('')",
+      "error": "ValueError"
+    },
+    {
+      "code": "int('caf\u00e9')",
+      "error": "ValueError"
+    },
+    {
+      "code": "int([1, 2, 3])",
+      "error": "TypeError"
+    },
+    {
+      "code": "int([])",
+      "error": "TypeError"
+    },
+    {
+      "code": "int(['a', 'b'])",
+      "error": "TypeError"
+    },
+    {
+      "code": "int([(1, 2), (3, 4)])",
+      "error": "TypeError"
+    },
+    {
+      "code": "int((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "int(())",
+      "error": "TypeError"
+    },
+    {
+      "code": "int(b'ab')",
+      "error": "ValueError"
+    },
+    {
+      "code": "int(b'')",
+      "error": "ValueError"
+    },
+    {
+      "code": "int(range(3))",
+      "error": "TypeError"
+    },
+    {
+      "code": "int({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "int(bytearray(b'xy'))",
+      "error": "ValueError"
+    },
+    {
+      "code": "float(42)",
+      "result": "42.0"
+    },
+    {
+      "code": "float(-5)",
+      "result": "-5.0"
+    },
+    {
+      "code": "float(0)",
+      "result": "0.0"
+    },
+    {
+      "code": "float(3.14)",
+      "result": "3.14"
+    },
+    {
+      "code": "float(1e3)",
+      "result": "1000.0"
+    },
+    {
+      "code": "float(3.0)",
+      "result": "3.0"
+    },
+    {
+      "code": "float(True)",
+      "result": "1.0"
+    },
+    {
+      "code": "float(False)",
+      "result": "0.0"
+    },
+    {
+      "code": "float(None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "float(1j)",
+      "error": "TypeError"
+    },
+    {
+      "code": "float('42')",
+      "result": "42.0"
+    },
+    {
+      "code": "float('  10  ')",
+      "result": "10.0"
+    },
+    {
+      "code": "float('0x1f')",
+      "error": "ValueError"
+    },
+    {
+      "code": "float('1_000')",
+      "result": "1000.0"
+    },
+    {
+      "code": "float('3.14')",
+      "result": "3.14"
+    },
+    {
+      "code": "float('abc')",
+      "error": "ValueError"
+    },
+    {
+      "code": "float('')",
+      "error": "ValueError"
+    },
+    {
+      "code": "float('caf\u00e9')",
+      "error": "ValueError"
+    },
+    {
+      "code": "float([1, 2, 3])",
+      "error": "TypeError"
+    },
+    {
+      "code": "float([])",
+      "error": "TypeError"
+    },
+    {
+      "code": "float(['a', 'b'])",
+      "error": "TypeError"
+    },
+    {
+      "code": "float([(1, 2), (3, 4)])",
+      "error": "TypeError"
+    },
+    {
+      "code": "float((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "float(())",
+      "error": "TypeError"
+    },
+    {
+      "code": "float(b'ab')",
+      "error": "ValueError"
+    },
+    {
+      "code": "float(b'')",
+      "error": "ValueError"
+    },
+    {
+      "code": "float(range(3))",
+      "error": "TypeError"
+    },
+    {
+      "code": "float({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "float(bytearray(b'xy'))",
+      "error": "ValueError"
+    },
+    {
+      "code": "str(42)",
+      "result": "'42'"
+    },
+    {
+      "code": "str(-5)",
+      "result": "'-5'"
+    },
+    {
+      "code": "str(0)",
+      "result": "'0'"
+    },
+    {
+      "code": "str(3.14)",
+      "result": "'3.14'"
+    },
+    {
+      "code": "str(1e3)",
+      "result": "'1000.0'"
+    },
+    {
+      "code": "str(3.0)",
+      "result": "'3.0'"
+    },
+    {
+      "code": "str(True)",
+      "result": "'True'"
+    },
+    {
+      "code": "str(False)",
+      "result": "'False'"
+    },
+    {
+      "code": "str(None)",
+      "result": "'None'"
+    },
+    {
+      "code": "str(1j)",
+      "result": "'1j'"
+    },
+    {
+      "code": "str('42')",
+      "result": "'42'"
+    },
+    {
+      "code": "str('  10  ')",
+      "result": "'  10  '"
+    },
+    {
+      "code": "str('0x1f')",
+      "result": "'0x1f'"
+    },
+    {
+      "code": "str('1_000')",
+      "result": "'1_000'"
+    },
+    {
+      "code": "str('3.14')",
+      "result": "'3.14'"
+    },
+    {
+      "code": "str('abc')",
+      "result": "'abc'"
+    },
+    {
+      "code": "str('')",
+      "result": "''"
+    },
+    {
+      "code": "str('caf\u00e9')",
+      "result": "'caf\u00e9'"
+    },
+    {
+      "code": "str([1, 2, 3])",
+      "result": "'[1, 2, 3]'"
+    },
+    {
+      "code": "str([])",
+      "result": "'[]'"
+    },
+    {
+      "code": "str(['a', 'b'])",
+      "result": "\"['a', 'b']\""
+    },
+    {
+      "code": "str([(1, 2), (3, 4)])",
+      "result": "'[(1, 2), (3, 4)]'"
+    },
+    {
+      "code": "str((1, 2))",
+      "result": "'(1, 2)'"
+    },
+    {
+      "code": "str(())",
+      "result": "'()'"
+    },
+    {
+      "code": "str(b'ab')",
+      "result": "\"b'ab'\""
+    },
+    {
+      "code": "str(b'')",
+      "result": "\"b''\""
+    },
+    {
+      "code": "str(range(3))",
+      "result": "'range(0, 3)'"
+    },
+    {
+      "code": "str({1: 2})",
+      "result": "'{1: 2}'"
+    },
+    {
+      "code": "str(bytearray(b'xy'))",
+      "result": "\"bytearray(b'xy')\""
+    },
+    {
+      "code": "bool(42)",
+      "result": "True"
+    },
+    {
+      "code": "bool(-5)",
+      "result": "True"
+    },
+    {
+      "code": "bool(0)",
+      "result": "False"
+    },
+    {
+      "code": "bool(3.14)",
+      "result": "True"
+    },
+    {
+      "code": "bool(1e3)",
+      "result": "True"
+    },
+    {
+      "code": "bool(3.0)",
+      "result": "True"
+    },
+    {
+      "code": "bool(True)",
+      "result": "True"
+    },
+    {
+      "code": "bool(False)",
+      "result": "False"
+    },
+    {
+      "code": "bool(None)",
+      "result": "False"
+    },
+    {
+      "code": "bool(1j)",
+      "result": "True"
+    },
+    {
+      "code": "bool('42')",
+      "result": "True"
+    },
+    {
+      "code": "bool('  10  ')",
+      "result": "True"
+    },
+    {
+      "code": "bool('0x1f')",
+      "result": "True"
+    },
+    {
+      "code": "bool('1_000')",
+      "result": "True"
+    },
+    {
+      "code": "bool('3.14')",
+      "result": "True"
+    },
+    {
+      "code": "bool('abc')",
+      "result": "True"
+    },
+    {
+      "code": "bool('')",
+      "result": "False"
+    },
+    {
+      "code": "bool('caf\u00e9')",
+      "result": "True"
+    },
+    {
+      "code": "bool([1, 2, 3])",
+      "result": "True"
+    },
+    {
+      "code": "bool([])",
+      "result": "False"
+    },
+    {
+      "code": "bool(['a', 'b'])",
+      "result": "True"
+    },
+    {
+      "code": "bool([(1, 2), (3, 4)])",
+      "result": "True"
+    },
+    {
+      "code": "bool((1, 2))",
+      "result": "True"
+    },
+    {
+      "code": "bool(())",
+      "result": "False"
+    },
+    {
+      "code": "bool(b'ab')",
+      "result": "True"
+    },
+    {
+      "code": "bool(b'')",
+      "result": "False"
+    },
+    {
+      "code": "bool(range(3))",
+      "result": "True"
+    },
+    {
+      "code": "bool({1: 2})",
+      "result": "True"
+    },
+    {
+      "code": "bool(bytearray(b'xy'))",
+      "result": "True"
+    },
+    {
+      "code": "bytes(42)",
+      "result": "b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00'"
+    },
+    {
+      "code": "bytes(-5)",
+      "error": "ValueError"
+    },
+    {
+      "code": "bytes(0)",
+      "result": "b''"
+    },
+    {
+      "code": "bytes(3.14)",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes(1e3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes(3.0)",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes(True)",
+      "result": "b'\\x00'"
+    },
+    {
+      "code": "bytes(False)",
+      "result": "b''"
+    },
+    {
+      "code": "bytes(None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes(1j)",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes('42')",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes('  10  ')",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes('0x1f')",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes('1_000')",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes('3.14')",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes('abc')",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes('')",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes('caf\u00e9')",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes([1, 2, 3])",
+      "result": "b'\\x01\\x02\\x03'"
+    },
+    {
+      "code": "bytes([])",
+      "result": "b''"
+    },
+    {
+      "code": "bytes(['a', 'b'])",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes([(1, 2), (3, 4)])",
+      "error": "TypeError"
+    },
+    {
+      "code": "bytes((1, 2))",
+      "result": "b'\\x01\\x02'"
+    },
+    {
+      "code": "bytes(())",
+      "result": "b''"
+    },
+    {
+      "code": "bytes(b'ab')",
+      "result": "b'ab'"
+    },
+    {
+      "code": "bytes(b'')",
+      "result": "b''"
+    },
+    {
+      "code": "bytes(range(3))",
+      "result": "b'\\x00\\x01\\x02'"
+    },
+    {
+      "code": "bytes({1: 2})",
+      "result": "b'\\x01'"
+    },
+    {
+      "code": "bytes(bytearray(b'xy'))",
+      "result": "b'xy'"
+    },
+    {
+      "code": "list(42)",
+      "error": "TypeError"
+    },
+    {
+      "code": "list(-5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "list(0)",
+      "error": "TypeError"
+    },
+    {
+      "code": "list(3.14)",
+      "error": "TypeError"
+    },
+    {
+      "code": "list(1e3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "list(3.0)",
+      "error": "TypeError"
+    },
+    {
+      "code": "list(True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "list(False)",
+      "error": "TypeError"
+    },
+    {
+      "code": "list(None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "list(1j)",
+      "error": "TypeError"
+    },
+    {
+      "code": "list('42')",
+      "result": "['4', '2']"
+    },
+    {
+      "code": "list('  10  ')",
+      "result": "[' ', ' ', '1', '0', ' ', ' ']"
+    },
+    {
+      "code": "list('0x1f')",
+      "result": "['0', 'x', '1', 'f']"
+    },
+    {
+      "code": "list('1_000')",
+      "result": "['1', '_', '0', '0', '0']"
+    },
+    {
+      "code": "list('3.14')",
+      "result": "['3', '.', '1', '4']"
+    },
+    {
+      "code": "list('abc')",
+      "result": "['a', 'b', 'c']"
+    },
+    {
+      "code": "list('')",
+      "result": "[]"
+    },
+    {
+      "code": "list('caf\u00e9')",
+      "result": "['c', 'a', 'f', '\u00e9']"
+    },
+    {
+      "code": "list([1, 2, 3])",
+      "result": "[1, 2, 3]"
+    },
+    {
+      "code": "list([])",
+      "result": "[]"
+    },
+    {
+      "code": "list(['a', 'b'])",
+      "result": "['a', 'b']"
+    },
+    {
+      "code": "list([(1, 2), (3, 4)])",
+      "result": "[(1, 2), (3, 4)]"
+    },
+    {
+      "code": "list((1, 2))",
+      "result": "[1, 2]"
+    },
+    {
+      "code": "list(())",
+      "result": "[]"
+    },
+    {
+      "code": "list(b'ab')",
+      "result": "[97, 98]"
+    },
+    {
+      "code": "list(b'')",
+      "result": "[]"
+    },
+    {
+      "code": "list(range(3))",
+      "result": "[0, 1, 2]"
+    },
+    {
+      "code": "list({1: 2})",
+      "result": "[1]"
+    },
+    {
+      "code": "list(bytearray(b'xy'))",
+      "result": "[120, 121]"
+    },
+    {
+      "code": "tuple(42)",
+      "error": "TypeError"
+    },
+    {
+      "code": "tuple(-5)",
+      "error": "TypeError"
+    },
+    {
+      "code": "tuple(0)",
+      "error": "TypeError"
+    },
+    {
+      "code": "tuple(3.14)",
+      "error": "TypeError"
+    },
+    {
+      "code": "tuple(1e3)",
+      "error": "TypeError"
+    },
+    {
+      "code": "tuple(3.0)",
+      "error": "TypeError"
+    },
+    {
+      "code": "tuple(True)",
+      "error": "TypeError"
+    },
+    {
+      "code": "tuple(False)",
+      "error": "TypeError"
+    },
+    {
+      "code": "tuple(None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "tuple(1j)",
+      "error": "TypeError"
+    },
+    {
+      "code": "tuple('42')",
+      "result": "('4', '2')"
+    },
+    {
+      "code": "tuple('  10  ')",
+      "result": "(' ', ' ', '1', '0', ' ', ' ')"
+    },
+    {
+      "code": "tuple('0x1f')",
+      "result": "('0', 'x', '1', 'f')"
+    },
+    {
+      "code": "tuple('1_000')",
+      "result": "('1', '_', '0', '0', '0')"
+    },
+    {
+      "code": "tuple('3.14')",
+      "result": "('3', '.', '1', '4')"
+    },
+    {
+      "code": "tuple('abc')",
+      "result": "('a', 'b', 'c')"
+    },
+    {
+      "code": "tuple('')",
+      "result": "()"
+    },
+    {
+      "code": "tuple('caf\u00e9')",
+      "result": "('c', 'a', 'f', '\u00e9')"
+    },
+    {
+      "code": "tuple([1, 2, 3])",
+      "result": "(1, 2, 3)"
+    },
+    {
+      "code": "tuple([])",
+      "result": "()"
+    },
+    {
+      "code": "tuple(['a', 'b'])",
+      "result": "('a', 'b')"
+    },
+    {
+      "code": "tuple([(1, 2), (3, 4)])",
+      "result": "((1, 2), (3, 4))"
+    },
+    {
+      "code": "tuple((1, 2))",
+      "result": "(1, 2)"
+    },
+    {
+      "code": "tuple(())",
+      "result": "()"
+    },
+    {
+      "code": "tuple(b'ab')",
+      "result": "(97, 98)"
+    },
+    {
+      "code": "tuple(b'')",
+      "result": "()"
+    },
+    {
+      "code": "tuple(range(3))",
+      "result": "(0, 1, 2)"
+    },
+    {
+      "code": "tuple({1: 2})",
+      "result": "(1,)"
+    },
+    {
+      "code": "tuple(bytearray(b'xy'))",
+      "result": "(120, 121)"
+    },
+    {
+      "code": "complex(42)",
+      "result": "(42+0j)"
+    },
+    {
+      "code": "complex(-5)",
+      "result": "(-5+0j)"
+    },
+    {
+      "code": "complex(0)",
+      "result": "0j"
+    },
+    {
+      "code": "complex(3.14)",
+      "result": "(3.14+0j)"
+    },
+    {
+      "code": "complex(1e3)",
+      "result": "(1000+0j)"
+    },
+    {
+      "code": "complex(3.0)",
+      "result": "(3+0j)"
+    },
+    {
+      "code": "complex(True)",
+      "result": "(1+0j)"
+    },
+    {
+      "code": "complex(False)",
+      "result": "0j"
+    },
+    {
+      "code": "complex(None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "complex(1j)",
+      "result": "1j"
+    },
+    {
+      "code": "complex('42')",
+      "result": "(42+0j)"
+    },
+    {
+      "code": "complex('  10  ')",
+      "result": "(10+0j)"
+    },
+    {
+      "code": "complex('0x1f')",
+      "error": "ValueError"
+    },
+    {
+      "code": "complex('1_000')",
+      "result": "(1000+0j)"
+    },
+    {
+      "code": "complex('3.14')",
+      "result": "(3.14+0j)"
+    },
+    {
+      "code": "complex('abc')",
+      "error": "ValueError"
+    },
+    {
+      "code": "complex('')",
+      "error": "ValueError"
+    },
+    {
+      "code": "complex('caf\u00e9')",
+      "error": "ValueError"
+    },
+    {
+      "code": "complex([1, 2, 3])",
+      "error": "TypeError"
+    },
+    {
+      "code": "complex([])",
+      "error": "TypeError"
+    },
+    {
+      "code": "complex(['a', 'b'])",
+      "error": "TypeError"
+    },
+    {
+      "code": "complex([(1, 2), (3, 4)])",
+      "error": "TypeError"
+    },
+    {
+      "code": "complex((1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "complex(())",
+      "error": "TypeError"
+    },
+    {
+      "code": "complex(b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "complex(b'')",
+      "error": "TypeError"
+    },
+    {
+      "code": "complex(range(3))",
+      "error": "TypeError"
+    },
+    {
+      "code": "complex({1: 2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "complex(bytearray(b'xy'))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(set(42))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(set(-5))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(set(0))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(set(3.14))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(set(1e3))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(set(3.0))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(set(True))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(set(False))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(set(None))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(set(1j))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(set('42'))",
+      "result": "['2', '4']"
+    },
+    {
+      "code": "sorted(set('  10  '))",
+      "result": "[' ', '0', '1']"
+    },
+    {
+      "code": "sorted(set('0x1f'))",
+      "result": "['0', '1', 'f', 'x']"
+    },
+    {
+      "code": "sorted(set('1_000'))",
+      "result": "['0', '1', '_']"
+    },
+    {
+      "code": "sorted(set('3.14'))",
+      "result": "['.', '1', '3', '4']"
+    },
+    {
+      "code": "sorted(set('abc'))",
+      "result": "['a', 'b', 'c']"
+    },
+    {
+      "code": "sorted(set(''))",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(set('caf\u00e9'))",
+      "result": "['a', 'c', 'f', '\u00e9']"
+    },
+    {
+      "code": "sorted(set([1, 2, 3]))",
+      "result": "[1, 2, 3]"
+    },
+    {
+      "code": "sorted(set([]))",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(set(['a', 'b']))",
+      "result": "['a', 'b']"
+    },
+    {
+      "code": "sorted(set([(1, 2), (3, 4)]))",
+      "result": "[(1, 2), (3, 4)]"
+    },
+    {
+      "code": "sorted(set((1, 2)))",
+      "result": "[1, 2]"
+    },
+    {
+      "code": "sorted(set(()))",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(set(b'ab'))",
+      "result": "[97, 98]"
+    },
+    {
+      "code": "sorted(set(b''))",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(set(range(3)))",
+      "result": "[0, 1, 2]"
+    },
+    {
+      "code": "sorted(set({1: 2}))",
+      "result": "[1]"
+    },
+    {
+      "code": "sorted(set(bytearray(b'xy')))",
+      "result": "[120, 121]"
+    },
+    {
+      "code": "sorted(frozenset(42))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(frozenset(-5))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(frozenset(0))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(frozenset(3.14))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(frozenset(1e3))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(frozenset(3.0))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(frozenset(True))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(frozenset(False))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(frozenset(None))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(frozenset(1j))",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(frozenset('42'))",
+      "result": "['2', '4']"
+    },
+    {
+      "code": "sorted(frozenset('  10  '))",
+      "result": "[' ', '0', '1']"
+    },
+    {
+      "code": "sorted(frozenset('0x1f'))",
+      "result": "['0', '1', 'f', 'x']"
+    },
+    {
+      "code": "sorted(frozenset('1_000'))",
+      "result": "['0', '1', '_']"
+    },
+    {
+      "code": "sorted(frozenset('3.14'))",
+      "result": "['.', '1', '3', '4']"
+    },
+    {
+      "code": "sorted(frozenset('abc'))",
+      "result": "['a', 'b', 'c']"
+    },
+    {
+      "code": "sorted(frozenset(''))",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(frozenset('caf\u00e9'))",
+      "result": "['a', 'c', 'f', '\u00e9']"
+    },
+    {
+      "code": "sorted(frozenset([1, 2, 3]))",
+      "result": "[1, 2, 3]"
+    },
+    {
+      "code": "sorted(frozenset([]))",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(frozenset(['a', 'b']))",
+      "result": "['a', 'b']"
+    },
+    {
+      "code": "sorted(frozenset([(1, 2), (3, 4)]))",
+      "result": "[(1, 2), (3, 4)]"
+    },
+    {
+      "code": "sorted(frozenset((1, 2)))",
+      "result": "[1, 2]"
+    },
+    {
+      "code": "sorted(frozenset(()))",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(frozenset(b'ab'))",
+      "result": "[97, 98]"
+    },
+    {
+      "code": "sorted(frozenset(b''))",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(frozenset(range(3)))",
+      "result": "[0, 1, 2]"
+    },
+    {
+      "code": "sorted(frozenset({1: 2}))",
+      "result": "[1]"
+    },
+    {
+      "code": "sorted(frozenset(bytearray(b'xy')))",
+      "result": "[120, 121]"
+    },
+    {
+      "code": "sorted(dict(42).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict(-5).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict(0).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict(3.14).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict(1e3).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict(3.0).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict(True).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict(False).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict(None).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict(1j).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict('42').items())",
+      "error": "ValueError"
+    },
+    {
+      "code": "sorted(dict('  10  ').items())",
+      "error": "ValueError"
+    },
+    {
+      "code": "sorted(dict('0x1f').items())",
+      "error": "ValueError"
+    },
+    {
+      "code": "sorted(dict('1_000').items())",
+      "error": "ValueError"
+    },
+    {
+      "code": "sorted(dict('3.14').items())",
+      "error": "ValueError"
+    },
+    {
+      "code": "sorted(dict('abc').items())",
+      "error": "ValueError"
+    },
+    {
+      "code": "sorted(dict('').items())",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(dict('caf\u00e9').items())",
+      "error": "ValueError"
+    },
+    {
+      "code": "sorted(dict([1, 2, 3]).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict([]).items())",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(dict(['a', 'b']).items())",
+      "error": "ValueError"
+    },
+    {
+      "code": "sorted(dict([(1, 2), (3, 4)]).items())",
+      "result": "[(1, 2), (3, 4)]"
+    },
+    {
+      "code": "sorted(dict((1, 2)).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict(()).items())",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(dict(b'ab').items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict(b'').items())",
+      "result": "[]"
+    },
+    {
+      "code": "sorted(dict(range(3)).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "sorted(dict({1: 2}).items())",
+      "result": "[(1, 2)]"
+    },
+    {
+      "code": "sorted(dict(bytearray(b'xy')).items())",
+      "error": "TypeError"
+    },
+    {
+      "code": "int('1f', 16)",
+      "result": "31"
+    },
+    {
+      "code": "int('101', 2)",
+      "result": "5"
+    },
+    {
+      "code": "int('777', 8)",
+      "result": "511"
+    },
+    {
+      "code": "int('42', 10)",
+      "result": "42"
+    },
+    {
+      "code": "int('z', 36)",
+      "result": "35"
+    },
+    {
+      "code": "int(3.99)",
+      "result": "3"
+    },
+    {
+      "code": "int(-3.99)",
+      "result": "-3"
+    },
+    {
+      "code": "float('inf')",
+      "result": "inf"
+    },
+    {
+      "code": "float('-inf')",
+      "result": "-inf"
+    },
+    {
+      "code": "float('nan')",
+      "result": "nan"
+    },
+    {
+      "code": "str(b'ab', 'utf-8')",
+      "result": "'ab'"
+    },
+    {
+      "code": "bytes('abc', 'utf-8')",
+      "result": "b'abc'"
+    },
+    {
+      "code": "bytes(3)",
+      "result": "b'\\x00\\x00\\x00'"
+    },
+    {
+      "code": "bool()",
+      "result": "False"
+    },
+    {
+      "code": "int()",
+      "result": "0"
+    },
+    {
+      "code": "str()",
+      "result": "''"
+    },
+    {
+      "code": "list()",
+      "result": "[]"
+    },
+    {
+      "code": "dict()",
+      "result": "{}"
+    },
+    {
+      "code": "dict([('a', 1), ('b', 2)])",
+      "result": "{'a': 1, 'b': 2}"
+    },
+    {
+      "code": "complex('1+2j')",
+      "result": "(1+2j)"
+    },
+    {
+      "code": "complex(1, 2)",
+      "result": "(1+2j)"
+    }
+  ]
+}
