@@ -68,4 +68,75 @@ defmodule Pyex.Conformance.ClassIntrospectionTest do
       check!(~S|print("abc".translate(str.maketrans("xyz", "XYZ")))|)
     end
   end
+
+  # A regular method accessed *through a class* (not an instance) is a
+  # plain function in CPython -- own or inherited, via attribute access or
+  # getattr. pyex historically resolved this in three separate code paths
+  # that disagreed: only `cls.own_method` returned the function; getattr
+  # and inherited access wrongly returned a class-bound method, which both
+  # mis-typed and broke calling the method with an explicit self.
+  describe "method access through a class returns a plain function" do
+    test "own method via attribute access" do
+      check!("""
+      class C:
+          def m(self): return 1
+      print(type(C.m).__name__)
+      """)
+    end
+
+    test "own method via getattr" do
+      check!("""
+      class C:
+          def m(self): return 1
+      print(type(getattr(C, "m")).__name__)
+      """)
+    end
+
+    test "inherited method via attribute access" do
+      check!("""
+      class C:
+          def m(self): return 1
+      class D(C): pass
+      print(type(D.m).__name__)
+      """)
+    end
+
+    test "inherited method is callable with an explicit self" do
+      check!("""
+      class C:
+          def m(self): return 1
+      class D(C): pass
+      print(D.m(D()))
+      """)
+    end
+  end
+
+  describe "static and class methods through a class" do
+    test "staticmethod via attribute access and getattr" do
+      check!("""
+      class C:
+          @staticmethod
+          def s(): return 7
+      print(C.s(), getattr(C, "s")())
+      """)
+    end
+
+    test "classmethod returns the owning class" do
+      check!("""
+      class C:
+          @classmethod
+          def c(cls): return cls.__name__
+      print(C.c(), getattr(C, "c")())
+      """)
+    end
+  end
+
+  describe "__qualname__ is consistent across access paths" do
+    test "via attribute access and getattr" do
+      check!("""
+      class C: pass
+      print(C.__qualname__, getattr(C, "__qualname__"))
+      """)
+    end
+  end
 end

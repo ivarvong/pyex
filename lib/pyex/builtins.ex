@@ -2028,58 +2028,8 @@ defmodule Pyex.Builtins do
 
   @spec class_getattr(Interpreter.pyvalue(), String.t()) ::
           {:ok, Interpreter.pyvalue()} | :error
-  defp class_getattr({:class, _, _, _} = class, "__mro__") do
-    mro = Pyex.Interpreter.ClassLookup.c3_linearize(class)
-    object_class = {:class, "object", [], %{"__name__" => "object"}}
-
-    mro_with_object =
-      if Enum.any?(mro, fn {:class, n, _, _} -> n == "object" end) do
-        mro
-      else
-        mro ++ [object_class]
-      end
-
-    {:ok, {:tuple, mro_with_object}}
-  end
-
-  defp class_getattr({:class, _, bases, _}, "__bases__"), do: {:ok, {:tuple, bases}}
-
-  defp class_getattr({:class, name, _, class_attrs}, "__name__") do
-    case Map.fetch(class_attrs, "__name__") do
-      {:ok, _} = ok -> ok
-      :error -> {:ok, name}
-    end
-  end
-
-  defp class_getattr({:class, _, _, _}, "__class__") do
-    {:ok, type_class()}
-  end
-
-  defp class_getattr({:class, _, _, class_attrs}, "__dict__") do
-    visible = Pyex.Interpreter.ClassLookup.visible_attrs(class_attrs)
-    {:ok, PyDict.from_pairs(Enum.map(visible, fn {k, v} -> {k, v} end))}
-  end
-
   defp class_getattr({:class, _, _, _} = class, attr) do
-    case Pyex.Interpreter.ClassLookup.resolve_class_attr_with_owner(class, attr) do
-      {:ok, {:function, _, _, _, _, _, _} = func, _owner} ->
-        {:ok, {:bound_method, class, func}}
-
-      {:ok, {:builtin_kw, _} = bkw, _owner} ->
-        {:ok, {:bound_method, class, bkw}}
-
-      {:ok, {:staticmethod, func}, _owner} ->
-        {:ok, func}
-
-      {:ok, {:classmethod, func}, _owner} ->
-        {:ok, {:bound_method, class, func}}
-
-      {:ok, value, _owner} ->
-        {:ok, value}
-
-      :error ->
-        :error
-    end
+    Pyex.Interpreter.ClassLookup.class_attribute(class, attr)
   end
 
   @spec module_getattr(Interpreter.pyvalue(), String.t()) ::
