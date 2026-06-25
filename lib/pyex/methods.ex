@@ -11,11 +11,12 @@ defmodule Pyex.Methods do
   alias Pyex.Interpreter.{FstringFormat, Helpers}
 
   @string_methods ~w(
-    capitalize center count encode endswith expandtabs find format
-    index isalnum isalpha isdigit islower isnumeric isspace istitle
-    isupper join ljust lower lstrip partition replace rfind rindex
-    rjust rpartition rsplit rstrip split splitlines startswith strip
-    swapcase title upper zfill
+    capitalize casefold center count encode endswith expandtabs find
+    format index isalnum isalpha isdecimal isdigit islower isnumeric
+    isspace istitle isupper join ljust lower lstrip partition
+    removeprefix removesuffix replace rfind rindex rjust rpartition
+    rsplit rstrip split splitlines startswith strip swapcase title
+    translate upper zfill
   )
 
   @list_methods ~w(append clear copy count extend index insert pop remove reverse sort)
@@ -29,6 +30,7 @@ defmodule Pyex.Methods do
     issubset issuperset symmetric_difference union
   )
   @tuple_methods ~w(count index)
+  @file_methods ~w(close read readline readlines write)
 
   @doc """
   Attempts to resolve `attr` on `object`. Returns
@@ -222,6 +224,7 @@ defmodule Pyex.Methods do
 
   def method_names({:tuple, _}), do: @tuple_methods
   def method_names({:pyex_decimal, _}), do: @decimal_methods
+  def method_names({:file_handle, _}), do: @file_methods
   def method_names(_), do: []
 
   @spec bound(
