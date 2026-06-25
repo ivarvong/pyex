@@ -698,18 +698,6 @@ defmodule Pyex.Interpreter.Invocation do
     end
   end
 
-  defp no_drain_builtins do
-    case :persistent_term.get({__MODULE__, :no_drain_builtins}, nil) do
-      nil ->
-        set = Pyex.Builtins.no_drain_builtin_funcs()
-        :persistent_term.put({__MODULE__, :no_drain_builtins}, set)
-        set
-
-      set ->
-        set
-    end
-  end
-
   # Identity-preserving materializers (list/tuple/reversed/sorted) take a
   # shallow deref so element refs survive; everything else deep-derefs.
   @spec deref_args_for((... -> term()), [Interpreter.pyvalue()], Ctx.t()) ::
@@ -755,7 +743,7 @@ defmodule Pyex.Interpreter.Invocation do
           Ctx.t()
         ) :: {[Interpreter.pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
   defp maybe_drain_args(fun, args, env, ctx) do
-    if MapSet.member?(no_drain_builtins(), fun) do
+    if Pyex.Builtins.no_drain_builtin?(fun) do
       {args, env, ctx}
     else
       drain_gen_args(args, env, ctx)
