@@ -70,6 +70,15 @@ defmodule Pyex.Parser.Definitions do
               error
           end
 
+        [{:op, _, :colon} | inline_rest] ->
+          case Parser.parse_inline_body(inline_rest) do
+            {:ok, body, rest} ->
+              {:ok, nest_with(targets, body, line), drop_newline(rest)}
+
+            {:error, _} = error ->
+              error
+          end
+
         _ ->
           {:error, "expected ':' after with statement on line #{line}"}
       end

@@ -917,11 +917,43 @@ defmodule Pyex.Methods do
           {:ok, ([Interpreter.pyvalue()] -> term())} | :error
   defp file_method("read", id) do
     {:ok,
-     fn [] ->
+     fn args ->
        {:ctx_call,
         fn env, ctx ->
-          case Pyex.Ctx.read_handle(ctx, id) do
+          result =
+            case args do
+              [n] when is_integer(n) and n >= 0 -> Pyex.Ctx.read_handle(ctx, id, n)
+              _ -> Pyex.Ctx.read_handle(ctx, id)
+            end
+
+          case result do
             {:ok, content, ctx} -> {content, env, ctx}
+            {:error, msg} -> {{:exception, msg}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("readline", id) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.readline_handle(ctx, id) do
+            {:ok, line, ctx} -> {line, env, ctx}
+            {:error, msg} -> {{:exception, msg}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("readlines", id) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.readlines_handle(ctx, id) do
+            {:ok, lines, ctx} -> {{:py_list, Enum.reverse(lines), length(lines)}, env, ctx}
             {:error, msg} -> {{:exception, msg}, env, ctx}
           end
         end}

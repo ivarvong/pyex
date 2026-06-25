@@ -378,7 +378,9 @@ defmodule Pyex.Stdlib.Jinja2 do
 
   @spec build_env(%{optional(String.t()) => Interpreter.pyvalue()}) :: Pyex.Env.t()
   defp build_env(kwargs) do
-    base = Builtins.env()
+    # Drop `__import__` so template expressions cannot reach the import
+    # machinery -- templates are evaluated as a sandbox within the sandbox.
+    base = Pyex.Env.delete(Builtins.env(), "__import__")
 
     Enum.reduce(kwargs, base, fn {k, v}, env ->
       Pyex.Env.put(env, k, v)

@@ -52,6 +52,15 @@ defmodule Pyex.Interpreter.Iterables do
 
   def to_iterable({:generator_error, items, _msg}, env, ctx), do: {:ok, items, env, ctx}
 
+  # Iterating a file handle yields its remaining lines, each preserving
+  # its trailing newline, advancing the handle to EOF.
+  def to_iterable({:file_handle, id}, env, ctx) do
+    case Ctx.readlines_handle(ctx, id) do
+      {:ok, lines, ctx} -> {:ok, lines, env, ctx}
+      {:error, msg} -> {:exception, msg}
+    end
+  end
+
   def to_iterable({:iterator, id}, env, ctx) do
     case Ctx.iter_entry(ctx, id) do
       {:gen_pending, _val, _cont, _gen_env} ->

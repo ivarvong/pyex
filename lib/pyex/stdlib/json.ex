@@ -12,8 +12,9 @@ defmodule Pyex.Stdlib.JSON do
 
   @behaviour Pyex.Stdlib.Module
 
-  alias Pyex.PyDict
+  alias Pyex.Interpreter
   alias Pyex.Interpreter.Helpers
+  alias Pyex.PyDict
 
   @max_indent 32
 
@@ -65,19 +66,31 @@ defmodule Pyex.Stdlib.JSON do
       {:exception, _} = err ->
         err
 
-      json_str ->
-        {:io_call,
+      {:ctx_call, run} ->
+        {:ctx_call,
          fn env, ctx ->
-           case Pyex.Ctx.write_handle(ctx, id, json_str) do
-             {:ok, ctx} -> {nil, env, ctx}
-             {:error, msg} -> {{:exception, msg}, env, ctx}
+           case run.(env, ctx) do
+             {{:exception, _} = exc, env, ctx} -> {exc, env, ctx}
+             {json_str, env, ctx} -> write_json(id, json_str, env, ctx)
            end
          end}
+
+      json_str ->
+        {:io_call, fn env, ctx -> write_json(id, json_str, env, ctx) end}
     end
   end
 
   defp do_dump(_args, _kwargs) do
     {:exception, "TypeError: json.dump() requires a value and a file object"}
+  end
+
+  @spec write_json(non_neg_integer(), String.t(), Pyex.Env.t(), Pyex.Ctx.t()) ::
+          {Pyex.Interpreter.pyvalue(), Pyex.Env.t(), Pyex.Ctx.t()}
+  defp write_json(id, json_str, env, ctx) when is_binary(json_str) do
+    case Pyex.Ctx.write_handle(ctx, id, json_str) do
+      {:ok, ctx} -> {nil, env, ctx}
+      {:error, msg} -> {{:exception, msg}, env, ctx}
+    end
   end
 
   @spec do_loads([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
@@ -128,8 +141,31 @@ defmodule Pyex.Stdlib.JSON do
   @spec do_dumps(
           [Pyex.Interpreter.pyvalue()],
           %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
-        ) :: String.t() | {:exception, String.t()}
+        ) ::
+          String.t()
+          | {:exception, String.t()}
+          | {:ctx_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {term(), Pyex.Env.t(), Pyex.Ctx.t()})}
   defp do_dumps([value], kwargs) do
+    case Map.get(kwargs, "default") do
+      nil ->
+        dumps_encode(value, kwargs)
+
+      default ->
+        {:ctx_call,
+         fn env, ctx ->
+           case apply_default(value, default, env, ctx) do
+             {:ok, transformed, ctx} -> {dumps_encode(transformed, kwargs), env, ctx}
+             {{:exception, _} = exc, ctx} -> {exc, env, ctx}
+           end
+         end}
+    end
+  end
+
+  @spec dumps_encode(
+          Pyex.Interpreter.pyvalue(),
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: String.t() | {:exception, String.t()}
+  defp dumps_encode(value, kwargs) do
     indent = Map.get(kwargs, "indent")
     sort_keys = Map.get(kwargs, "sort_keys", false)
     ensure_ascii = Map.get(kwargs, "ensure_ascii", true)
@@ -158,6 +194,124 @@ defmodule Pyex.Stdlib.JSON do
           item_sep: elem(separators, 0),
           key_sep: elem(separators, 1)
         })
+    end
+  end
+
+  # Recursively replaces any value the encoder cannot handle natively by
+  # the result of calling `default` on it (mirroring CPython's `default=`
+  # hook), so the resulting tree contains only natively-encodable values.
+  @spec apply_default(
+          Pyex.Interpreter.pyvalue(),
+          Pyex.Interpreter.pyvalue(),
+          Pyex.Env.t(),
+          Pyex.Ctx.t()
+        ) ::
+          {:ok, Pyex.Interpreter.pyvalue(), Pyex.Ctx.t()}
+          | {{:exception, String.t()}, Pyex.Ctx.t()}
+  defp apply_default(nil, _default, _env, ctx), do: {:ok, nil, ctx}
+  defp apply_default(v, _default, _env, ctx) when is_boolean(v), do: {:ok, v, ctx}
+
+  defp apply_default(v, _default, _env, ctx)
+       when is_integer(v) or is_float(v) or is_binary(v),
+       do: {:ok, v, ctx}
+
+  defp apply_default(v, _default, _env, ctx) when v in [:infinity, :neg_infinity, :nan],
+    do: {:ok, v, ctx}
+
+  defp apply_default({:py_list, reversed, n}, default, env, ctx) do
+    case apply_default_list(Enum.reverse(reversed), default, env, ctx) do
+      {:ok, items, ctx} -> {:ok, {:py_list, Enum.reverse(items), n}, ctx}
+      other -> other
+    end
+  end
+
+  defp apply_default(list, default, env, ctx) when is_list(list) do
+    apply_default_list(list, default, env, ctx)
+  end
+
+  defp apply_default({:tuple, items}, default, env, ctx) do
+    case apply_default_list(items, default, env, ctx) do
+      {:ok, new_items, ctx} -> {:ok, {:tuple, new_items}, ctx}
+      other -> other
+    end
+  end
+
+  defp apply_default({:set, set}, default, env, ctx) do
+    case apply_default_list(MapSet.to_list(set), default, env, ctx) do
+      {:ok, new_items, ctx} -> {:ok, {:set, MapSet.new(new_items)}, ctx}
+      other -> other
+    end
+  end
+
+  defp apply_default({:frozenset, set}, default, env, ctx) do
+    case apply_default_list(MapSet.to_list(set), default, env, ctx) do
+      {:ok, new_items, ctx} -> {:ok, {:frozenset, MapSet.new(new_items)}, ctx}
+      other -> other
+    end
+  end
+
+  defp apply_default({:py_dict, _, _} = dict, default, env, ctx) do
+    case apply_default_pairs(PyDict.items(dict), default, env, ctx) do
+      {:ok, pairs, ctx} -> {:ok, PyDict.from_pairs(pairs), ctx}
+      other -> other
+    end
+  end
+
+  defp apply_default(map, default, env, ctx) when is_map(map) do
+    case apply_default_pairs(Enum.into(map, []), default, env, ctx) do
+      {:ok, pairs, ctx} -> {:ok, Map.new(pairs), ctx}
+      other -> other
+    end
+  end
+
+  defp apply_default(other, default, env, ctx) do
+    case Interpreter.call_function(default, [other], %{}, env, ctx) do
+      {{:exception, _} = exc, _env, ctx} -> {exc, ctx}
+      {{:exception, _} = exc, _env, ctx, _updated} -> {exc, ctx}
+      {result, _env, ctx} -> apply_default(result, default, env, ctx)
+      {result, _env, ctx, _updated} -> apply_default(result, default, env, ctx)
+    end
+  end
+
+  @spec apply_default_list(
+          [Pyex.Interpreter.pyvalue()],
+          Pyex.Interpreter.pyvalue(),
+          Pyex.Env.t(),
+          Pyex.Ctx.t()
+        ) ::
+          {:ok, [Pyex.Interpreter.pyvalue()], Pyex.Ctx.t()}
+          | {{:exception, String.t()}, Pyex.Ctx.t()}
+  defp apply_default_list(items, default, env, ctx) do
+    Enum.reduce_while(items, {:ok, [], ctx}, fn item, {:ok, acc, ctx} ->
+      case apply_default(item, default, env, ctx) do
+        {:ok, new_item, ctx} -> {:cont, {:ok, [new_item | acc], ctx}}
+        {{:exception, _}, _ctx} = err -> {:halt, err}
+      end
+    end)
+    |> case do
+      {:ok, acc, ctx} -> {:ok, Enum.reverse(acc), ctx}
+      other -> other
+    end
+  end
+
+  @spec apply_default_pairs(
+          [{Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()}],
+          Pyex.Interpreter.pyvalue(),
+          Pyex.Env.t(),
+          Pyex.Ctx.t()
+        ) ::
+          {:ok, [{Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()}], Pyex.Ctx.t()}
+          | {{:exception, String.t()}, Pyex.Ctx.t()}
+  defp apply_default_pairs(pairs, default, env, ctx) do
+    Enum.reduce_while(pairs, {:ok, [], ctx}, fn {k, v}, {:ok, acc, ctx} ->
+      case apply_default(v, default, env, ctx) do
+        {:ok, new_v, ctx} -> {:cont, {:ok, [{k, new_v} | acc], ctx}}
+        {{:exception, _}, _ctx} = err -> {:halt, err}
+      end
+    end)
+    |> case do
+      {:ok, acc, ctx} -> {:ok, Enum.reverse(acc), ctx}
+      other -> other
     end
   end
 
