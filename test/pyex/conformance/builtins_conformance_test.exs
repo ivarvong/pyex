@@ -43,7 +43,13 @@ defmodule Pyex.Conformance.BuiltinsTest do
           {"min default empty", "min([], default=0)"},
           {"max default empty", "max([], default=-1)"},
           {"min strings", ~S|min(["banana", "apple", "cherry"])|},
-          {"min negative", "min(-3, -1, -4)"}
+          {"min negative", "min(-3, -1, -4)"},
+          # A dict argument iterates its keys, like sorted()/list()/for.
+          {"max dict keys", ~S|max({"a": 1, "b": 2})|},
+          {"min dict keys", ~S|min({"a": 1, "b": 2})|},
+          {"max dict by value", ~S|max({"a": 1, "b": 2}, key=lambda k: {"a": 1, "b": 2}[k])|},
+          {"min dict default empty", ~S|min({}, default="x")|},
+          {"max dict default empty", ~S|max({}, default=0)|}
         ] do
       test "#{label}" do
         check!("print(#{unquote(expr)})")
@@ -59,7 +65,11 @@ defmodule Pyex.Conformance.BuiltinsTest do
           {"with start", "sum([1, 2, 3], 100)"},
           {"floats", "sum([0.1, 0.2, 0.3])"},
           {"range", "sum(range(1, 11))"},
-          {"tuple of tuples with start", "sum([[1, 2], [3, 4]], [])"}
+          {"tuple of tuples with start", "sum([[1, 2], [3, 4]], [])"},
+          # A dict argument sums its keys, like sorted()/list()/for.
+          {"dict keys", "sum({1: 9, 2: 9})"},
+          {"empty dict", "sum({})"},
+          {"dict keys with start", "sum({1: 9, 2: 9}, 100)"}
         ] do
       test "#{label}" do
         check!("print(#{unquote(expr)})")

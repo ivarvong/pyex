@@ -646,6 +646,12 @@ defmodule Pyex.Builtins do
 
   defp extract_minmax_items([{:tuple, items}]), do: {:ok, items}
 
+  # A dict argument iterates its keys, like sorted()/list()/for.
+  defp extract_minmax_items([{:py_dict, _, _} = dict]), do: {:ok, PyDict.keys(visible_dict(dict))}
+
+  defp extract_minmax_items([map]) when is_map(map),
+    do: {:ok, map |> visible_dict() |> Map.keys()}
+
   defp extract_minmax_items(args) when length(args) >= 2, do: {:ok, args}
   defp extract_minmax_items(_), do: {:error, "TypeError: expected iterable argument"}
 
@@ -659,6 +665,13 @@ defmodule Pyex.Builtins do
   defp builtin_sum([list, start]) when is_list(list), do: sum_with_start(list, start)
   defp builtin_sum([{:tuple, items}, start]), do: sum_with_start(items, start)
   defp builtin_sum([{:generator, items}, start]), do: sum_with_start(items, start)
+
+  # A dict argument sums its keys, like sorted()/list()/for.
+  defp builtin_sum([{:py_dict, _, _} = dict, start]),
+    do: sum_with_start(PyDict.keys(visible_dict(dict)), start)
+
+  defp builtin_sum([map, start]) when is_map(map),
+    do: sum_with_start(map |> visible_dict() |> Map.keys(), start)
 
   defp builtin_sum([{:range, _, _, _} = r, start]) do
     case range_to_list(r) do
