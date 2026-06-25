@@ -65,11 +65,13 @@ defmodule Pyex.Stdlib.Statistics do
 
   @spec coerce_list([Pyex.Interpreter.pyvalue()]) ::
           [Pyex.Interpreter.pyvalue()] | {:error, String.t()}
-  defp coerce_list([{:py_list, reversed, _}]), do: Enum.reverse(reversed)
-  defp coerce_list([list]) when is_list(list), do: list
-  defp coerce_list([{:tuple, items}]), do: items
-  defp coerce_list([{:generator, items}]), do: items
-  defp coerce_list([{:set, set}]), do: MapSet.to_list(set)
+  defp coerce_list([iterable]) do
+    case Pyex.Builtins.iterable_to_list(iterable) do
+      {:ok, items} -> items
+      :error -> {:error, "TypeError: argument must be an iterable"}
+    end
+  end
+
   defp coerce_list(_), do: {:error, "TypeError: argument must be an iterable"}
 
   @spec do_mean([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()

@@ -240,12 +240,15 @@ defmodule Pyex.Stdlib.Math do
 
   # ── summation / product ───────────────────────────────────────
 
-  defp do_fsum([{:py_list, reversed, _}]) do
-    reversed |> Enum.reverse() |> neumaier_sum()
-  end
+  defp do_fsum([iterable]) do
+    case Pyex.Builtins.iterable_to_list(iterable) do
+      {:ok, items} ->
+        neumaier_sum(items)
 
-  defp do_fsum([items]) when is_list(items) do
-    neumaier_sum(items)
+      :error ->
+        {:exception,
+         "TypeError: '#{Pyex.Interpreter.Helpers.py_type(iterable)}' object is not iterable"}
+    end
   end
 
   # Neumaier summation: a variant of Kahan summation that handles cases
@@ -270,14 +273,17 @@ defmodule Pyex.Stdlib.Math do
     sum + c
   end
 
-  defp do_prod([{:py_list, reversed, _}], kwargs) do
+  defp do_prod([iterable], kwargs) do
     start = Map.get(kwargs, "start", 1)
-    Enum.reduce(reversed, start, fn x, acc when is_number(x) -> acc * x end)
-  end
 
-  defp do_prod([items], kwargs) when is_list(items) do
-    start = Map.get(kwargs, "start", 1)
-    Enum.reduce(items, start, fn x, acc when is_number(x) -> acc * x end)
+    case Pyex.Builtins.iterable_to_list(iterable) do
+      {:ok, items} ->
+        Enum.reduce(items, start, fn x, acc when is_number(x) -> acc * x end)
+
+      :error ->
+        {:exception,
+         "TypeError: '#{Pyex.Interpreter.Helpers.py_type(iterable)}' object is not iterable"}
+    end
   end
 
   # ── helpers ───────────────────────────────────────────────────

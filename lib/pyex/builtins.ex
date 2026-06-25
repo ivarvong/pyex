@@ -562,6 +562,7 @@ defmodule Pyex.Builtins do
   defp builtin_abs([false]), do: 0
   defp builtin_abs([val]) when is_number(val), do: abs(val)
   defp builtin_abs([{:pyex_decimal, d}]), do: {:pyex_decimal, Decimal.abs(d)}
+  defp builtin_abs([{:complex, r, i}]), do: :math.sqrt(r * r + i * i)
 
   defp builtin_abs([{:instance, {:class, _name, _bases, class_attrs}, inst_attrs} = inst]) do
     abs_fn = Map.get(inst_attrs, "__abs__") || Map.get(class_attrs, "__abs__")
@@ -933,6 +934,14 @@ defmodule Pyex.Builtins do
       :error -> []
     end
   end
+
+  @doc """
+  Coerce any simple (non-instance) iterable to an Elixir list, or
+  `:error`. The shared pure coercion stdlib consumers use so a function
+  that takes an iterable accepts the same types `for`/`list()` do.
+  """
+  @spec iterable_to_list(Interpreter.pyvalue()) :: {:ok, [Interpreter.pyvalue()]} | :error
+  def iterable_to_list(val), do: to_list(val)
 
   defp to_list({:deque, _, _, _, _} = d), do: {:ok, Pyex.Methods.deque_to_list(d)}
   defp to_list({:py_list, reversed, _}), do: {:ok, Enum.reverse(reversed)}
@@ -2689,6 +2698,7 @@ defmodule Pyex.Builtins do
   def truthy?({:bytearray, b}), do: byte_size(b) > 0
 
   def truthy?({:pyex_decimal, d}), do: not Decimal.equal?(d, Decimal.new(0))
+  def truthy?({:complex, r, i}), do: r != 0.0 or i != 0.0
 
   def truthy?(_), do: true
 
