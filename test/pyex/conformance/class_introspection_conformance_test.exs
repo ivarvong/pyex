@@ -67,6 +67,40 @@ defmodule Pyex.Conformance.ClassIntrospectionTest do
     test "identity when no mapping matches" do
       check!(~S|print("abc".translate(str.maketrans("xyz", "XYZ")))|)
     end
+
+    test "maketrans on a string instance matches the type staticmethod" do
+      check!(~S|print("hello".translate("".maketrans("el", "EL")))|)
+    end
+
+    test "maketrans from a dict normalizes one-char keys to ordinals" do
+      check!(~S|print("abc".translate(str.maketrans({"a": "X", "c": None})))|)
+    end
+  end
+
+  describe "str predicate and mapping methods (isascii / isidentifier / isprintable / format_map)" do
+    for {label, code} <- [
+          {"isascii ascii", ~S|print("Hello".isascii())|},
+          {"isascii non-ascii", ~S|print("café".isascii())|},
+          {"isascii empty", ~S|print("".isascii())|},
+          {"isidentifier valid", ~S|print("hello_world2".isidentifier())|},
+          {"isidentifier leading digit", ~S|print("3x".isidentifier())|},
+          {"isidentifier empty", ~S|print("".isidentifier())|},
+          {"isidentifier unicode letter", ~S|print("café".isidentifier())|},
+          {"isprintable plain", ~S|print("abc 123".isprintable())|},
+          {"isprintable tab", ~S|print("a\tb".isprintable())|},
+          {"isprintable empty", ~S|print("".isprintable())|},
+          {"format_map basic",
+           ~S|print("{greeting}, {name}".format_map({"greeting": "Hi", "name": "Bo"}))|},
+          {"format_map missing key raises KeyError", ~S|
+try:
+    "{missing}".format_map({})
+except KeyError as e:
+    print(type(e).__name__)|}
+        ] do
+      test label do
+        check!(unquote(code))
+      end
+    end
   end
 
   # A regular method accessed *through a class* (not an instance) is a

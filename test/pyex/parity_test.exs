@@ -58,13 +58,7 @@ defmodule Pyex.ParityTest do
   # category, or the suite fails. Burning the `:unimplemented` entries down
   # is how parity converges.
   @known_gaps %{
-    "str" => %{
-      "format_map" => :unimplemented,
-      "isascii" => :unimplemented,
-      "isidentifier" => :unimplemented,
-      "isprintable" => :unimplemented,
-      "maketrans" => :unimplemented
-    },
+    "str" => %{},
     "dict" => %{
       "fromkeys" => :unimplemented,
       "popitem" => :unimplemented

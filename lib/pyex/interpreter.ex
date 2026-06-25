@@ -1690,50 +1690,7 @@ defmodule Pyex.Interpreter do
         end
 
       {:builtin_type, "str", _} when attr == "maketrans" ->
-        {{:builtin,
-          fn args ->
-            case args do
-              [a, b] when is_binary(a) and is_binary(b) and byte_size(a) == byte_size(b) ->
-                # Build a mapping from codepoint -> codepoint (as strings).
-                a_cps = String.codepoints(a)
-                b_cps = String.codepoints(b)
-
-                pairs =
-                  Enum.zip(a_cps, b_cps)
-                  |> Enum.map(fn {k, v} ->
-                    <<cp::utf8>> = k
-                    {cp, v}
-                  end)
-
-                Pyex.PyDict.from_pairs(pairs)
-
-              [a, b, c] when is_binary(a) and is_binary(b) and is_binary(c) ->
-                a_cps = String.codepoints(a)
-                b_cps = String.codepoints(b)
-
-                pairs =
-                  Enum.zip(a_cps, b_cps)
-                  |> Enum.map(fn {k, v} ->
-                    <<cp::utf8>> = k
-                    {cp, v}
-                  end)
-
-                delete_pairs =
-                  String.codepoints(c)
-                  |> Enum.map(fn k ->
-                    <<cp::utf8>> = k
-                    {cp, nil}
-                  end)
-
-                Pyex.PyDict.from_pairs(pairs ++ delete_pairs)
-
-              [dict_arg] when is_map(dict_arg) ->
-                dict_arg
-
-              _ ->
-                {:exception, "TypeError: str.maketrans() requires 1-3 arguments"}
-            end
-          end}, env, ctx}
+        {{:builtin, fn args -> Pyex.Methods.make_translation_table(args) end}, env, ctx}
 
       {:builtin_type, name, _} ->
         case builtin_type_attr(name, attr) do
