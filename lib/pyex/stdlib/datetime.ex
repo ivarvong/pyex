@@ -941,6 +941,8 @@ defmodule Pyex.Stdlib.Datetime do
        "replace" => {:builtin_kw, &dt_replace(dt, nil, &1, &2)},
        "date" => {:builtin, fn [] -> make_date(DateTime.to_date(dt)) end},
        "weekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(dt)) - 1 end},
+       "isoweekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(dt)) end},
+       "isocalendar" => {:builtin, fn [] -> date_isocalendar(DateTime.to_date(dt)) end},
        "utcoffset" => {:builtin, fn [] -> nil end},
        "dst" => {:builtin, fn [] -> nil end},
        "astimezone" =>
@@ -1083,6 +1085,8 @@ defmodule Pyex.Stdlib.Datetime do
        "replace" => {:builtin_kw, &dt_replace(local_dt, tz_instance, &1, &2)},
        "date" => {:builtin, fn [] -> make_date(DateTime.to_date(local_dt)) end},
        "weekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(local_dt)) - 1 end},
+       "isoweekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(local_dt)) end},
+       "isocalendar" => {:builtin, fn [] -> date_isocalendar(DateTime.to_date(local_dt)) end},
        "utcoffset" => {:builtin, fn [] -> normalize_timedelta(offset) end},
        "astimezone" => {:builtin, fn [new_tz] -> make_datetime_from_utc(utc_dt, new_tz) end},
        "__dt__" => utc_dt,
@@ -1128,8 +1132,16 @@ defmodule Pyex.Stdlib.Datetime do
        "strftime" => {:builtin_kw, &date_strftime_method(d, &1, &2)},
        "replace" => {:builtin_kw, &d_replace(d, &1, &2)},
        "weekday" => {:builtin, fn [] -> Date.day_of_week(d) - 1 end},
+       "isoweekday" => {:builtin, fn [] -> Date.day_of_week(d) end},
+       "isocalendar" => {:builtin, fn [] -> date_isocalendar(d) end},
        "__date__" => d
      }}
+  end
+
+  @spec date_isocalendar(Date.t()) :: {:tuple, [integer()]}
+  defp date_isocalendar(d) do
+    {iso_year, iso_week} = :calendar.iso_week_number({d.year, d.month, d.day})
+    {:tuple, [iso_year, iso_week, Date.day_of_week(d)]}
   end
 
   @spec dt_to_timestamp(DateTime.t()) :: float()

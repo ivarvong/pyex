@@ -910,6 +910,12 @@ defmodule Pyex.Interpreter do
               "__class__" ->
                 {Builtins.type_class(), env, ctx}
 
+              "__name__" ->
+                {Map.get(class_attrs, "__name__", class_name), env, ctx}
+
+              "__qualname__" ->
+                {Map.get(class_attrs, "__qualname__", class_name), env, ctx}
+
               "__mro__" ->
                 mro =
                   ClassLookup.c3_linearize(class_val)

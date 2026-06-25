@@ -180,7 +180,8 @@ defmodule Pyex.Builtins do
       {"object", &builtin_object/1},
       {"property", &builtin_property/1},
       {"staticmethod", &builtin_staticmethod/1},
-      {"classmethod", &builtin_classmethod/1}
+      {"classmethod", &builtin_classmethod/1},
+      {"__import__", &builtin_import/1}
     ]
   end
 
@@ -2320,6 +2321,32 @@ defmodule Pyex.Builtins do
 
   defp builtin_vars([]) do
     {:exception, "TypeError: vars expected at most 1 argument, got 0"}
+  end
+
+  # `__import__(name)` resolves a module by name and returns it. As in
+  # CPython, a dotted name without a fromlist yields the top-level package
+  # (e.g. `__import__("os.path")` returns the `os` module).
+  @spec builtin_import([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp builtin_import([name | _rest]) when is_binary(name) do
+    {:ctx_call,
+     fn env, ctx ->
+       root = name |> String.split(".") |> hd()
+
+       case Pyex.Interpreter.Import.resolve_module(root, env, ctx) do
+         {:ok, module_value, ctx} ->
+           {module_value, env, ctx}
+
+         {:import_error, msg, ctx} ->
+           {{:exception, msg}, env, ctx}
+
+         {:unknown_module, ctx} ->
+           {{:exception, "ModuleNotFoundError: No module named '#{root}'"}, env, ctx}
+       end
+     end}
+  end
+
+  defp builtin_import(_args) do
+    {:exception, "TypeError: __import__() argument 1 must be str"}
   end
 
   @spec builtin_object([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
