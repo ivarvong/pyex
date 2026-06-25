@@ -96,6 +96,22 @@ defmodule Pyex.Builtins do
   def exception_class_names, do: Pyex.ExceptionsHierarchy.all_names()
 
   @doc """
+  Returns the names of every builtin bound in the runtime environment:
+  functions, type constructors, exception classes, and the `type` /
+  `Ellipsis` singletons. This is the introspection seam used by
+  surface-parity checks against CPython's `dir(builtins)`.
+  """
+  @spec names() :: [String.t()]
+  def names do
+    functions = Enum.map(all(), fn {name, _} -> name end)
+    types = Enum.map(type_constructors(), fn {name, _} -> name end)
+
+    (functions ++ types ++ exception_class_names() ++ ["type", "Ellipsis"])
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @doc """
   Set of builtin function captures that must receive a generator
   iterator *as itself* — not its drained contents. Anything that
   reflects on identity, type, or treats the iterator as opaque
