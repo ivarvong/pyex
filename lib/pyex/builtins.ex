@@ -10,6 +10,7 @@ defmodule Pyex.Builtins do
   """
 
   alias Pyex.{Ctx, Env, Interpreter, PyDict}
+  alias Pyex.Interpreter.FstringFormat
 
   @doc """
   Returns an environment pre-populated with all builtins.
@@ -190,6 +191,7 @@ defmodule Pyex.Builtins do
       {"pow", &builtin_pow/1},
       {"divmod", &builtin_divmod/1},
       {"repr", &builtin_repr/1},
+      {"format", &builtin_format/1},
       {"callable", &builtin_callable/1},
       {"frozenset", &builtin_frozenset/1},
       {"hasattr", &builtin_hasattr/1},
@@ -2335,6 +2337,15 @@ defmodule Pyex.Builtins do
   defp builtin_import(_args) do
     {:exception, "TypeError: __import__() argument 1 must be str"}
   end
+
+  # format(value[, spec]) delegates to the same spec engine f-strings use.
+  @spec builtin_format([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp builtin_format([val]), do: FstringFormat.apply_format_spec(val, "")
+
+  defp builtin_format([val, spec]) when is_binary(spec),
+    do: FstringFormat.apply_format_spec(val, spec)
+
+  defp builtin_format(_), do: {:exception, "TypeError: format() takes 1 or 2 arguments"}
 
   @spec builtin_object([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
   defp builtin_object([]) do

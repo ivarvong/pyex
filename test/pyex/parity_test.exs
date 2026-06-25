@@ -129,7 +129,6 @@ defmodule Pyex.ParityTest do
       "anext" => :unimplemented,
       "ascii" => :unimplemented,
       "delattr" => :unimplemented,
-      "format" => :unimplemented,
       "globals" => :unimplemented,
       "locals" => :unimplemented,
       "memoryview" => :unimplemented,
