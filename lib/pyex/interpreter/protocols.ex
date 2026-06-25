@@ -167,8 +167,19 @@ defmodule Pyex.Interpreter.Protocols do
     end
   end
 
-  def dunder_str_fallback({:instance, _, _} = inst, "__repr__", env, ctx) do
-    {:ok, Helpers.py_str(inst), env, ctx}
+  def dunder_str_fallback({:instance, {:class, name, _, _}, attrs} = inst, "__repr__", env, ctx) do
+    # CPython's BaseException.__repr__ renders `ClassName(repr(arg), ...)`.
+    if Pyex.ExceptionsHierarchy.known?(name) do
+      args =
+        case Map.get(attrs, "args") do
+          {:tuple, items} when is_list(items) -> items
+          _ -> []
+        end
+
+      {:ok, "#{name}(#{Enum.map_join(args, ", ", &Helpers.py_repr_fmt/1)})", env, ctx}
+    else
+      {:ok, Helpers.py_str(inst), env, ctx}
+    end
   end
 
   def dunder_str_fallback(inst, "__bool__", env, ctx) do
