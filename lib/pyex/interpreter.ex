@@ -706,6 +706,10 @@ defmodule Pyex.Interpreter do
     Statements.eval_del_subscript(target_expr, key_expr, env, ctx)
   end
 
+  def eval({:del, _, [:slice, target_expr, start_expr, stop_expr, step_expr]}, env, ctx) do
+    Statements.eval_del_slice(target_expr, start_expr, stop_expr, step_expr, env, ctx)
+  end
+
   def eval({:del, _, [:attr, obj_expr, attr]}, env, ctx) do
     case eval(obj_expr, env, ctx) do
       {{:exception, _} = signal, env, ctx} ->
