@@ -112,32 +112,30 @@ defmodule Pyex.Builtins do
   end
 
   @doc """
-  Set of builtin function captures that must receive a generator
-  iterator *as itself* — not its drained contents. Anything that
-  reflects on identity, type, or treats the iterator as opaque
-  (`iter`, `next`, `type`, `isinstance`, `id`, `repr`, `len`).
+  True for builtins that must receive a generator iterator *as itself* —
+  not its drained contents: anything that reflects on identity or type,
+  or treats the iterator as opaque (`iter`, `next`, `isinstance`, `id`,
+  `repr`, `len`), plus `itertools.islice`, which needs lazy access to an
+  iterator arg (draining an infinite generator first would loop forever).
 
-  Used by the builtin call path to suppress eager drain for these.
+  (`type` is in the same conceptual group but isn't dispatched through the
+  builtin call path — it's the `type` class — so it needs no entry here.)
+
+  The captures must match the local-capture form bound in the env, so the
+  list is built here. It's seven entries; rebuilding per call is free
+  relative to the generator drain it gates.
   """
-  @spec no_drain_builtin_funcs() :: MapSet.t(function())
-  def no_drain_builtin_funcs do
-    names = ~w(iter next type isinstance id repr len)
-
-    captures =
-      for {name, fun} <- all(), name in names do
-        case fun do
-          {:kw, f} -> f
-          f -> f
-        end
-      end
-
-    # Stdlib functions that need lazy access to iterator args (e.g.
-    # `itertools.islice` over an infinite generator).  Without this
-    # registration, the builtin call path drains the iterator into a
-    # list before the function runs — which loops forever.
-    extras = [Pyex.Stdlib.Itertools.islice_capture()]
-
-    MapSet.new(captures ++ extras)
+  @spec no_drain_builtin?(function()) :: boolean()
+  def no_drain_builtin?(fun) do
+    fun in [
+      &builtin_iter/1,
+      &builtin_next/1,
+      &builtin_isinstance/1,
+      &builtin_id/1,
+      &builtin_repr/1,
+      &builtin_len/1,
+      Pyex.Stdlib.Itertools.islice_capture()
+    ]
   end
 
   @doc """
