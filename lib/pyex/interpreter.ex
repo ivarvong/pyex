@@ -3366,7 +3366,10 @@ defmodule Pyex.Interpreter do
   @doc false
   @spec eval_sort([pyvalue()], pyvalue() | nil, boolean(), Env.t(), Ctx.t()) :: call_result()
   def eval_sort(items, key_fn, reverse, env, ctx) do
-    has_instances? = Enum.any?(items, &match?({:instance, _, _}, &1))
+    # Elements may be heap refs (identity-preserving materializers pass
+    # them shallow). Detect instances and order by the dereferenced value,
+    # but keep the original elements in the result so identity survives.
+    has_instances? = Enum.any?(items, &match?({:instance, _, _}, Ctx.deref(ctx, &1)))
 
     sorted =
       case key_fn do
@@ -3378,7 +3381,7 @@ defmodule Pyex.Interpreter do
 
         nil ->
           order = if reverse, do: :desc, else: :asc
-          {:ok, Enum.sort(items, order), env, ctx}
+          {:ok, Enum.sort_by(items, &Ctx.deep_deref(ctx, &1), order), env, ctx}
 
         _ ->
           sort_with_key(items, key_fn, reverse, env, ctx)

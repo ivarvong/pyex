@@ -710,6 +710,18 @@ defmodule Pyex.Interpreter.Invocation do
     end
   end
 
+  # Identity-preserving materializers (list/tuple/reversed/sorted) take a
+  # shallow deref so element refs survive; everything else deep-derefs.
+  @spec deref_args_for((... -> term()), [Interpreter.pyvalue()], Ctx.t()) ::
+          [Interpreter.pyvalue()]
+  defp deref_args_for(fun, args, ctx) do
+    if Pyex.Builtins.shallow_arg_builtin?(fun) do
+      Enum.map(args, &Ctx.deref(ctx, &1))
+    else
+      Enum.map(args, &Ctx.deep_deref(ctx, &1))
+    end
+  end
+
   @doc false
   @spec call_builtin((list() -> term()), [Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
           Interpreter.call_result()
@@ -719,7 +731,7 @@ defmodule Pyex.Interpreter.Invocation do
         {signal, env, ctx}
 
       {drained_args, env, ctx} ->
-        derefed_args = Enum.map(drained_args, &Ctx.deep_deref(ctx, &1))
+        derefed_args = deref_args_for(fun, drained_args, ctx)
 
         result =
           try do
@@ -817,7 +829,7 @@ defmodule Pyex.Interpreter.Invocation do
         {signal, env, ctx}
 
       {drained_args, env, ctx} ->
-        derefed_args = Enum.map(drained_args, &Ctx.deep_deref(ctx, &1))
+        derefed_args = deref_args_for(fun, drained_args, ctx)
         derefed_kwargs = Map.new(kwargs, fn {k, v} -> {k, Ctx.deep_deref(ctx, v)} end)
 
         result =
