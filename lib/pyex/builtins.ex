@@ -390,6 +390,15 @@ defmodule Pyex.Builtins do
 
   defp builtin_str([{:instance, _, _} = inst]), do: {:dunder_call, inst, "__str__", []}
 
+  # str(bytes, encoding): decode. The pyex bytes payload is the raw binary,
+  # which for utf-8/ascii is already the decoded string.
+  defp builtin_str([{:bytes, b}, encoding]) when is_binary(encoding) do
+    case String.downcase(encoding) do
+      e when e in ["utf-8", "utf8", "ascii", "latin-1", "latin1", "iso-8859-1"] -> b
+      _ -> {:exception, "LookupError: unknown encoding: #{encoding}"}
+    end
+  end
+
   defp builtin_str([val]), do: py_repr(val)
 
   @spec builtin_int([Interpreter.pyvalue()]) :: integer() | {:exception, String.t()}
@@ -485,6 +494,11 @@ defmodule Pyex.Builtins do
   defp strip_base_prefix(str, _base), do: str
 
   @spec builtin_float([Interpreter.pyvalue()]) :: float() | {:exception, String.t()}
+  # Drop underscores used as digit separators (Python's "1_000"), only
+  # where flanked by digits so malformed inputs ("_1", "1__0") still fail.
+  @spec strip_digit_underscores(String.t()) :: String.t()
+  defp strip_digit_underscores(s), do: String.replace(s, ~r/(?<=\d)_(?=\d)/, "")
+
   defp builtin_float([]), do: 0.0
   defp builtin_float([val]) when is_float(val), do: val
   defp builtin_float([val]) when is_integer(val), do: val / 1
@@ -505,7 +519,8 @@ defmodule Pyex.Builtins do
         :nan
 
       _ ->
-        case Float.parse(trimmed) do
+        # Python allows underscores as digit separators ('1_000').
+        case Float.parse(strip_digit_underscores(trimmed)) do
           {f, ""} -> f
           _ -> {:exception, "ValueError: could not convert string to float: '#{val}'"}
         end
@@ -951,10 +966,12 @@ defmodule Pyex.Builtins do
   defp to_list({:py_dict, _, _} = dict), do: {:ok, PyDict.keys(visible_dict(dict))}
   defp to_list(map) when is_map(map), do: {:ok, map |> visible_dict() |> Map.keys()}
   defp to_list({:bytes, bin}), do: {:ok, :binary.bin_to_list(bin)}
+  defp to_list({:bytearray, bin}), do: {:ok, :binary.bin_to_list(bin)}
   defp to_list(_), do: :error
 
   @spec builtin_bool([Interpreter.pyvalue()]) ::
           boolean() | {:dunder_call, Interpreter.pyvalue(), String.t(), []}
+  defp builtin_bool([]), do: false
   defp builtin_bool([{:instance, _, _} = inst]), do: {:dunder_call, inst, "__bool__", []}
   defp builtin_bool([val]), do: truthy?(val)
 
@@ -1066,39 +1083,56 @@ defmodule Pyex.Builtins do
      |> PyDict.from_map()}
   end
 
-  defp builtin_dict_positional([list]) when is_list(list) do
-    {:ok,
-     Enum.reduce(list, PyDict.new(), fn
-       {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
-       [k, v], acc -> PyDict.put(acc, k, v)
-       _, acc -> acc
-     end)}
+  # dict(iterable_of_pairs): every element must be a 2-element iterable.
+  # Routes through the shared coercion so list/tuple/str/bytes/range/set/
+  # generator all work, and raises CPython's ValueError/TypeError on
+  # malformed elements rather than silently dropping them.
+  defp builtin_dict_positional([iterable]) do
+    case to_list(iterable) do
+      {:ok, items} -> dict_from_pairs(items)
+      :error -> {:exception, "TypeError: '#{pytype(iterable)}' object is not iterable"}
+    end
   end
-
-  defp builtin_dict_positional([{:py_list, reversed, _}]) do
-    list = Enum.reverse(reversed)
-
-    {:ok,
-     Enum.reduce(list, PyDict.new(), fn
-       {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
-       [k, v], acc -> PyDict.put(acc, k, v)
-       _, acc -> acc
-     end)}
-  end
-
-  defp builtin_dict_positional([{:generator, items}]) do
-    {:ok,
-     Enum.reduce(items, PyDict.new(), fn
-       {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
-       [k, v], acc -> PyDict.put(acc, k, v)
-       _, acc -> acc
-     end)}
-  end
-
-  defp builtin_dict_positional([_]), do: {:exception, "TypeError: cannot convert to dict"}
 
   defp builtin_dict_positional(args) do
     {:exception, "TypeError: dict expected at most 1 argument, got #{length(args)}"}
+  end
+
+  @spec dict_from_pairs([Interpreter.pyvalue()]) :: {:ok, PyDict.t()} | {:exception, String.t()}
+  defp dict_from_pairs(items) do
+    items
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, PyDict.new()}, fn {item, i}, {:ok, acc} ->
+      case dict_pair(item) do
+        {:ok, k, v} ->
+          {:cont, {:ok, PyDict.put(acc, k, v)}}
+
+        {:error, :type} ->
+          {:halt,
+           {:exception,
+            "TypeError: cannot convert dictionary update sequence element ##{i} to a sequence"}}
+
+        {:error, :length, n} ->
+          {:halt,
+           {:exception,
+            "ValueError: dictionary update sequence element ##{i} has length #{n}; 2 is required"}}
+      end
+    end)
+  end
+
+  @spec dict_pair(Interpreter.pyvalue()) ::
+          {:ok, Interpreter.pyvalue(), Interpreter.pyvalue()}
+          | {:error, :type}
+          | {:error, :length, non_neg_integer()}
+  defp dict_pair({:tuple, [k, v]}), do: {:ok, k, v}
+  defp dict_pair([k, v]), do: {:ok, k, v}
+
+  defp dict_pair(item) do
+    case to_list(item) do
+      {:ok, [k, v]} -> {:ok, k, v}
+      {:ok, other} -> {:error, :length, length(other)}
+      :error -> {:error, :type}
+    end
   end
 
   @doc false
@@ -2495,6 +2529,8 @@ defmodule Pyex.Builtins do
           Interpreter.pyvalue() | {:exception, String.t()}
   defp builtin_complex([]), do: {:complex, 0.0, 0.0}
   defp builtin_complex([r]) when is_number(r), do: {:complex, r * 1.0, 0.0}
+  defp builtin_complex([true]), do: {:complex, 1.0, 0.0}
+  defp builtin_complex([false]), do: {:complex, 0.0, 0.0}
   defp builtin_complex([{:complex, _, _} = c]), do: c
 
   defp builtin_complex([r, i]) when is_number(r) and is_number(i),
@@ -2505,7 +2541,7 @@ defmodule Pyex.Builtins do
 
   defp builtin_complex([s]) when is_binary(s) do
     # Very small complex-literal parser: accepts "1+2j", "2j", "-3.5j", "1".
-    trimmed = s |> String.trim() |> String.replace(~r/\s+/, "")
+    trimmed = s |> String.trim() |> String.replace(~r/\s+/, "") |> strip_digit_underscores()
 
     cond do
       String.ends_with?(trimmed, "j") or String.ends_with?(trimmed, "J") ->
@@ -2581,6 +2617,8 @@ defmodule Pyex.Builtins do
           Interpreter.pyvalue() | {:exception, String.t()}
   defp builtin_bytes([]), do: {:bytes, ""}
   defp builtin_bytes([n]) when is_integer(n) and n >= 0, do: {:bytes, :binary.copy(<<0>>, n)}
+  defp builtin_bytes([true]), do: {:bytes, <<0>>}
+  defp builtin_bytes([false]), do: {:bytes, ""}
 
   defp builtin_bytes([{:bytes, b}]), do: {:bytes, b}
   defp builtin_bytes([{:bytearray, b}]), do: {:bytes, b}
@@ -2591,11 +2629,14 @@ defmodule Pyex.Builtins do
     {:exception, "TypeError: string argument without an encoding"}
   end
 
-  defp builtin_bytes([{:py_list, reversed, _}]),
-    do: bytes_from_iterable(Enum.reverse(reversed))
-
-  defp builtin_bytes([list]) when is_list(list), do: bytes_from_iterable(list)
-  defp builtin_bytes([{:tuple, items}]), do: bytes_from_iterable(items)
+  # bytes(iterable_of_ints): any iterable of 0..255 ints, via the shared
+  # coercion (list/tuple/range/set/dict-keys/generator/bytearray).
+  defp builtin_bytes([iterable]) do
+    case to_list(iterable) do
+      {:ok, items} -> bytes_from_iterable(items)
+      :error -> {:exception, "TypeError: cannot convert '#{pytype(iterable)}' object to bytes"}
+    end
+  end
 
   defp builtin_bytes([s, encoding]) when is_binary(s) and is_binary(encoding) do
     case String.downcase(encoding) do
