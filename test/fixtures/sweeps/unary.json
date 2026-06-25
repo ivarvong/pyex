@@ -1,0 +1,345 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "code": "-(5)",
+      "result": "-5"
+    },
+    {
+      "code": "-(-5)",
+      "result": "5"
+    },
+    {
+      "code": "-(0)",
+      "result": "0"
+    },
+    {
+      "code": "-(3.14)",
+      "result": "-3.14"
+    },
+    {
+      "code": "-(-3.14)",
+      "result": "3.14"
+    },
+    {
+      "code": "-(True)",
+      "result": "-1"
+    },
+    {
+      "code": "-(False)",
+      "result": "0"
+    },
+    {
+      "code": "-(2j)",
+      "result": "(-0-2j)"
+    },
+    {
+      "code": "-(0j)",
+      "result": "(-0-0j)"
+    },
+    {
+      "code": "-('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "-('')",
+      "error": "TypeError"
+    },
+    {
+      "code": "-([1,2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "-([])",
+      "error": "TypeError"
+    },
+    {
+      "code": "-({1,2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "-(b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "-(None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "-((1,2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "+(5)",
+      "result": "5"
+    },
+    {
+      "code": "+(-5)",
+      "result": "-5"
+    },
+    {
+      "code": "+(0)",
+      "result": "0"
+    },
+    {
+      "code": "+(3.14)",
+      "result": "3.14"
+    },
+    {
+      "code": "+(-3.14)",
+      "result": "-3.14"
+    },
+    {
+      "code": "+(True)",
+      "result": "1"
+    },
+    {
+      "code": "+(False)",
+      "result": "0"
+    },
+    {
+      "code": "+(2j)",
+      "result": "2j"
+    },
+    {
+      "code": "+(0j)",
+      "result": "0j"
+    },
+    {
+      "code": "+('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "+('')",
+      "error": "TypeError"
+    },
+    {
+      "code": "+([1,2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "+([])",
+      "error": "TypeError"
+    },
+    {
+      "code": "+({1,2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "+(b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "+(None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "+((1,2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "~(5)",
+      "result": "-6"
+    },
+    {
+      "code": "~(-5)",
+      "result": "4"
+    },
+    {
+      "code": "~(0)",
+      "result": "-1"
+    },
+    {
+      "code": "~(3.14)",
+      "error": "TypeError"
+    },
+    {
+      "code": "~(-3.14)",
+      "error": "TypeError"
+    },
+    {
+      "code": "~(True)",
+      "result": "-2"
+    },
+    {
+      "code": "~(False)",
+      "result": "-1"
+    },
+    {
+      "code": "~(2j)",
+      "error": "TypeError"
+    },
+    {
+      "code": "~(0j)",
+      "error": "TypeError"
+    },
+    {
+      "code": "~('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "~('')",
+      "error": "TypeError"
+    },
+    {
+      "code": "~([1,2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "~([])",
+      "error": "TypeError"
+    },
+    {
+      "code": "~({1,2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "~(b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "~(None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "~((1,2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "abs(5)",
+      "result": "5"
+    },
+    {
+      "code": "abs(-5)",
+      "result": "5"
+    },
+    {
+      "code": "abs(0)",
+      "result": "0"
+    },
+    {
+      "code": "abs(3.14)",
+      "result": "3.14"
+    },
+    {
+      "code": "abs(-3.14)",
+      "result": "3.14"
+    },
+    {
+      "code": "abs(True)",
+      "result": "1"
+    },
+    {
+      "code": "abs(False)",
+      "result": "0"
+    },
+    {
+      "code": "abs(2j)",
+      "result": "2.0"
+    },
+    {
+      "code": "abs(0j)",
+      "result": "0.0"
+    },
+    {
+      "code": "abs('ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "abs('')",
+      "error": "TypeError"
+    },
+    {
+      "code": "abs([1,2])",
+      "error": "TypeError"
+    },
+    {
+      "code": "abs([])",
+      "error": "TypeError"
+    },
+    {
+      "code": "abs({1,2})",
+      "error": "TypeError"
+    },
+    {
+      "code": "abs(b'ab')",
+      "error": "TypeError"
+    },
+    {
+      "code": "abs(None)",
+      "error": "TypeError"
+    },
+    {
+      "code": "abs((1,2))",
+      "error": "TypeError"
+    },
+    {
+      "code": "not (5)",
+      "result": "False"
+    },
+    {
+      "code": "not (-5)",
+      "result": "False"
+    },
+    {
+      "code": "not (0)",
+      "result": "True"
+    },
+    {
+      "code": "not (3.14)",
+      "result": "False"
+    },
+    {
+      "code": "not (-3.14)",
+      "result": "False"
+    },
+    {
+      "code": "not (True)",
+      "result": "False"
+    },
+    {
+      "code": "not (False)",
+      "result": "True"
+    },
+    {
+      "code": "not (2j)",
+      "result": "False"
+    },
+    {
+      "code": "not (0j)",
+      "result": "True"
+    },
+    {
+      "code": "not ('ab')",
+      "result": "False"
+    },
+    {
+      "code": "not ('')",
+      "result": "True"
+    },
+    {
+      "code": "not ([1,2])",
+      "result": "False"
+    },
+    {
+      "code": "not ([])",
+      "result": "True"
+    },
+    {
+      "code": "not ({1,2})",
+      "result": "False"
+    },
+    {
+      "code": "not (b'ab')",
+      "result": "False"
+    },
+    {
+      "code": "not (None)",
+      "result": "True"
+    },
+    {
+      "code": "not ((1,2))",
+      "result": "False"
+    }
+  ]
+}

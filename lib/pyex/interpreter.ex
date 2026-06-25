@@ -1324,6 +1324,9 @@ defmodule Pyex.Interpreter do
           is_number(val) ->
             {-val, env, ctx}
 
+          is_boolean(val) ->
+            {-Helpers.bool_to_int(val), env, ctx}
+
           match?({:complex, _, _}, val) ->
             {:complex, r, i} = val
             {{:complex, -r, -i}, env, ctx}
@@ -1361,6 +1364,12 @@ defmodule Pyex.Interpreter do
           is_number(val) ->
             {val, env, ctx}
 
+          is_boolean(val) ->
+            {Helpers.bool_to_int(val), env, ctx}
+
+          match?({:complex, _, _}, val) ->
+            {val, env, ctx}
+
           match?({:pyex_decimal, _}, val) ->
             {:pyex_decimal, d} = val
             {{:pyex_decimal, decimal_unary_pos(d)}, env, ctx}
@@ -1393,6 +1402,9 @@ defmodule Pyex.Interpreter do
         cond do
           is_integer(val) ->
             {bnot(val), env, ctx}
+
+          is_boolean(val) ->
+            {bnot(Helpers.bool_to_int(val)), env, ctx}
 
           match?({:instance, _, _}, val) ->
             case Dunder.call_dunder(val, "__invert__", [], env, ctx) do
@@ -2762,6 +2774,18 @@ defmodule Pyex.Interpreter do
           {Enum.at(codepoints, index), env, ctx}
         end
 
+      {tag, bin} when tag in [:bytes, :bytearray] and is_integer(key) ->
+        # Indexing bytes/bytearray yields the integer byte value.
+        bytes = :binary.bin_to_list(bin)
+        len = length(bytes)
+        index = if key < 0, do: len + key, else: key
+
+        if index < 0 or index >= len do
+          {{:exception, "IndexError: index out of range"}, env, ctx}
+        else
+          {Enum.at(bytes, index), env, ctx}
+        end
+
       {:range, start, stop, step} when is_integer(key) ->
         len = Builtins.range_length({:range, start, stop, step})
         index = if key < 0, do: len + key, else: key
@@ -2884,16 +2908,22 @@ defmodule Pyex.Interpreter do
           result -> {{:tuple, result}, env, ctx}
         end
 
-      {:range, _, _, _} = r ->
-        case Builtins.range_to_list(r) do
-          {:exception, msg} ->
-            {{:exception, msg}, env, ctx}
+      {tag, bin} when tag in [:bytes, :bytearray] ->
+        case py_slice(:binary.bin_to_list(bin), start, stop, step) do
+          {:exception, msg} -> {{:exception, msg}, env, ctx}
+          result -> {{tag, :binary.list_to_bin(result)}, env, ctx}
+        end
 
-          items ->
-            case py_slice(items, start, stop, step) do
-              {:exception, msg} -> {{:exception, msg}, env, ctx}
-              result -> {result, env, ctx}
-            end
+      {:range, rs, _, rstep} = r ->
+        # Slicing a range yields a range (lazily), as in CPython.
+        sstep = step || 1
+
+        if sstep == 0 do
+          {{:exception, "ValueError: slice step cannot be zero"}, env, ctx}
+        else
+          len = Builtins.range_length(r)
+          {nstart, nstop} = normalize_slice_bounds(start, stop, sstep, len)
+          {{:range, rs + nstart * rstep, rs + nstop * rstep, rstep * sstep}, env, ctx}
         end
 
       _ ->

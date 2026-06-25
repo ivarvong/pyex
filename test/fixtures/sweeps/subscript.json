@@ -1,0 +1,333 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "code": "([10,20,30,40])[0]",
+      "result": "10"
+    },
+    {
+      "code": "((10,20,30,40))[0]",
+      "result": "10"
+    },
+    {
+      "code": "('abcd')[0]",
+      "result": "'a'"
+    },
+    {
+      "code": "(b'abcd')[0]",
+      "result": "97"
+    },
+    {
+      "code": "(range(10,50,10))[0]",
+      "result": "10"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[0]",
+      "result": "97"
+    },
+    {
+      "code": "([10,20,30,40])[1]",
+      "result": "20"
+    },
+    {
+      "code": "((10,20,30,40))[1]",
+      "result": "20"
+    },
+    {
+      "code": "('abcd')[1]",
+      "result": "'b'"
+    },
+    {
+      "code": "(b'abcd')[1]",
+      "result": "98"
+    },
+    {
+      "code": "(range(10,50,10))[1]",
+      "result": "20"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[1]",
+      "result": "98"
+    },
+    {
+      "code": "([10,20,30,40])[-1]",
+      "result": "40"
+    },
+    {
+      "code": "((10,20,30,40))[-1]",
+      "result": "40"
+    },
+    {
+      "code": "('abcd')[-1]",
+      "result": "'d'"
+    },
+    {
+      "code": "(b'abcd')[-1]",
+      "result": "100"
+    },
+    {
+      "code": "(range(10,50,10))[-1]",
+      "result": "40"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[-1]",
+      "result": "100"
+    },
+    {
+      "code": "([10,20,30,40])[5]",
+      "error": "IndexError"
+    },
+    {
+      "code": "((10,20,30,40))[5]",
+      "error": "IndexError"
+    },
+    {
+      "code": "('abcd')[5]",
+      "error": "IndexError"
+    },
+    {
+      "code": "(b'abcd')[5]",
+      "error": "IndexError"
+    },
+    {
+      "code": "(range(10,50,10))[5]",
+      "error": "IndexError"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[5]",
+      "error": "IndexError"
+    },
+    {
+      "code": "([10,20,30,40])[1:3]",
+      "result": "[20, 30]"
+    },
+    {
+      "code": "((10,20,30,40))[1:3]",
+      "result": "(20, 30)"
+    },
+    {
+      "code": "('abcd')[1:3]",
+      "result": "'bc'"
+    },
+    {
+      "code": "(b'abcd')[1:3]",
+      "result": "b'bc'"
+    },
+    {
+      "code": "(range(10,50,10))[1:3]",
+      "result": "range(20, 40, 10)"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[1:3]",
+      "result": "bytearray(b'bc')"
+    },
+    {
+      "code": "([10,20,30,40])[:2]",
+      "result": "[10, 20]"
+    },
+    {
+      "code": "((10,20,30,40))[:2]",
+      "result": "(10, 20)"
+    },
+    {
+      "code": "('abcd')[:2]",
+      "result": "'ab'"
+    },
+    {
+      "code": "(b'abcd')[:2]",
+      "result": "b'ab'"
+    },
+    {
+      "code": "(range(10,50,10))[:2]",
+      "result": "range(10, 30, 10)"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[:2]",
+      "result": "bytearray(b'ab')"
+    },
+    {
+      "code": "([10,20,30,40])[2:]",
+      "result": "[30, 40]"
+    },
+    {
+      "code": "((10,20,30,40))[2:]",
+      "result": "(30, 40)"
+    },
+    {
+      "code": "('abcd')[2:]",
+      "result": "'cd'"
+    },
+    {
+      "code": "(b'abcd')[2:]",
+      "result": "b'cd'"
+    },
+    {
+      "code": "(range(10,50,10))[2:]",
+      "result": "range(30, 50, 10)"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[2:]",
+      "result": "bytearray(b'cd')"
+    },
+    {
+      "code": "([10,20,30,40])[:]",
+      "result": "[10, 20, 30, 40]"
+    },
+    {
+      "code": "((10,20,30,40))[:]",
+      "result": "(10, 20, 30, 40)"
+    },
+    {
+      "code": "('abcd')[:]",
+      "result": "'abcd'"
+    },
+    {
+      "code": "(b'abcd')[:]",
+      "result": "b'abcd'"
+    },
+    {
+      "code": "(range(10,50,10))[:]",
+      "result": "range(10, 50, 10)"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[:]",
+      "result": "bytearray(b'abcd')"
+    },
+    {
+      "code": "([10,20,30,40])[::-1]",
+      "result": "[40, 30, 20, 10]"
+    },
+    {
+      "code": "((10,20,30,40))[::-1]",
+      "result": "(40, 30, 20, 10)"
+    },
+    {
+      "code": "('abcd')[::-1]",
+      "result": "'dcba'"
+    },
+    {
+      "code": "(b'abcd')[::-1]",
+      "result": "b'dcba'"
+    },
+    {
+      "code": "(range(10,50,10))[::-1]",
+      "result": "range(40, 0, -10)"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[::-1]",
+      "result": "bytearray(b'dcba')"
+    },
+    {
+      "code": "([10,20,30,40])[::2]",
+      "result": "[10, 30]"
+    },
+    {
+      "code": "((10,20,30,40))[::2]",
+      "result": "(10, 30)"
+    },
+    {
+      "code": "('abcd')[::2]",
+      "result": "'ac'"
+    },
+    {
+      "code": "(b'abcd')[::2]",
+      "result": "b'ac'"
+    },
+    {
+      "code": "(range(10,50,10))[::2]",
+      "result": "range(10, 50, 20)"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[::2]",
+      "result": "bytearray(b'ac')"
+    },
+    {
+      "code": "([10,20,30,40])[1:4:2]",
+      "result": "[20, 40]"
+    },
+    {
+      "code": "((10,20,30,40))[1:4:2]",
+      "result": "(20, 40)"
+    },
+    {
+      "code": "('abcd')[1:4:2]",
+      "result": "'bd'"
+    },
+    {
+      "code": "(b'abcd')[1:4:2]",
+      "result": "b'bd'"
+    },
+    {
+      "code": "(range(10,50,10))[1:4:2]",
+      "result": "range(20, 50, 20)"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[1:4:2]",
+      "result": "bytearray(b'bd')"
+    },
+    {
+      "code": "([10,20,30,40])[-2:]",
+      "result": "[30, 40]"
+    },
+    {
+      "code": "((10,20,30,40))[-2:]",
+      "result": "(30, 40)"
+    },
+    {
+      "code": "('abcd')[-2:]",
+      "result": "'cd'"
+    },
+    {
+      "code": "(b'abcd')[-2:]",
+      "result": "b'cd'"
+    },
+    {
+      "code": "(range(10,50,10))[-2:]",
+      "result": "range(30, 50, 10)"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[-2:]",
+      "result": "bytearray(b'cd')"
+    },
+    {
+      "code": "([10,20,30,40])[10:20]",
+      "result": "[]"
+    },
+    {
+      "code": "((10,20,30,40))[10:20]",
+      "result": "()"
+    },
+    {
+      "code": "('abcd')[10:20]",
+      "result": "''"
+    },
+    {
+      "code": "(b'abcd')[10:20]",
+      "result": "b''"
+    },
+    {
+      "code": "(range(10,50,10))[10:20]",
+      "result": "range(50, 50, 10)"
+    },
+    {
+      "code": "(bytearray(b'abcd'))[10:20]",
+      "result": "bytearray(b'')"
+    },
+    {
+      "code": "{'a':1,'b':2}['a']",
+      "result": "1"
+    },
+    {
+      "code": "{'a':1}['z']",
+      "error": "KeyError"
+    },
+    {
+      "code": "{1:2}[1]",
+      "result": "2"
+    },
+    {
+      "code": "{1:2}[9]",
+      "error": "KeyError"
+    }
+  ]
+}

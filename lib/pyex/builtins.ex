@@ -10,6 +10,7 @@ defmodule Pyex.Builtins do
   """
 
   alias Pyex.{Ctx, Env, Interpreter, PyDict}
+  alias Pyex.Interpreter.FstringFormat
 
   @doc """
   Returns an environment pre-populated with all builtins.
@@ -190,6 +191,7 @@ defmodule Pyex.Builtins do
       {"pow", &builtin_pow/1},
       {"divmod", &builtin_divmod/1},
       {"repr", &builtin_repr/1},
+      {"format", &builtin_format/1},
       {"callable", &builtin_callable/1},
       {"frozenset", &builtin_frozenset/1},
       {"hasattr", &builtin_hasattr/1},
@@ -575,6 +577,7 @@ defmodule Pyex.Builtins do
   defp builtin_abs([false]), do: 0
   defp builtin_abs([val]) when is_number(val), do: abs(val)
   defp builtin_abs([{:pyex_decimal, d}]), do: {:pyex_decimal, Decimal.abs(d)}
+  defp builtin_abs([{:complex, r, i}]), do: :math.sqrt(r * r + i * i)
 
   defp builtin_abs([{:instance, {:class, _name, _bases, class_attrs}, inst_attrs} = inst]) do
     abs_fn = Map.get(inst_attrs, "__abs__") || Map.get(class_attrs, "__abs__")
@@ -946,6 +949,14 @@ defmodule Pyex.Builtins do
       :error -> []
     end
   end
+
+  @doc """
+  Coerce any simple (non-instance) iterable to an Elixir list, or
+  `:error`. The shared pure coercion stdlib consumers use so a function
+  that takes an iterable accepts the same types `for`/`list()` do.
+  """
+  @spec iterable_to_list(Interpreter.pyvalue()) :: {:ok, [Interpreter.pyvalue()]} | :error
+  def iterable_to_list(val), do: to_list(val)
 
   defp to_list({:deque, _, _, _, _} = d), do: {:ok, Pyex.Methods.deque_to_list(d)}
   defp to_list({:py_list, reversed, _}), do: {:ok, Enum.reverse(reversed)}
@@ -2370,6 +2381,15 @@ defmodule Pyex.Builtins do
     {:exception, "TypeError: __import__() argument 1 must be str"}
   end
 
+  # format(value[, spec]) delegates to the same spec engine f-strings use.
+  @spec builtin_format([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp builtin_format([val]), do: FstringFormat.apply_format_spec(val, "")
+
+  defp builtin_format([val, spec]) when is_binary(spec),
+    do: FstringFormat.apply_format_spec(val, spec)
+
+  defp builtin_format(_), do: {:exception, "TypeError: format() takes 1 or 2 arguments"}
+
   @spec builtin_object([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
   defp builtin_object([]) do
     {:object, :erlang.unique_integer()}
@@ -2719,6 +2739,7 @@ defmodule Pyex.Builtins do
   def truthy?({:bytearray, b}), do: byte_size(b) > 0
 
   def truthy?({:pyex_decimal, d}), do: not Decimal.equal?(d, Decimal.new(0))
+  def truthy?({:complex, r, i}), do: r != 0.0 or i != 0.0
 
   def truthy?(_), do: true
 
