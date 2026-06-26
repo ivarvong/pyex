@@ -36,6 +36,63 @@ defmodule Pyex.Interpreter.ClassLookup do
     end)
   end
 
+  @doc """
+  Resolves an attribute accessed *through a class object* (not an
+  instance) to its value, the single source of truth shared by the `.`
+  operator and the `getattr` builtin.
+
+  Handles the type dunders (`__name__`, `__qualname__`, `__class__`,
+  `__mro__`, `__bases__`, `__dict__`) and then walks the MRO, applying
+  CPython's class-access descriptor rules: a regular function stays an
+  unbound plain function, a `staticmethod` unwraps to its function, and a
+  `classmethod` binds to the class. Returns `{:ok, value}` or `:error`.
+  """
+  @spec class_attribute(Interpreter.pyvalue(), String.t()) ::
+          {:ok, Interpreter.pyvalue()} | :error
+  def class_attribute({:class, _, _, _}, "__class__"), do: {:ok, Pyex.Builtins.type_class()}
+
+  def class_attribute({:class, name, _, attrs}, "__name__"),
+    do: {:ok, Map.get(attrs, "__name__", name)}
+
+  def class_attribute({:class, name, _, attrs}, "__qualname__"),
+    do: {:ok, Map.get(attrs, "__qualname__", name)}
+
+  def class_attribute({:class, _, _, _} = class, "__mro__") do
+    mro = class |> c3_linearize() |> Enum.filter(&match?({:class, _, _, _}, &1))
+    object_class = {:class, "object", [], %{"__name__" => "object"}}
+
+    mro =
+      if Enum.any?(mro, fn {:class, n, _, _} -> n == "object" end),
+        do: mro,
+        else: mro ++ [object_class]
+
+    {:ok, {:tuple, mro}}
+  end
+
+  def class_attribute({:class, _, bases, _}, "__bases__"), do: {:ok, {:tuple, bases}}
+
+  def class_attribute({:class, _, _, attrs}, "__dict__") do
+    visible = visible_attrs(attrs)
+    {:ok, Pyex.PyDict.from_pairs(Enum.map(visible, fn {k, v} -> {k, v} end))}
+  end
+
+  def class_attribute({:class, _, _, _} = class, attr) do
+    case resolve_class_attr_with_owner(class, attr) do
+      {:ok, value, _owner} -> {:ok, bind_through_class(class, value)}
+      :error -> :error
+    end
+  end
+
+  # Descriptor rules for access *through a class* (CPython semantics):
+  # regular functions are returned unbound, staticmethods unwrap, and
+  # classmethods (and kwargs-builtin methods) bind to the class.
+  @spec bind_through_class(Interpreter.pyvalue(), Interpreter.pyvalue()) :: Interpreter.pyvalue()
+  defp bind_through_class(_class, {:function, _, _, _, _, _, _} = func), do: func
+  defp bind_through_class(class, {:builtin_kw, _} = bkw), do: {:bound_method, class, bkw}
+  defp bind_through_class(_class, {:staticmethod, func}), do: func
+  defp bind_through_class(class, {:classmethod, func}), do: {:bound_method, class, func}
+  defp bind_through_class(_class, value), do: value
+
   @doc "Compute the C3 linearized MRO for a class."
   @spec c3_linearize(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]
   # Cached MRO tail (everything after self) avoids re-running C3 for

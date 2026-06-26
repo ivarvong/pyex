@@ -1,0 +1,661 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "code": "7 // 2",
+      "result": "3"
+    },
+    {
+      "code": "7 // -2",
+      "result": "-4"
+    },
+    {
+      "code": "-7 // 2",
+      "result": "-4"
+    },
+    {
+      "code": "-7 // -2",
+      "result": "3"
+    },
+    {
+      "code": "7 % 3",
+      "result": "1"
+    },
+    {
+      "code": "-7 % 3",
+      "result": "2"
+    },
+    {
+      "code": "7 % -3",
+      "result": "-2"
+    },
+    {
+      "code": "-7 % -3",
+      "result": "-1"
+    },
+    {
+      "code": "7.5 // 2",
+      "result": "3.0"
+    },
+    {
+      "code": "-7.5 // 2",
+      "result": "-4.0"
+    },
+    {
+      "code": "7.5 % 2",
+      "result": "1.5"
+    },
+    {
+      "code": "-7.5 % 2",
+      "result": "0.5"
+    },
+    {
+      "code": "divmod(7, 3)",
+      "result": "(2, 1)"
+    },
+    {
+      "code": "divmod(-7, 3)",
+      "result": "(-3, 2)"
+    },
+    {
+      "code": "divmod(7, -3)",
+      "result": "(-3, -2)"
+    },
+    {
+      "code": "divmod(-7, -3)",
+      "result": "(2, -1)"
+    },
+    {
+      "code": "divmod(7.5, 2)",
+      "result": "(3.0, 1.5)"
+    },
+    {
+      "code": "divmod(-7.5, 2)",
+      "result": "(-4.0, 0.5)"
+    },
+    {
+      "code": "5 // 2 * 2 + 5 % 2",
+      "result": "5"
+    },
+    {
+      "code": "2 ** 10",
+      "result": "1024"
+    },
+    {
+      "code": "2 ** 0",
+      "result": "1"
+    },
+    {
+      "code": "0 ** 0",
+      "result": "1"
+    },
+    {
+      "code": "2 ** -1",
+      "result": "0.5"
+    },
+    {
+      "code": "2 ** -2",
+      "result": "0.25"
+    },
+    {
+      "code": "4 ** 0.5",
+      "result": "2.0"
+    },
+    {
+      "code": "9 ** 0.5",
+      "result": "3.0"
+    },
+    {
+      "code": "2 ** 100",
+      "result": "1267650600228229401496703205376"
+    },
+    {
+      "code": "10 ** 50",
+      "result": "100000000000000000000000000000000000000000000000000"
+    },
+    {
+      "code": "pow(2, 10)",
+      "result": "1024"
+    },
+    {
+      "code": "pow(2, 10, 100)",
+      "result": "24"
+    },
+    {
+      "code": "pow(2, -1)",
+      "result": "0.5"
+    },
+    {
+      "code": "pow(3, -1, 7)",
+      "result": "5"
+    },
+    {
+      "code": "(2 ** 64) * (2 ** 64)",
+      "result": "340282366920938463463374607431768211456"
+    },
+    {
+      "code": "10 ** 100 // 7",
+      "result": "1428571428571428571428571428571428571428571428571428571428571428571428571428571428571428571428571428"
+    },
+    {
+      "code": "10 ** 100 % 7",
+      "result": "4"
+    },
+    {
+      "code": "round(0.5)",
+      "result": "0"
+    },
+    {
+      "code": "round(1.5)",
+      "result": "2"
+    },
+    {
+      "code": "round(2.5)",
+      "result": "2"
+    },
+    {
+      "code": "round(-0.5)",
+      "result": "0"
+    },
+    {
+      "code": "round(-1.5)",
+      "result": "-2"
+    },
+    {
+      "code": "round(2.675, 2)",
+      "result": "2.67"
+    },
+    {
+      "code": "round(0.125, 2)",
+      "result": "0.12"
+    },
+    {
+      "code": "round(1234.5678, -2)",
+      "result": "1200.0"
+    },
+    {
+      "code": "round(2.5, 0)",
+      "result": "2.0"
+    },
+    {
+      "code": "round(3)",
+      "result": "3"
+    },
+    {
+      "code": "round(3.14159, 2)",
+      "result": "3.14"
+    },
+    {
+      "code": "round(-2.5)",
+      "result": "-2"
+    },
+    {
+      "code": "1 / 3",
+      "result": "0.3333333333333333"
+    },
+    {
+      "code": "0.1 + 0.2",
+      "result": "0.30000000000000004"
+    },
+    {
+      "code": "0.1 + 0.2 == 0.3",
+      "result": "False"
+    },
+    {
+      "code": "1e16",
+      "result": "1e+16"
+    },
+    {
+      "code": "1e17",
+      "result": "1e+17"
+    },
+    {
+      "code": "1e-5",
+      "result": "1e-05"
+    },
+    {
+      "code": "1234567890123456.0",
+      "result": "1234567890123456.0"
+    },
+    {
+      "code": "0.1",
+      "result": "0.1"
+    },
+    {
+      "code": "1 / 10",
+      "result": "0.1"
+    },
+    {
+      "code": "100.0",
+      "result": "100.0"
+    },
+    {
+      "code": "1_000_000.0",
+      "result": "1000000.0"
+    },
+    {
+      "code": "6 / 2",
+      "result": "3.0"
+    },
+    {
+      "code": "7 / 7",
+      "result": "1.0"
+    },
+    {
+      "code": "10.0 / 3",
+      "result": "3.3333333333333335"
+    },
+    {
+      "code": "1e100",
+      "result": "1e+100"
+    },
+    {
+      "code": "1e-100",
+      "result": "1e-100"
+    },
+    {
+      "code": "0.0001",
+      "result": "0.0001"
+    },
+    {
+      "code": "2.0",
+      "result": "2.0"
+    },
+    {
+      "code": "3.14",
+      "result": "3.14"
+    },
+    {
+      "code": "-0.0",
+      "result": "-0.0"
+    },
+    {
+      "code": "0.0 == -0.0",
+      "result": "True"
+    },
+    {
+      "code": "True + 1",
+      "result": "2"
+    },
+    {
+      "code": "True + True",
+      "result": "2"
+    },
+    {
+      "code": "sum([True, True, False])",
+      "result": "2"
+    },
+    {
+      "code": "True * 5",
+      "result": "5"
+    },
+    {
+      "code": "int(True)",
+      "result": "1"
+    },
+    {
+      "code": "True == 1",
+      "result": "True"
+    },
+    {
+      "code": "False == 0",
+      "result": "True"
+    },
+    {
+      "code": "1 + False",
+      "result": "1"
+    },
+    {
+      "code": "3 + 2j",
+      "result": "(3+2j)"
+    },
+    {
+      "code": "(1+2j) + (3-1j)",
+      "result": "(4+1j)"
+    },
+    {
+      "code": "(1+2j) * (3-1j)",
+      "result": "(5+5j)"
+    },
+    {
+      "code": "(1+2j) / (1-1j)",
+      "result": "(-0.5+1.5j)"
+    },
+    {
+      "code": "abs(3+4j)",
+      "result": "5.0"
+    },
+    {
+      "code": "(3+4j).real",
+      "result": "3.0"
+    },
+    {
+      "code": "(3+4j).imag",
+      "result": "4.0"
+    },
+    {
+      "code": "(1+2j).conjugate()",
+      "result": "(1-2j)"
+    },
+    {
+      "code": "(2j) ** 2",
+      "result": "(-4+0j)"
+    },
+    {
+      "code": "complex(1, 2)",
+      "result": "(1+2j)"
+    },
+    {
+      "code": "(1+2j) == (1+2j)",
+      "result": "True"
+    },
+    {
+      "code": "1j * 1j",
+      "result": "(-1+0j)"
+    },
+    {
+      "code": "(2+0j) == 2",
+      "result": "True"
+    },
+    {
+      "code": "complex('1+2j')",
+      "result": "(1+2j)"
+    },
+    {
+      "code": "1 == 1.0",
+      "result": "True"
+    },
+    {
+      "code": "1 == True",
+      "result": "True"
+    },
+    {
+      "code": "1.0 == 1",
+      "result": "True"
+    },
+    {
+      "code": "0 == False",
+      "result": "True"
+    },
+    {
+      "code": "1 < 1.5",
+      "result": "True"
+    },
+    {
+      "code": "2 < 1.5",
+      "result": "False"
+    },
+    {
+      "code": "10 ** 100 > 1e300",
+      "result": "False"
+    },
+    {
+      "code": "2 ** 0.5 == 2 ** 0.5",
+      "result": "True"
+    },
+    {
+      "code": "float('inf')",
+      "result": "inf"
+    },
+    {
+      "code": "float('-inf')",
+      "result": "-inf"
+    },
+    {
+      "code": "float('nan')",
+      "result": "nan"
+    },
+    {
+      "code": "float('inf') + 1",
+      "result": "inf"
+    },
+    {
+      "code": "float('inf') - float('inf')",
+      "result": "nan"
+    },
+    {
+      "code": "float('nan') == float('nan')",
+      "result": "False"
+    },
+    {
+      "code": "float('nan') != float('nan')",
+      "result": "True"
+    },
+    {
+      "code": "float('inf') > 1e308",
+      "result": "True"
+    },
+    {
+      "code": "1e308 * 10",
+      "result": "inf"
+    },
+    {
+      "code": "-1e308 * 10",
+      "result": "-inf"
+    },
+    {
+      "code": "float('inf') == float('inf')",
+      "result": "True"
+    },
+    {
+      "code": "1 / 0",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "code": "1 // 0",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "code": "1 % 0",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "code": "1.0 / 0",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "code": "1.0 // 0.0",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "code": "divmod(1, 0)",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "code": "0 ** -1",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "code": "abs(-5)",
+      "result": "5"
+    },
+    {
+      "code": "abs(-5.5)",
+      "result": "5.5"
+    },
+    {
+      "code": "abs(-3-4j)",
+      "result": "5.0"
+    },
+    {
+      "code": "abs(True)",
+      "result": "1"
+    },
+    {
+      "code": "-(-5)",
+      "result": "5"
+    },
+    {
+      "code": "+5",
+      "result": "5"
+    },
+    {
+      "code": "int(3.9)",
+      "result": "3"
+    },
+    {
+      "code": "int(-3.9)",
+      "result": "-3"
+    },
+    {
+      "code": "int('  42  ')",
+      "result": "42"
+    },
+    {
+      "code": "int('0x1f', 16)",
+      "result": "31"
+    },
+    {
+      "code": "int('11', 2)",
+      "result": "3"
+    },
+    {
+      "code": "int('z', 36)",
+      "result": "35"
+    },
+    {
+      "code": "float('  3.14 ')",
+      "result": "3.14"
+    },
+    {
+      "code": "float('1e3')",
+      "result": "1000.0"
+    },
+    {
+      "code": "int('1_000')",
+      "result": "1000"
+    },
+    {
+      "code": "float('inf')",
+      "result": "inf"
+    },
+    {
+      "code": "int(2.0)",
+      "result": "2"
+    },
+    {
+      "code": "5 & 3",
+      "result": "1"
+    },
+    {
+      "code": "5 | 2",
+      "result": "7"
+    },
+    {
+      "code": "5 ^ 1",
+      "result": "4"
+    },
+    {
+      "code": "~5",
+      "result": "-6"
+    },
+    {
+      "code": "1 << 4",
+      "result": "16"
+    },
+    {
+      "code": "256 >> 2",
+      "result": "64"
+    },
+    {
+      "code": "-1 >> 1",
+      "result": "-1"
+    },
+    {
+      "code": "~0",
+      "result": "-1"
+    },
+    {
+      "code": "5 & 3 | 2",
+      "result": "3"
+    },
+    {
+      "code": "1 << 100",
+      "result": "1267650600228229401496703205376"
+    },
+    {
+      "program": "from decimal import Decimal\nprint(Decimal('0.1') + Decimal('0.2'))",
+      "stdout": "0.3\n"
+    },
+    {
+      "program": "from decimal import Decimal\nprint(Decimal(1) / Decimal(3))",
+      "stdout": "0.3333333333333333333333333333\n"
+    },
+    {
+      "program": "from decimal import Decimal\nprint(Decimal('1') + 2)",
+      "stdout": "3\n"
+    },
+    {
+      "program": "from decimal import Decimal\nprint(Decimal('2.5').quantize(Decimal('1')))",
+      "stdout": "2\n"
+    },
+    {
+      "program": "from decimal import Decimal\ntry:\n    Decimal('1') + 0.1\nexcept TypeError:\n    print('TypeError')",
+      "stdout": "TypeError\n"
+    },
+    {
+      "program": "from decimal import Decimal\nprint(Decimal('10') % Decimal('3'))",
+      "stdout": "1\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(Fraction(1, 3) + Fraction(1, 6))",
+      "stdout": "1/2\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(Fraction(6, 4))",
+      "stdout": "3/2\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(Fraction(1, 3) + 1)",
+      "stdout": "4/3\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(float(Fraction(1, 4)))",
+      "stdout": "0.25\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(Fraction(3, 4) * Fraction(2, 3))",
+      "stdout": "1/2\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(repr(Fraction(6, 4)))",
+      "stdout": "Fraction(3, 2)\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(Fraction(1, 2) - Fraction(1, 3))",
+      "stdout": "1/6\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(-Fraction(1, 2))",
+      "stdout": "-1/2\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(Fraction(2, 3) ** 2)",
+      "stdout": "4/9\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(Fraction(1, 4).numerator, Fraction(1, 4).denominator)",
+      "stdout": "1 4\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(int(Fraction(7, 2)))",
+      "stdout": "3\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(Fraction(1, 2) < Fraction(2, 3))",
+      "stdout": "True\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(Fraction(2, 1) == 2)",
+      "stdout": "True\n"
+    },
+    {
+      "program": "from fractions import Fraction\nprint(Fraction(1, 2) + 0.5)",
+      "stdout": "1.0\n"
+    },
+    {
+      "program": "from fractions import Fraction\ntry:\n    Fraction(1, 0)\nexcept ZeroDivisionError:\n    print('ZeroDivisionError')",
+      "stdout": "ZeroDivisionError\n"
+    }
+  ]
+}

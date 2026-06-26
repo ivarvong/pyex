@@ -35,6 +35,7 @@ defmodule Pyex.Stdlib do
     "pandas" => Pyex.Stdlib.Pandas,
     "yaml" => Pyex.Stdlib.YAML,
     "decimal" => Pyex.Stdlib.DecimalModule,
+    "fractions" => Pyex.Stdlib.Fractions,
     "glob" => Pyex.Stdlib.Glob,
     "pathlib" => Pyex.Stdlib.Pathlib,
     "fnmatch" => Pyex.Stdlib.Fnmatch,

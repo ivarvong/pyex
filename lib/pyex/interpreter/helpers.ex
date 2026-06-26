@@ -51,6 +51,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type({:pandas_rolling, _, _}), do: "Rolling"
   def py_type({:pandas_dataframe, _}), do: "DataFrame"
   def py_type({:pyex_decimal, _}), do: "Decimal"
+  def py_type({:fraction, _, _}), do: "Fraction"
   def py_type({:deque, _, _, _, _}), do: "deque"
   def py_type({:stringio, _}), do: "StringIO"
   def py_type({:property, _, _, _}), do: "property"
@@ -229,11 +230,13 @@ defmodule Pyex.Interpreter.Helpers do
 
   def py_str({:complex, r, i}) do
     cond do
-      r == 0.0 ->
+      # Only a *positive* zero real part is omitted; -0.0 is shown, as in
+      # CPython (`repr(-2j)` is '(-0-2j)').
+      r === 0.0 ->
         "#{complex_part(i)}j"
 
       true ->
-        sign = if i < 0, do: "-", else: "+"
+        sign = if i < 0 or i === -0.0, do: "-", else: "+"
         "(#{complex_part(r)}#{sign}#{complex_part(abs(i))}j)"
     end
   end
@@ -265,6 +268,7 @@ defmodule Pyex.Interpreter.Helpers do
     do: if(st == 1, do: "range(#{s}, #{e})", else: "range(#{s}, #{e}, #{st})")
 
   def py_str({:pyex_decimal, d}), do: Decimal.to_string(d)
+  def py_str({:fraction, _, _} = f), do: Pyex.Fraction.to_str(f)
   def py_str({:generator, _}), do: "<generator object>"
   def py_str({:generator_error, _, _}), do: "<generator object>"
   def py_str({:iterator, _}), do: "<iterator object>"
@@ -281,6 +285,7 @@ defmodule Pyex.Interpreter.Helpers do
   @spec py_repr_fmt(Pyex.Interpreter.pyvalue()) :: String.t()
   def py_repr_fmt(val) when is_binary(val), do: repr_string(val)
   def py_repr_fmt({:pyex_decimal, d}), do: "Decimal('#{Decimal.to_string(d)}')"
+  def py_repr_fmt({:fraction, _, _} = f), do: Pyex.Fraction.to_repr(f)
   def py_repr_fmt(val), do: py_str(val)
 
   @doc """
@@ -349,6 +354,8 @@ defmodule Pyex.Interpreter.Helpers do
   def truthy?({:set, s}), do: MapSet.size(s) > 0
 
   def truthy?({:pyex_decimal, d}), do: not Decimal.equal?(d, Decimal.new(0))
+  def truthy?({:fraction, n, _}), do: n != 0
+  def truthy?({:complex, r, i}), do: r != 0.0 or i != 0.0
 
   def truthy?({:range, start, stop, step}),
     do: Builtins.range_length({:range, start, stop, step}) > 0
@@ -666,6 +673,8 @@ defmodule Pyex.Interpreter.Helpers do
   # the value is integer-valued, otherwise uses Python's standard float
   # formatting.  Matches `str(complex(3, 4)) == '(3+4j)'`.
   @spec complex_part(float() | integer()) :: String.t()
+  defp complex_part(f) when f === -0.0, do: "-0"
+
   defp complex_part(f) when is_float(f) do
     if f == trunc(f) and abs(f) < 1.0e16 do
       Integer.to_string(trunc(f))

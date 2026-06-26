@@ -25,9 +25,10 @@ defmodule Pyex.Ctx do
   @type event_type :: :output | :file_op | :loop
 
   @type file_handle :: %{
-          path: String.t(),
-          mode: :read | :write | :append,
-          buffer: String.t()
+          :path => String.t(),
+          :mode => :read | :write | :append,
+          :buffer => String.t(),
+          optional(:pos) => non_neg_integer()
         }
 
   @type profile_data :: %{
@@ -83,7 +84,8 @@ defmodule Pyex.Ctx do
           steps: non_neg_integer(),
           memory_bytes: non_neg_integer(),
           output_bytes: non_neg_integer(),
-          asyncio_running: boolean()
+          asyncio_running: boolean(),
+          class_registry: %{optional(reference()) => term()}
         }
 
   defstruct filesystem: nil,
@@ -119,7 +121,8 @@ defmodule Pyex.Ctx do
             steps: 0,
             memory_bytes: 0,
             output_bytes: 0,
-            asyncio_running: false
+            asyncio_running: false,
+            class_registry: %{}
 
   @doc """
   Creates a fresh live context that captures output and execution counters.
@@ -891,6 +894,60 @@ defmodule Pyex.Ctx do
   def deref(_ctx, value), do: value
 
   @doc """
+  Records a class under its stable `__id__` identity so that later
+  attribute mutations are visible through every alias and instance.
+
+  Classes are otherwise by-value: `A.x = 1` rebinds the `A` variable to a
+  fresh class tuple, but existing instances embed the old snapshot. The
+  registry gives classes identity — `live_class/2` resolves any snapshot
+  (matched by `__id__`) to the most recently registered version.
+  """
+  @spec register_class(t(), term()) :: t()
+  def register_class(%__MODULE__{class_registry: reg} = ctx, {:class, _, _, attrs} = class) do
+    case attrs do
+      %{"__id__" => id} -> %{ctx | class_registry: Map.put(reg, id, class)}
+      _ -> ctx
+    end
+  end
+
+  def register_class(ctx, _other), do: ctx
+
+  @doc """
+  Resolves a class value to its currently-registered version (by `__id__`).
+
+  Returns the live class if one is registered, otherwise the value
+  unchanged — so unregistered/built-in classes behave exactly as before.
+  """
+  @spec live_class(t(), term()) :: term()
+  def live_class(%__MODULE__{class_registry: reg}, {:class, _, _, %{"__id__" => id}} = class)
+      when reg != %{} do
+    reg |> Map.get(id, class) |> refresh_mro_tail(reg)
+  end
+
+  def live_class(_ctx, class), do: class
+
+  # Refresh a class's cached MRO ancestors to their registered versions so
+  # that mutations to a *parent* class are visible through a subclass
+  # instance too. Returns the class unchanged when no ancestor moved (the
+  # common case), avoiding a tuple allocation on every attribute access.
+  @spec refresh_mro_tail(term(), map()) :: term()
+  defp refresh_mro_tail({:class, name, bases, %{"__mro_cache__" => tail} = attrs} = class, reg) do
+    new_tail =
+      Enum.map(tail, fn
+        {:class, _, _, %{"__id__" => aid}} = ancestor -> Map.get(reg, aid, ancestor)
+        other -> other
+      end)
+
+    if new_tail == tail do
+      class
+    else
+      {:class, name, bases, %{attrs | "__mro_cache__" => new_tail}}
+    end
+  end
+
+  defp refresh_mro_tail(class, _reg), do: class
+
+  @doc """
   Looks up `forward_idx` in a heap-stored `py_list`, using a lazy
   tuple cache.
 
@@ -1070,7 +1127,7 @@ defmodule Pyex.Ctx do
         case Pyex.FS.read_file(fs, ctx.cwd, path) do
           {:ok, content, fs} ->
             id = ctx.next_handle
-            handle = %{path: resolved, mode: :read, buffer: content}
+            handle = %{path: resolved, mode: :read, buffer: content, pos: 0}
 
             ctx = %{
               ctx
@@ -1101,15 +1158,110 @@ defmodule Pyex.Ctx do
   @spec read_handle(t(), non_neg_integer()) :: {:ok, String.t(), t()} | {:error, String.t()}
   def read_handle(%__MODULE__{handles: handles} = ctx, id) do
     case Map.fetch(handles, id) do
-      {:ok, %{mode: :read, buffer: content}} ->
-        ctx = record(ctx, :file_op, {:read, id, byte_size(content)})
-        {:ok, content, ctx}
+      {:ok, %{mode: :read, buffer: content} = handle} ->
+        pos = Map.get(handle, :pos, 0)
+        rest = binary_part(content, pos, byte_size(content) - pos)
+        handle = Map.put(handle, :pos, byte_size(content))
+        ctx = %{ctx | handles: Map.put(handles, id, handle)}
+        ctx = record(ctx, :file_op, {:read, id, byte_size(rest)})
+        {:ok, rest, ctx}
 
       {:ok, _} ->
         {:error, "IOError: not readable"}
 
       :error ->
         {:error, "ValueError: I/O operation on closed file"}
+    end
+  end
+
+  @doc """
+  Reads at most `n` characters from an open read handle, advancing its
+  read position by the bytes consumed.
+  """
+  @spec read_handle(t(), non_neg_integer(), non_neg_integer()) ::
+          {:ok, String.t(), t()} | {:error, String.t()}
+  def read_handle(%__MODULE__{handles: handles} = ctx, id, n)
+      when is_integer(n) and n >= 0 do
+    case Map.fetch(handles, id) do
+      {:ok, %{mode: :read, buffer: content} = handle} ->
+        pos = Map.get(handle, :pos, 0)
+        rest = binary_part(content, pos, byte_size(content) - pos)
+        chunk = String.slice(rest, 0, n)
+        handle = Map.put(handle, :pos, pos + byte_size(chunk))
+        ctx = %{ctx | handles: Map.put(handles, id, handle)}
+        ctx = record(ctx, :file_op, {:read, id, byte_size(chunk)})
+        {:ok, chunk, ctx}
+
+      {:ok, _} ->
+        {:error, "IOError: not readable"}
+
+      :error ->
+        {:error, "ValueError: I/O operation on closed file"}
+    end
+  end
+
+  @doc """
+  Reads a single line (up to and including the next newline) from an
+  open read handle, advancing its read position. Returns `""` at EOF.
+  """
+  @spec readline_handle(t(), non_neg_integer()) :: {:ok, String.t(), t()} | {:error, String.t()}
+  def readline_handle(%__MODULE__{handles: handles} = ctx, id) do
+    case Map.fetch(handles, id) do
+      {:ok, %{mode: :read, buffer: content} = handle} ->
+        pos = Map.get(handle, :pos, 0)
+        {line, new_pos} = take_line(content, pos)
+        handle = Map.put(handle, :pos, new_pos)
+        ctx = %{ctx | handles: Map.put(handles, id, handle)}
+        ctx = record(ctx, :file_op, {:read, id, byte_size(line)})
+        {:ok, line, ctx}
+
+      {:ok, _} ->
+        {:error, "IOError: not readable"}
+
+      :error ->
+        {:error, "ValueError: I/O operation on closed file"}
+    end
+  end
+
+  @doc """
+  Reads all remaining lines from an open read handle, each preserving
+  its trailing newline, advancing the read position to EOF.
+  """
+  @spec readlines_handle(t(), non_neg_integer()) ::
+          {:ok, [String.t()], t()} | {:error, String.t()}
+  def readlines_handle(%__MODULE__{} = ctx, id) do
+    case read_handle(ctx, id) do
+      {:ok, rest, ctx} -> {:ok, lines_with_newlines(rest), ctx}
+      {:error, _} = err -> err
+    end
+  end
+
+  @spec take_line(String.t(), non_neg_integer()) :: {String.t(), non_neg_integer()}
+  defp take_line(content, pos) do
+    size = byte_size(content)
+
+    if pos >= size do
+      {"", pos}
+    else
+      rest = binary_part(content, pos, size - pos)
+
+      case :binary.match(rest, "\n") do
+        {idx, 1} -> {binary_part(rest, 0, idx + 1), pos + idx + 1}
+        :nomatch -> {rest, size}
+      end
+    end
+  end
+
+  @spec lines_with_newlines(String.t()) :: [String.t()]
+  defp lines_with_newlines(""), do: []
+
+  defp lines_with_newlines(str) do
+    case str |> String.split("\n") |> Enum.reverse() do
+      ["" | rest_rev] ->
+        rest_rev |> Enum.reverse() |> Enum.map(&(&1 <> "\n"))
+
+      [last | rest_rev] ->
+        (rest_rev |> Enum.reverse() |> Enum.map(&(&1 <> "\n"))) ++ [last]
     end
   end
 

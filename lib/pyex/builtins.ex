@@ -10,6 +10,7 @@ defmodule Pyex.Builtins do
   """
 
   alias Pyex.{Ctx, Env, Interpreter, PyDict}
+  alias Pyex.Interpreter.FstringFormat
 
   @doc """
   Returns an environment pre-populated with all builtins.
@@ -96,32 +97,63 @@ defmodule Pyex.Builtins do
   def exception_class_names, do: Pyex.ExceptionsHierarchy.all_names()
 
   @doc """
-  Set of builtin function captures that must receive a generator
-  iterator *as itself* — not its drained contents. Anything that
-  reflects on identity, type, or treats the iterator as opaque
-  (`iter`, `next`, `type`, `isinstance`, `id`, `repr`, `len`).
-
-  Used by the builtin call path to suppress eager drain for these.
+  Returns the names of every builtin bound in the runtime environment:
+  functions, type constructors, exception classes, and the `type` /
+  `Ellipsis` singletons. This is the introspection seam used by
+  surface-parity checks against CPython's `dir(builtins)`.
   """
-  @spec no_drain_builtin_funcs() :: MapSet.t(function())
-  def no_drain_builtin_funcs do
-    names = ~w(iter next type isinstance id repr len)
+  @spec names() :: [String.t()]
+  def names do
+    functions = Enum.map(all(), fn {name, _} -> name end)
+    types = Enum.map(type_constructors(), fn {name, _} -> name end)
 
-    captures =
-      for {name, fun} <- all(), name in names do
-        case fun do
-          {:kw, f} -> f
-          f -> f
-        end
-      end
+    (functions ++ types ++ exception_class_names() ++ ["type", "Ellipsis"])
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
 
-    # Stdlib functions that need lazy access to iterator args (e.g.
-    # `itertools.islice` over an infinite generator).  Without this
-    # registration, the builtin call path drains the iterator into a
-    # list before the function runs — which loops forever.
-    extras = [Pyex.Stdlib.Itertools.islice_capture()]
+  @doc """
+  True for builtins that must receive a generator iterator *as itself* —
+  not its drained contents: anything that reflects on identity or type,
+  or treats the iterator as opaque (`iter`, `next`, `isinstance`, `id`,
+  `repr`, `len`), plus `itertools.islice`, which needs lazy access to an
+  iterator arg (draining an infinite generator first would loop forever).
 
-    MapSet.new(captures ++ extras)
+  (`type` is in the same conceptual group but isn't dispatched through the
+  builtin call path — it's the `type` class — so it needs no entry here.)
+
+  The captures must match the local-capture form bound in the env, so the
+  list is built here. It's seven entries; rebuilding per call is free
+  relative to the generator drain it gates.
+  """
+  @spec no_drain_builtin?(function()) :: boolean()
+  def no_drain_builtin?(fun) do
+    fun in [
+      &builtin_iter/1,
+      &builtin_next/1,
+      &builtin_isinstance/1,
+      &builtin_id/1,
+      &builtin_repr/1,
+      &builtin_len/1,
+      Pyex.Stdlib.Itertools.islice_capture()
+    ]
+  end
+
+  @doc """
+  True for builtins that materialize a new sequence from an iterable and
+  must preserve their elements' *identity* (CPython shallow-copy
+  semantics): the result holds the same inner objects as the source.
+  These receive shallow-deref'd args so nested heap references survive —
+  deep-deref would flatten them and force a fresh allocation, silently
+  breaking `list(x)[0] is x[0]`.
+
+  The captures must match the local-capture form bound in the env, so the
+  list is built here. It's four entries; rebuilding per call is free
+  relative to the deref it gates.
+  """
+  @spec shallow_arg_builtin?(function()) :: boolean()
+  def shallow_arg_builtin?(fun) do
+    fun in [&builtin_list/1, &builtin_tuple/1, &builtin_reversed/1, &builtin_sorted/2]
   end
 
   @spec all() :: [{String.t(), ([Interpreter.pyvalue()] -> Interpreter.pyvalue())}]
@@ -129,6 +161,7 @@ defmodule Pyex.Builtins do
     [
       {"len", &builtin_len/1},
       {"range", &builtin_range/1},
+      {"slice", &builtin_slice/1},
       {"print", {:kw, &builtin_print/2}},
       # "type" is bound to `type_class()` in `build_env/0` so that
       # `type(x) is type` holds via structural class identity. The
@@ -159,6 +192,7 @@ defmodule Pyex.Builtins do
       {"pow", &builtin_pow/1},
       {"divmod", &builtin_divmod/1},
       {"repr", &builtin_repr/1},
+      {"format", &builtin_format/1},
       {"callable", &builtin_callable/1},
       {"frozenset", &builtin_frozenset/1},
       {"hasattr", &builtin_hasattr/1},
@@ -177,16 +211,17 @@ defmodule Pyex.Builtins do
       {"vars", &builtin_vars/1},
       {"id", &builtin_id/1},
       {"hash", &builtin_hash/1},
-      {"object", &builtin_object/1},
       {"property", &builtin_property/1},
       {"staticmethod", &builtin_staticmethod/1},
-      {"classmethod", &builtin_classmethod/1}
+      {"classmethod", &builtin_classmethod/1},
+      {"__import__", &builtin_import/1}
     ]
   end
 
   @spec type_constructors() :: [{String.t(), ([Interpreter.pyvalue()] -> Interpreter.pyvalue())}]
   defp type_constructors do
     [
+      {"object", &builtin_object/1},
       {"str", &builtin_str/1},
       {"int", &builtin_int/1},
       {"float", &builtin_float/1},
@@ -238,6 +273,16 @@ defmodule Pyex.Builtins do
        do: {:range, start, stop, step}
 
   defp builtin_range([_, _, 0]), do: {:exception, "ValueError: range() arg 3 must not be zero"}
+
+  # slice(stop) / slice(start, stop) / slice(start, stop, step) — a slice
+  # object usable as a subscript key, with omitted bounds as `nil` (None).
+  @spec builtin_slice([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp builtin_slice([stop]), do: {:slice_obj, nil, stop, nil}
+  defp builtin_slice([start, stop]), do: {:slice_obj, start, stop, nil}
+  defp builtin_slice([start, stop, step]), do: {:slice_obj, start, stop, step}
+
+  defp builtin_slice(_),
+    do: {:exception, "TypeError: slice expected 1 to 3 arguments"}
 
   @max_range_len 10_000_000
 
@@ -358,7 +403,25 @@ defmodule Pyex.Builtins do
 
   defp builtin_str([{:instance, _, _} = inst]), do: {:dunder_call, inst, "__str__", []}
 
+  # str(bytes, encoding): decode. The pyex bytes payload is the raw binary,
+  # which for utf-8/ascii is already the decoded string.
+  defp builtin_str([{:bytes, b}, encoding]) when is_binary(encoding) do
+    case String.downcase(encoding) do
+      e when e in ["utf-8", "utf8", "ascii", "latin-1", "latin1", "iso-8859-1"] -> b
+      _ -> {:exception, "LookupError: unknown encoding: #{encoding}"}
+    end
+  end
+
   defp builtin_str([val]), do: py_repr(val)
+
+  @doc false
+  @spec builtin_int([Interpreter.pyvalue()], map()) :: integer() | {:exception, String.t()}
+  def builtin_int(args, kwargs) do
+    case Map.fetch(kwargs, "base") do
+      {:ok, base} -> builtin_int(args ++ [base])
+      :error -> builtin_int(args)
+    end
+  end
 
   @spec builtin_int([Interpreter.pyvalue()]) :: integer() | {:exception, String.t()}
   defp builtin_int([]), do: 0
@@ -398,6 +461,8 @@ defmodule Pyex.Builtins do
     # CPython int(Decimal) truncates toward zero.
     Decimal.round(d, 0, :down) |> Decimal.to_integer()
   end
+
+  defp builtin_int([{:fraction, _, _} = f]), do: Pyex.Fraction.to_integer(f)
 
   defp builtin_int([val]),
     do:
@@ -453,6 +518,11 @@ defmodule Pyex.Builtins do
   defp strip_base_prefix(str, _base), do: str
 
   @spec builtin_float([Interpreter.pyvalue()]) :: float() | {:exception, String.t()}
+  # Drop underscores used as digit separators (Python's "1_000"), only
+  # where flanked by digits so malformed inputs ("_1", "1__0") still fail.
+  @spec strip_digit_underscores(String.t()) :: String.t()
+  defp strip_digit_underscores(s), do: String.replace(s, ~r/(?<=\d)_(?=\d)/, "")
+
   defp builtin_float([]), do: 0.0
   defp builtin_float([val]) when is_float(val), do: val
   defp builtin_float([val]) when is_integer(val), do: val / 1
@@ -473,7 +543,8 @@ defmodule Pyex.Builtins do
         :nan
 
       _ ->
-        case Float.parse(trimmed) do
+        # Python allows underscores as digit separators ('1_000').
+        case Float.parse(strip_digit_underscores(trimmed)) do
           {f, ""} -> f
           _ -> {:exception, "ValueError: could not convert string to float: '#{val}'"}
         end
@@ -487,6 +558,7 @@ defmodule Pyex.Builtins do
   # preserves `-0.0` across `float(Decimal('-0'))`. Restore it explicitly.
   defp builtin_float([{:pyex_decimal, %Decimal{coef: 0, sign: -1}}]), do: -0.0
   defp builtin_float([{:pyex_decimal, d}]), do: Decimal.to_float(d)
+  defp builtin_float([{:fraction, _, _} = f]), do: Pyex.Fraction.to_float(f)
 
   defp builtin_float([val]),
     do:
@@ -528,6 +600,8 @@ defmodule Pyex.Builtins do
   defp builtin_abs([false]), do: 0
   defp builtin_abs([val]) when is_number(val), do: abs(val)
   defp builtin_abs([{:pyex_decimal, d}]), do: {:pyex_decimal, Decimal.abs(d)}
+  defp builtin_abs([{:fraction, n, d}]), do: {:fraction, abs(n), d}
+  defp builtin_abs([{:complex, r, i}]), do: :math.sqrt(r * r + i * i)
 
   defp builtin_abs([{:instance, {:class, _name, _bases, class_attrs}, inst_attrs} = inst]) do
     abs_fn = Map.get(inst_attrs, "__abs__") || Map.get(class_attrs, "__abs__")
@@ -612,6 +686,16 @@ defmodule Pyex.Builtins do
 
   defp extract_minmax_items([{:tuple, items}]), do: {:ok, items}
 
+  # The remaining single-arg iterable types (keys for dicts, ints for
+  # bytes, chars for str), matching sorted()/list().
+  defp extract_minmax_items([{:py_dict, _, _} = dict]), do: {:ok, PyDict.keys(visible_dict(dict))}
+
+  defp extract_minmax_items([map]) when is_map(map),
+    do: {:ok, map |> visible_dict() |> Map.keys()}
+
+  defp extract_minmax_items([{:bytes, bin}]), do: {:ok, :binary.bin_to_list(bin)}
+  defp extract_minmax_items([str]) when is_binary(str), do: {:ok, String.codepoints(str)}
+
   defp extract_minmax_items(args) when length(args) >= 2, do: {:ok, args}
   defp extract_minmax_items(_), do: {:error, "TypeError: expected iterable argument"}
 
@@ -633,8 +717,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_sum([{:instance, _, _} = inst, start]), do: {:iter_sum, inst, start}
-  defp builtin_sum([{:iterator, _} = it, start]), do: {:iter_sum, it, start}
+  defp builtin_sum([val, start]), do: {:iter_sum, val, start}
 
   @spec sum_with_start([Interpreter.pyvalue()], Interpreter.pyvalue()) ::
           Interpreter.pyvalue() | {:exception, String.t()}
@@ -748,11 +831,10 @@ defmodule Pyex.Builtins do
         [map] when is_map(map) ->
           map |> visible_dict() |> Map.keys()
 
-        [{:instance, _, _} = inst] ->
-          {:needs_iter, inst}
-
-        [{:iterator, _} = it] ->
-          {:needs_iter, it}
+        # Anything else iterable (bytes, custom __iter__, ...) defers to
+        # the one coercion; non-iterables surface its TypeError.
+        [val] ->
+          {:needs_iter, val}
 
         _ ->
           :error
@@ -829,15 +911,15 @@ defmodule Pyex.Builtins do
           String.codepoints(str)
 
         _ ->
-          nil
+          :defer
       end
 
     case items do
       {:exception, _} = err ->
         err
 
-      nil ->
-        {:exception, "TypeError: enumerate() requires an iterable"}
+      :defer ->
+        {:iter_enumerate, iterable, start}
 
       _ ->
         items
@@ -892,6 +974,14 @@ defmodule Pyex.Builtins do
     end
   end
 
+  @doc """
+  Coerce any simple (non-instance) iterable to an Elixir list, or
+  `:error`. The shared pure coercion stdlib consumers use so a function
+  that takes an iterable accepts the same types `for`/`list()` do.
+  """
+  @spec iterable_to_list(Interpreter.pyvalue()) :: {:ok, [Interpreter.pyvalue()]} | :error
+  def iterable_to_list(val), do: to_list(val)
+
   defp to_list({:deque, _, _, _, _} = d), do: {:ok, Pyex.Methods.deque_to_list(d)}
   defp to_list({:py_list, reversed, _}), do: {:ok, Enum.reverse(reversed)}
   defp to_list(list) when is_list(list), do: {:ok, list}
@@ -910,10 +1000,13 @@ defmodule Pyex.Builtins do
   defp to_list(str) when is_binary(str), do: {:ok, String.codepoints(str)}
   defp to_list({:py_dict, _, _} = dict), do: {:ok, PyDict.keys(visible_dict(dict))}
   defp to_list(map) when is_map(map), do: {:ok, map |> visible_dict() |> Map.keys()}
+  defp to_list({:bytes, bin}), do: {:ok, :binary.bin_to_list(bin)}
+  defp to_list({:bytearray, bin}), do: {:ok, :binary.bin_to_list(bin)}
   defp to_list(_), do: :error
 
   @spec builtin_bool([Interpreter.pyvalue()]) ::
           boolean() | {:dunder_call, Interpreter.pyvalue(), String.t(), []}
+  defp builtin_bool([]), do: false
   defp builtin_bool([{:instance, _, _} = inst]), do: {:dunder_call, inst, "__bool__", []}
   defp builtin_bool([val]), do: truthy?(val)
 
@@ -958,8 +1051,10 @@ defmodule Pyex.Builtins do
 
   defp builtin_list([{:py_dict, _, _} = dict]), do: PyDict.keys(visible_dict(dict))
   defp builtin_list([map]) when is_map(map), do: map |> visible_dict() |> Map.keys()
-  defp builtin_list([{:instance, _, _} = inst]), do: {:iter_to_list, inst}
-  defp builtin_list([{:iterator, _} = it]), do: {:iter_to_list, it}
+  # Any other single arg defers to the one iterable coercion
+  # (Interpreter.to_iterable), which also yields the right TypeError for
+  # non-iterables. New iterable types are then supported everywhere at once.
+  defp builtin_list([val]), do: {:iter_to_list, val}
 
   @spec mutable_element?(Interpreter.pyvalue()) :: boolean()
   defp mutable_element?({:py_dict, _, _}), do: true
@@ -1023,39 +1118,56 @@ defmodule Pyex.Builtins do
      |> PyDict.from_map()}
   end
 
-  defp builtin_dict_positional([list]) when is_list(list) do
-    {:ok,
-     Enum.reduce(list, PyDict.new(), fn
-       {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
-       [k, v], acc -> PyDict.put(acc, k, v)
-       _, acc -> acc
-     end)}
+  # dict(iterable_of_pairs): every element must be a 2-element iterable.
+  # Routes through the shared coercion so list/tuple/str/bytes/range/set/
+  # generator all work, and raises CPython's ValueError/TypeError on
+  # malformed elements rather than silently dropping them.
+  defp builtin_dict_positional([iterable]) do
+    case to_list(iterable) do
+      {:ok, items} -> dict_from_pairs(items)
+      :error -> {:exception, "TypeError: '#{pytype(iterable)}' object is not iterable"}
+    end
   end
-
-  defp builtin_dict_positional([{:py_list, reversed, _}]) do
-    list = Enum.reverse(reversed)
-
-    {:ok,
-     Enum.reduce(list, PyDict.new(), fn
-       {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
-       [k, v], acc -> PyDict.put(acc, k, v)
-       _, acc -> acc
-     end)}
-  end
-
-  defp builtin_dict_positional([{:generator, items}]) do
-    {:ok,
-     Enum.reduce(items, PyDict.new(), fn
-       {:tuple, [k, v]}, acc -> PyDict.put(acc, k, v)
-       [k, v], acc -> PyDict.put(acc, k, v)
-       _, acc -> acc
-     end)}
-  end
-
-  defp builtin_dict_positional([_]), do: {:exception, "TypeError: cannot convert to dict"}
 
   defp builtin_dict_positional(args) do
     {:exception, "TypeError: dict expected at most 1 argument, got #{length(args)}"}
+  end
+
+  @spec dict_from_pairs([Interpreter.pyvalue()]) :: {:ok, PyDict.t()} | {:exception, String.t()}
+  defp dict_from_pairs(items) do
+    items
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, PyDict.new()}, fn {item, i}, {:ok, acc} ->
+      case dict_pair(item) do
+        {:ok, k, v} ->
+          {:cont, {:ok, PyDict.put(acc, k, v)}}
+
+        {:error, :type} ->
+          {:halt,
+           {:exception,
+            "TypeError: cannot convert dictionary update sequence element ##{i} to a sequence"}}
+
+        {:error, :length, n} ->
+          {:halt,
+           {:exception,
+            "ValueError: dictionary update sequence element ##{i} has length #{n}; 2 is required"}}
+      end
+    end)
+  end
+
+  @spec dict_pair(Interpreter.pyvalue()) ::
+          {:ok, Interpreter.pyvalue(), Interpreter.pyvalue()}
+          | {:error, :type}
+          | {:error, :length, non_neg_integer()}
+  defp dict_pair({:tuple, [k, v]}), do: {:ok, k, v}
+  defp dict_pair([k, v]), do: {:ok, k, v}
+
+  defp dict_pair(item) do
+    case to_list(item) do
+      {:ok, [k, v]} -> {:ok, k, v}
+      {:ok, other} -> {:error, :length, length(other)}
+      :error -> {:error, :type}
+    end
   end
 
   @doc false
@@ -1093,6 +1205,10 @@ defmodule Pyex.Builtins do
 
     cond do
       actual == type_name ->
+        true
+
+      # Every value is an instance of object.
+      type_name == "object" ->
         true
 
       type_name == "int" and actual == "bool" ->
@@ -1242,8 +1358,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_tuple([{:instance, _, _} = inst]), do: {:iter_to_tuple, inst}
-  defp builtin_tuple([{:iterator, _} = it]), do: {:iter_to_tuple, it}
+  defp builtin_tuple([val]), do: {:iter_to_tuple, val}
 
   @spec builtin_set([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
@@ -1263,8 +1378,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_set([{:instance, _, _} = inst]), do: {:iter_to_set, inst}
-  defp builtin_set([{:iterator, _} = it]), do: {:iter_to_set, it}
+  defp builtin_set([val]), do: {:iter_to_set, val}
 
   @spec builtin_frozenset([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
@@ -1290,8 +1404,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_frozenset([{:instance, _, _} = inst]), do: {:iter_to_frozenset, inst}
-  defp builtin_frozenset([{:iterator, _} = it]), do: {:iter_to_frozenset, it}
+  defp builtin_frozenset([val]), do: {:iter_to_frozenset, val}
 
   @spec builtin_round([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
@@ -1497,8 +1610,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_any([val]),
-    do: {:exception, "TypeError: argument of type '#{pytype(val)}' is not iterable"}
+  defp builtin_any([val]), do: {:iter_any, val}
 
   @spec builtin_all([Interpreter.pyvalue()]) :: boolean() | {:exception, String.t()}
   defp builtin_all([{:py_list, reversed, _}]), do: Enum.all?(Enum.reverse(reversed), &truthy?/1)
@@ -1513,8 +1625,7 @@ defmodule Pyex.Builtins do
     end
   end
 
-  defp builtin_all([val]),
-    do: {:exception, "TypeError: argument of type '#{pytype(val)}' is not iterable"}
+  defp builtin_all([val]), do: {:iter_all, val}
 
   @spec builtin_map([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | Interpreter.builtin_signal()
@@ -2011,58 +2122,8 @@ defmodule Pyex.Builtins do
 
   @spec class_getattr(Interpreter.pyvalue(), String.t()) ::
           {:ok, Interpreter.pyvalue()} | :error
-  defp class_getattr({:class, _, _, _} = class, "__mro__") do
-    mro = Pyex.Interpreter.ClassLookup.c3_linearize(class)
-    object_class = {:class, "object", [], %{"__name__" => "object"}}
-
-    mro_with_object =
-      if Enum.any?(mro, fn {:class, n, _, _} -> n == "object" end) do
-        mro
-      else
-        mro ++ [object_class]
-      end
-
-    {:ok, {:tuple, mro_with_object}}
-  end
-
-  defp class_getattr({:class, _, bases, _}, "__bases__"), do: {:ok, {:tuple, bases}}
-
-  defp class_getattr({:class, name, _, class_attrs}, "__name__") do
-    case Map.fetch(class_attrs, "__name__") do
-      {:ok, _} = ok -> ok
-      :error -> {:ok, name}
-    end
-  end
-
-  defp class_getattr({:class, _, _, _}, "__class__") do
-    {:ok, type_class()}
-  end
-
-  defp class_getattr({:class, _, _, class_attrs}, "__dict__") do
-    visible = Pyex.Interpreter.ClassLookup.visible_attrs(class_attrs)
-    {:ok, PyDict.from_pairs(Enum.map(visible, fn {k, v} -> {k, v} end))}
-  end
-
   defp class_getattr({:class, _, _, _} = class, attr) do
-    case Pyex.Interpreter.ClassLookup.resolve_class_attr_with_owner(class, attr) do
-      {:ok, {:function, _, _, _, _, _, _} = func, _owner} ->
-        {:ok, {:bound_method, class, func}}
-
-      {:ok, {:builtin_kw, _} = bkw, _owner} ->
-        {:ok, {:bound_method, class, bkw}}
-
-      {:ok, {:staticmethod, func}, _owner} ->
-        {:ok, func}
-
-      {:ok, {:classmethod, func}, _owner} ->
-        {:ok, {:bound_method, class, func}}
-
-      {:ok, value, _owner} ->
-        {:ok, value}
-
-      :error ->
-        :error
-    end
+    Pyex.Interpreter.ClassLookup.class_attribute(class, attr)
   end
 
   @spec module_getattr(Interpreter.pyvalue(), String.t()) ::
@@ -2322,6 +2383,41 @@ defmodule Pyex.Builtins do
     {:exception, "TypeError: vars expected at most 1 argument, got 0"}
   end
 
+  # `__import__(name)` resolves a module by name and returns it. As in
+  # CPython, a dotted name without a fromlist yields the top-level package
+  # (e.g. `__import__("os.path")` returns the `os` module).
+  @spec builtin_import([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp builtin_import([name | _rest]) when is_binary(name) do
+    {:ctx_call,
+     fn env, ctx ->
+       root = name |> String.split(".") |> hd()
+
+       case Pyex.Interpreter.Import.resolve_module(root, env, ctx) do
+         {:ok, module_value, ctx} ->
+           {module_value, env, ctx}
+
+         {:import_error, msg, ctx} ->
+           {{:exception, msg}, env, ctx}
+
+         {:unknown_module, ctx} ->
+           {{:exception, "ModuleNotFoundError: No module named '#{root}'"}, env, ctx}
+       end
+     end}
+  end
+
+  defp builtin_import(_args) do
+    {:exception, "TypeError: __import__() argument 1 must be str"}
+  end
+
+  # format(value[, spec]) delegates to the same spec engine f-strings use.
+  @spec builtin_format([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp builtin_format([val]), do: FstringFormat.apply_format_spec(val, "")
+
+  defp builtin_format([val, spec]) when is_binary(spec),
+    do: FstringFormat.apply_format_spec(val, spec)
+
+  defp builtin_format(_), do: {:exception, "TypeError: format() takes 1 or 2 arguments"}
+
   @spec builtin_object([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
   defp builtin_object([]) do
     {:object, :erlang.unique_integer()}
@@ -2401,12 +2497,35 @@ defmodule Pyex.Builtins do
 
   defp builtin_hash([val]), do: :erlang.phash2(val)
 
-  @spec mod_pow(integer(), integer(), integer()) :: integer()
+  @spec mod_pow(integer(), integer(), integer()) :: integer() | {:exception, String.t()}
   defp mod_pow(_base, _exp, 1), do: 0
 
   defp mod_pow(base, exp, mod) when exp >= 0 do
     base = rem(base, mod)
     do_mod_pow(base, exp, mod, 1)
+  end
+
+  # Negative exponent (Python 3.8+): pow(b, -e, m) == pow(b**-1 mod m, e, m).
+  defp mod_pow(base, exp, mod) do
+    case mod_inverse(base, mod) do
+      {:ok, inv} -> mod_pow(inv, -exp, mod)
+      :error -> {:exception, "ValueError: base is not invertible for the given modulus"}
+    end
+  end
+
+  @spec mod_inverse(integer(), integer()) :: {:ok, integer()} | :error
+  defp mod_inverse(a, m) do
+    a = Integer.mod(a, m)
+    {g, x, _y} = ext_gcd(a, m)
+    if g == 1, do: {:ok, Integer.mod(x, m)}, else: :error
+  end
+
+  @spec ext_gcd(integer(), integer()) :: {integer(), integer(), integer()}
+  defp ext_gcd(0, b), do: {b, 0, 1}
+
+  defp ext_gcd(a, b) do
+    {g, x, y} = ext_gcd(Integer.mod(b, a), a)
+    {g, y - div(b, a) * x, x}
   end
 
   @spec do_mod_pow(integer(), integer(), integer(), integer()) :: integer()
@@ -2481,6 +2600,8 @@ defmodule Pyex.Builtins do
           Interpreter.pyvalue() | {:exception, String.t()}
   defp builtin_complex([]), do: {:complex, 0.0, 0.0}
   defp builtin_complex([r]) when is_number(r), do: {:complex, r * 1.0, 0.0}
+  defp builtin_complex([true]), do: {:complex, 1.0, 0.0}
+  defp builtin_complex([false]), do: {:complex, 0.0, 0.0}
   defp builtin_complex([{:complex, _, _} = c]), do: c
 
   defp builtin_complex([r, i]) when is_number(r) and is_number(i),
@@ -2491,7 +2612,7 @@ defmodule Pyex.Builtins do
 
   defp builtin_complex([s]) when is_binary(s) do
     # Very small complex-literal parser: accepts "1+2j", "2j", "-3.5j", "1".
-    trimmed = s |> String.trim() |> String.replace(~r/\s+/, "")
+    trimmed = s |> String.trim() |> String.replace(~r/\s+/, "") |> strip_digit_underscores()
 
     cond do
       String.ends_with?(trimmed, "j") or String.ends_with?(trimmed, "J") ->
@@ -2567,6 +2688,8 @@ defmodule Pyex.Builtins do
           Interpreter.pyvalue() | {:exception, String.t()}
   defp builtin_bytes([]), do: {:bytes, ""}
   defp builtin_bytes([n]) when is_integer(n) and n >= 0, do: {:bytes, :binary.copy(<<0>>, n)}
+  defp builtin_bytes([true]), do: {:bytes, <<0>>}
+  defp builtin_bytes([false]), do: {:bytes, ""}
 
   defp builtin_bytes([{:bytes, b}]), do: {:bytes, b}
   defp builtin_bytes([{:bytearray, b}]), do: {:bytes, b}
@@ -2577,11 +2700,14 @@ defmodule Pyex.Builtins do
     {:exception, "TypeError: string argument without an encoding"}
   end
 
-  defp builtin_bytes([{:py_list, reversed, _}]),
-    do: bytes_from_iterable(Enum.reverse(reversed))
-
-  defp builtin_bytes([list]) when is_list(list), do: bytes_from_iterable(list)
-  defp builtin_bytes([{:tuple, items}]), do: bytes_from_iterable(items)
+  # bytes(iterable_of_ints): any iterable of 0..255 ints, via the shared
+  # coercion (list/tuple/range/set/dict-keys/generator/bytearray).
+  defp builtin_bytes([iterable]) do
+    case to_list(iterable) do
+      {:ok, items} -> bytes_from_iterable(items)
+      :error -> {:exception, "TypeError: cannot convert '#{pytype(iterable)}' object to bytes"}
+    end
+  end
 
   defp builtin_bytes([s, encoding]) when is_binary(s) and is_binary(encoding) do
     case String.downcase(encoding) do
@@ -2664,6 +2790,7 @@ defmodule Pyex.Builtins do
   def truthy?({:bytearray, b}), do: byte_size(b) > 0
 
   def truthy?({:pyex_decimal, d}), do: not Decimal.equal?(d, Decimal.new(0))
+  def truthy?({:complex, r, i}), do: r != 0.0 or i != 0.0
 
   def truthy?(_), do: true
 
@@ -2704,6 +2831,7 @@ defmodule Pyex.Builtins do
   defp pytype({:pandas_rolling, _, _}), do: "Rolling"
   defp pytype({:pandas_dataframe, _}), do: "DataFrame"
   defp pytype({:pyex_decimal, _}), do: "Decimal"
+  defp pytype({:fraction, _, _}), do: "Fraction"
   defp pytype({:property, _, _, _}), do: "property"
   defp pytype({:staticmethod, _}), do: "staticmethod"
   defp pytype({:classmethod, _}), do: "classmethod"
@@ -2814,6 +2942,7 @@ defmodule Pyex.Builtins do
   def py_repr({:builtin, _}), do: "<built-in function>"
   def py_repr({:builtin_kw, _}), do: "<built-in function>"
   def py_repr({:pyex_decimal, d}), do: Decimal.to_string(d)
+  def py_repr({:fraction, _, _} = f), do: Pyex.Fraction.to_repr(f)
   def py_repr({:deque, _, _, _, _} = d), do: Pyex.Interpreter.Helpers.py_str(d)
   def py_repr(_), do: "<object>"
 

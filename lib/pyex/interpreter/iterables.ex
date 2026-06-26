@@ -33,6 +33,10 @@ defmodule Pyex.Interpreter.Iterables do
   def to_iterable({:set, set}, env, ctx), do: {:ok, MapSet.to_list(set), env, ctx}
   def to_iterable({:frozenset, set}, env, ctx), do: {:ok, MapSet.to_list(set), env, ctx}
 
+  # Iterating bytes/bytearray yields its integer byte values, as in CPython.
+  def to_iterable({:bytes, bin}, env, ctx), do: {:ok, :binary.bin_to_list(bin), env, ctx}
+  def to_iterable({:bytearray, bin}, env, ctx), do: {:ok, :binary.bin_to_list(bin), env, ctx}
+
   def to_iterable({:range, _, _, _} = range, env, ctx) do
     case Builtins.range_to_list(range) do
       {:exception, _} = err -> err
@@ -51,6 +55,15 @@ defmodule Pyex.Interpreter.Iterables do
   end
 
   def to_iterable({:generator_error, items, _msg}, env, ctx), do: {:ok, items, env, ctx}
+
+  # Iterating a file handle yields its remaining lines, each preserving
+  # its trailing newline, advancing the handle to EOF.
+  def to_iterable({:file_handle, id}, env, ctx) do
+    case Ctx.readlines_handle(ctx, id) do
+      {:ok, lines, ctx} -> {:ok, lines, env, ctx}
+      {:error, msg} -> {:exception, msg}
+    end
+  end
 
   def to_iterable({:iterator, id}, env, ctx) do
     case Ctx.iter_entry(ctx, id) do

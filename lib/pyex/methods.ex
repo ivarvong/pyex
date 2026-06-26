@@ -11,11 +11,12 @@ defmodule Pyex.Methods do
   alias Pyex.Interpreter.{FstringFormat, Helpers}
 
   @string_methods ~w(
-    capitalize center count encode endswith expandtabs find format
-    index isalnum isalpha isdigit islower isnumeric isspace istitle
-    isupper join ljust lower lstrip partition replace rfind rindex
-    rjust rpartition rsplit rstrip split splitlines startswith strip
-    swapcase title upper zfill
+    capitalize casefold center count encode endswith expandtabs find
+    format format_map index isalnum isalpha isascii isdecimal isdigit
+    isidentifier islower isnumeric isprintable isspace istitle isupper
+    join ljust lower lstrip maketrans partition removeprefix removesuffix
+    replace rfind rindex rjust rpartition rsplit rstrip split splitlines
+    startswith strip swapcase title translate upper zfill
   )
 
   @list_methods ~w(append clear copy count extend index insert pop remove reverse sort)
@@ -29,6 +30,7 @@ defmodule Pyex.Methods do
     issubset issuperset symmetric_difference union
   )
   @tuple_methods ~w(count index)
+  @file_methods ~w(close read readline readlines write)
 
   @doc """
   Attempts to resolve `attr` on `object`. Returns
@@ -222,6 +224,7 @@ defmodule Pyex.Methods do
 
   def method_names({:tuple, _}), do: @tuple_methods
   def method_names({:pyex_decimal, _}), do: @decimal_methods
+  def method_names({:file_handle, _}), do: @file_methods
   def method_names(_), do: []
 
   @spec bound(
@@ -277,6 +280,11 @@ defmodule Pyex.Methods do
   defp string_method("isspace"), do: {:ok, &str_isspace/2}
   defp string_method("isalnum"), do: {:ok, &str_isalnum/2}
   defp string_method("istitle"), do: {:ok, &str_istitle/2}
+  defp string_method("isascii"), do: {:ok, &str_isascii/2}
+  defp string_method("isidentifier"), do: {:ok, &str_isidentifier/2}
+  defp string_method("isprintable"), do: {:ok, &str_isprintable/2}
+  defp string_method("format_map"), do: {:ok, &str_format_map/2}
+  defp string_method("maketrans"), do: {:ok, &str_maketrans/2}
   defp string_method("index"), do: {:ok, &str_index/2}
   defp string_method("rfind"), do: {:ok, &str_rfind/2}
   defp string_method("rindex"), do: {:ok, &str_rindex/2}
@@ -917,11 +925,43 @@ defmodule Pyex.Methods do
           {:ok, ([Interpreter.pyvalue()] -> term())} | :error
   defp file_method("read", id) do
     {:ok,
-     fn [] ->
+     fn args ->
        {:ctx_call,
         fn env, ctx ->
-          case Pyex.Ctx.read_handle(ctx, id) do
+          result =
+            case args do
+              [n] when is_integer(n) and n >= 0 -> Pyex.Ctx.read_handle(ctx, id, n)
+              _ -> Pyex.Ctx.read_handle(ctx, id)
+            end
+
+          case result do
             {:ok, content, ctx} -> {content, env, ctx}
+            {:error, msg} -> {{:exception, msg}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("readline", id) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.readline_handle(ctx, id) do
+            {:ok, line, ctx} -> {line, env, ctx}
+            {:error, msg} -> {{:exception, msg}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("readlines", id) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.readlines_handle(ctx, id) do
+            {:ok, lines, ctx} -> {{:py_list, Enum.reverse(lines), length(lines)}, env, ctx}
             {:error, msg} -> {{:exception, msg}, env, ctx}
           end
         end}
@@ -1321,6 +1361,95 @@ defmodule Pyex.Methods do
   end
 
   defp str_translate(s, [_other]), do: s
+
+  @spec str_isascii(String.t(), [Interpreter.pyvalue()]) :: boolean()
+  defp str_isascii(s, []), do: s |> String.to_charlist() |> Enum.all?(&(&1 < 128))
+
+  @spec str_isidentifier(String.t(), [Interpreter.pyvalue()]) :: boolean()
+  defp str_isidentifier("", []), do: false
+  defp str_isidentifier(s, []), do: String.match?(s, ~r/^[\p{L}_][\p{L}\p{N}_]*$/u)
+
+  # Printable: no character is in a Unicode "Other" (C*) or "Separator"
+  # (Z*) category, except ASCII space (U+0020) which is printable.
+  @spec str_isprintable(String.t(), [Interpreter.pyvalue()]) :: boolean()
+  defp str_isprintable(s, []) do
+    not String.match?(String.replace(s, " ", ""), ~r/[\p{C}\p{Z}]/u)
+  end
+
+  @spec str_format_map(String.t(), [Interpreter.pyvalue()]) ::
+          String.t() | {:exception, String.t()}
+  defp str_format_map(template, [{:py_dict, _, _} = mapping]) do
+    kw = Map.new(PyDict.items(mapping), fn {k, v} -> {k, v} end)
+    do_str_format(template, %{}, kw, 0, <<>>)
+  end
+
+  defp str_format_map(_template, _args),
+    do: {:exception, "TypeError: format_map() takes exactly one argument (a mapping)"}
+
+  @spec str_maketrans(String.t(), [Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue() | {:exception, String.t()}
+  defp str_maketrans(_s, args), do: make_translation_table(args)
+
+  @doc """
+  Builds a `str.translate` mapping table (codepoint -> replacement),
+  shared by `str.maketrans` (type access) and `"".maketrans` (instance).
+
+  Accepts a single dict (1-char-string or ordinal keys), or two
+  equal-length strings, optionally followed by a third string whose
+  characters map to `None` (deletion).
+  """
+  @spec make_translation_table([Interpreter.pyvalue()]) ::
+          Interpreter.pyvalue() | {:exception, String.t()}
+  def make_translation_table([{:py_dict, _, _} = dict]) do
+    case Enum.reduce_while(PyDict.items(dict), [], fn {k, v}, acc ->
+           case translation_key(k) do
+             {:ok, key} -> {:cont, [{key, v} | acc]}
+             {:error, msg} -> {:halt, {:error, msg}}
+           end
+         end) do
+      {:error, msg} -> {:exception, msg}
+      pairs -> PyDict.from_pairs(Enum.reverse(pairs))
+    end
+  end
+
+  def make_translation_table([a, b]) when is_binary(a) and is_binary(b) do
+    if String.length(a) == String.length(b) do
+      PyDict.from_pairs(translation_pairs(a, b))
+    else
+      {:exception, "ValueError: the first two maketrans arguments must have equal length"}
+    end
+  end
+
+  def make_translation_table([a, b, c]) when is_binary(a) and is_binary(b) and is_binary(c) do
+    if String.length(a) == String.length(b) do
+      deletions = Enum.map(String.codepoints(c), fn <<cp::utf8>> -> {cp, nil} end)
+      PyDict.from_pairs(translation_pairs(a, b) ++ deletions)
+    else
+      {:exception, "ValueError: the first two maketrans arguments must have equal length"}
+    end
+  end
+
+  def make_translation_table(_),
+    do: {:exception, "TypeError: maketrans() takes 1, 2, or 3 arguments"}
+
+  @spec translation_pairs(String.t(), String.t()) :: [{non_neg_integer(), String.t()}]
+  defp translation_pairs(a, b) do
+    Enum.zip(String.codepoints(a), String.codepoints(b))
+    |> Enum.map(fn {<<cp::utf8>>, v} -> {cp, v} end)
+  end
+
+  @spec translation_key(Interpreter.pyvalue()) :: {:ok, non_neg_integer()} | {:error, String.t()}
+  defp translation_key(k) when is_integer(k), do: {:ok, k}
+
+  defp translation_key(k) when is_binary(k) do
+    case String.to_charlist(k) do
+      [cp] -> {:ok, cp}
+      _ -> {:error, "ValueError: string keys in translate table must be of length 1"}
+    end
+  end
+
+  defp translation_key(_),
+    do: {:error, "TypeError: keys in translate table must be strings or integers"}
 
   @spec str_isalpha(String.t(), [Interpreter.pyvalue()]) :: boolean()
   defp str_isalpha(s, []) when s == "", do: false

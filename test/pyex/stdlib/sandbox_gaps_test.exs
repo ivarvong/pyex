@@ -362,4 +362,231 @@ defmodule Pyex.Stdlib.SandboxGapsTest do
       assert Pyex.run!(code) == true
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Gap 8: type(x).__name__ / Class.__name__ resolve to the class name
+  # ---------------------------------------------------------------------------
+  describe "__name__ attribute on type/class objects" do
+    test "type(instance).__name__ returns the class name for a stdlib class" do
+      code = """
+      import datetime
+      type(datetime.date(2026, 1, 1)).__name__
+      """
+
+      assert Pyex.run!(code) == "date"
+    end
+
+    test "Class.__name__ returns the class name when accessed on the class itself" do
+      code = """
+      import datetime
+      datetime.date.__name__
+      """
+
+      assert Pyex.run!(code) == "date"
+    end
+
+    test "type(instance).__name__ returns the class name for a user-defined class" do
+      code = """
+      class Widget:
+          pass
+      type(Widget()).__name__
+      """
+
+      assert Pyex.run!(code) == "Widget"
+    end
+
+    test "__qualname__ on a class object returns the class name" do
+      code = """
+      import datetime
+      datetime.date.__qualname__
+      """
+
+      assert Pyex.run!(code) == "date"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Gap 9: single-line `with ... as x: stmt` suites parse and execute
+  # ---------------------------------------------------------------------------
+  describe "single-line with statement" do
+    test "with open(...) as f: f.write(...) on one line writes the file" do
+      code = """
+      with open("f.txt", "w") as f: f.write("x")
+      with open("f.txt") as g: content = g.read()
+      content
+      """
+
+      assert Pyex.run!(code, @fs_opts) == "x"
+    end
+
+    test "single-line with without an `as` target executes its body" do
+      code = """
+      import contextlib
+      total = 0
+      with contextlib.suppress(ValueError): total = 5
+      total
+      """
+
+      assert Pyex.run!(code) == 5
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Gap 10: json.dumps(obj, default=callback) invokes the callback
+  # ---------------------------------------------------------------------------
+  describe "json.dumps default= callback for non-serializable objects" do
+    test "json.dumps(..., default=str) serializes a date via the callback" do
+      code = """
+      import json, datetime
+      json.dumps({"d": datetime.date(2026, 1, 1)}, default=str)
+      """
+
+      assert Pyex.run!(code) == ~s({"d": "2026-01-01"})
+    end
+
+    test "default callback is applied recursively to nested non-serializable values" do
+      code = """
+      import json, datetime
+      json.dumps([datetime.date(2026, 1, 1), {"x": datetime.date(2026, 2, 2)}], default=str)
+      """
+
+      assert Pyex.run!(code) == ~s(["2026-01-01", {"x": "2026-02-02"}])
+    end
+
+    test "an exception raised inside the default callback propagates" do
+      code = """
+      import json
+      class Unhandled:
+          pass
+      def reject(o):
+          raise TypeError("cannot serialize " + type(o).__name__)
+      json.dumps(Unhandled(), default=reject)
+      """
+
+      assert {:error, %Pyex.Error{message: msg}} = Pyex.run(code)
+      assert msg =~ "TypeError"
+      assert msg =~ "cannot serialize Unhandled"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Gap 11: file handles support readlines()/readline()/line iteration
+  # ---------------------------------------------------------------------------
+  describe "file handle line reading" do
+    test "readlines() returns the lines with trailing newlines preserved" do
+      code = """
+      with open("f.txt", "w") as f:
+          f.write("a\\nb\\nc")
+      open("f.txt").readlines()
+      """
+
+      assert Pyex.run!(code, @fs_opts) == ["a\n", "b\n", "c"]
+    end
+
+    test "readline() returns one line at a time including the newline" do
+      code = """
+      with open("f.txt", "w") as f:
+          f.write("a\\nb")
+      f = open("f.txt")
+      (f.readline(), f.readline(), f.readline())
+      """
+
+      assert Pyex.run!(code, @fs_opts) == {:tuple, ["a\n", "b", ""]}
+    end
+
+    test "iterating a file handle yields its lines" do
+      code = """
+      with open("f.txt", "w") as f:
+          f.write("a\\nb\\nc")
+      [line for line in open("f.txt")]
+      """
+
+      assert Pyex.run!(code, @fs_opts) == ["a\n", "b\n", "c"]
+    end
+
+    test "read(n) reads at most n characters and advances the position" do
+      code = """
+      with open("f.txt", "w") as f:
+          f.write("hello")
+      f = open("f.txt")
+      (f.read(2), f.read())
+      """
+
+      assert Pyex.run!(code, @fs_opts) == {:tuple, ["he", "llo"]}
+    end
+
+    test "read(-1) reads the entire remaining contents" do
+      code = """
+      with open("f.txt", "w") as f:
+          f.write("hello")
+      open("f.txt").read(-1)
+      """
+
+      assert Pyex.run!(code, @fs_opts) == "hello"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Gap 12: datetime.date.isocalendar()
+  # ---------------------------------------------------------------------------
+  describe "date.isocalendar()" do
+    test "isocalendar() returns (ISO year, ISO week, ISO weekday)" do
+      code = """
+      import datetime
+      datetime.date(2026, 1, 1).isocalendar()
+      """
+
+      assert Pyex.run!(code) == {:tuple, [2026, 1, 4]}
+    end
+
+    test "date.isoweekday() returns the ISO weekday (Monday=1..Sunday=7)" do
+      code = """
+      import datetime
+      datetime.date(2026, 1, 1).isoweekday()
+      """
+
+      assert Pyex.run!(code) == 4
+    end
+
+    test "datetime.isocalendar() matches the underlying date (datetime subclasses date)" do
+      code = """
+      import datetime
+      datetime.datetime(2026, 1, 1, 12, 30).isocalendar()
+      """
+
+      assert Pyex.run!(code) == {:tuple, [2026, 1, 4]}
+    end
+
+    test "datetime.isoweekday() returns the ISO weekday" do
+      code = """
+      import datetime
+      datetime.datetime(2026, 1, 1, 12, 30).isoweekday()
+      """
+
+      assert Pyex.run!(code) == 4
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Gap 13: __import__ builtin
+  # ---------------------------------------------------------------------------
+  describe "__import__ builtin" do
+    test "__import__('math') returns the math module" do
+      code = """
+      m = __import__("math")
+      m.sqrt(16)
+      """
+
+      assert Pyex.run!(code) == 4.0
+    end
+
+    test "__import__ of an unknown module raises ImportError" do
+      code = """
+      __import__("nonexistent_module_xyz")
+      """
+
+      assert {:error, %Pyex.Error{message: msg}} = Pyex.run(code)
+      assert msg =~ "ImportError" or msg =~ "ModuleNotFoundError"
+    end
+  end
 end

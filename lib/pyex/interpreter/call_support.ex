@@ -61,10 +61,37 @@ defmodule Pyex.Interpreter.CallSupport do
     has_star = star_param != nil
     has_dstar = dstar_param != nil
 
-    if n_args > n_regular and not has_star do
-      {:exception,
-       "TypeError: function takes #{n_regular} positional arguments but #{n_args} were given",
-       ctx}
+    posonly_names = positional_only_names(params)
+    positionally_filled = Enum.take(regular_names, n_args)
+    posonly_kwarg = Enum.find(posonly_names, &Map.has_key?(kwargs, &1))
+    multiple_kwarg = Enum.find(positionally_filled, &Map.has_key?(kwargs, &1))
+
+    stray_kwarg =
+      if has_dstar, do: nil, else: unexpected_kwarg(kwargs, regular_names, kwonly_params)
+
+    binding_error =
+      cond do
+        n_args > n_regular and not has_star ->
+          "TypeError: function takes #{n_regular} positional arguments but #{n_args} were given"
+
+        # positional-only parameters cannot be supplied by keyword
+        posonly_kwarg != nil ->
+          "TypeError: got some positional-only arguments passed as keyword arguments: '#{posonly_kwarg}'"
+
+        # a parameter filled positionally must not also arrive as a keyword
+        multiple_kwarg != nil ->
+          "TypeError: got multiple values for argument '#{multiple_kwarg}'"
+
+        # a keyword that matches no parameter, with no **kwargs to absorb it
+        stray_kwarg != nil ->
+          "TypeError: got an unexpected keyword argument '#{stray_kwarg}'"
+
+        true ->
+          nil
+      end
+
+    if binding_error do
+      {:exception, binding_error, ctx}
     else
       positional = Enum.take(args, n_regular)
       extra_args = Enum.drop(args, n_regular)
@@ -167,6 +194,32 @@ defmodule Pyex.Interpreter.CallSupport do
 
   def decrement_depth({val, env, ctx}),
     do: {val, env, %{ctx | call_depth: ctx.call_depth - 1}}
+
+  # Names of parameters declared before a `/` positional-only marker.
+  @spec positional_only_names([Parser.param()]) :: [String.t()]
+  defp positional_only_names(params) do
+    case Enum.find_index(params, fn p -> elem(p, 0) == "/" end) do
+      nil -> []
+      idx -> params |> Enum.take(idx) |> Enum.map(&elem(&1, 0))
+    end
+  end
+
+  # The first keyword that matches no regular or keyword-only parameter
+  # (caller has already established there is no **kwargs to absorb it).
+  @spec unexpected_kwarg(map(), [String.t()], [Parser.param()]) :: String.t() | nil
+  defp unexpected_kwarg(kwargs, regular_names, kwonly_params) do
+    known =
+      MapSet.union(
+        MapSet.new(regular_names),
+        MapSet.new(Enum.map(kwonly_params, &elem(&1, 0)))
+      )
+
+    kwargs
+    |> Map.keys()
+    |> Enum.reject(&MapSet.member?(known, &1))
+    |> Enum.sort()
+    |> List.first()
+  end
 
   @spec split_variadic_params([Parser.param()]) ::
           {[Parser.param()], Parser.param() | nil, [Parser.param()], Parser.param() | nil}

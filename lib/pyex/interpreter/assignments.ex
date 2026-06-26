@@ -283,22 +283,25 @@ defmodule Pyex.Interpreter.Assignments do
 
       case container do
         {:py_list, reversed, _} ->
-          python_list = Enum.reverse(reversed)
-          n = length(python_list)
-          actual_start = normalize_slice_bound(start, n, 0)
-          actual_stop = normalize_slice_bound(stop, n, n)
-          actual_step = if is_nil(step), do: 1, else: step
+          case splice_list(Enum.reverse(reversed), start, stop, step, replacement) do
+            {:exception, _} = e ->
+              {e, env, ctx}
 
-          if actual_step == 1 do
-            {before, rest} = Enum.split(python_list, actual_start)
-            {_removed, after_slice} = Enum.split(rest, max(actual_stop - actual_start, 0))
-            updated_python = before ++ replacement ++ after_slice
-            updated = {:py_list, Enum.reverse(updated_python), length(updated_python)}
+            updated_python ->
+              updated = {:py_list, Enum.reverse(updated_python), length(updated_python)}
+              {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
+              {nil, env, ctx}
+          end
+
+        {:bytearray, bin} ->
+          with bytes <- :binary.bin_to_list(bin),
+               repl when is_list(repl) <- bytearray_bytes(Ctx.deref(ctx, val)),
+               result when is_list(result) <- splice_list(bytes, start, stop, step, repl) do
+            updated = {:bytearray, :binary.list_to_bin(result)}
             {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
             {nil, env, ctx}
           else
-            {{:exception, "NotImplementedError: slice assignment with step != 1 not supported"},
-             env, ctx}
+            {:exception, _} = e -> {e, env, ctx}
           end
 
         _ ->
@@ -308,6 +311,66 @@ defmodule Pyex.Interpreter.Assignments do
       {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
     end
   end
+
+  # Slice assignment on a list: contiguous (step 1, may grow/shrink) or
+  # extended (step != 1, element-wise, replacement length must match).
+  @spec splice_list([term()], integer() | nil, integer() | nil, integer() | nil, [term()]) ::
+          [term()] | {:exception, String.t()}
+  defp splice_list(list, start, stop, step, replacement) do
+    n = length(list)
+
+    if step in [nil, 1] do
+      lo = normalize_slice_bound(start, n, 0)
+      hi = normalize_slice_bound(stop, n, n)
+      {before, rest} = Enum.split(list, lo)
+      {_removed, tail} = Enum.split(rest, max(hi - lo, 0))
+      before ++ replacement ++ tail
+    else
+      indices = slice_indices(start, stop, step, n)
+
+      if length(indices) != length(replacement) do
+        {:exception,
+         "ValueError: attempt to assign sequence of size #{length(replacement)} " <>
+           "to extended slice of size #{length(indices)}"}
+      else
+        repl = Map.new(Enum.zip(indices, replacement))
+        Enum.map(0..(n - 1)//1, fn i -> Map.get(repl, i, Enum.at(list, i)) end)
+      end
+    end
+  end
+
+  # The concrete indices a slice selects (CPython's slice.indices), used
+  # for extended-step assignment and deletion.
+  @spec slice_indices(integer() | nil, integer() | nil, integer() | nil, non_neg_integer()) ::
+          [non_neg_integer()]
+  def slice_indices(start, stop, step, n) do
+    step = step || 1
+
+    {lo, hi} =
+      if step > 0 do
+        {clamp_index(start, n, 0, 0, n), clamp_index(stop, n, n, 0, n)}
+      else
+        {clamp_index(start, n, n - 1, -1, n - 1), clamp_index(stop, n, -1, -1, n - 1)}
+      end
+
+    Stream.iterate(lo, &(&1 + step))
+    |> Enum.take_while(fn i -> if step > 0, do: i < hi, else: i > hi end)
+  end
+
+  # Resolve a slice bound to a concrete index: nil -> `default`, negative
+  # wraps, then clamp into [lo, hi].
+  defp clamp_index(nil, _n, default, _lo, _hi), do: default
+
+  defp clamp_index(i, n, _default, lo, hi) do
+    i = if i < 0, do: i + n, else: i
+    i |> max(lo) |> min(hi)
+  end
+
+  @spec bytearray_bytes(term()) :: [byte()] | {:exception, String.t()}
+  defp bytearray_bytes({:bytes, bin}), do: :binary.bin_to_list(bin)
+  defp bytearray_bytes({:bytearray, bin}), do: :binary.bin_to_list(bin)
+  defp bytearray_bytes(list) when is_list(list), do: list
+  defp bytearray_bytes(_), do: {:exception, "TypeError: can assign only bytes to bytearray slice"}
 
   @spec normalize_slice_bound(integer() | nil, non_neg_integer(), non_neg_integer()) ::
           non_neg_integer()
@@ -343,13 +406,17 @@ defmodule Pyex.Interpreter.Assignments do
           {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
           {val, env, ctx}
 
-        {:py_list, reversed, _len} when is_integer(key) ->
-          python_list = Enum.reverse(reversed)
-          real_idx = if key < 0, do: length(python_list) + key, else: key
-          updated_python = List.replace_at(python_list, real_idx, val)
-          updated = {:py_list, Enum.reverse(updated_python), length(updated_python)}
-          {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
-          {val, env, ctx}
+        {:py_list, reversed, len} when is_integer(key) ->
+          if key < -len or key >= len do
+            {{:exception, "IndexError: list assignment index out of range"}, env, ctx}
+          else
+            python_list = Enum.reverse(reversed)
+            real_idx = if key < 0, do: len + key, else: key
+            updated_python = List.replace_at(python_list, real_idx, val)
+            updated = {:py_list, Enum.reverse(updated_python), length(updated_python)}
+            {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
+            {val, env, ctx}
+          end
 
         {:py_list, _, _} ->
           {{:exception,
@@ -365,6 +432,24 @@ defmodule Pyex.Interpreter.Assignments do
           updated = List.replace_at(list, key, val)
           {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
           {val, env, ctx}
+
+        {:bytearray, bin} when is_integer(key) ->
+          bytes = :binary.bin_to_list(bin)
+          len = length(bytes)
+
+          cond do
+            key < -len or key >= len ->
+              {{:exception, "IndexError: bytearray index out of range"}, env, ctx}
+
+            not is_integer(val) or val < 0 or val > 255 ->
+              {{:exception, "ValueError: byte must be in range(0, 256)"}, env, ctx}
+
+            true ->
+              idx = if key < 0, do: len + key, else: key
+              updated = {:bytearray, :binary.list_to_bin(List.replace_at(bytes, idx, val))}
+              {env, ctx} = ref_write_back(raw_container, updated, name, env, ctx)
+              {val, env, ctx}
+          end
 
         {:instance, _, _} = inst ->
           case Dunder.call_dunder_mut(inst, "__setitem__", [key, val], env, ctx) do
@@ -612,7 +697,10 @@ defmodule Pyex.Interpreter.Assignments do
               end
 
             current_val ->
-              case Interpreter.safe_binop(op, current_val, val) do
+              # Deref both operands: a subscript value may be a heap ref
+              # (`x[0]` when x's elements are mutable), which the raw binop
+              # dispatch can't add directly.
+              case Interpreter.safe_binop(op, Ctx.deref(ctx, current_val), Ctx.deref(ctx, val)) do
                 {:exception, msg} ->
                   {{:exception, msg}, env, ctx}
 
@@ -788,6 +876,8 @@ defmodule Pyex.Interpreter.Assignments do
 
           {:class, name, bases, class_attrs} ->
             updated = {:class, name, bases, Map.put(class_attrs, attr, value)}
+            # Re-register so existing instances see the mutation (class identity).
+            ctx = Ctx.register_class(ctx, updated)
             {nil, Env.put_at_source(env, var_name, updated), ctx}
 
           {:py_dict, _, _} = dict ->
@@ -910,6 +1000,17 @@ defmodule Pyex.Interpreter.Assignments do
     end
   end
 
+  def get_subscript_value({:tuple, items}, key) when is_integer(key) do
+    len = length(items)
+    idx = if key < 0, do: len + key, else: key
+
+    if idx < 0 or idx >= len do
+      {:exception, "IndexError: tuple index out of range"}
+    else
+      Enum.at(items, idx)
+    end
+  end
+
   def get_subscript_value(_, _), do: {:exception, "TypeError: object is not subscriptable"}
 
   @doc false
@@ -927,11 +1028,39 @@ defmodule Pyex.Interpreter.Assignments do
     List.replace_at(obj, key, val)
   end
 
+  # Only reached on the nested-mutation path (`t[0][1] = v`): the inner
+  # object is mutated and written back into the tuple's slot. CPython
+  # allows this — the tuple still holds the same (now-mutated) element.
+  # Direct `t[0] = v` is rejected earlier in eval_index_assign.
+  def set_subscript_value({:tuple, items}, key, val) when is_integer(key) do
+    idx = if key < 0, do: length(items) + key, else: key
+    {:tuple, List.replace_at(items, idx, val)}
+  end
+
   @doc false
   @spec delete_subscript_value(Interpreter.pyvalue(), Interpreter.pyvalue()) ::
           Interpreter.pyvalue() | {:exception, String.t()}
-  def delete_subscript_value({:py_dict, _, _} = dict, key), do: PyDict.delete(dict, key)
+  def delete_subscript_value({:py_dict, _, _} = dict, key) do
+    if PyDict.has_key?(dict, key) do
+      PyDict.delete(dict, key)
+    else
+      {:exception, "KeyError: #{Pyex.Builtins.py_repr_quoted(key)}"}
+    end
+  end
+
   def delete_subscript_value(obj, key) when is_map(obj), do: Map.delete(obj, key)
+
+  def delete_subscript_value({:bytearray, bin}, key) when is_integer(key) do
+    bytes = :binary.bin_to_list(bin)
+    len = length(bytes)
+    idx = if key < 0, do: len + key, else: key
+
+    if idx < 0 or idx >= len do
+      {:exception, "IndexError: bytearray index out of range"}
+    else
+      {:bytearray, :binary.list_to_bin(List.delete_at(bytes, idx))}
+    end
+  end
 
   def delete_subscript_value({:py_list, reversed, len}, key) when is_integer(key) do
     idx = if key < 0, do: len + key, else: key

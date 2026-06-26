@@ -17,6 +17,12 @@ defmodule Pyex.Interpreter.FstringFormat do
   """
   @spec apply_format_spec(Pyex.Interpreter.pyvalue(), String.t()) ::
           String.t() | {:exception, String.t()}
+  # bool inherits int.__format__: a non-empty spec formats the int value
+  # (True -> 1), while an empty spec falls through to str(True) / 'True'.
+  def apply_format_spec(val, spec_str) when is_boolean(val) and spec_str != "" do
+    apply_format_spec(if(val, do: 1, else: 0), spec_str)
+  end
+
   def apply_format_spec(val, spec_str) do
     {:ok, spec} = parse_spec(spec_str)
     format_value(val, spec)
@@ -33,18 +39,17 @@ defmodule Pyex.Interpreter.FstringFormat do
     {precision, str} = parse_precision(str)
     type = str
 
-    # If zero-pad is set and no fill/align, use 0-fill right-aligned
-    {fill, align} =
-      if zero_pad and fill == nil and align == nil do
-        {"0", ">"}
-      else
-        {fill || " ", align}
-      end
+    # Zero-pad with no explicit fill/align means '0' fill; the alignment
+    # is resolved per value at format time ('=' for numbers so the fill
+    # lands after the sign, the type default for strings).
+    zero_default? = zero_pad and fill == nil and align == nil
+    fill = if zero_default?, do: "0", else: fill || " "
 
     {:ok,
      %{
        fill: fill,
        align: align,
+       zero_pad: zero_default?,
        sign: sign,
        alt: alt,
        width: width,
@@ -161,13 +166,22 @@ defmodule Pyex.Interpreter.FstringFormat do
   end
 
   defp format_string(val, spec) when is_binary(val) do
-    formatted =
-      case spec.precision do
-        nil -> val
-        p -> String.slice(val, 0, p)
-      end
+    cond do
+      spec.sign in ["+", " "] ->
+        {:exception, "ValueError: Sign not allowed in string format specifier"}
 
-    apply_alignment(formatted, spec, val)
+      spec.grouping in [",", "_"] ->
+        {:exception, "ValueError: Cannot specify '#{spec.grouping}' with 's'."}
+
+      true ->
+        formatted =
+          case spec.precision do
+            nil -> val
+            p -> String.slice(val, 0, p)
+          end
+
+        apply_alignment(formatted, spec, val)
+    end
   end
 
   defp format_string(val, spec) do
@@ -437,7 +451,7 @@ defmodule Pyex.Interpreter.FstringFormat do
       padding = width - len
       fill = spec.fill || " "
 
-      case spec.align || default_align(val) do
+      case spec.align || zero_pad_align(spec, val) do
         "<" ->
           str <> String.duplicate(fill, padding)
 
@@ -504,4 +518,13 @@ defmodule Pyex.Interpreter.FstringFormat do
   defp default_align(val) when is_integer(val) or is_float(val), do: ">"
   defp default_align({:pyex_decimal, _}), do: ">"
   defp default_align(_), do: "<"
+
+  # Zero-pad puts the fill after the sign ('=') for numbers, but leaves a
+  # string at its default left alignment.
+  defp zero_pad_align(%{zero_pad: true}, val)
+       when is_integer(val) or is_float(val) or is_boolean(val),
+       do: "="
+
+  defp zero_pad_align(%{zero_pad: true}, {:pyex_decimal, _}), do: "="
+  defp zero_pad_align(_spec, val), do: default_align(val)
 end

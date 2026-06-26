@@ -463,6 +463,7 @@ defmodule Pyex.Interpreter do
         end
 
       class_val = ClassLookup.with_mro_cache(class_val)
+      ctx = Ctx.register_class(ctx, class_val)
 
       {nil, Env.smart_put(env, name, class_val), ctx}
     end
@@ -706,6 +707,10 @@ defmodule Pyex.Interpreter do
     Statements.eval_del_subscript(target_expr, key_expr, env, ctx)
   end
 
+  def eval({:del, _, [:slice, target_expr, start_expr, stop_expr, step_expr]}, env, ctx) do
+    Statements.eval_del_slice(target_expr, start_expr, stop_expr, step_expr, env, ctx)
+  end
+
   def eval({:del, _, [:attr, obj_expr, attr]}, env, ctx) do
     case eval(obj_expr, env, ctx) do
       {{:exception, _} = signal, env, ctx} ->
@@ -771,7 +776,11 @@ defmodule Pyex.Interpreter do
     case Env.get(env, name) do
       {:ok, raw} ->
         case Ctx.deref(ctx, raw) do
-          {:instance, {:class, _, _, _} = class, inst_attrs} = instance ->
+          {:instance, {:class, _, _, _} = snapshot_class, inst_attrs} = instance ->
+            # Resolve to the live class so class-attribute mutations made after
+            # this instance was created are visible (class identity).
+            class = Ctx.live_class(ctx, snapshot_class)
+
             case attr do
               "__class__" ->
                 {class, env, ctx}
@@ -850,7 +859,11 @@ defmodule Pyex.Interpreter do
         object = Ctx.deref(ctx, raw_object)
 
         case object do
-          {:instance, {:class, _, _, _} = class, inst_attrs} ->
+          {:instance, {:class, _, _, _} = snapshot_class, inst_attrs} ->
+            # Resolve to the live class so class-attribute mutations made after
+            # this instance was created are visible (class identity).
+            class = Ctx.live_class(ctx, snapshot_class)
+
             case attr do
               "__class__" ->
                 {class, env, ctx}
@@ -905,61 +918,15 @@ defmodule Pyex.Interpreter do
                 end
             end
 
-          {:class, class_name, _, class_attrs} = class_val ->
-            case attr do
-              "__class__" ->
-                {Builtins.type_class(), env, ctx}
+          {:class, class_name, _, _} = class_val ->
+            case ClassLookup.class_attribute(class_val, attr) do
+              {:ok, value} ->
+                {value, env, ctx}
 
-              "__mro__" ->
-                mro =
-                  ClassLookup.c3_linearize(class_val)
-                  |> Enum.map(fn {:class, _, _, _} = c -> c end)
-
-                object_class = {:class, "object", [], %{"__name__" => "object"}}
-
-                mro_with_object =
-                  if Enum.any?(mro, fn {:class, n, _, _} -> n == "object" end) do
-                    mro
-                  else
-                    mro ++ [object_class]
-                  end
-
-                {{:tuple, mro_with_object}, env, ctx}
-
-              "__bases__" ->
-                {:class, _, bases, _} = class_val
-                {{:tuple, bases}, env, ctx}
-
-              "__dict__" ->
-                visible = ClassLookup.visible_attrs(class_attrs)
-                pairs = Enum.map(visible, fn {k, v} -> {k, v} end)
-                {PyDict.from_pairs(pairs), env, ctx}
-
-              _ ->
-                case Map.get(class_attrs, attr) do
-                  nil ->
-                    case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
-                      {:ok, {:function, _, _, _, _, _, _} = func, _owner} ->
-                        {{:bound_method, class_val, func}, env, ctx}
-
-                      {:ok, {:builtin_kw, _} = bkw, _owner} ->
-                        {{:bound_method, class_val, bkw}, env, ctx}
-
-                      {:ok, value, _owner} ->
-                        {value, env, ctx}
-
-                      :error ->
-                        {{:exception,
-                          "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"},
-                         env, ctx}
-                    end
-
-                  {:builtin_kw, _} = bkw ->
-                    {{:bound_method, class_val, bkw}, env, ctx}
-
-                  value ->
-                    {value, env, ctx}
-                end
+              :error ->
+                {{:exception,
+                  "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"}, env,
+                 ctx}
             end
 
           {:complex, r, i} ->
@@ -976,6 +943,19 @@ defmodule Pyex.Interpreter do
               _ ->
                 {{:exception, "AttributeError: 'complex' object has no attribute '#{attr}'"}, env,
                  ctx}
+            end
+
+          {:fraction, n, d} ->
+            case attr do
+              "numerator" ->
+                {n, env, ctx}
+
+              "denominator" ->
+                {d, env, ctx}
+
+              _ ->
+                {{:exception, "AttributeError: 'Fraction' object has no attribute '#{attr}'"},
+                 env, ctx}
             end
 
           {:property, fget, fset, fdel} ->
@@ -1370,6 +1350,9 @@ defmodule Pyex.Interpreter do
           is_number(val) ->
             {-val, env, ctx}
 
+          is_boolean(val) ->
+            {-Helpers.bool_to_int(val), env, ctx}
+
           match?({:complex, _, _}, val) ->
             {:complex, r, i} = val
             {{:complex, -r, -i}, env, ctx}
@@ -1377,6 +1360,10 @@ defmodule Pyex.Interpreter do
           match?({:pyex_decimal, _}, val) ->
             {:pyex_decimal, d} = val
             {{:pyex_decimal, decimal_unary_neg(d)}, env, ctx}
+
+          match?({:fraction, _, _}, val) ->
+            {:fraction, n, d} = val
+            {{:fraction, -n, d}, env, ctx}
 
           match?({:instance, _, _}, val) ->
             case Dunder.call_dunder(val, "__neg__", [], env, ctx) do
@@ -1405,6 +1392,12 @@ defmodule Pyex.Interpreter do
 
         cond do
           is_number(val) ->
+            {val, env, ctx}
+
+          is_boolean(val) ->
+            {Helpers.bool_to_int(val), env, ctx}
+
+          match?({:complex, _, _}, val) ->
             {val, env, ctx}
 
           match?({:pyex_decimal, _}, val) ->
@@ -1439,6 +1432,9 @@ defmodule Pyex.Interpreter do
         cond do
           is_integer(val) ->
             {bnot(val), env, ctx}
+
+          is_boolean(val) ->
+            {bnot(Helpers.bool_to_int(val)), env, ctx}
 
           match?({:instance, _, _}, val) ->
             case Dunder.call_dunder(val, "__invert__", [], env, ctx) do
@@ -1633,6 +1629,19 @@ defmodule Pyex.Interpreter do
              ctx}
         end
 
+      {:fraction, n, d} ->
+        case attr do
+          "numerator" ->
+            {n, env, ctx}
+
+          "denominator" ->
+            {d, env, ctx}
+
+          _ ->
+            {{:exception, "AttributeError: 'Fraction' object has no attribute '#{attr}'"}, env,
+             ctx}
+        end
+
       {:instance, {:class, _, _, _} = class, inst_attrs} ->
         case attr do
           "__class__" ->
@@ -1704,81 +1713,14 @@ defmodule Pyex.Interpreter do
             end
         end
 
-      {:class, class_name, _, class_attrs} = class_val ->
-        case attr do
-          "__class__" ->
-            {Builtins.type_class(), env, ctx}
+      {:class, class_name, _, _} = class_val ->
+        case ClassLookup.class_attribute(class_val, attr) do
+          {:ok, value} ->
+            {value, env, ctx}
 
-          "__mro__" ->
-            mro =
-              ClassLookup.c3_linearize(class_val)
-              |> Enum.map(fn {:class, _, _, _} = c -> c end)
-
-            # Match CPython: every class's MRO ends with `object`.
-            object_class = {:class, "object", [], %{"__name__" => "object"}}
-
-            mro_with_object =
-              if Enum.any?(mro, fn {:class, n, _, _} -> n == "object" end) do
-                mro
-              else
-                mro ++ [object_class]
-              end
-
-            {{:tuple, mro_with_object}, env, ctx}
-
-          "__bases__" ->
-            {:class, _, bases, _} = class_val
-            {{:tuple, bases}, env, ctx}
-
-          "__name__" ->
-            case Map.fetch(class_attrs, "__name__") do
-              {:ok, v} -> {v, env, ctx}
-              :error -> {class_name, env, ctx}
-            end
-
-          "__dict__" ->
-            # Expose a read-only view of class attrs as a dict
-            visible = ClassLookup.visible_attrs(class_attrs)
-            pairs = Enum.map(visible, fn {k, v} -> {k, v} end)
-            {PyDict.from_pairs(pairs), env, ctx}
-
-          _ ->
-            case Map.get(class_attrs, attr) do
-              nil ->
-                case ClassLookup.resolve_class_attr_with_owner(class_val, attr) do
-                  {:ok, {:function, _, _, _, _, _, _} = func, _owner} ->
-                    {{:bound_method, class_val, func}, env, ctx}
-
-                  {:ok, {:builtin_kw, _} = bkw, _owner} ->
-                    {{:bound_method, class_val, bkw}, env, ctx}
-
-                  {:ok, {:staticmethod, func}, _owner} ->
-                    {func, env, ctx}
-
-                  {:ok, {:classmethod, func}, _owner} ->
-                    {{:bound_method, class_val, func}, env, ctx}
-
-                  {:ok, value, _owner} ->
-                    {value, env, ctx}
-
-                  :error ->
-                    {{:exception,
-                      "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"},
-                     env, ctx}
-                end
-
-              {:staticmethod, func} ->
-                {func, env, ctx}
-
-              {:classmethod, func} ->
-                {{:bound_method, class_val, func}, env, ctx}
-
-              {:builtin_kw, _} = bkw ->
-                {{:bound_method, class_val, bkw}, env, ctx}
-
-              value ->
-                {value, env, ctx}
-            end
+          :error ->
+            {{:exception,
+              "AttributeError: type object '#{class_name}' has no attribute '#{attr}'"}, env, ctx}
         end
 
       {:builtin_type, "dict", _} ->
@@ -1803,50 +1745,7 @@ defmodule Pyex.Interpreter do
         end
 
       {:builtin_type, "str", _} when attr == "maketrans" ->
-        {{:builtin,
-          fn args ->
-            case args do
-              [a, b] when is_binary(a) and is_binary(b) and byte_size(a) == byte_size(b) ->
-                # Build a mapping from codepoint -> codepoint (as strings).
-                a_cps = String.codepoints(a)
-                b_cps = String.codepoints(b)
-
-                pairs =
-                  Enum.zip(a_cps, b_cps)
-                  |> Enum.map(fn {k, v} ->
-                    <<cp::utf8>> = k
-                    {cp, v}
-                  end)
-
-                Pyex.PyDict.from_pairs(pairs)
-
-              [a, b, c] when is_binary(a) and is_binary(b) and is_binary(c) ->
-                a_cps = String.codepoints(a)
-                b_cps = String.codepoints(b)
-
-                pairs =
-                  Enum.zip(a_cps, b_cps)
-                  |> Enum.map(fn {k, v} ->
-                    <<cp::utf8>> = k
-                    {cp, v}
-                  end)
-
-                delete_pairs =
-                  String.codepoints(c)
-                  |> Enum.map(fn k ->
-                    <<cp::utf8>> = k
-                    {cp, nil}
-                  end)
-
-                Pyex.PyDict.from_pairs(pairs ++ delete_pairs)
-
-              [dict_arg] when is_map(dict_arg) ->
-                dict_arg
-
-              _ ->
-                {:exception, "TypeError: str.maketrans() requires 1-3 arguments"}
-            end
-          end}, env, ctx}
+        {{:builtin, fn args -> Pyex.Methods.make_translation_table(args) end}, env, ctx}
 
       {:builtin_type, name, _} ->
         case builtin_type_attr(name, attr) do
@@ -1980,6 +1879,15 @@ defmodule Pyex.Interpreter do
 
           {:ok, value, _owner} ->
             {value, env, ctx}
+
+          :error when attr == "__new__" ->
+            # `super().__new__(cls)` with no base overriding it resolves to
+            # `object.__new__`, which allocates a blank instance of `cls`.
+            {{:builtin, &object_new/1}, env, ctx}
+
+          :error when attr == "__init__" ->
+            # `object.__init__` is a no-op accepting any arguments.
+            {{:builtin, fn _ -> nil end}, env, ctx}
 
           :error ->
             # Fall back to instance attrs or forwarded stdlib methods.
@@ -2316,6 +2224,10 @@ defmodule Pyex.Interpreter do
     Invocation.call_builtin_kw(&Builtins.builtin_dict/2, args, kwargs, env, ctx)
   end
 
+  def call_function({:builtin_type, "int", _fun}, args, kwargs, env, ctx) do
+    Invocation.call_builtin_kw(&Builtins.builtin_int/2, args, kwargs, env, ctx)
+  end
+
   def call_function({:builtin_type, _name, fun}, args, kwargs, env, ctx) do
     call_function({:builtin, fun}, args, kwargs, env, ctx)
   end
@@ -2548,10 +2460,30 @@ defmodule Pyex.Interpreter do
 
   @doc false
   @spec invoke_descriptor_get(pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  # `object.__new__(cls)` — a fresh instance of `cls` with no attributes.
+  @spec object_new([pyvalue()]) :: pyvalue()
+  defp object_new([{:class, _, _, _} = cls | _]), do: {:instance, cls, %{}}
+  defp object_new(_), do: {:exception, "TypeError: object.__new__(X): X is not a type object"}
+
   def invoke_descriptor_get(value, instance, owner_class, env, ctx) do
     derefed = Ctx.deref(ctx, value)
 
     case derefed do
+      {:property, fget, _, _} when fget != nil ->
+        case call_function(fget, [instance], %{}, env, ctx) do
+          {val, env, ctx, _} -> {val, env, ctx}
+          other -> other
+        end
+
+      {:property, nil, _, _} ->
+        {{:exception, "AttributeError: unreadable attribute"}, env, ctx}
+
+      {:staticmethod, func} ->
+        {func, env, ctx}
+
+      {:classmethod, func} ->
+        {{:bound_method, owner_class, func}, env, ctx}
+
       {:instance, {:class, _, _, _} = desc_class, _} ->
         case ClassLookup.resolve_class_attr(desc_class, "__get__") do
           {:ok, {:function, _, _, _, _, _, _} = func} ->
@@ -2819,6 +2751,10 @@ defmodule Pyex.Interpreter do
   # indexing is rarely a hot path anyway.
   @list_cache_min_len 32
 
+  defp eval_subscript(object, {:slice_obj, start, stop, step}, env, ctx) do
+    eval_slice(object, start, stop, step, env, ctx)
+  end
+
   defp eval_subscript(object, key, env, ctx) do
     # Fast path: a heap-stored Python list indexed by an integer key.
     # Storage is reverse-cons (`Enum.at` is O(j) per index), but
@@ -2916,6 +2852,18 @@ defmodule Pyex.Interpreter do
           {{:exception, "IndexError: string index out of range"}, env, ctx}
         else
           {Enum.at(codepoints, index), env, ctx}
+        end
+
+      {tag, bin} when tag in [:bytes, :bytearray] and is_integer(key) ->
+        # Indexing bytes/bytearray yields the integer byte value.
+        bytes = :binary.bin_to_list(bin)
+        len = length(bytes)
+        index = if key < 0, do: len + key, else: key
+
+        if index < 0 or index >= len do
+          {{:exception, "IndexError: index out of range"}, env, ctx}
+        else
+          {Enum.at(bytes, index), env, ctx}
         end
 
       {:range, start, stop, step} when is_integer(key) ->
@@ -3040,16 +2988,22 @@ defmodule Pyex.Interpreter do
           result -> {{:tuple, result}, env, ctx}
         end
 
-      {:range, _, _, _} = r ->
-        case Builtins.range_to_list(r) do
-          {:exception, msg} ->
-            {{:exception, msg}, env, ctx}
+      {tag, bin} when tag in [:bytes, :bytearray] ->
+        case py_slice(:binary.bin_to_list(bin), start, stop, step) do
+          {:exception, msg} -> {{:exception, msg}, env, ctx}
+          result -> {{tag, :binary.list_to_bin(result)}, env, ctx}
+        end
 
-          items ->
-            case py_slice(items, start, stop, step) do
-              {:exception, msg} -> {{:exception, msg}, env, ctx}
-              result -> {result, env, ctx}
-            end
+      {:range, rs, _, rstep} = r ->
+        # Slicing a range yields a range (lazily), as in CPython.
+        sstep = step || 1
+
+        if sstep == 0 do
+          {{:exception, "ValueError: slice step cannot be zero"}, env, ctx}
+        else
+          len = Builtins.range_length(r)
+          {nstart, nstop} = normalize_slice_bounds(start, stop, sstep, len)
+          {{:range, rs + nstart * rstep, rs + nstop * rstep, rstep * sstep}, env, ctx}
         end
 
       _ ->
@@ -3522,7 +3476,10 @@ defmodule Pyex.Interpreter do
   @doc false
   @spec eval_sort([pyvalue()], pyvalue() | nil, boolean(), Env.t(), Ctx.t()) :: call_result()
   def eval_sort(items, key_fn, reverse, env, ctx) do
-    has_instances? = Enum.any?(items, &match?({:instance, _, _}, &1))
+    # Elements may be heap refs (identity-preserving materializers pass
+    # them shallow). Detect instances and order by the dereferenced value,
+    # but keep the original elements in the result so identity survives.
+    has_instances? = Enum.any?(items, &match?({:instance, _, _}, Ctx.deref(ctx, &1)))
 
     sorted =
       case key_fn do
@@ -3534,7 +3491,7 @@ defmodule Pyex.Interpreter do
 
         nil ->
           order = if reverse, do: :desc, else: :asc
-          {:ok, Enum.sort(items, order), env, ctx}
+          {:ok, Enum.sort_by(items, &Ctx.deep_deref(ctx, &1), order), env, ctx}
 
         _ ->
           sort_with_key(items, key_fn, reverse, env, ctx)
@@ -3745,30 +3702,49 @@ defmodule Pyex.Interpreter do
       {:ok, raw_self} ->
         case Ctx.deref(ctx, raw_self) do
           {:instance, inst_class, _} = instance ->
-            case Env.get(env, "__class__") do
-              {:ok, {:class, _, _, _} = current_class} ->
-                # Use the MRO of the instance's actual class, then drop everything
-                # up to and including current_class. This is how Python's super()
-                # enables cooperative multiple inheritance.
-                mro = ClassLookup.c3_linearize(inst_class)
-                mro_tail = Enum.drop_while(mro, &(&1 != current_class)) |> Enum.drop(1)
-
-                if mro_tail == [] do
-                  {{:exception, "TypeError: super(): no parent class"}, env, ctx}
-                else
-                  {{:super_proxy, instance, mro_tail}, env, ctx}
-                end
-
-              _ ->
-                {{:exception, "RuntimeError: super(): __class__ is not set"}, env, ctx}
-            end
+            super_proxy_for(instance, inst_class, env, ctx)
 
           _ ->
-            {{:exception, "RuntimeError: super(): self is not bound"}, env, ctx}
+            super_from_class_arg(env, ctx)
         end
 
       _ ->
+        super_from_class_arg(env, ctx)
+    end
+  end
+
+  # `super()` inside `__new__`/classmethods: there is no `self`, but the first
+  # positional arg is the class (conventionally `cls`). Bind the proxy to it.
+  @spec super_from_class_arg(Env.t(), Ctx.t()) :: eval_result()
+  defp super_from_class_arg(env, ctx) do
+    case Env.get(env, "cls") do
+      {:ok, {:class, _, _, _} = cls} ->
+        super_proxy_for(cls, cls, env, ctx)
+
+      _ ->
         {{:exception, "RuntimeError: super(): self is not bound"}, env, ctx}
+    end
+  end
+
+  # Build a super proxy bound to `bound` (an instance or class) whose method
+  # lookup walks `derived`'s MRO starting just past the enclosing `__class__`.
+  @spec super_proxy_for(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp super_proxy_for(bound, derived, env, ctx) do
+    case Env.get(env, "__class__") do
+      {:ok, {:class, _, _, _} = current_class} ->
+        # Use the MRO of the actual class, then drop everything up to and
+        # including current_class. This is how Python's super() enables
+        # cooperative multiple inheritance.
+        mro = ClassLookup.c3_linearize(derived)
+        mro_tail = Enum.drop_while(mro, &(&1 != current_class)) |> Enum.drop(1)
+
+        # An empty tail means the only ancestor left is the implicit `object`
+        # (which c3_linearize does not list). Keep the proxy so `object`'s
+        # `__new__`/`__init__` still resolve through the fallback below.
+        {{:super_proxy, bound, mro_tail}, env, ctx}
+
+      _ ->
+        {{:exception, "RuntimeError: super(): __class__ is not set"}, env, ctx}
     end
   end
 
@@ -4139,9 +4115,13 @@ defmodule Pyex.Interpreter do
         {signal, env, ctx}
 
       {:mutate, _new_object, return_value, new_env, ctx} ->
+        # A decorator that transforms a class produces a new class value (same
+        # __id__); re-register so instances resolve to the decorated version.
+        ctx = Ctx.register_class(ctx, return_value)
         {nil, smart_put_decorated(new_env, name, return_value), ctx}
 
       {:mutate, _new_object, return_value, ctx} ->
+        ctx = Ctx.register_class(ctx, return_value)
         {nil, smart_put_decorated(env, name, return_value), ctx}
 
       {{:register_route, method, path, handler}, env, ctx} ->
@@ -4149,9 +4129,11 @@ defmodule Pyex.Interpreter do
         {nil, smart_put_decorated(env, name, handler), ctx}
 
       {result, env, ctx, _updated_func} ->
+        ctx = Ctx.register_class(ctx, result)
         {nil, smart_put_decorated(env, name, result), ctx}
 
       {result, env, ctx} ->
+        ctx = Ctx.register_class(ctx, result)
         {nil, smart_put_decorated(env, name, result), ctx}
     end
   end

@@ -159,7 +159,12 @@ defmodule Pyex.Interpreter.Format do
 
   @spec string_format_pure_loop(String.t(), [Interpreter.pyvalue()], binary()) ::
           String.t() | {:exception, String.t()}
-  defp string_format_pure_loop(<<>>, _args, acc), do: acc
+  defp string_format_pure_loop(<<>>, [], acc), do: acc
+
+  # Positional args left unconsumed is an error, as in CPython
+  # (`'%%' % 5` / `'hi' % 5`). Named/mapping formatting uses the ctx loop.
+  defp string_format_pure_loop(<<>>, [_ | _], _acc),
+    do: {:exception, "TypeError: not all arguments converted during string formatting"}
 
   defp string_format_pure_loop(<<?%, ?%, rest::binary>>, args, acc) do
     string_format_pure_loop(rest, args, <<acc::binary, ?%>>)
@@ -264,7 +269,7 @@ defmodule Pyex.Interpreter.Format do
     {precision, input} = consume_precision(input)
 
     case input do
-      <<code, rest::binary>> when code in ~c[sdfrxoieEgG] ->
+      <<code, rest::binary>> when code in ~c[sdfrxXoieEgGc] ->
         {:ok, %{flags: flags, width: width, precision: precision}, code, rest}
 
       _ ->
@@ -325,66 +330,108 @@ defmodule Pyex.Interpreter.Format do
     pad_string(Helpers.py_repr_fmt(val), spec)
   end
 
-  defp apply_format_spec(spec, code, val) when code in ~c[di] and is_integer(val) do
-    pad_string(Integer.to_string(val), spec)
-  end
+  # Booleans format as their integer value for every numeric conversion.
+  defp apply_format_spec(spec, code, val) when is_boolean(val) and code in ~c[dioxXeEfFgGc],
+    do: apply_format_spec(spec, code, if(val, do: 1, else: 0))
 
-  defp apply_format_spec(spec, code, val) when code in ~c[di] and is_float(val) do
-    pad_string(Integer.to_string(trunc(val)), spec)
-  end
+  defp apply_format_spec(spec, code, val) when code in ~c[di] and is_integer(val),
+    do: pad_number(val, Integer.to_string(abs(val)), spec)
 
-  defp apply_format_spec(spec, code, val) when code in ~c[di] and is_boolean(val) do
-    pad_string(Integer.to_string(if(val, do: 1, else: 0)), spec)
-  end
+  defp apply_format_spec(spec, code, val) when code in ~c[di] and is_float(val),
+    do: pad_number(trunc(val), Integer.to_string(abs(trunc(val))), spec)
 
-  defp apply_format_spec(spec, ?f, val) when is_number(val) do
-    precision = spec.precision || 6
-    formatted = format_float_bankers(val / 1, precision)
-    pad_string(formatted, spec)
-  end
+  defp apply_format_spec(spec, ?f, val) when is_number(val),
+    do: float_conversion(spec, val, &format_float_bankers/2)
 
   defp apply_format_spec(spec, code, val) when code in ~c[eE] and is_number(val) do
-    precision = spec.precision || 6
-    formatted = format_scientific_py(val / 1, precision)
+    out =
+      float_conversion(spec, val, fn v, p ->
+        s = format_scientific_py(v, p)
+        if code == ?E, do: String.upcase(s), else: s
+      end)
 
-    formatted =
-      if code == ?E, do: String.upcase(formatted), else: formatted
-
-    pad_string(formatted, spec)
+    out
   end
 
   defp apply_format_spec(spec, code, val) when code in ~c[gG] and is_number(val) do
-    precision = max(spec.precision || 6, 1)
-    float_val = val / 1
-    formatted = format_g_py(float_val, precision)
-
-    formatted =
-      if code == ?G, do: String.upcase(formatted), else: formatted
-
-    pad_string(formatted, spec)
+    float_conversion(spec, val, fn v, _p ->
+      precision = max(spec.precision || 6, 1)
+      s = format_g_py(v, precision)
+      if code == ?G, do: String.upcase(s), else: s
+    end)
   end
 
-  defp apply_format_spec(spec, ?x, val) when is_integer(val) do
-    formatted =
-      if val < 0,
-        do: ("-" <> Integer.to_string(-val, 16)) |> String.downcase(),
-        else: Integer.to_string(val, 16) |> String.downcase()
+  defp apply_format_spec(spec, ?x, val) when is_integer(val),
+    do: pad_number(val, String.downcase(Integer.to_string(abs(val), 16)), spec)
 
-    pad_string(formatted, spec)
-  end
+  defp apply_format_spec(spec, ?X, val) when is_integer(val),
+    do: pad_number(val, String.upcase(Integer.to_string(abs(val), 16)), spec)
 
-  defp apply_format_spec(spec, ?o, val) when is_integer(val) do
-    formatted =
-      if val < 0,
-        do: "-" <> Integer.to_string(-val, 8),
-        else: Integer.to_string(val, 8)
+  defp apply_format_spec(spec, ?o, val) when is_integer(val),
+    do: pad_number(val, Integer.to_string(abs(val), 8), spec)
 
-    pad_string(formatted, spec)
+  # %c: a single character from an int code point or a 1-char string.
+  defp apply_format_spec(spec, ?c, val) when is_integer(val), do: pad_string(<<val::utf8>>, spec)
+
+  defp apply_format_spec(spec, ?c, val) when is_binary(val) do
+    if String.length(val) == 1,
+      do: pad_string(val, spec),
+      else: {:exception, "TypeError: %c requires int or char"}
   end
 
   defp apply_format_spec(_spec, code, val) do
     {:exception,
      "TypeError: %#{<<code>>} format: a number is required, not #{Helpers.py_type(val)}"}
+  end
+
+  # Float conversions share sign-aware padding: the formatter returns the
+  # signed magnitude, which we split so `+`/` ` flags and `0` width-fill
+  # land on the right side of the sign.
+  @spec float_conversion(format_spec(), number(), (float(), non_neg_integer() -> String.t())) ::
+          String.t()
+  defp float_conversion(spec, val, formatter) do
+    precision = spec.precision || 6
+    formatted = formatter.(val / 1, precision)
+
+    {sign, magnitude} =
+      case formatted do
+        "-" <> rest -> {-1, rest}
+        rest -> {1, rest}
+      end
+
+    pad_number(sign, magnitude, spec)
+  end
+
+  # Pad a numeric result, keeping any sign in front of zero-fill and
+  # honoring the `+`/` ` sign flags.
+  @spec pad_number(number(), String.t(), format_spec()) :: String.t()
+  defp pad_number(val, magnitude, spec) do
+    sign =
+      cond do
+        val < 0 -> "-"
+        String.contains?(spec.flags, "+") -> "+"
+        String.contains?(spec.flags, " ") -> " "
+        true -> ""
+      end
+
+    body = sign <> magnitude
+
+    case spec.width do
+      nil ->
+        body
+
+      width when byte_size(body) >= width ->
+        body
+
+      width ->
+        fill = width - byte_size(body)
+
+        cond do
+          String.contains?(spec.flags, "-") -> body <> String.duplicate(" ", fill)
+          String.contains?(spec.flags, "0") -> sign <> String.duplicate("0", fill) <> magnitude
+          true -> String.duplicate(" ", fill) <> body
+        end
+    end
   end
 
   @spec format_float_bankers(float(), non_neg_integer()) :: String.t()

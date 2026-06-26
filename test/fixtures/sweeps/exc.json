@@ -1,0 +1,473 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "program": "try:\n    raise ValueError('m')\nexcept ValueError:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise ValueError('m')\nexcept TypeError:\n    print('caught')",
+      "error": "ValueError"
+    },
+    {
+      "program": "try:\n    raise ValueError('m')\nexcept LookupError:\n    print('caught')",
+      "error": "ValueError"
+    },
+    {
+      "program": "try:\n    raise ValueError('m')\nexcept ArithmeticError:\n    print('caught')",
+      "error": "ValueError"
+    },
+    {
+      "program": "try:\n    raise ValueError('m')\nexcept Exception:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise ValueError('m')\nexcept BaseException:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise ValueError('m')\nexcept RuntimeError:\n    print('caught')",
+      "error": "ValueError"
+    },
+    {
+      "program": "try:\n    raise ValueError('m')\nexcept KeyError:\n    print('caught')",
+      "error": "ValueError"
+    },
+    {
+      "program": "try:\n    raise TypeError('m')\nexcept ValueError:\n    print('caught')",
+      "error": "TypeError"
+    },
+    {
+      "program": "try:\n    raise TypeError('m')\nexcept TypeError:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise TypeError('m')\nexcept LookupError:\n    print('caught')",
+      "error": "TypeError"
+    },
+    {
+      "program": "try:\n    raise TypeError('m')\nexcept ArithmeticError:\n    print('caught')",
+      "error": "TypeError"
+    },
+    {
+      "program": "try:\n    raise TypeError('m')\nexcept Exception:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise TypeError('m')\nexcept BaseException:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise TypeError('m')\nexcept RuntimeError:\n    print('caught')",
+      "error": "TypeError"
+    },
+    {
+      "program": "try:\n    raise TypeError('m')\nexcept KeyError:\n    print('caught')",
+      "error": "TypeError"
+    },
+    {
+      "program": "try:\n    raise KeyError('m')\nexcept ValueError:\n    print('caught')",
+      "error": "KeyError"
+    },
+    {
+      "program": "try:\n    raise KeyError('m')\nexcept TypeError:\n    print('caught')",
+      "error": "KeyError"
+    },
+    {
+      "program": "try:\n    raise KeyError('m')\nexcept LookupError:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise KeyError('m')\nexcept ArithmeticError:\n    print('caught')",
+      "error": "KeyError"
+    },
+    {
+      "program": "try:\n    raise KeyError('m')\nexcept Exception:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise KeyError('m')\nexcept BaseException:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise KeyError('m')\nexcept RuntimeError:\n    print('caught')",
+      "error": "KeyError"
+    },
+    {
+      "program": "try:\n    raise KeyError('m')\nexcept KeyError:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise IndexError('m')\nexcept ValueError:\n    print('caught')",
+      "error": "IndexError"
+    },
+    {
+      "program": "try:\n    raise IndexError('m')\nexcept TypeError:\n    print('caught')",
+      "error": "IndexError"
+    },
+    {
+      "program": "try:\n    raise IndexError('m')\nexcept LookupError:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise IndexError('m')\nexcept ArithmeticError:\n    print('caught')",
+      "error": "IndexError"
+    },
+    {
+      "program": "try:\n    raise IndexError('m')\nexcept Exception:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise IndexError('m')\nexcept BaseException:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise IndexError('m')\nexcept RuntimeError:\n    print('caught')",
+      "error": "IndexError"
+    },
+    {
+      "program": "try:\n    raise IndexError('m')\nexcept KeyError:\n    print('caught')",
+      "error": "IndexError"
+    },
+    {
+      "program": "try:\n    raise ZeroDivisionError('m')\nexcept ValueError:\n    print('caught')",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "program": "try:\n    raise ZeroDivisionError('m')\nexcept TypeError:\n    print('caught')",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "program": "try:\n    raise ZeroDivisionError('m')\nexcept LookupError:\n    print('caught')",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "program": "try:\n    raise ZeroDivisionError('m')\nexcept ArithmeticError:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise ZeroDivisionError('m')\nexcept Exception:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise ZeroDivisionError('m')\nexcept BaseException:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise ZeroDivisionError('m')\nexcept RuntimeError:\n    print('caught')",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "program": "try:\n    raise ZeroDivisionError('m')\nexcept KeyError:\n    print('caught')",
+      "error": "ZeroDivisionError"
+    },
+    {
+      "program": "try:\n    raise AttributeError('m')\nexcept ValueError:\n    print('caught')",
+      "error": "AttributeError"
+    },
+    {
+      "program": "try:\n    raise AttributeError('m')\nexcept TypeError:\n    print('caught')",
+      "error": "AttributeError"
+    },
+    {
+      "program": "try:\n    raise AttributeError('m')\nexcept LookupError:\n    print('caught')",
+      "error": "AttributeError"
+    },
+    {
+      "program": "try:\n    raise AttributeError('m')\nexcept ArithmeticError:\n    print('caught')",
+      "error": "AttributeError"
+    },
+    {
+      "program": "try:\n    raise AttributeError('m')\nexcept Exception:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise AttributeError('m')\nexcept BaseException:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise AttributeError('m')\nexcept RuntimeError:\n    print('caught')",
+      "error": "AttributeError"
+    },
+    {
+      "program": "try:\n    raise AttributeError('m')\nexcept KeyError:\n    print('caught')",
+      "error": "AttributeError"
+    },
+    {
+      "program": "try:\n    raise RuntimeError('m')\nexcept ValueError:\n    print('caught')",
+      "error": "RuntimeError"
+    },
+    {
+      "program": "try:\n    raise RuntimeError('m')\nexcept TypeError:\n    print('caught')",
+      "error": "RuntimeError"
+    },
+    {
+      "program": "try:\n    raise RuntimeError('m')\nexcept LookupError:\n    print('caught')",
+      "error": "RuntimeError"
+    },
+    {
+      "program": "try:\n    raise RuntimeError('m')\nexcept ArithmeticError:\n    print('caught')",
+      "error": "RuntimeError"
+    },
+    {
+      "program": "try:\n    raise RuntimeError('m')\nexcept Exception:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise RuntimeError('m')\nexcept BaseException:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise RuntimeError('m')\nexcept RuntimeError:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise RuntimeError('m')\nexcept KeyError:\n    print('caught')",
+      "error": "RuntimeError"
+    },
+    {
+      "program": "try:\n    raise OverflowError('m')\nexcept ValueError:\n    print('caught')",
+      "error": "OverflowError"
+    },
+    {
+      "program": "try:\n    raise OverflowError('m')\nexcept TypeError:\n    print('caught')",
+      "error": "OverflowError"
+    },
+    {
+      "program": "try:\n    raise OverflowError('m')\nexcept LookupError:\n    print('caught')",
+      "error": "OverflowError"
+    },
+    {
+      "program": "try:\n    raise OverflowError('m')\nexcept ArithmeticError:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise OverflowError('m')\nexcept Exception:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise OverflowError('m')\nexcept BaseException:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise OverflowError('m')\nexcept RuntimeError:\n    print('caught')",
+      "error": "OverflowError"
+    },
+    {
+      "program": "try:\n    raise OverflowError('m')\nexcept KeyError:\n    print('caught')",
+      "error": "OverflowError"
+    },
+    {
+      "program": "try:\n    raise StopIteration('m')\nexcept ValueError:\n    print('caught')",
+      "error": "StopIteration"
+    },
+    {
+      "program": "try:\n    raise StopIteration('m')\nexcept TypeError:\n    print('caught')",
+      "error": "StopIteration"
+    },
+    {
+      "program": "try:\n    raise StopIteration('m')\nexcept LookupError:\n    print('caught')",
+      "error": "StopIteration"
+    },
+    {
+      "program": "try:\n    raise StopIteration('m')\nexcept ArithmeticError:\n    print('caught')",
+      "error": "StopIteration"
+    },
+    {
+      "program": "try:\n    raise StopIteration('m')\nexcept Exception:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise StopIteration('m')\nexcept BaseException:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise StopIteration('m')\nexcept RuntimeError:\n    print('caught')",
+      "error": "StopIteration"
+    },
+    {
+      "program": "try:\n    raise StopIteration('m')\nexcept KeyError:\n    print('caught')",
+      "error": "StopIteration"
+    },
+    {
+      "program": "try:\n    raise NameError('m')\nexcept ValueError:\n    print('caught')",
+      "error": "NameError"
+    },
+    {
+      "program": "try:\n    raise NameError('m')\nexcept TypeError:\n    print('caught')",
+      "error": "NameError"
+    },
+    {
+      "program": "try:\n    raise NameError('m')\nexcept LookupError:\n    print('caught')",
+      "error": "NameError"
+    },
+    {
+      "program": "try:\n    raise NameError('m')\nexcept ArithmeticError:\n    print('caught')",
+      "error": "NameError"
+    },
+    {
+      "program": "try:\n    raise NameError('m')\nexcept Exception:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise NameError('m')\nexcept BaseException:\n    print('caught')",
+      "stdout": "caught\n"
+    },
+    {
+      "program": "try:\n    raise NameError('m')\nexcept RuntimeError:\n    print('caught')",
+      "error": "NameError"
+    },
+    {
+      "program": "try:\n    raise NameError('m')\nexcept KeyError:\n    print('caught')",
+      "error": "NameError"
+    },
+    {
+      "program": "try:\n    1 / 0\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "ZeroDivisionError\n"
+    },
+    {
+      "program": "try:\n    1 // 0\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "ZeroDivisionError\n"
+    },
+    {
+      "program": "try:\n    1 % 0\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "ZeroDivisionError\n"
+    },
+    {
+      "program": "try:\n    [][0]\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "IndexError\n"
+    },
+    {
+      "program": "try:\n    (1, 2)[5]\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "IndexError\n"
+    },
+    {
+      "program": "try:\n    'ab'[9]\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "IndexError\n"
+    },
+    {
+      "program": "try:\n    {}['x']\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "KeyError\n"
+    },
+    {
+      "program": "try:\n    {'a':1}['z']\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "KeyError\n"
+    },
+    {
+      "program": "try:\n    int('x')\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "ValueError\n"
+    },
+    {
+      "program": "try:\n    int('1.5')\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "ValueError\n"
+    },
+    {
+      "program": "try:\n    float('x')\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "ValueError\n"
+    },
+    {
+      "program": "try:\n    [].pop()\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "IndexError\n"
+    },
+    {
+      "program": "try:\n    [1,2].index(9)\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "ValueError\n"
+    },
+    {
+      "program": "try:\n    'abc'.index('z')\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "ValueError\n"
+    },
+    {
+      "program": "try:\n    len(5)\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "TypeError\n"
+    },
+    {
+      "program": "try:\n    abs('x')\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "TypeError\n"
+    },
+    {
+      "program": "try:\n    next(iter([]))\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "StopIteration\n"
+    },
+    {
+      "program": "try:\n    [1,2,3][1:2][5]\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "IndexError\n"
+    },
+    {
+      "program": "try:\n    {1,2} | [3]\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "TypeError\n"
+    },
+    {
+      "program": "try:\n    'a' + 1\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "TypeError\n"
+    },
+    {
+      "program": "try:\n    [] + ()\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "TypeError\n"
+    },
+    {
+      "program": "try:\n    10 ** -1 % 0\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "ZeroDivisionError\n"
+    },
+    {
+      "program": "try:\n    min([])\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "ValueError\n"
+    },
+    {
+      "program": "try:\n    max([])\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "ValueError\n"
+    },
+    {
+      "program": "try:\n    sorted(5)\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "TypeError\n"
+    },
+    {
+      "program": "try:\n    'x'.encode().decode('utf-99')\nexcept Exception as e:\n    print(type(e).__name__)",
+      "stdout": "LookupError\n"
+    },
+    {
+      "program": "try:\n    x = 1\nexcept Exception:\n    print('e')\nelse:\n    print('else')",
+      "stdout": "else\n"
+    },
+    {
+      "program": "try:\n    raise ValueError\nexcept Exception:\n    print('e')\nelse:\n    print('else')",
+      "stdout": "e\n"
+    },
+    {
+      "program": "try:\n    x = 1\nfinally:\n    print('finally')",
+      "stdout": "finally\n"
+    },
+    {
+      "program": "try:\n    raise KeyError('k')\nexcept (TypeError, KeyError) as e:\n    print('tuple', type(e).__name__)",
+      "stdout": "tuple KeyError\n"
+    },
+    {
+      "program": "try:\n    raise ValueError('v')\nexcept TypeError:\n    print('T')\nexcept ValueError:\n    print('V')",
+      "stdout": "V\n"
+    },
+    {
+      "program": "try:\n    raise IndexError\nexcept LookupError:\n    print('lookup')\nfinally:\n    print('fin')",
+      "stdout": "lookup\nfin\n"
+    },
+    {
+      "program": "try:\n    try:\n        raise ValueError('inner')\n    finally:\n        print('inner-fin')\nexcept ValueError as e:\n    print('outer', e)",
+      "stdout": "inner-fin\nouter inner\n"
+    },
+    {
+      "program": "def f():\n    raise RuntimeError('boom')\ntry:\n    f()\nexcept RuntimeError as e:\n    print(e)",
+      "stdout": "boom\n"
+    },
+    {
+      "program": "try:\n    raise ValueError('msg')\nexcept ValueError as e:\n    print(str(e), repr(e))",
+      "stdout": "msg ValueError('msg')\n"
+    },
+    {
+      "program": "try:\n    raise Exception('a', 'b')\nexcept Exception as e:\n    print(e.args)",
+      "stdout": "('a', 'b')\n"
+    },
+    {
+      "program": "for i in range(3):\n    try:\n        if i == 1:\n            raise ValueError\n    except ValueError:\n        print('caught', i)",
+      "stdout": "caught 1\n"
+    }
+  ]
+}

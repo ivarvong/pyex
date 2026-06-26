@@ -8,6 +8,7 @@ defmodule Pyex.Interpreter.BinaryOps do
   """
 
   alias Pyex.Ctx
+  alias Pyex.Fraction
 
   import Bitwise, only: [band: 2, bor: 2, bxor: 2, bsl: 2, bsr: 2]
 
@@ -21,6 +22,13 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   @doc false
   @spec safe_binop(atom(), term(), term()) :: term()
+  # Bitwise &/|/^ on two bools yields a bool in CPython (True & True is
+  # True, not 1); with any non-bool operand it falls through to int.
+  def safe_binop(op, l, r)
+      when is_boolean(l) and is_boolean(r) and op in [:amp, :pipe, :caret] do
+    safe_binop(op, Helpers.bool_to_int(l), Helpers.bool_to_int(r)) == 1
+  end
+
   def safe_binop(op, l, r) when is_boolean(l) or is_boolean(r) do
     case op do
       op
@@ -60,6 +68,13 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   def safe_binop(op, {:pyex_decimal, _} = l, r), do: decimal_dispatch(op, l, r)
   def safe_binop(op, l, {:pyex_decimal, _} = r), do: decimal_dispatch(op, l, r)
+
+  # Membership on a Fraction LHS dispatches on the container, not the Fraction.
+  def safe_binop(op, {:fraction, _, _} = l, r) when op in [:in, :not_in],
+    do: dispatch(op, l, r)
+
+  def safe_binop(op, {:fraction, _, _} = l, r), do: fraction_dispatch(op, l, r)
+  def safe_binop(op, l, {:fraction, _, _} = r), do: fraction_dispatch(op, l, r)
   def safe_binop(op, l, r), do: dispatch(op, l, r)
 
   @doc false
@@ -139,6 +154,15 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   def ordering_compare(op, {:tuple, a}, {:tuple, b}), do: ord_cmp(op, a, b)
 
+  # bytes order lexicographically by byte value (Erlang binary order matches).
+  def ordering_compare(op, {:bytes, a}, {:bytes, b}), do: ord_cmp(op, a, b)
+
+  # set/frozenset comparisons are subset/superset (a partial order), not
+  # element ordering. Cross set/frozenset comparisons are allowed.
+  def ordering_compare(op, {sl, a}, {sr, b})
+      when sl in [:set, :frozenset] and sr in [:set, :frozenset],
+      do: set_order(op, a, b)
+
   def ordering_compare(op, l, r) when is_boolean(l) and is_number(r),
     do: ordering_compare(op, bool_to_int(l), r)
 
@@ -149,6 +173,13 @@ defmodule Pyex.Interpreter.BinaryOps do
     {:exception,
      "TypeError: '<' not supported between instances of '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
   end
+
+  # Subset/superset ordering for sets: `<` proper subset, `<=` subset,
+  # `>` proper superset, `>=` superset.
+  defp set_order(:lt, a, b), do: MapSet.subset?(a, b) and MapSet.size(a) < MapSet.size(b)
+  defp set_order(:lte, a, b), do: MapSet.subset?(a, b)
+  defp set_order(:gt, a, b), do: MapSet.subset?(b, a) and MapSet.size(b) < MapSet.size(a)
+  defp set_order(:gte, a, b), do: MapSet.subset?(b, a)
 
   @doc false
   @spec binop_result(term(), term(), term()) :: {term(), term(), term()}
@@ -242,6 +273,9 @@ defmodule Pyex.Interpreter.BinaryOps do
     Collections.counter_add(l, r)
   end
 
+  defp dispatch(:plus, :nan, _), do: :nan
+  defp dispatch(:plus, _, :nan), do: :nan
+
   defp dispatch(:plus, :infinity, r) when is_number(r) or r == :neg_infinity,
     do: if(r == :neg_infinity, do: :nan, else: :infinity)
 
@@ -252,7 +286,9 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:plus, l, :neg_infinity) when is_number(l), do: :neg_infinity
   defp dispatch(:plus, :infinity, :infinity), do: :infinity
   defp dispatch(:plus, :neg_infinity, :neg_infinity), do: :neg_infinity
-  defp dispatch(:plus, l, r) when is_number(l) and is_number(r), do: l + r
+
+  defp dispatch(:plus, l, r) when is_number(l) and is_number(r),
+    do: with_overflow(fn -> l + r end, fn -> if l < 0, do: :neg_infinity, else: :infinity end)
 
   defp dispatch(:plus, {:bytes, a}, {:bytes, b}), do: {:bytes, a <> b}
   defp dispatch(:plus, {:bytearray, a}, {:bytes, b}), do: {:bytearray, a <> b}
@@ -268,10 +304,24 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   # -- minus ----------------------------------------------------------
 
-  defp dispatch(:minus, l, r) when is_number(l) and is_number(r), do: l - r
+  defp dispatch(:minus, l, r) when is_number(l) and is_number(r),
+    do: with_overflow(fn -> l - r end, fn -> if l < r, do: :neg_infinity, else: :infinity end)
+
   defp dispatch(:minus, {:complex, r1, i1}, {:complex, r2, i2}), do: {:complex, r1 - r2, i1 - i2}
   defp dispatch(:minus, {:complex, r, i}, n) when is_number(n), do: {:complex, r - n, i}
   defp dispatch(:minus, n, {:complex, r, i}) when is_number(n), do: {:complex, n - r, -i}
+
+  # IEEE-754 special-value subtraction (mirrors :plus).
+  defp dispatch(:minus, :nan, _), do: :nan
+  defp dispatch(:minus, _, :nan), do: :nan
+  defp dispatch(:minus, :infinity, :infinity), do: :nan
+  defp dispatch(:minus, :neg_infinity, :neg_infinity), do: :nan
+  defp dispatch(:minus, :infinity, :neg_infinity), do: :infinity
+  defp dispatch(:minus, :neg_infinity, :infinity), do: :neg_infinity
+  defp dispatch(:minus, :infinity, r) when is_number(r), do: :infinity
+  defp dispatch(:minus, :neg_infinity, r) when is_number(r), do: :neg_infinity
+  defp dispatch(:minus, l, :infinity) when is_number(l), do: :neg_infinity
+  defp dispatch(:minus, l, :neg_infinity) when is_number(l), do: :infinity
 
   defp dispatch(:star, {:complex, a, b}, {:complex, c, d}),
     do: {:complex, a * c - b * d, a * d + b * c}
@@ -320,6 +370,12 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:star, l, r) when is_integer(l) and is_binary(r),
     do: dispatch(:star, r, l)
 
+  defp dispatch(:star, {:bytes, b}, r) when is_integer(r),
+    do: {:bytes, :binary.copy(b, max(r, 0))}
+
+  defp dispatch(:star, l, {:bytes, b}) when is_integer(l),
+    do: dispatch(:star, {:bytes, b}, l)
+
   defp dispatch(:star, l, r) when is_integer(l) and is_list(r),
     do: Helpers.repeat_list(r, l)
 
@@ -354,7 +410,11 @@ defmodule Pyex.Interpreter.BinaryOps do
     end
   end
 
-  defp dispatch(:star, l, r) when is_number(l) and is_number(r), do: l * r
+  defp dispatch(:star, l, r) when is_number(l) and is_number(r),
+    do:
+      with_overflow(fn -> l * r end, fn ->
+        if l < 0 != r < 0, do: :neg_infinity, else: :infinity
+      end)
 
   # IEEE-754 special-value multiplication.
   defp dispatch(:star, :infinity, 0), do: :nan
@@ -392,7 +452,11 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:slash, _l, r) when r == 0 or r == 0.0,
     do: {:exception, "ZeroDivisionError: division by zero"}
 
-  defp dispatch(:slash, l, r) when is_number(l) and is_number(r), do: l / r
+  defp dispatch(:slash, l, r) when is_number(l) and is_number(r),
+    do:
+      with_overflow(fn -> l / r end, fn ->
+        if l < 0 != r < 0, do: :neg_infinity, else: :infinity
+      end)
 
   # IEEE-754 special-value division: finite / inf -> 0.0, inf / finite -> inf, etc.
   defp dispatch(:slash, l, :infinity) when is_number(l), do: 0.0
@@ -473,10 +537,20 @@ defmodule Pyex.Interpreter.BinaryOps do
     end
   end
 
+  # Complex base with an integer exponent — repeated multiplication keeps
+  # results exact (e.g. (2j)**2 == (-4+0j)), matching CPython.
+  defp dispatch(:double_star, {:complex, _, _} = base, n) when is_integer(n),
+    do: complex_int_pow(base, n)
+
   defp dispatch(:double_star, l, r),
     do: type_error("**", l, r)
 
   # -- equality -------------------------------------------------------
+
+  # set and frozenset compare equal by element membership, across types.
+  defp dispatch(:eq, {sl, a}, {sr, b})
+       when sl in [:set, :frozenset] and sr in [:set, :frozenset],
+       do: MapSet.size(a) == MapSet.size(b) and MapSet.subset?(a, b)
 
   defp dispatch(:eq, {:py_dict, lm, _}, {:py_dict, rm, _}), do: lm == rm
   defp dispatch(:eq, {:py_dict, lm, _}, rm) when is_map(rm), do: lm == rm
@@ -516,7 +590,14 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:eq, :neg_infinity, r) when is_number(r), do: false
   defp dispatch(:eq, r, :infinity) when is_number(r), do: false
   defp dispatch(:eq, r, :neg_infinity) when is_number(r), do: false
+  # A complex with zero imaginary part equals the corresponding real.
+  defp dispatch(:eq, {:complex, re, im}, n) when is_number(n), do: im == 0 and re == n
+  defp dispatch(:eq, n, {:complex, re, im}) when is_number(n), do: im == 0 and re == n
   defp dispatch(:eq, l, r), do: l == r
+
+  defp dispatch(:neq, {sl, a}, {sr, b})
+       when sl in [:set, :frozenset] and sr in [:set, :frozenset],
+       do: not (MapSet.size(a) == MapSet.size(b) and MapSet.subset?(a, b))
 
   defp dispatch(:neq, {:py_dict, lm, _}, {:py_dict, rm, _}), do: lm != rm
   defp dispatch(:neq, {:py_dict, lm, _}, rm) when is_map(rm), do: lm != rm
@@ -550,6 +631,8 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   defp dispatch(:neq, :nan, _), do: true
   defp dispatch(:neq, _, :nan), do: true
+  defp dispatch(:neq, {:complex, re, im}, n) when is_number(n), do: not (im == 0 and re == n)
+  defp dispatch(:neq, n, {:complex, re, im}) when is_number(n), do: not (im == 0 and re == n)
   defp dispatch(:neq, l, r), do: l != r
 
   # -- ordering -------------------------------------------------------
@@ -568,14 +651,33 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:in, l, r) when is_binary(l) and is_binary(r),
     do: String.contains?(r, l)
 
+  defp dispatch(:in, l, {:bytes, b}) when is_boolean(l),
+    do: dispatch(:in, Helpers.bool_to_int(l), {:bytes, b})
+
+  defp dispatch(:in, l, {:bytes, b}) when is_integer(l), do: l in :binary.bin_to_list(b)
+
+  defp dispatch(:in, {:bytes, sub}, {:bytes, b}),
+    do: sub == "" or :binary.match(b, sub) != :nomatch
+
   defp dispatch(:in, l, {:py_dict, _, _} = dict),
-    do: PyDict.has_key?(Pyex.Builtins.visible_dict(dict), l)
+    do: hashed_member(l, fn k -> PyDict.has_key?(Pyex.Builtins.visible_dict(dict), k) end)
 
   defp dispatch(:in, l, r) when is_map(r),
-    do: Map.has_key?(Pyex.Builtins.visible_dict(r), PyDict.canonical_key(l))
+    do:
+      hashed_member(l, fn k ->
+        Map.has_key?(Pyex.Builtins.visible_dict(r), PyDict.canonical_key(k))
+      end)
 
-  defp dispatch(:in, l, {:set, s}), do: MapSet.member?(s, PyDict.canonical_key(l))
-  defp dispatch(:in, l, {:frozenset, s}), do: MapSet.member?(s, PyDict.canonical_key(l))
+  # A set element is tested as a frozenset (CPython's rule), so it never
+  # raises — and the container holds its elements, not the set, so False.
+  defp dispatch(:in, {:set, inner}, {st, s}) when st in [:set, :frozenset],
+    do: MapSet.member?(s, PyDict.canonical_key({:frozenset, inner}))
+
+  defp dispatch(:in, l, {:set, s}),
+    do: hashed_member(l, fn k -> MapSet.member?(s, PyDict.canonical_key(k)) end)
+
+  defp dispatch(:in, l, {:frozenset, s}),
+    do: hashed_member(l, fn k -> MapSet.member?(s, PyDict.canonical_key(k)) end)
 
   defp dispatch(:in, l, {:range, start, stop, step}) when is_integer(l) do
     cond do
@@ -718,6 +820,92 @@ defmodule Pyex.Interpreter.BinaryOps do
     {:exception,
      "TypeError: unsupported operand type(s) for #{op_str}: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
   end
+
+  # BEAM raises ArithmeticError on float overflow rather than yielding ±inf
+  # like IEEE-754/CPython. Run the arithmetic and, on overflow, fall back to
+  # the correctly-signed infinity supplied by the caller.
+  @spec with_overflow((-> number()), (-> :infinity | :neg_infinity)) ::
+          number() | :infinity | :neg_infinity
+  defp with_overflow(compute, on_overflow) do
+    compute.()
+  rescue
+    ArithmeticError -> on_overflow.()
+  end
+
+  # Arithmetic and comparison on Python `fractions.Fraction`. Mixing with a
+  # float coerces both sides to float (CPython rule); otherwise the result
+  # stays an exact reduced rational.
+  @spec fraction_dispatch(atom(), term(), term()) :: term()
+  defp fraction_dispatch(op, l, r) when is_float(l) or is_float(r) do
+    dispatch(op, fraction_to_float(l), fraction_to_float(r))
+  end
+
+  defp fraction_dispatch(:double_star, l, r) do
+    case {Fraction.parts(l), Fraction.parts(r)} do
+      {{a, b}, {n, 1}} when n >= 0 -> Fraction.new(Helpers.int_pow(a, n), Helpers.int_pow(b, n))
+      {{a, b}, {n, 1}} when n < 0 -> Fraction.new(Helpers.int_pow(b, -n), Helpers.int_pow(a, -n))
+      _ -> dispatch(:double_star, fraction_to_float(l), fraction_to_float(r))
+    end
+  end
+
+  defp fraction_dispatch(op, l, r) do
+    case {Fraction.parts(l), Fraction.parts(r)} do
+      {{a, b}, {c, d}} -> fraction_op(op, a, b, c, d)
+      _ -> type_error(op_symbol(op), l, r)
+    end
+  end
+
+  @spec fraction_op(atom(), integer(), integer(), integer(), integer()) :: term()
+  defp fraction_op(:plus, a, b, c, d), do: Fraction.new(a * d + c * b, b * d)
+  defp fraction_op(:minus, a, b, c, d), do: Fraction.new(a * d - c * b, b * d)
+  defp fraction_op(:star, a, b, c, d), do: Fraction.new(a * c, b * d)
+
+  defp fraction_op(:slash, _a, _b, 0, _d),
+    do: {:exception, "ZeroDivisionError: division by zero"}
+
+  defp fraction_op(:slash, a, b, c, d), do: Fraction.new(a * d, b * c)
+  defp fraction_op(:floor_div, a, b, c, d), do: Integer.floor_div(a * d, b * c)
+  defp fraction_op(:eq, a, b, c, d), do: a * d == c * b
+  defp fraction_op(:neq, a, b, c, d), do: a * d != c * b
+  defp fraction_op(:lt, a, b, c, d), do: a * d < c * b
+  defp fraction_op(:lte, a, b, c, d), do: a * d <= c * b
+  defp fraction_op(:gt, a, b, c, d), do: a * d > c * b
+  defp fraction_op(:gte, a, b, c, d), do: a * d >= c * b
+  defp fraction_op(op, _a, _b, _c, _d), do: type_error(op_symbol(op), :fraction, :fraction)
+
+  @spec fraction_to_float(term()) :: term()
+  defp fraction_to_float({:fraction, _, _} = f), do: Fraction.to_float(f)
+  defp fraction_to_float(other), do: other
+
+  @spec op_symbol(atom()) :: String.t()
+  defp op_symbol(:plus), do: "+"
+  defp op_symbol(:minus), do: "-"
+  defp op_symbol(:star), do: "*"
+  defp op_symbol(:slash), do: "/"
+  defp op_symbol(:floor_div), do: "//"
+  defp op_symbol(:percent), do: "%"
+  defp op_symbol(:double_star), do: "**"
+  defp op_symbol(_), do: "?"
+
+  # Complex raised to an integer power via repeated multiplication (exact).
+  @spec complex_int_pow({:complex, number(), number()}, integer()) ::
+          {:complex, number(), number()}
+  defp complex_int_pow(_base, 0), do: {:complex, 1.0, 0.0}
+
+  defp complex_int_pow(base, n) when n > 0 do
+    Enum.reduce(2..n//1, base, fn _, acc -> complex_mul(acc, base) end)
+  end
+
+  defp complex_int_pow(base, n) when n < 0 do
+    {:complex, re, im} = complex_int_pow(base, -n)
+    denom = re * re + im * im
+    {:complex, re / denom, -im / denom}
+  end
+
+  @spec complex_mul({:complex, number(), number()}, {:complex, number(), number()}) ::
+          {:complex, number(), number()}
+  defp complex_mul({:complex, a, b}, {:complex, c, d}),
+    do: {:complex, a * c - b * d, a * d + b * c}
 
   # Python `in` for ordered containers (list/tuple) compares element-wise
   # with `==`, which means `1 in [True]`, `1 in [1.0]`, and
@@ -1192,4 +1380,24 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp op_str(:lte), do: "<="
   defp op_str(:gte), do: ">="
   defp op_str(_), do: "?"
+
+  # Membership in a hash container raises on an unhashable key, as CPython
+  # does (`[1] in {1, 2}` is a TypeError). A set element is the exception:
+  # CPython treats it as a frozenset for the test, so it never raises —
+  # and since the container holds its elements, not the set, it's False.
+  defp hashed_member(l, check) do
+    if unhashable?(l) do
+      {:exception, "TypeError: unhashable type: '#{Helpers.py_type(l)}'"}
+    else
+      check.(l)
+    end
+  end
+
+  defp unhashable?({:py_list, _, _}), do: true
+  defp unhashable?(l) when is_list(l), do: true
+  defp unhashable?({:py_dict, _, _}), do: true
+  defp unhashable?({:set, _}), do: true
+  defp unhashable?({:bytearray, _}), do: true
+  defp unhashable?(m) when is_map(m), do: not is_struct(m)
+  defp unhashable?(_), do: false
 end

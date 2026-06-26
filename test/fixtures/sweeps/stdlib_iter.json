@@ -1,0 +1,245 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "code": "__import__('math').prod([3,1,2])",
+      "result": "6"
+    },
+    {
+      "code": "__import__('math').prod((3,1,2))",
+      "result": "6"
+    },
+    {
+      "code": "__import__('math').prod({3,1,2})",
+      "result": "6"
+    },
+    {
+      "code": "__import__('math').prod(frozenset([3,1,2]))",
+      "result": "6"
+    },
+    {
+      "code": "__import__('math').prod({3:0,1:0,2:0})",
+      "result": "6"
+    },
+    {
+      "code": "__import__('math').prod(range(1,4))",
+      "result": "6"
+    },
+    {
+      "code": "__import__('math').prod((x for x in [3,1,2]))",
+      "result": "6"
+    },
+    {
+      "code": "__import__('math').prod({3:0,1:0,2:0}.keys())",
+      "result": "6"
+    },
+    {
+      "code": "__import__('math').prod(bytes([3,1,2]))",
+      "result": "6"
+    },
+    {
+      "code": "__import__('math').prod(map(lambda x:x,[3,1,2]))",
+      "result": "6"
+    },
+    {
+      "code": "__import__('statistics').mean([3,1,2])",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').mean((3,1,2))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').mean({3,1,2})",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').mean(frozenset([3,1,2]))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').mean({3:0,1:0,2:0})",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').mean(range(1,4))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').mean((x for x in [3,1,2]))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').mean({3:0,1:0,2:0}.keys())",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').mean(bytes([3,1,2]))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').mean(map(lambda x:x,[3,1,2]))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').median([3,1,2])",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').median((3,1,2))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').median({3,1,2})",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').median(frozenset([3,1,2]))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').median({3:0,1:0,2:0})",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').median(range(1,4))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').median((x for x in [3,1,2]))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').median({3:0,1:0,2:0}.keys())",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').median(bytes([3,1,2]))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('statistics').median(map(lambda x:x,[3,1,2]))",
+      "result": "2"
+    },
+    {
+      "code": "__import__('math').fsum([3,1,2])",
+      "result": "6.0"
+    },
+    {
+      "code": "__import__('math').fsum((3,1,2))",
+      "result": "6.0"
+    },
+    {
+      "code": "__import__('math').fsum({3,1,2})",
+      "result": "6.0"
+    },
+    {
+      "code": "__import__('math').fsum(frozenset([3,1,2]))",
+      "result": "6.0"
+    },
+    {
+      "code": "__import__('math').fsum({3:0,1:0,2:0})",
+      "result": "6.0"
+    },
+    {
+      "code": "__import__('math').fsum(range(1,4))",
+      "result": "6.0"
+    },
+    {
+      "code": "__import__('math').fsum((x for x in [3,1,2]))",
+      "result": "6.0"
+    },
+    {
+      "code": "__import__('math').fsum({3:0,1:0,2:0}.keys())",
+      "result": "6.0"
+    },
+    {
+      "code": "__import__('math').fsum(bytes([3,1,2]))",
+      "result": "6.0"
+    },
+    {
+      "code": "__import__('math').fsum(map(lambda x:x,[3,1,2]))",
+      "result": "6.0"
+    },
+    {
+      "code": "__import__('functools').reduce(lambda a,b:a+b,[3,1,2])",
+      "result": "6"
+    },
+    {
+      "code": "__import__('functools').reduce(lambda a,b:a+b,(3,1,2))",
+      "result": "6"
+    },
+    {
+      "code": "__import__('functools').reduce(lambda a,b:a+b,{3,1,2})",
+      "result": "6"
+    },
+    {
+      "code": "__import__('functools').reduce(lambda a,b:a+b,frozenset([3,1,2]))",
+      "result": "6"
+    },
+    {
+      "code": "__import__('functools').reduce(lambda a,b:a+b,{3:0,1:0,2:0})",
+      "result": "6"
+    },
+    {
+      "code": "__import__('functools').reduce(lambda a,b:a+b,range(1,4))",
+      "result": "6"
+    },
+    {
+      "code": "__import__('functools').reduce(lambda a,b:a+b,(x for x in [3,1,2]))",
+      "result": "6"
+    },
+    {
+      "code": "__import__('functools').reduce(lambda a,b:a+b,{3:0,1:0,2:0}.keys())",
+      "result": "6"
+    },
+    {
+      "code": "__import__('functools').reduce(lambda a,b:a+b,bytes([3,1,2]))",
+      "result": "6"
+    },
+    {
+      "code": "__import__('functools').reduce(lambda a,b:a+b,map(lambda x:x,[3,1,2]))",
+      "result": "6"
+    },
+    {
+      "code": "'-'.join(sorted(str(x) for x in [3,1,2]))",
+      "result": "'1-2-3'"
+    },
+    {
+      "code": "'-'.join(sorted(str(x) for x in (3,1,2)))",
+      "result": "'1-2-3'"
+    },
+    {
+      "code": "'-'.join(sorted(str(x) for x in {3,1,2}))",
+      "result": "'1-2-3'"
+    },
+    {
+      "code": "'-'.join(sorted(str(x) for x in frozenset([3,1,2])))",
+      "result": "'1-2-3'"
+    },
+    {
+      "code": "'-'.join(sorted(str(x) for x in {3:0,1:0,2:0}))",
+      "result": "'1-2-3'"
+    },
+    {
+      "code": "'-'.join(sorted(str(x) for x in range(1,4)))",
+      "result": "'1-2-3'"
+    },
+    {
+      "code": "'-'.join(sorted(str(x) for x in (x for x in [3,1,2])))",
+      "result": "'1-2-3'"
+    },
+    {
+      "code": "'-'.join(sorted(str(x) for x in {3:0,1:0,2:0}.keys()))",
+      "result": "'1-2-3'"
+    },
+    {
+      "code": "'-'.join(sorted(str(x) for x in bytes([3,1,2])))",
+      "result": "'1-2-3'"
+    },
+    {
+      "code": "'-'.join(sorted(str(x) for x in map(lambda x:x,[3,1,2])))",
+      "result": "'1-2-3'"
+    }
+  ]
+}
