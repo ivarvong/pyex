@@ -175,6 +175,21 @@ defmodule Pyex.Interpreter.Import do
     end
   end
 
+  @doc """
+  Re-imports `name`, bypassing the per-run import cache — the substrate for
+  `importlib.reload`. Evicts `ctx.imported_modules[name]` so a filesystem
+  module is re-read and re-executed from its (possibly edited) source, then
+  resolves it afresh. Same return shape as `resolve_module/3`.
+  """
+  @spec reload_module(String.t(), Env.t(), Ctx.t()) ::
+          {:ok, Interpreter.pyvalue(), Ctx.t()}
+          | {:unknown_module, Ctx.t()}
+          | {:import_error, String.t(), Ctx.t()}
+  def reload_module(name, env, ctx) do
+    ctx = %{ctx | imported_modules: Map.delete(ctx.imported_modules, name)}
+    resolve_module(name, env, ctx)
+  end
+
   @spec resolve_single_module(String.t(), Env.t(), Ctx.t()) ::
           {:ok, Interpreter.pyvalue(), Ctx.t()}
           | {:unknown_module, Ctx.t()}
