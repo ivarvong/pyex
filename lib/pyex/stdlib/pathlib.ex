@@ -157,8 +157,8 @@ defmodule Pyex.Stdlib.Pathlib do
 
            fs ->
              pattern = Pyex.Path.join([base, pattern])
-             {:ok, matches} = Pyex.Path.glob(fs, pattern)
-             {Enum.map(matches, &path_instance(self, &1)), env, ctx}
+             {:ok, matches, fs} = Pyex.Path.glob(fs, ctx.cwd, pattern)
+             {Enum.map(matches, &path_instance(self, &1)), env, %{ctx | filesystem: fs}}
          end
        end}
     end
@@ -180,8 +180,12 @@ defmodule Pyex.Stdlib.Pathlib do
       {:ctx_call,
        fn env, ctx ->
          case ctx.filesystem do
-           nil -> {false, env, ctx}
-           fs -> {Pyex.Path.exists?(fs, path), env, ctx}
+           nil ->
+             {false, env, ctx}
+
+           fs ->
+             {exists, fs} = Pyex.Path.exists?(fs, ctx.cwd, path)
+             {exists, env, %{ctx | filesystem: fs}}
          end
        end}
     end
@@ -195,8 +199,12 @@ defmodule Pyex.Stdlib.Pathlib do
       {:ctx_call,
        fn env, ctx ->
          case ctx.filesystem do
-           nil -> {false, env, ctx}
-           fs -> {Pyex.Path.file?(fs, path), env, ctx}
+           nil ->
+             {false, env, ctx}
+
+           fs ->
+             {is_file, fs} = Pyex.Path.file?(fs, ctx.cwd, path)
+             {is_file, env, %{ctx | filesystem: fs}}
          end
        end}
     end
@@ -210,8 +218,12 @@ defmodule Pyex.Stdlib.Pathlib do
       {:ctx_call,
        fn env, ctx ->
          case ctx.filesystem do
-           nil -> {false, env, ctx}
-           fs -> {Pyex.Path.dir?(fs, path), env, ctx}
+           nil ->
+             {false, env, ctx}
+
+           fs ->
+             {is_dir, fs} = Pyex.Path.dir?(fs, ctx.cwd, path)
+             {is_dir, env, %{ctx | filesystem: fs}}
          end
        end}
     end
@@ -229,8 +241,10 @@ defmodule Pyex.Stdlib.Pathlib do
              {{:exception, "OSError: no filesystem configured"}, env, ctx}
 
            fs ->
-             {:ok, fs} = Pyex.Path.mkdir_p(fs, path)
-             {nil, env, %{ctx | filesystem: fs}}
+             case Pyex.Path.mkdir_p(fs, ctx.cwd, path) do
+               {:ok, fs} -> {nil, env, %{ctx | filesystem: fs}}
+               {:error, msg} -> {{:exception, msg}, env, ctx}
+             end
          end
        end}
     end
@@ -252,10 +266,10 @@ defmodule Pyex.Stdlib.Pathlib do
              {{:exception, "OSError: no filesystem configured"}, env, ctx}
 
            fs ->
-             case Pyex.Path.list_dir(fs, path) do
-               {:ok, entries} ->
+             case Pyex.Path.list_dir(fs, ctx.cwd, path) do
+               {:ok, entries, fs} ->
                  children = Enum.map(entries, &path_instance(self, Pyex.Path.join([path, &1])))
-                 {token, ctx} = Ctx.new_iterator(ctx, children)
+                 {token, ctx} = Ctx.new_iterator(%{ctx | filesystem: fs}, children)
                  {token, env, ctx}
 
                {:error, msg} ->
@@ -278,7 +292,7 @@ defmodule Pyex.Stdlib.Pathlib do
              {{:exception, "OSError: no filesystem configured"}, env, ctx}
 
            fs ->
-             case Pyex.Path.unlink(fs, path) do
+             case Pyex.Path.unlink(fs, ctx.cwd, path) do
                {:ok, fs} -> {nil, env, %{ctx | filesystem: fs}}
                {:error, msg} -> {{:exception, msg}, env, ctx}
              end

@@ -578,11 +578,11 @@ defmodule Pyex.Stdlib.CSVTest do
   end
 
   describe "file I/O" do
-    @fs_opts [filesystem: Pyex.Filesystem.Memory.new()]
+    @fs_opts [filesystem: Pyex.FS.from_map()]
 
     defp fs_with_file(path, content) do
-      fs = Pyex.Filesystem.Memory.new()
-      {:ok, fs} = Pyex.Filesystem.Memory.write(fs, path, content, :write)
+      fs = Pyex.FS.from_map()
+      {:ok, fs} = Pyex.FS.write(fs, path, content, :write)
       [filesystem: fs]
     end
 
@@ -640,7 +640,7 @@ defmodule Pyex.Stdlib.CSVTest do
         )
 
       assert {:ok, "name,age\r\nAlice,30\r\n"} =
-               Pyex.Filesystem.Memory.read(ctx.filesystem, "output.csv")
+               Pyex.FS.read(ctx.filesystem, "output.csv")
     end
 
     test "csv.writer writerow returns the formatted line" do
@@ -675,7 +675,7 @@ defmodule Pyex.Stdlib.CSVTest do
         )
 
       assert {:ok, "name,age\r\nAlice,30\r\n"} =
-               Pyex.Filesystem.Memory.read(ctx.filesystem, "output.csv")
+               Pyex.FS.read(ctx.filesystem, "output.csv")
     end
 
     test "csv.DictWriter with fieldnames as keyword argument" do
@@ -693,7 +693,7 @@ defmodule Pyex.Stdlib.CSVTest do
         )
 
       assert {:ok, "name,age\r\nAlice,30\r\n"} =
-               Pyex.Filesystem.Memory.read(ctx.filesystem, "output.csv")
+               Pyex.FS.read(ctx.filesystem, "output.csv")
     end
 
     test "full file roundtrip: write then read" do
@@ -777,7 +777,7 @@ defmodule Pyex.Stdlib.CSVTest do
         )
 
       assert {:ok, "a,b\r\nc,d\r\n"} =
-               Pyex.Filesystem.Memory.read(ctx.filesystem, "output.csv")
+               Pyex.FS.read(ctx.filesystem, "output.csv")
     end
   end
 

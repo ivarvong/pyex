@@ -23,12 +23,12 @@ defmodule Pyex.LibraryConformance.PydanticTest do
 
   import Pyex.Test.LibraryConformance
 
-  setup do
-    if uv_available?() do
-      :ok
-    else
-      {:skip, "uv not found on PATH"}
-    end
+  # Skip the whole module when `uv` is absent. A `{:skip, _}` return from
+  # `setup` is not a valid ExUnit callback result (it raises in ExUnit 1.19+);
+  # `@moduletag skip:`, evaluated at compile time off the `uv_available?/0`
+  # module attribute, is the supported way to skip conditionally.
+  unless uv_available?() do
+    @moduletag skip: "uv not found on PATH"
   end
 
   describe "BaseModel construction" do

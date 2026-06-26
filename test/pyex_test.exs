@@ -1100,7 +1100,7 @@ defmodule PyexTest do
     """
 
     test "generates HTML pages from markdown posts with frontmatter via pydantic, jinja2 templates, and css" do
-      fs = Pyex.Filesystem.Memory.new(Map.put(@ssg_fs, "style.css", @ssg_css))
+      fs = Pyex.FS.from_map(Map.put(@ssg_fs, "style.css", @ssg_css))
 
       # Compile once so the warmup and timed runs share the same AST.
       {:ok, ast} = Pyex.compile(@ssg_script)
@@ -1110,10 +1110,10 @@ defmodule PyexTest do
 
       assert post_count == 3
 
-      {:ok, index} = Pyex.Filesystem.Memory.read(ctx.filesystem, "index.html")
-      {:ok, hello} = Pyex.Filesystem.Memory.read(ctx.filesystem, "hello-world.html")
-      {:ok, dive} = Pyex.Filesystem.Memory.read(ctx.filesystem, "deep-dive.html")
-      {:ok, notes} = Pyex.Filesystem.Memory.read(ctx.filesystem, "release-notes.html")
+      {:ok, index} = Pyex.FS.read(ctx.filesystem, "index.html")
+      {:ok, hello} = Pyex.FS.read(ctx.filesystem, "hello-world.html")
+      {:ok, dive} = Pyex.FS.read(ctx.filesystem, "deep-dive.html")
+      {:ok, notes} = Pyex.FS.read(ctx.filesystem, "release-notes.html")
 
       # layout chrome on every page
       for page <- [index, hello, dive, notes] do
@@ -1155,11 +1155,11 @@ defmodule PyexTest do
       assert notes =~ ~s(<a href="/tags/changelog">changelog</a>)
 
       # tag pages exist and list the right posts
-      {:ok, tag_intro} = Pyex.Filesystem.Memory.read(ctx.filesystem, "tags/intro.html")
-      {:ok, tag_elixir} = Pyex.Filesystem.Memory.read(ctx.filesystem, "tags/elixir.html")
-      {:ok, tag_tutorial} = Pyex.Filesystem.Memory.read(ctx.filesystem, "tags/tutorial.html")
-      {:ok, tag_release} = Pyex.Filesystem.Memory.read(ctx.filesystem, "tags/release.html")
-      {:ok, tag_changelog} = Pyex.Filesystem.Memory.read(ctx.filesystem, "tags/changelog.html")
+      {:ok, tag_intro} = Pyex.FS.read(ctx.filesystem, "tags/intro.html")
+      {:ok, tag_elixir} = Pyex.FS.read(ctx.filesystem, "tags/elixir.html")
+      {:ok, tag_tutorial} = Pyex.FS.read(ctx.filesystem, "tags/tutorial.html")
+      {:ok, tag_release} = Pyex.FS.read(ctx.filesystem, "tags/release.html")
+      {:ok, tag_changelog} = Pyex.FS.read(ctx.filesystem, "tags/changelog.html")
 
       assert tag_intro =~ "<title>Tag: intro | My Blog</title>"
       assert tag_intro =~ ~s(Posts tagged)
@@ -1183,7 +1183,7 @@ defmodule PyexTest do
       end
 
       # build report
-      {:ok, report_json} = Pyex.Filesystem.Memory.read(ctx.filesystem, "build.json")
+      {:ok, report_json} = Pyex.FS.read(ctx.filesystem, "build.json")
       report = Jason.decode!(report_json)
 
       assert report["site_name"] == "My Blog"
@@ -1201,7 +1201,7 @@ defmodule PyexTest do
 
       iter_times_us =
         for _ <- 1..n_iters do
-          fresh_fs = Pyex.Filesystem.Memory.new(Map.put(@ssg_fs, "style.css", @ssg_css))
+          fresh_fs = Pyex.FS.from_map(Map.put(@ssg_fs, "style.css", @ssg_css))
           t0 = System.monotonic_time(:microsecond)
           {:ok, _, _} = Pyex.run(ast, filesystem: fresh_fs)
           System.monotonic_time(:microsecond) - t0
@@ -1228,9 +1228,9 @@ defmodule PyexTest do
     @elixir_highlight_py File.read!("test/fixtures/programs/elixir_highlight/main.py")
 
     test "full script runs, writes demo.html via filesystem" do
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
       {:ok, _result, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
-      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+      {:ok, html} = Pyex.FS.read(ctx.filesystem, "demo.html")
 
       assert html =~ "<!DOCTYPE html>"
       assert html =~ "<style>"
@@ -1239,9 +1239,9 @@ defmodule PyexTest do
     end
 
     test "highlights keywords" do
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
       {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
-      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+      {:ok, html} = Pyex.FS.read(ctx.filesystem, "demo.html")
 
       assert html =~ ~s(<span class="k">defmodule</span>)
       assert html =~ ~s(<span class="k">def</span>)
@@ -1254,9 +1254,9 @@ defmodule PyexTest do
     end
 
     test "highlights modules" do
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
       {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
-      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+      {:ok, html} = Pyex.FS.read(ctx.filesystem, "demo.html")
 
       assert html =~ ~s(<span class="m">MyApp</span>)
       assert html =~ ~s(<span class="m">Greeter</span>)
@@ -1266,27 +1266,27 @@ defmodule PyexTest do
     end
 
     test "highlights atoms" do
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
       {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
-      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+      {:ok, html} = Pyex.FS.read(ctx.filesystem, "demo.html")
 
       assert html =~ ~s(<span class="a">:hello</span>)
       assert html =~ ~s(<span class="a">:ok</span>)
     end
 
     test "highlights numbers including hex and underscored" do
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
       {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
-      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+      {:ok, html} = Pyex.FS.read(ctx.filesystem, "demo.html")
 
       assert html =~ ~s(<span class="n">0xFF</span>)
       assert html =~ ~s(<span class="n">1_000</span>)
     end
 
     test "highlights operators" do
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
       {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
-      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+      {:ok, html} = Pyex.FS.read(ctx.filesystem, "demo.html")
 
       assert html =~ ~s(<span class="o">|&gt;</span>)
       assert html =~ ~s(<span class="o">&lt;-</span>)
@@ -1295,26 +1295,26 @@ defmodule PyexTest do
     end
 
     test "highlights comments" do
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
       {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
-      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+      {:ok, html} = Pyex.FS.read(ctx.filesystem, "demo.html")
 
       assert html =~ ~s(<span class="c"># Public API</span>)
     end
 
     test "highlights heredoc strings" do
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
       {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
-      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+      {:ok, html} = Pyex.FS.read(ctx.filesystem, "demo.html")
 
       assert html =~
                ~s(<span class="s">&quot;&quot;&quot;\n  A simple greeter module.\n  &quot;&quot;&quot;</span>)
     end
 
     test "highlights sigils" do
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
       {:ok, _, ctx} = Pyex.run(@elixir_highlight_py, filesystem: fs)
-      {:ok, html} = Pyex.Filesystem.Memory.read(ctx.filesystem, "demo.html")
+      {:ok, html} = Pyex.FS.read(ctx.filesystem, "demo.html")
 
       assert html =~ ~s(<span class="sg">~r/^[a-z]+$/i</span>)
     end
@@ -1328,7 +1328,7 @@ defmodule PyexTest do
           result
           """
 
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
       {:ok, result, _} = Pyex.run(code, filesystem: fs)
       assert result =~ ~s(<span class="k">def</span>)
       assert result =~ ~s(<span class="i">foo</span>)
@@ -1344,7 +1344,7 @@ defmodule PyexTest do
           result
           """
 
-      fs = Pyex.Filesystem.Memory.new(%{})
+      fs = Pyex.FS.from_map(%{})
       {:ok, result, _} = Pyex.run(code, filesystem: fs)
       assert result =~ "<style>"
       assert result =~ ~s(<pre class="ex"><code>)

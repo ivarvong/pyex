@@ -6,7 +6,7 @@
 # Run with: mix run bench/multitenant_scaling_bench.exs
 
 alias Pyex.{Lexer, Parser, Ctx, Lambda}
-alias Pyex.Filesystem.Memory
+alias Pyex.FS, as: Memory
 
 # ---------- Sample tenant programs of varying complexity ----------
 

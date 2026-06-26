@@ -83,7 +83,7 @@ IO.puts("")
 results = [
   benchmark.("Accumulating to list", accumulating, 5_000, []),
   benchmark.("Printing to output", printing, 2_000, []),
-  benchmark.("Writing to filesystem", filesystem, 1_000, filesystem: Pyex.Filesystem.Memory.new())
+  benchmark.("Writing to filesystem", filesystem, 1_000, filesystem: Pyex.FS.from_map())
 ]
 
 IO.puts("#{String.pad_trailing("Strategy", 25)} Time      Throughput  Per-iter")

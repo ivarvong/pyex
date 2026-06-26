@@ -348,7 +348,7 @@ defmodule Pyex.StreamingTest do
 
   describe "handle_stream/2 stateful across requests" do
     test "ctx threads through multiple streaming requests with filesystem" do
-      fs = Pyex.Filesystem.Memory.new(%{"log.txt" => ""})
+      fs = Pyex.FS.from_map(%{"log.txt" => ""})
       ctx = Pyex.Ctx.new(filesystem: fs)
 
       source = """

@@ -2,7 +2,7 @@ defmodule Pyex.FilesystemTest do
   use ExUnit.Case, async: true
 
   alias Pyex.{Builtins, Ctx, Interpreter, Lexer, Parser}
-  alias Pyex.Filesystem.Memory
+  alias Pyex.FS, as: Memory
 
   defp parse!(source) do
     {:ok, tokens} = Lexer.tokenize(source)
@@ -39,7 +39,7 @@ defmodule Pyex.FilesystemTest do
     end
   end
 
-  describe "Filesystem.Memory" do
+  describe "Pyex.FS (in-memory backend)" do
     test "read from pre-populated file" do
       fs = Memory.new(%{"hello.txt" => "hello world"})
       assert {:ok, "hello world"} = Memory.read(fs, "hello.txt")
@@ -188,18 +188,18 @@ defmodule Pyex.FilesystemTest do
       {_value, ctx} = run_with_fs!(code)
 
       assert {:ok, "not explicitly closed"} =
-               Pyex.Filesystem.Memory.read(ctx.filesystem, "test.txt")
+               Pyex.FS.read(ctx.filesystem, "test.txt")
     end
 
     test "one-liner open().write() persists to filesystem" do
       code = ~S|open("out.txt", "w").write("hello")|
 
       {_value, ctx} = run_with_fs!(code)
-      assert {:ok, "hello"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "out.txt")
+      assert {:ok, "hello"} = Pyex.FS.read(ctx.filesystem, "out.txt")
     end
 
     test "unclosed append handle flushes on program exit" do
-      fs = Pyex.Filesystem.Memory.new(%{"log.txt" => "line1,"})
+      fs = Pyex.FS.from_map(%{"log.txt" => "line1,"})
 
       code = """
       f = open("log.txt", "a")
@@ -207,7 +207,7 @@ defmodule Pyex.FilesystemTest do
       """
 
       {_value, ctx} = run_with_fs!(code, fs)
-      assert {:ok, "line1,line2"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "log.txt")
+      assert {:ok, "line1,line2"} = Pyex.FS.read(ctx.filesystem, "log.txt")
     end
 
     test "multiple unclosed handles all flush on program exit" do
@@ -219,8 +219,8 @@ defmodule Pyex.FilesystemTest do
       """
 
       {_value, ctx} = run_with_fs!(code)
-      assert {:ok, "aaa"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "a.txt")
-      assert {:ok, "bbb"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "b.txt")
+      assert {:ok, "aaa"} = Pyex.FS.read(ctx.filesystem, "a.txt")
+      assert {:ok, "bbb"} = Pyex.FS.read(ctx.filesystem, "b.txt")
     end
 
     test "no open handles remain in ctx after program exit" do
@@ -237,7 +237,7 @@ defmodule Pyex.FilesystemTest do
       code = ~S|open("out.txt", "w").write("hello")|
 
       assert {:ok, _, ctx} = Pyex.run(code, filesystem: Memory.new())
-      assert {:ok, "hello"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "out.txt")
+      assert {:ok, "hello"} = Pyex.FS.read(ctx.filesystem, "out.txt")
       assert ctx.handles == %{}
     end
 
@@ -250,7 +250,7 @@ defmodule Pyex.FilesystemTest do
       """
 
       {_value, ctx} = run_with_fs_public!(code, fs)
-      assert {:ok, "line1,line2"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "log.txt")
+      assert {:ok, "line1,line2"} = Pyex.FS.read(ctx.filesystem, "log.txt")
       assert ctx.handles == %{}
     end
 
@@ -263,8 +263,8 @@ defmodule Pyex.FilesystemTest do
       """
 
       {_value, ctx} = run_with_fs_public!(code)
-      assert {:ok, "aaa"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "a.txt")
-      assert {:ok, "bbb"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "b.txt")
+      assert {:ok, "aaa"} = Pyex.FS.read(ctx.filesystem, "a.txt")
+      assert {:ok, "bbb"} = Pyex.FS.read(ctx.filesystem, "b.txt")
       assert ctx.handles == %{}
     end
 
@@ -277,7 +277,7 @@ defmodule Pyex.FilesystemTest do
       """
 
       {_value, ctx} = run_with_fs_public!(code, fs)
-      assert {:ok, "data"} = Pyex.Filesystem.Memory.read(ctx.filesystem, "in.txt")
+      assert {:ok, "data"} = Pyex.FS.read(ctx.filesystem, "in.txt")
       assert ctx.handles == %{}
     end
 
@@ -295,7 +295,7 @@ defmodule Pyex.FilesystemTest do
       assert msg =~ "ValueError"
 
       final_ctx = close_handles(final_ctx)
-      assert {:ok, "before error"} = Pyex.Filesystem.Memory.read(final_ctx.filesystem, "boom.txt")
+      assert {:ok, "before error"} = Pyex.FS.read(final_ctx.filesystem, "boom.txt")
       assert final_ctx.handles == %{}
     end
 

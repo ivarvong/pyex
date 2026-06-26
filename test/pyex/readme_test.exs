@@ -83,7 +83,7 @@ defmodule Pyex.ReadmeTest do
 
   describe "filesystem" do
     test "Memory filesystem with Pyex.run keyword API" do
-      alias Pyex.Filesystem.Memory
+      alias Pyex.FS, as: Memory
 
       fs = Memory.new(%{"data.json" => ~s({"users": ["alice", "bob"]})})
 
@@ -211,7 +211,7 @@ defmodule Pyex.ReadmeTest do
     end
 
     test "io error" do
-      alias Pyex.Filesystem.Memory
+      alias Pyex.FS, as: Memory
 
       assert {:error, %Error{kind: :io}} =
                Pyex.run(

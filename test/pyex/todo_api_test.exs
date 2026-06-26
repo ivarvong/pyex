@@ -11,7 +11,8 @@ defmodule Pyex.TodoApiTest do
   """
   use ExUnit.Case, async: true
 
-  alias Pyex.{Ctx, Error, Lambda, Filesystem.Memory}
+  alias Pyex.{Ctx, Error, Lambda}
+  alias Pyex.FS, as: Memory
 
   @source ~S"""
   import fastapi

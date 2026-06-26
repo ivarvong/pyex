@@ -7,7 +7,7 @@ defmodule Pyex.Test.MathOracle do
   """
 
   alias Explorer.Series
-  alias Pyex.Filesystem.Memory
+  alias Pyex.FS, as: Memory
 
   @timeout_ms 500
 

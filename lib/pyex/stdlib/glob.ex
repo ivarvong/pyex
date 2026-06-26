@@ -28,8 +28,8 @@ defmodule Pyex.Stdlib.Glob do
                {{:exception, "OSError: no filesystem configured"}, env, ctx}
 
              fs ->
-               {:ok, matches} = Pyex.Path.glob(fs, pattern)
-               {matches, env, ctx}
+               {:ok, matches, fs} = Pyex.Path.glob(fs, ctx.cwd, pattern)
+               {matches, env, %{ctx | filesystem: fs}}
            end
          end}
 

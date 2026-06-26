@@ -747,7 +747,7 @@ defmodule Pyex.LambdaTest do
     end
 
     test "boot/handle with HTMLResponse threads ctx" do
-      ctx = Pyex.Ctx.new(filesystem: Pyex.Filesystem.Memory.new())
+      ctx = Pyex.Ctx.new(filesystem: Pyex.FS.from_map())
 
       source = """
       import fastapi

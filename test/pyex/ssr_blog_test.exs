@@ -2,7 +2,7 @@ defmodule Pyex.SsrBlogTest do
   use ExUnit.Case, async: true
 
   alias Pyex.{Ctx, Lambda}
-  alias Pyex.Filesystem.Memory
+  alias Pyex.FS, as: Memory
 
   @source """
   import fastapi

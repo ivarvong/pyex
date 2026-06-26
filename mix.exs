@@ -41,6 +41,7 @@ defmodule Pyex.MixProject do
       {:jason, "~> 1.4"},
       {:nimble_parsec, "~> 1.4"},
       {:req, "~> 0.5"},
+      {:vfs, "~> 0.1.0"},
       {:postgrex, "~> 0.22", optional: true},
       {:yaml_elixir, "~> 2.12", only: :test},
       {:telemetry, "~> 0.4 or ~> 1.0"},
@@ -58,7 +59,7 @@ defmodule Pyex.MixProject do
   defp docs do
     [
       main: "Pyex",
-      extras: ["README.md", "CHANGELOG.md", "LICENSE"],
+      extras: ["README.md", "docs/integrating-vfs.md", "CHANGELOG.md", "LICENSE"],
       source_ref: "v#{@version}",
       groups_for_modules: [
         "Core API": [
@@ -96,8 +97,7 @@ defmodule Pyex.MixProject do
           Pyex.Stdlib.YamlParser
         ],
         Filesystem: [
-          Pyex.Filesystem,
-          Pyex.Filesystem.Memory,
+          Pyex.FS,
           Pyex.Filesystem.S3
         ],
         Internals: [

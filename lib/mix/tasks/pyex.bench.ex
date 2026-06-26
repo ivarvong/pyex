@@ -329,7 +329,7 @@ defmodule Mix.Tasks.Pyex.Bench do
           |> Map.put("webhook/payload_#{name}.json", payload_content)
         end)
 
-      filesystem = Pyex.Filesystem.Memory.new(test_files)
+      filesystem = Pyex.FS.from_map(test_files)
       ctx = Pyex.Ctx.new(filesystem: filesystem)
 
       state = %{

@@ -35,7 +35,7 @@ defmodule Pyex.ParityTest do
 
   use ExUnit.Case, async: true
 
-  alias Pyex.Filesystem.Memory
+  alias Pyex.FS, as: Memory
 
   @manifest_path Path.join([__DIR__, "..", "fixtures", "parity.json"])
   @external_resource @manifest_path

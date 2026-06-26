@@ -1,7 +1,7 @@
 defmodule Pyex.Stdlib.ZipfileTest do
   use ExUnit.Case, async: true
 
-  alias Pyex.Filesystem.Memory
+  alias Pyex.FS, as: Memory
 
   # ---------------------------------------------------------------------------
   # Helpers
@@ -463,8 +463,8 @@ z.writestr('a', 'b')|,
           filesystem: fs
         )
 
-      assert Map.get(ctx.filesystem.files, "out/a.txt") == "A"
-      assert Map.get(ctx.filesystem.files, "out/sub/b.txt") == "B"
+      assert {:ok, "A"} = Pyex.FS.read(ctx.filesystem, "out/a.txt")
+      assert {:ok, "B"} = Pyex.FS.read(ctx.filesystem, "out/sub/b.txt")
     end
 
     test "extract writes a single entry" do
@@ -481,8 +481,8 @@ z.writestr('a', 'b')|,
           filesystem: fs
         )
 
-      assert Map.get(ctx.filesystem.files, "out/keep.txt") == "K"
-      refute Map.has_key?(ctx.filesystem.files, "out/skip.txt")
+      assert {:ok, "K"} = Pyex.FS.read(ctx.filesystem, "out/keep.txt")
+      refute Pyex.FS.exists?(ctx.filesystem, "out/skip.txt")
     end
 
     test "extractall rejects entries with ../ path escapes" do
@@ -1408,9 +1408,9 @@ with zipfile.ZipFile('o.zip', 'w') as z:
           filesystem: fs
         )
 
-      assert Map.get(ctx.filesystem.files, "out/keep.txt") == "K"
-      refute Map.has_key?(ctx.filesystem.files, "out/skip1.txt")
-      refute Map.has_key?(ctx.filesystem.files, "out/skip2.txt")
+      assert {:ok, "K"} = Pyex.FS.read(ctx.filesystem, "out/keep.txt")
+      refute Pyex.FS.exists?(ctx.filesystem, "out/skip1.txt")
+      refute Pyex.FS.exists?(ctx.filesystem, "out/skip2.txt")
     end
 
     test "unknown member name raises KeyError" do
@@ -1579,7 +1579,7 @@ zipfile.ZipFile('exists.zip', 'x')|,
           filesystem: Memory.new(%{})
         )
 
-      assert Map.has_key?(ctx.filesystem.files, "new.zip")
+      assert Pyex.FS.exists?(ctx.filesystem, "new.zip")
     end
   end
 
@@ -1661,7 +1661,7 @@ zipfile.ZipFile('exists.zip', 'x')|,
           filesystem: fs
         )
 
-      assert Map.has_key?(ctx.filesystem.files, "o.zip")
+      assert Pyex.FS.exists?(ctx.filesystem, "o.zip")
     end
   end
 

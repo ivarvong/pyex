@@ -6,7 +6,7 @@
 # Run with: mix run bench/ssr_blog_profile.exs
 
 alias Pyex.{Ctx, Interpreter, Lambda}
-alias Pyex.Filesystem.Memory
+alias Pyex.FS, as: Memory
 
 blog_source = ~S"""
 import fastapi
