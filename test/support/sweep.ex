@@ -52,7 +52,7 @@ defmodule Pyex.Test.Sweep do
     case pyex_eval(code) do
       {:ok, ^want} -> []
       {:ok, got} -> [{code, "got #{got}", "CPython #{want}"}]
-      :error -> [{code, "raised", "CPython #{want}"}]
+      {:error, got} -> [{code, "raised #{got || "(untyped)"}", "CPython #{want}"}]
     end
   end
 
@@ -71,7 +71,7 @@ defmodule Pyex.Test.Sweep do
     case pyex_run(prog) do
       {:ok, ^want} -> []
       {:ok, got} -> [{prog, "printed #{inspect(got)}", "CPython #{inspect(want)}"}]
-      :error -> [{prog, "raised", "CPython printed #{inspect(want)}"}]
+      {:error, got} -> [{prog, "raised #{got || "(untyped)"}", "CPython #{inspect(want)}"}]
     end
   end
 
