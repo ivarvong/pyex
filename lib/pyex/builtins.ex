@@ -462,6 +462,8 @@ defmodule Pyex.Builtins do
     Decimal.round(d, 0, :down) |> Decimal.to_integer()
   end
 
+  defp builtin_int([{:fraction, _, _} = f]), do: Pyex.Fraction.to_integer(f)
+
   defp builtin_int([val]),
     do:
       {:exception, "TypeError: int() argument must be a string or a number, not '#{pytype(val)}'"}
@@ -556,6 +558,7 @@ defmodule Pyex.Builtins do
   # preserves `-0.0` across `float(Decimal('-0'))`. Restore it explicitly.
   defp builtin_float([{:pyex_decimal, %Decimal{coef: 0, sign: -1}}]), do: -0.0
   defp builtin_float([{:pyex_decimal, d}]), do: Decimal.to_float(d)
+  defp builtin_float([{:fraction, _, _} = f]), do: Pyex.Fraction.to_float(f)
 
   defp builtin_float([val]),
     do:
@@ -597,6 +600,7 @@ defmodule Pyex.Builtins do
   defp builtin_abs([false]), do: 0
   defp builtin_abs([val]) when is_number(val), do: abs(val)
   defp builtin_abs([{:pyex_decimal, d}]), do: {:pyex_decimal, Decimal.abs(d)}
+  defp builtin_abs([{:fraction, n, d}]), do: {:fraction, abs(n), d}
   defp builtin_abs([{:complex, r, i}]), do: :math.sqrt(r * r + i * i)
 
   defp builtin_abs([{:instance, {:class, _name, _bases, class_attrs}, inst_attrs} = inst]) do
@@ -2493,12 +2497,35 @@ defmodule Pyex.Builtins do
 
   defp builtin_hash([val]), do: :erlang.phash2(val)
 
-  @spec mod_pow(integer(), integer(), integer()) :: integer()
+  @spec mod_pow(integer(), integer(), integer()) :: integer() | {:exception, String.t()}
   defp mod_pow(_base, _exp, 1), do: 0
 
   defp mod_pow(base, exp, mod) when exp >= 0 do
     base = rem(base, mod)
     do_mod_pow(base, exp, mod, 1)
+  end
+
+  # Negative exponent (Python 3.8+): pow(b, -e, m) == pow(b**-1 mod m, e, m).
+  defp mod_pow(base, exp, mod) do
+    case mod_inverse(base, mod) do
+      {:ok, inv} -> mod_pow(inv, -exp, mod)
+      :error -> {:exception, "ValueError: base is not invertible for the given modulus"}
+    end
+  end
+
+  @spec mod_inverse(integer(), integer()) :: {:ok, integer()} | :error
+  defp mod_inverse(a, m) do
+    a = Integer.mod(a, m)
+    {g, x, _y} = ext_gcd(a, m)
+    if g == 1, do: {:ok, Integer.mod(x, m)}, else: :error
+  end
+
+  @spec ext_gcd(integer(), integer()) :: {integer(), integer(), integer()}
+  defp ext_gcd(0, b), do: {b, 0, 1}
+
+  defp ext_gcd(a, b) do
+    {g, x, y} = ext_gcd(Integer.mod(b, a), a)
+    {g, y - div(b, a) * x, x}
   end
 
   @spec do_mod_pow(integer(), integer(), integer(), integer()) :: integer()
@@ -2804,6 +2831,7 @@ defmodule Pyex.Builtins do
   defp pytype({:pandas_rolling, _, _}), do: "Rolling"
   defp pytype({:pandas_dataframe, _}), do: "DataFrame"
   defp pytype({:pyex_decimal, _}), do: "Decimal"
+  defp pytype({:fraction, _, _}), do: "Fraction"
   defp pytype({:property, _, _, _}), do: "property"
   defp pytype({:staticmethod, _}), do: "staticmethod"
   defp pytype({:classmethod, _}), do: "classmethod"
@@ -2914,6 +2942,7 @@ defmodule Pyex.Builtins do
   def py_repr({:builtin, _}), do: "<built-in function>"
   def py_repr({:builtin_kw, _}), do: "<built-in function>"
   def py_repr({:pyex_decimal, d}), do: Decimal.to_string(d)
+  def py_repr({:fraction, _, _} = f), do: Pyex.Fraction.to_repr(f)
   def py_repr({:deque, _, _, _, _} = d), do: Pyex.Interpreter.Helpers.py_str(d)
   def py_repr(_), do: "<object>"
 

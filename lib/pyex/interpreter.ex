@@ -945,6 +945,19 @@ defmodule Pyex.Interpreter do
                  ctx}
             end
 
+          {:fraction, n, d} ->
+            case attr do
+              "numerator" ->
+                {n, env, ctx}
+
+              "denominator" ->
+                {d, env, ctx}
+
+              _ ->
+                {{:exception, "AttributeError: 'Fraction' object has no attribute '#{attr}'"},
+                 env, ctx}
+            end
+
           {:property, fget, fset, fdel} ->
             case attr do
               "setter" ->
@@ -1348,6 +1361,10 @@ defmodule Pyex.Interpreter do
             {:pyex_decimal, d} = val
             {{:pyex_decimal, decimal_unary_neg(d)}, env, ctx}
 
+          match?({:fraction, _, _}, val) ->
+            {:fraction, n, d} = val
+            {{:fraction, -n, d}, env, ctx}
+
           match?({:instance, _, _}, val) ->
             case Dunder.call_dunder(val, "__neg__", [], env, ctx) do
               {:ok, result, env, ctx} ->
@@ -1609,6 +1626,19 @@ defmodule Pyex.Interpreter do
 
           _ ->
             {{:exception, "AttributeError: 'complex' object has no attribute '#{attr}'"}, env,
+             ctx}
+        end
+
+      {:fraction, n, d} ->
+        case attr do
+          "numerator" ->
+            {n, env, ctx}
+
+          "denominator" ->
+            {d, env, ctx}
+
+          _ ->
+            {{:exception, "AttributeError: 'Fraction' object has no attribute '#{attr}'"}, env,
              ctx}
         end
 
