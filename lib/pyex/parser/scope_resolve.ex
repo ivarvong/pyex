@@ -198,6 +198,10 @@ defmodule Pyex.Parser.ScopeResolve do
   end
 
   defp param_name({name, _default}) when is_binary(name), do: name
+  # Typed params carry a third element (the annotation); without this clause
+  # they aren't counted as locals, so a param named like a builtin (`id`,
+  # `list`) is misclassified `:global` and reads the builtin instead.
+  defp param_name({name, _default, _type}) when is_binary(name), do: name
   defp param_name({:positional, name}) when is_binary(name), do: name
   defp param_name({:keyword, name}) when is_binary(name), do: name
   defp param_name({:starred, name}) when is_binary(name), do: name

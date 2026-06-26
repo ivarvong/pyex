@@ -161,6 +161,15 @@ defmodule Pyex.Stdlib.JSON do
     end
   end
 
+  @doc """
+  Encodes a pyvalue to a JSON string, the same engine `json.dumps` uses.
+  Accepts the `json.dumps` keyword options. Lets other shims reuse the
+  encoder instead of duplicating it.
+  """
+  @spec dumps(Pyex.Interpreter.pyvalue(), %{optional(String.t()) => Pyex.Interpreter.pyvalue()}) ::
+          String.t() | {:exception, String.t()}
+  def dumps(value, kwargs \\ %{}), do: dumps_encode(value, kwargs)
+
   @spec dumps_encode(
           Pyex.Interpreter.pyvalue(),
           %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
