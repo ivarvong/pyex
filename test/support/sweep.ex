@@ -58,7 +58,8 @@ defmodule Pyex.Test.Sweep do
 
   defp cell_divergence(%{"code" => code, "error" => exc}) do
     case pyex_eval(code) do
-      :error -> []
+      {:error, ^exc} -> []
+      {:error, got} -> [{code, "raised #{got || "(untyped)"}", "CPython raised #{exc}"}]
       {:ok, got} -> [{code, "got #{got}", "CPython raised #{exc}"}]
     end
   end
@@ -76,31 +77,38 @@ defmodule Pyex.Test.Sweep do
 
   defp cell_divergence(%{"program" => prog, "error" => exc}) do
     case pyex_run(prog) do
-      :error -> []
+      {:error, ^exc} -> []
+      {:error, got} -> [{prog, "raised #{got || "(untyped)"}", "CPython raised #{exc}"}]
       {:ok, got} -> [{prog, "printed #{inspect(got)}", "CPython raised #{exc}"}]
     end
   end
 
-  # Evaluate `repr(code)` in pyex; {:ok, repr_string} or :error (raised).
+  # Evaluate `repr(code)` in pyex; {:ok, repr_string} or {:error, exc_type}.
+  # `exc_type` is the Python exception class name (or nil when pyex failed
+  # without a typed Python exception), so error cells verify the *type*
+  # matches CPython, not merely that something was raised.
   defp pyex_eval(code) do
     case Pyex.run("repr(" <> code <> ")") do
       {:ok, repr, _ctx} when is_binary(repr) -> {:ok, repr}
       {:ok, other, _ctx} -> {:ok, inspect(other)}
-      {:error, _} -> :error
+      {:error, err} -> {:error, exc_type(err)}
     end
   rescue
-    _ -> :error
+    _ -> {:error, nil}
   end
 
-  # Run a program in pyex; {:ok, captured_stdout} or :error (raised).
+  # Run a program in pyex; {:ok, captured_stdout} or {:error, exc_type}.
   defp pyex_run(program) do
     case Pyex.run(program) do
       {:ok, _value, ctx} -> {:ok, Pyex.output(ctx)}
-      {:error, _} -> :error
+      {:error, err} -> {:error, exc_type(err)}
     end
   rescue
-    _ -> :error
+    _ -> {:error, nil}
   end
+
+  defp exc_type(%Pyex.Error{exception_type: type}), do: type
+  defp exc_type(_), do: nil
 
   defp report(divergences) do
     divergences

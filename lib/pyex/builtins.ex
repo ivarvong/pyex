@@ -464,6 +464,14 @@ defmodule Pyex.Builtins do
 
   defp builtin_int([{:fraction, _, _} = f]), do: Pyex.Fraction.to_integer(f)
 
+  # int(bytes)/int(bytearray): CPython parses the bytes as an ASCII numeral
+  # (ValueError on non-numeric content), it does not reject them outright.
+  defp builtin_int([{tag, bin}]) when tag in [:bytes, :bytearray],
+    do: builtin_int([bytes_to_latin1(bin)])
+
+  defp builtin_int([{tag, bin}, base]) when tag in [:bytes, :bytearray] and is_integer(base),
+    do: builtin_int([bytes_to_latin1(bin), base])
+
   defp builtin_int([val]),
     do:
       {:exception, "TypeError: int() argument must be a string or a number, not '#{pytype(val)}'"}
@@ -559,6 +567,11 @@ defmodule Pyex.Builtins do
   defp builtin_float([{:pyex_decimal, %Decimal{coef: 0, sign: -1}}]), do: -0.0
   defp builtin_float([{:pyex_decimal, d}]), do: Decimal.to_float(d)
   defp builtin_float([{:fraction, _, _} = f]), do: Pyex.Fraction.to_float(f)
+
+  # float(bytes)/float(bytearray): parse as an ASCII numeral, ValueError on
+  # failure — CPython accepts bytes-like, it does not raise TypeError.
+  defp builtin_float([{tag, bin}]) when tag in [:bytes, :bytearray],
+    do: builtin_float([bytes_to_latin1(bin)])
 
   defp builtin_float([val]),
     do:
@@ -2688,6 +2701,7 @@ defmodule Pyex.Builtins do
           Interpreter.pyvalue() | {:exception, String.t()}
   defp builtin_bytes([]), do: {:bytes, ""}
   defp builtin_bytes([n]) when is_integer(n) and n >= 0, do: {:bytes, :binary.copy(<<0>>, n)}
+  defp builtin_bytes([n]) when is_integer(n), do: {:exception, "ValueError: negative count"}
   defp builtin_bytes([true]), do: {:bytes, <<0>>}
   defp builtin_bytes([false]), do: {:bytes, ""}
 
@@ -2739,17 +2753,30 @@ defmodule Pyex.Builtins do
 
   @spec bytes_from_iterable([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | {:exception, String.t()}
+  # Decodes a byte string to its latin-1 text (each byte → its codepoint),
+  # so int()/float() can parse bytes-like values the way CPython does.
+  @spec bytes_to_latin1(binary()) :: String.t()
+  defp bytes_to_latin1(bin), do: for(<<c <- bin>>, into: "", do: <<c::utf8>>)
+
   defp bytes_from_iterable(items) do
     Enum.reduce_while(items, <<>>, fn
-      n, acc when is_integer(n) and n >= 0 and n <= 255 ->
-        {:cont, <<acc::binary, n>>}
-
-      _bad, _acc ->
-        {:halt, :error}
+      n, acc when is_integer(n) and n >= 0 and n <= 255 -> {:cont, <<acc::binary, n>>}
+      true, acc -> {:cont, <<acc::binary, 1>>}
+      false, acc -> {:cont, <<acc::binary, 0>>}
+      # An out-of-range integer is a ValueError; a non-integer element is a
+      # TypeError ("object cannot be interpreted as an integer") in CPython.
+      n, _acc when is_integer(n) -> {:halt, {:error, :range}}
+      bad, _acc -> {:halt, {:error, {:type, pytype(bad)}}}
     end)
     |> case do
-      :error -> {:exception, "ValueError: bytes must be in range(0, 256)"}
-      b -> {:bytes, b}
+      {:error, :range} ->
+        {:exception, "ValueError: bytes must be in range(0, 256)"}
+
+      {:error, {:type, type}} ->
+        {:exception, "TypeError: '#{type}' object cannot be interpreted as an integer"}
+
+      b ->
+        {:bytes, b}
     end
   end
 
