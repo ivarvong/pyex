@@ -20,7 +20,10 @@ defmodule Pyex.Methods do
   )
 
   @list_methods ~w(append clear copy count extend index insert pop remove reverse sort)
-  @dict_methods ~w(clear copy get items keys pop setdefault update values)
+  # `move_to_end` is intentionally not listed: it is an OrderedDict method, not
+  # a plain-dict one, so it must not appear in `dir({})`. It is still dispatched
+  # (see dict_method/1) so it works on the OrderedDicts pyex models as dicts.
+  @dict_methods ~w(clear copy get items keys pop popitem setdefault update values)
   @set_methods ~w(
     add clear copy difference discard intersection isdisjoint
     issubset issuperset pop remove symmetric_difference union update
@@ -73,6 +76,17 @@ defmodule Pyex.Methods do
       {:ok, method_fn} -> {:ok, {:builtin, method_fn}}
       :error -> :error
     end
+  end
+
+  def resolve({:py_dict, attrs, _} = object, attr)
+      when is_map_key(attrs, "__counter__") and attr in ["most_common", "elements"] do
+    method_fn =
+      case attr do
+        "most_common" -> &Pyex.Stdlib.Collections.counter_most_common/2
+        "elements" -> &Pyex.Stdlib.Collections.counter_elements/2
+      end
+
+    {:ok, {:builtin, bound(method_fn, object)}}
   end
 
   def resolve({:py_dict, _, _} = object, attr) do
@@ -339,6 +353,8 @@ defmodule Pyex.Methods do
   defp dict_method("setdefault"), do: {:ok_raw, &dict_setdefault/2}
   defp dict_method("clear"), do: {:ok, &dict_clear/2}
   defp dict_method("copy"), do: {:ok, &dict_copy/2}
+  defp dict_method("popitem"), do: {:ok, &dict_popitem/2}
+  defp dict_method("move_to_end"), do: {:ok_kw, &dict_move_to_end/3}
   defp dict_method(_), do: :error
 
   @spec int_method(String.t()) ::
@@ -1804,6 +1820,41 @@ defmodule Pyex.Methods do
 
   @spec dict_pop(map() | PyDict.t(), [Interpreter.pyvalue()]) ::
           {:mutate, map() | PyDict.t(), Interpreter.pyvalue()} | {:exception, String.t()}
+  # dict.popitem() — remove and return the last-inserted (key, value), LIFO.
+  @spec dict_popitem(PyDict.t(), [Interpreter.pyvalue()]) ::
+          {:mutate, PyDict.t(), Interpreter.pyvalue()} | {:exception, String.t()}
+  defp dict_popitem({:py_dict, _, _} = dict, _args) do
+    case dict |> Builtins.visible_dict() |> PyDict.keys() |> List.last() do
+      nil ->
+        {:exception, "KeyError: 'popitem(): dictionary is empty'"}
+
+      key ->
+        value = PyDict.get(dict, key)
+        {:mutate, PyDict.delete(dict, key), {:tuple, [key, value]}}
+    end
+  end
+
+  # OrderedDict.move_to_end(key, last=True) — re-position a key.
+  @spec dict_move_to_end(PyDict.t(), [Interpreter.pyvalue()], map()) ::
+          {:mutate, PyDict.t(), nil} | {:exception, String.t()}
+  defp dict_move_to_end({:py_dict, _, _} = dict, [key | _], kwargs) do
+    if PyDict.has_key?(dict, key) do
+      value = PyDict.get(dict, key)
+      without = PyDict.delete(dict, key)
+
+      moved =
+        if Builtins.truthy?(Map.get(kwargs, "last", true)) do
+          PyDict.put(without, key, value)
+        else
+          PyDict.from_pairs([{key, value} | PyDict.items(without)])
+        end
+
+      {:mutate, moved, nil}
+    else
+      {:exception, "KeyError: #{inspect(key)}"}
+    end
+  end
+
   defp dict_pop({:py_dict, _, _} = dict, [key]) do
     if PyDict.has_key?(dict, key) do
       {val, rest} = PyDict.pop(dict, key)

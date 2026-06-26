@@ -467,8 +467,20 @@ defmodule Pyex.Interpreter.Calls do
     end
   end
 
-  defp mutate_target({:subscript, _, [expr, _index]}, new_object, env, ctx) do
-    mutate_target(expr, new_object, env, ctx)
+  # `container[index].mutating_method()` — write `new_object` into
+  # `container[index]`, then propagate the updated container up the chain.
+  # (The old version dropped `index` and wrote `new_object` straight to the
+  # outer container, corrupting nested `d[a][b].add(...)` writes.)
+  defp mutate_target({:subscript, _, [expr, index_expr]}, new_object, env, ctx) do
+    {raw_container, env, ctx} = Interpreter.eval(expr, env, ctx)
+    container = Ctx.deref(ctx, raw_container)
+    {index, env, ctx} = Interpreter.eval(index_expr, env, ctx)
+    updated = Assignments.set_subscript_value(container, index, new_object)
+
+    case raw_container do
+      {:ref, id} -> {env, Ctx.heap_put(ctx, id, updated)}
+      _ -> mutate_target(expr, updated, env, ctx)
+    end
   end
 
   defp mutate_target(_other, _new_object, env, ctx) do

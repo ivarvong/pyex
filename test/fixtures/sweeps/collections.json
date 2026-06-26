@@ -1,0 +1,129 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "program": "from collections import Counter\nprint(Counter(['a', 'a', 'b']).most_common())",
+      "stdout": "[('a', 2), ('b', 1)]\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter()\nc['a'] += 1\nc['a'] += 1\nc['b'] += 1\nprint(c.most_common())",
+      "stdout": "[('a', 2), ('b', 1)]\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter(['a'])\nc['a'] += 1\nprint(c.most_common())",
+      "stdout": "[('a', 2)]\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter('mississippi')\nprint(c.most_common(2))",
+      "stdout": "[('i', 4), ('s', 4)]\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter()\nfor ch in 'banana':\n    c[ch] += 1\nprint(c.most_common())",
+      "stdout": "[('a', 3), ('n', 2), ('b', 1)]\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter()\nc['x'] += 5\nprint(dict(c))",
+      "stdout": "{'x': 5}\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter(a=3, b=1)\nprint(c.most_common())",
+      "stdout": "[('a', 3), ('b', 1)]\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter({'a': 2, 'b': 5})\nprint(c.most_common())",
+      "stdout": "[('b', 5), ('a', 2)]\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter()\nfor k in ['b', 'a', 'b', 'a', 'c']:\n    c[k] += 1\nprint(c.most_common())",
+      "stdout": "[('b', 2), ('a', 2), ('c', 1)]\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter(['a'])\nprint(c['z'])\nprint('z' in c)",
+      "stdout": "0\nFalse\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter()\nc['a'] += 2\nc['b'] += 1\nprint(sorted(c.elements()))",
+      "stdout": "['a', 'a', 'b']\n"
+    },
+    {
+      "program": "from collections import Counter\nprint(sorted(Counter('aabbc').elements()))",
+      "stdout": "['a', 'a', 'b', 'b', 'c']\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter(['a', 'b'])\nc.update(['a', 'c'])\nprint(c.most_common())",
+      "stdout": "[('a', 2), ('b', 1), ('c', 1)]\n"
+    },
+    {
+      "program": "from collections import Counter\nprint((Counter(['a', 'a', 'b']) + Counter(['a', 'c'])).most_common())",
+      "stdout": "[('a', 3), ('b', 1), ('c', 1)]\n"
+    },
+    {
+      "program": "from collections import Counter\nprint((Counter(['a', 'a', 'b']) - Counter(['a', 'b', 'b'])).most_common())",
+      "stdout": "[('a', 1)]\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter(['a', 'a', 'b'])\nc['a'] -= 5\nprint(dict(c))",
+      "stdout": "{'a': -3, 'b': 1}\n"
+    },
+    {
+      "program": "from collections import Counter\nc = Counter('aaabb')\nprint(c.total() if hasattr(c, 'total') else sum(c.values()))",
+      "stdout": "5\n"
+    },
+    {
+      "program": "from collections import defaultdict\nd = defaultdict(int)\nfor w in 'abracadabra':\n    d[w] += 1\nprint(sorted(d.items()))",
+      "stdout": "[('a', 5), ('b', 2), ('c', 1), ('d', 1), ('r', 2)]\n"
+    },
+    {
+      "program": "from collections import defaultdict\nd = defaultdict(list)\nd['a'].append(1)\nd['a'].append(2)\nprint(dict(d))",
+      "stdout": "{'a': [1, 2]}\n"
+    },
+    {
+      "program": "from collections import defaultdict\nd = defaultdict(set)\nd['x'].add(1)\nd['x'].add(1)\nprint(dict(d))",
+      "stdout": "{'x': {1}}\n"
+    },
+    {
+      "program": "from collections import defaultdict\nd = defaultdict(int)\nprint(d['missing'])\nprint(dict(d))",
+      "stdout": "0\n{'missing': 0}\n"
+    },
+    {
+      "program": "from collections import defaultdict\nb = defaultdict(lambda: {'s': set(), 'n': 0})\nb['x']['s'].add('m1')\nprint(b['x']['n'])",
+      "stdout": "0\n"
+    },
+    {
+      "program": "from collections import defaultdict\nb = defaultdict(lambda: {'s': [], 'n': 0})\nb['x']['s'].append('m')\nb['x']['n'] += 1\nprint(dict(b))",
+      "stdout": "{'x': {'s': ['m'], 'n': 1}}\n"
+    },
+    {
+      "program": "from collections import defaultdict\nb = defaultdict(lambda: 7)\nprint(b['k'])\nprint(dict(b))",
+      "stdout": "7\n{'k': 7}\n"
+    },
+    {
+      "program": "from collections import defaultdict\nd = defaultdict(list)\nd['a']\nprint(dict(d))",
+      "stdout": "{'a': []}\n"
+    },
+    {
+      "program": "from collections import defaultdict\ntree = defaultdict(lambda: defaultdict(int))\ntree['a']['b'] += 1\ntree['a']['c'] += 2\nprint({k: dict(v) for k, v in tree.items()})",
+      "stdout": "{'a': {'b': 1, 'c': 2}}\n"
+    },
+    {
+      "program": "from collections import defaultdict\nd = defaultdict(int, {'a': 1})\nd['b'] += 2\nprint(sorted(d.items()))",
+      "stdout": "[('a', 1), ('b', 2)]\n"
+    },
+    {
+      "program": "from collections import defaultdict\nd = defaultdict(int)\nd['a'] += 1\nprint(len(d), 'a' in d, d.get('z', -1))",
+      "stdout": "1 True -1\n"
+    },
+    {
+      "program": "from collections import OrderedDict\nd = OrderedDict()\nd['a'] = 1\nd['b'] = 2\nd['c'] = 3\nprint(list(d.keys()))",
+      "stdout": "['a', 'b', 'c']\n"
+    },
+    {
+      "program": "from collections import OrderedDict\nd = OrderedDict([('a', 1), ('b', 2)])\nd.move_to_end('a')\nprint(list(d.keys()))",
+      "stdout": "['b', 'a']\n"
+    },
+    {
+      "program": "from collections import OrderedDict\nd = OrderedDict([('a', 1), ('b', 2), ('c', 3)])\nd.popitem()\nprint(list(d.items()))",
+      "stdout": "[('a', 1), ('b', 2)]\n"
+    }
+  ]
+}
