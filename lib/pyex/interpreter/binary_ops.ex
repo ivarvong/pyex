@@ -8,6 +8,7 @@ defmodule Pyex.Interpreter.BinaryOps do
   """
 
   alias Pyex.Ctx
+  alias Pyex.Fraction
 
   import Bitwise, only: [band: 2, bor: 2, bxor: 2, bsl: 2, bsr: 2]
 
@@ -67,6 +68,13 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   def safe_binop(op, {:pyex_decimal, _} = l, r), do: decimal_dispatch(op, l, r)
   def safe_binop(op, l, {:pyex_decimal, _} = r), do: decimal_dispatch(op, l, r)
+
+  # Membership on a Fraction LHS dispatches on the container, not the Fraction.
+  def safe_binop(op, {:fraction, _, _} = l, r) when op in [:in, :not_in],
+    do: dispatch(op, l, r)
+
+  def safe_binop(op, {:fraction, _, _} = l, r), do: fraction_dispatch(op, l, r)
+  def safe_binop(op, l, {:fraction, _, _} = r), do: fraction_dispatch(op, l, r)
   def safe_binop(op, l, r), do: dispatch(op, l, r)
 
   @doc false
@@ -265,6 +273,9 @@ defmodule Pyex.Interpreter.BinaryOps do
     Collections.counter_add(l, r)
   end
 
+  defp dispatch(:plus, :nan, _), do: :nan
+  defp dispatch(:plus, _, :nan), do: :nan
+
   defp dispatch(:plus, :infinity, r) when is_number(r) or r == :neg_infinity,
     do: if(r == :neg_infinity, do: :nan, else: :infinity)
 
@@ -275,7 +286,9 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:plus, l, :neg_infinity) when is_number(l), do: :neg_infinity
   defp dispatch(:plus, :infinity, :infinity), do: :infinity
   defp dispatch(:plus, :neg_infinity, :neg_infinity), do: :neg_infinity
-  defp dispatch(:plus, l, r) when is_number(l) and is_number(r), do: l + r
+
+  defp dispatch(:plus, l, r) when is_number(l) and is_number(r),
+    do: with_overflow(fn -> l + r end, fn -> if l < 0, do: :neg_infinity, else: :infinity end)
 
   defp dispatch(:plus, {:bytes, a}, {:bytes, b}), do: {:bytes, a <> b}
   defp dispatch(:plus, {:bytearray, a}, {:bytes, b}), do: {:bytearray, a <> b}
@@ -291,10 +304,24 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   # -- minus ----------------------------------------------------------
 
-  defp dispatch(:minus, l, r) when is_number(l) and is_number(r), do: l - r
+  defp dispatch(:minus, l, r) when is_number(l) and is_number(r),
+    do: with_overflow(fn -> l - r end, fn -> if l < r, do: :neg_infinity, else: :infinity end)
+
   defp dispatch(:minus, {:complex, r1, i1}, {:complex, r2, i2}), do: {:complex, r1 - r2, i1 - i2}
   defp dispatch(:minus, {:complex, r, i}, n) when is_number(n), do: {:complex, r - n, i}
   defp dispatch(:minus, n, {:complex, r, i}) when is_number(n), do: {:complex, n - r, -i}
+
+  # IEEE-754 special-value subtraction (mirrors :plus).
+  defp dispatch(:minus, :nan, _), do: :nan
+  defp dispatch(:minus, _, :nan), do: :nan
+  defp dispatch(:minus, :infinity, :infinity), do: :nan
+  defp dispatch(:minus, :neg_infinity, :neg_infinity), do: :nan
+  defp dispatch(:minus, :infinity, :neg_infinity), do: :infinity
+  defp dispatch(:minus, :neg_infinity, :infinity), do: :neg_infinity
+  defp dispatch(:minus, :infinity, r) when is_number(r), do: :infinity
+  defp dispatch(:minus, :neg_infinity, r) when is_number(r), do: :neg_infinity
+  defp dispatch(:minus, l, :infinity) when is_number(l), do: :neg_infinity
+  defp dispatch(:minus, l, :neg_infinity) when is_number(l), do: :infinity
 
   defp dispatch(:star, {:complex, a, b}, {:complex, c, d}),
     do: {:complex, a * c - b * d, a * d + b * c}
@@ -383,7 +410,11 @@ defmodule Pyex.Interpreter.BinaryOps do
     end
   end
 
-  defp dispatch(:star, l, r) when is_number(l) and is_number(r), do: l * r
+  defp dispatch(:star, l, r) when is_number(l) and is_number(r),
+    do:
+      with_overflow(fn -> l * r end, fn ->
+        if l < 0 != r < 0, do: :neg_infinity, else: :infinity
+      end)
 
   # IEEE-754 special-value multiplication.
   defp dispatch(:star, :infinity, 0), do: :nan
@@ -421,7 +452,11 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:slash, _l, r) when r == 0 or r == 0.0,
     do: {:exception, "ZeroDivisionError: division by zero"}
 
-  defp dispatch(:slash, l, r) when is_number(l) and is_number(r), do: l / r
+  defp dispatch(:slash, l, r) when is_number(l) and is_number(r),
+    do:
+      with_overflow(fn -> l / r end, fn ->
+        if l < 0 != r < 0, do: :neg_infinity, else: :infinity
+      end)
 
   # IEEE-754 special-value division: finite / inf -> 0.0, inf / finite -> inf, etc.
   defp dispatch(:slash, l, :infinity) when is_number(l), do: 0.0
@@ -502,6 +537,11 @@ defmodule Pyex.Interpreter.BinaryOps do
     end
   end
 
+  # Complex base with an integer exponent — repeated multiplication keeps
+  # results exact (e.g. (2j)**2 == (-4+0j)), matching CPython.
+  defp dispatch(:double_star, {:complex, _, _} = base, n) when is_integer(n),
+    do: complex_int_pow(base, n)
+
   defp dispatch(:double_star, l, r),
     do: type_error("**", l, r)
 
@@ -550,6 +590,9 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:eq, :neg_infinity, r) when is_number(r), do: false
   defp dispatch(:eq, r, :infinity) when is_number(r), do: false
   defp dispatch(:eq, r, :neg_infinity) when is_number(r), do: false
+  # A complex with zero imaginary part equals the corresponding real.
+  defp dispatch(:eq, {:complex, re, im}, n) when is_number(n), do: im == 0 and re == n
+  defp dispatch(:eq, n, {:complex, re, im}) when is_number(n), do: im == 0 and re == n
   defp dispatch(:eq, l, r), do: l == r
 
   defp dispatch(:neq, {sl, a}, {sr, b})
@@ -588,6 +631,8 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   defp dispatch(:neq, :nan, _), do: true
   defp dispatch(:neq, _, :nan), do: true
+  defp dispatch(:neq, {:complex, re, im}, n) when is_number(n), do: not (im == 0 and re == n)
+  defp dispatch(:neq, n, {:complex, re, im}) when is_number(n), do: not (im == 0 and re == n)
   defp dispatch(:neq, l, r), do: l != r
 
   # -- ordering -------------------------------------------------------
@@ -775,6 +820,92 @@ defmodule Pyex.Interpreter.BinaryOps do
     {:exception,
      "TypeError: unsupported operand type(s) for #{op_str}: '#{Helpers.py_type(l)}' and '#{Helpers.py_type(r)}'"}
   end
+
+  # BEAM raises ArithmeticError on float overflow rather than yielding ±inf
+  # like IEEE-754/CPython. Run the arithmetic and, on overflow, fall back to
+  # the correctly-signed infinity supplied by the caller.
+  @spec with_overflow((-> number()), (-> :infinity | :neg_infinity)) ::
+          number() | :infinity | :neg_infinity
+  defp with_overflow(compute, on_overflow) do
+    compute.()
+  rescue
+    ArithmeticError -> on_overflow.()
+  end
+
+  # Arithmetic and comparison on Python `fractions.Fraction`. Mixing with a
+  # float coerces both sides to float (CPython rule); otherwise the result
+  # stays an exact reduced rational.
+  @spec fraction_dispatch(atom(), term(), term()) :: term()
+  defp fraction_dispatch(op, l, r) when is_float(l) or is_float(r) do
+    dispatch(op, fraction_to_float(l), fraction_to_float(r))
+  end
+
+  defp fraction_dispatch(:double_star, l, r) do
+    case {Fraction.parts(l), Fraction.parts(r)} do
+      {{a, b}, {n, 1}} when n >= 0 -> Fraction.new(Helpers.int_pow(a, n), Helpers.int_pow(b, n))
+      {{a, b}, {n, 1}} when n < 0 -> Fraction.new(Helpers.int_pow(b, -n), Helpers.int_pow(a, -n))
+      _ -> dispatch(:double_star, fraction_to_float(l), fraction_to_float(r))
+    end
+  end
+
+  defp fraction_dispatch(op, l, r) do
+    case {Fraction.parts(l), Fraction.parts(r)} do
+      {{a, b}, {c, d}} -> fraction_op(op, a, b, c, d)
+      _ -> type_error(op_symbol(op), l, r)
+    end
+  end
+
+  @spec fraction_op(atom(), integer(), integer(), integer(), integer()) :: term()
+  defp fraction_op(:plus, a, b, c, d), do: Fraction.new(a * d + c * b, b * d)
+  defp fraction_op(:minus, a, b, c, d), do: Fraction.new(a * d - c * b, b * d)
+  defp fraction_op(:star, a, b, c, d), do: Fraction.new(a * c, b * d)
+
+  defp fraction_op(:slash, _a, _b, 0, _d),
+    do: {:exception, "ZeroDivisionError: division by zero"}
+
+  defp fraction_op(:slash, a, b, c, d), do: Fraction.new(a * d, b * c)
+  defp fraction_op(:floor_div, a, b, c, d), do: Integer.floor_div(a * d, b * c)
+  defp fraction_op(:eq, a, b, c, d), do: a * d == c * b
+  defp fraction_op(:neq, a, b, c, d), do: a * d != c * b
+  defp fraction_op(:lt, a, b, c, d), do: a * d < c * b
+  defp fraction_op(:lte, a, b, c, d), do: a * d <= c * b
+  defp fraction_op(:gt, a, b, c, d), do: a * d > c * b
+  defp fraction_op(:gte, a, b, c, d), do: a * d >= c * b
+  defp fraction_op(op, _a, _b, _c, _d), do: type_error(op_symbol(op), :fraction, :fraction)
+
+  @spec fraction_to_float(term()) :: term()
+  defp fraction_to_float({:fraction, _, _} = f), do: Fraction.to_float(f)
+  defp fraction_to_float(other), do: other
+
+  @spec op_symbol(atom()) :: String.t()
+  defp op_symbol(:plus), do: "+"
+  defp op_symbol(:minus), do: "-"
+  defp op_symbol(:star), do: "*"
+  defp op_symbol(:slash), do: "/"
+  defp op_symbol(:floor_div), do: "//"
+  defp op_symbol(:percent), do: "%"
+  defp op_symbol(:double_star), do: "**"
+  defp op_symbol(_), do: "?"
+
+  # Complex raised to an integer power via repeated multiplication (exact).
+  @spec complex_int_pow({:complex, number(), number()}, integer()) ::
+          {:complex, number(), number()}
+  defp complex_int_pow(_base, 0), do: {:complex, 1.0, 0.0}
+
+  defp complex_int_pow(base, n) when n > 0 do
+    Enum.reduce(2..n//1, base, fn _, acc -> complex_mul(acc, base) end)
+  end
+
+  defp complex_int_pow(base, n) when n < 0 do
+    {:complex, re, im} = complex_int_pow(base, -n)
+    denom = re * re + im * im
+    {:complex, re / denom, -im / denom}
+  end
+
+  @spec complex_mul({:complex, number(), number()}, {:complex, number(), number()}) ::
+          {:complex, number(), number()}
+  defp complex_mul({:complex, a, b}, {:complex, c, d}),
+    do: {:complex, a * c - b * d, a * d + b * c}
 
   # Python `in` for ordered containers (list/tuple) compares element-wise
   # with `==`, which means `1 in [True]`, `1 in [1.0]`, and
