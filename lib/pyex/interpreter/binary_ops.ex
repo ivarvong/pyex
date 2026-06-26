@@ -273,6 +273,14 @@ defmodule Pyex.Interpreter.BinaryOps do
     Collections.counter_add(l, r)
   end
 
+  defp dispatch(
+         :minus,
+         {:py_dict, %{"__counter__" => true}, _} = l,
+         {:py_dict, %{"__counter__" => true}, _} = r
+       ) do
+    Collections.counter_subtract(l, r)
+  end
+
   defp dispatch(:plus, :nan, _), do: :nan
   defp dispatch(:plus, _, :nan), do: :nan
 

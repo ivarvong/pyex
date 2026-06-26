@@ -60,8 +60,7 @@ defmodule Pyex.ParityTest do
   @known_gaps %{
     "str" => %{},
     "dict" => %{
-      "fromkeys" => :unimplemented,
-      "popitem" => :unimplemented
+      "fromkeys" => :unimplemented
     },
     "set" => %{
       "difference_update" => :unimplemented,

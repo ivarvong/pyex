@@ -108,36 +108,76 @@ defmodule Pyex.Stdlib.Collections do
     counter_with_methods(counts)
   end
 
+  @doc "Subtract two Counters, keeping only positive counts (CPython semantics)."
+  @spec counter_subtract(PyDict.t() | map(), PyDict.t() | map()) :: PyDict.t()
+  def counter_subtract(a, b) do
+    va_map = a |> Pyex.Builtins.visible_dict() |> as_map()
+    vb_map = b |> Pyex.Builtins.visible_dict() |> as_map()
+
+    counts =
+      Enum.reduce(va_map, %{}, fn {k, v}, acc ->
+        diff = v - Map.get(vb_map, k, 0)
+        if diff > 0, do: Map.put(acc, k, diff), else: acc
+      end)
+
+    counter_with_methods(counts)
+  end
+
+  @spec as_map(PyDict.t() | map()) :: map()
+  defp as_map({:py_dict, _, _} = dict), do: PyDict.to_map(dict)
+  defp as_map(map) when is_map(map), do: map
+
   @spec counter_with_methods(%{optional(Pyex.Interpreter.pyvalue()) => integer()}) ::
           PyDict.t()
   defp counter_with_methods(counts) do
-    most_common_fn = fn
-      [] ->
-        counts
-        |> Enum.sort_by(fn {_k, v} -> -v end)
-        |> Enum.map(fn {k, v} -> {:tuple, [k, v]} end)
-
-      [n] when is_integer(n) ->
-        counts
-        |> Enum.sort_by(fn {_k, v} -> -v end)
-        |> Enum.take(n)
-        |> Enum.map(fn {k, v} -> {:tuple, [k, v]} end)
-    end
-
-    base = PyDict.from_map(counts)
-
-    base
+    # `most_common`/`elements` are NOT baked in as closures — they would
+    # capture the construction-time counts and go stale the moment the Counter
+    # is mutated incrementally (`c[k] += 1`). They're served self-aware from the
+    # live dict by `Pyex.Methods` instead.
+    counts
+    |> PyDict.from_map()
     |> PyDict.put("__counter__", true)
-    |> PyDict.put("most_common", {:builtin, most_common_fn})
-    |> PyDict.put(
-      "elements",
-      {:builtin,
-       fn [] ->
-         Enum.flat_map(counts, fn {k, v} ->
-           List.duplicate(k, max(v, 0))
-         end)
-       end}
-    )
+  end
+
+  @doc """
+  `Counter.most_common([n])` — read from the *current* counts (self), sorted by
+  descending count with ties in first-seen order. Called from `Pyex.Methods`.
+  """
+  @spec counter_most_common(PyDict.t(), [Pyex.Interpreter.pyvalue()]) ::
+          [Pyex.Interpreter.pyvalue()]
+  def counter_most_common(dict, args) do
+    sorted =
+      dict
+      |> ordered_counts()
+      |> Enum.sort_by(fn {_k, v} -> -v end)
+
+    taken =
+      case args do
+        [n] when is_integer(n) -> Enum.take(sorted, n)
+        _ -> sorted
+      end
+
+    Enum.map(taken, fn {k, v} -> {:tuple, [k, v]} end)
+  end
+
+  @doc """
+  `Counter.elements()` — each element repeated by its (live) count, in
+  first-seen order. Called from `Pyex.Methods`.
+  """
+  @spec counter_elements(PyDict.t(), [Pyex.Interpreter.pyvalue()]) ::
+          [Pyex.Interpreter.pyvalue()]
+  def counter_elements(dict, _args) do
+    dict
+    |> ordered_counts()
+    |> Enum.flat_map(fn {k, v} -> List.duplicate(k, max(v, 0)) end)
+  end
+
+  # Live element→count pairs in insertion order, markers/methods stripped.
+  @spec ordered_counts(PyDict.t()) :: [{Pyex.Interpreter.pyvalue(), integer()}]
+  defp ordered_counts(dict) do
+    dict
+    |> PyDict.items()
+    |> Enum.reject(fn {k, v} -> is_marker_key?(k) or match?({:builtin, _}, v) end)
   end
 
   @doc """
@@ -203,6 +243,25 @@ defmodule Pyex.Stdlib.Collections do
 
   defp defaultdict([factory]) do
     PyDict.from_pairs([{"__defaultdict_factory__", factory}])
+  end
+
+  # defaultdict(factory, mapping_or_iterable) — seed with the initial contents.
+  defp defaultdict([factory, initial]) do
+    seeded =
+      case initial do
+        {:py_dict, _, _} = dict ->
+          Enum.reduce(PyDict.items(dict), PyDict.new(), fn {k, v}, acc ->
+            PyDict.put(acc, k, v)
+          end)
+
+        map when is_map(map) ->
+          Enum.reduce(map, PyDict.new(), fn {k, v}, acc -> PyDict.put(acc, k, v) end)
+
+        _ ->
+          PyDict.new()
+      end
+
+    PyDict.put(seeded, "__defaultdict_factory__", factory)
   end
 
   @spec ordered_dict([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
