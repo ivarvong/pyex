@@ -1,0 +1,113 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "program": "for i in range(3):\n    pass\nelse:\n    print('else')",
+      "stdout": "else\n"
+    },
+    {
+      "program": "for i in range(3):\n    if i == 1:\n        break\nelse:\n    print('else')",
+      "stdout": ""
+    },
+    {
+      "program": "n = 0\nwhile n < 3:\n    n += 1\nelse:\n    print('while-else', n)",
+      "stdout": "while-else 3\n"
+    },
+    {
+      "program": "n = 0\nwhile n < 3:\n    n += 1\n    if n == 2:\n        break\nelse:\n    print('no')",
+      "stdout": ""
+    },
+    {
+      "program": "out = []\nfor i in range(5):\n    if i == 3:\n        break\n    out.append(i)\nprint(out)",
+      "stdout": "[0, 1, 2]\n"
+    },
+    {
+      "program": "out = []\nfor i in range(5):\n    if i % 2 == 0:\n        continue\n    out.append(i)\nprint(out)",
+      "stdout": "[1, 3]\n"
+    },
+    {
+      "program": "out = []\nfor i in range(3):\n    for j in range(3):\n        if j == 1:\n            break\n        out.append((i, j))\nprint(out)",
+      "stdout": "[(0, 0), (1, 0), (2, 0)]\n"
+    },
+    {
+      "program": "for i in range(3):\n    pass\nprint(i)",
+      "stdout": "2\n"
+    },
+    {
+      "program": "x = [i for i in range(3)]\ntry:\n    print(i)\nexcept NameError:\n    print('no leak')",
+      "stdout": "no leak\n"
+    },
+    {
+      "program": "print([x*x for x in range(4)])",
+      "stdout": "[0, 1, 4, 9]\n"
+    },
+    {
+      "program": "print([x for x in range(6) if x % 2 == 0])",
+      "stdout": "[0, 2, 4]\n"
+    },
+    {
+      "program": "print({k: v for k, v in [('a', 1), ('b', 2)]})",
+      "stdout": "{'a': 1, 'b': 2}\n"
+    },
+    {
+      "program": "print({x % 3 for x in range(7)})",
+      "stdout": "{0, 1, 2}\n"
+    },
+    {
+      "program": "print(sorted(x + y for x in [1, 2] for y in [10, 20]))",
+      "stdout": "[11, 12, 21, 22]\n"
+    },
+    {
+      "program": "print([[r * c for c in range(3)] for r in range(3)])",
+      "stdout": "[[0, 0, 0], [0, 1, 2], [0, 2, 4]]\n"
+    },
+    {
+      "program": "print([y for y in [x for x in range(3)]])",
+      "stdout": "[0, 1, 2]\n"
+    },
+    {
+      "program": "import contextlib\nwith contextlib.suppress(ValueError):\n    raise ValueError\nprint('after')",
+      "stdout": "after\n"
+    },
+    {
+      "program": "from contextlib import suppress\ntotal = 0\nwith suppress(ZeroDivisionError):\n    total = 1 / 0\nprint(total)",
+      "stdout": "0\n"
+    },
+    {
+      "program": "print('yes' if 5 > 3 else 'no')",
+      "stdout": "yes\n"
+    },
+    {
+      "program": "print(0 or 'x', 1 and 'y', None or [])",
+      "stdout": "x y []\n"
+    },
+    {
+      "program": "print([] and 1, [1] or 2)",
+      "stdout": "[] [1]\n"
+    },
+    {
+      "program": "for i in range(3):\n    if i == 5:\n        break\n    continue\nelse:\n    print('ran')",
+      "stdout": "ran\n"
+    },
+    {
+      "program": "i = 0\nwhile True:\n    i += 1\n    if i >= 3:\n        break\nprint(i)",
+      "stdout": "3\n"
+    },
+    {
+      "program": "for idx, ch in enumerate('ab'):\n    print(idx, ch)",
+      "stdout": "0 a\n1 b\n"
+    },
+    {
+      "program": "for a, b in zip([1, 2], ['x', 'y']):\n    print(a, b)",
+      "stdout": "1 x\n2 y\n"
+    },
+    {
+      "program": "a = b = c = 5\nprint(a, b, c)",
+      "stdout": "5 5 5\n"
+    },
+    {
+      "program": "x, y = 1, 2\nx, y = y, x\nprint(x, y)",
+      "stdout": "2 1\n"
+    }
+  ]
+}

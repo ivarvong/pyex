@@ -54,6 +54,42 @@ defmodule Pyex.Interpreter.Dunder do
     call_dunder_mut_generator_cm(inst, method, args, env, ctx)
   end
 
+  # contextlib.suppress: __enter__ is a no-op; __exit__ swallows the
+  # exception when its type is (a subclass of) any suppressed type.
+  def call_dunder_mut(
+        {:instance, {:class, "suppress", _, _}, _} = inst,
+        "__enter__",
+        _args,
+        env,
+        ctx
+      ) do
+    {:ok, inst, inst, env, ctx}
+  end
+
+  def call_dunder_mut(
+        {:instance, {:class, "suppress", _, _}, attrs} = inst,
+        "__exit__",
+        [exc_type | _],
+        env,
+        ctx
+      ) do
+    suppress? =
+      case {exc_type, attrs} do
+        {{:class, exc_name, _, _}, %{"__types__" => {:tuple, types}}} ->
+          Enum.any?(types, fn type ->
+            case suppress_type_name(type) do
+              nil -> false
+              target -> Pyex.ExceptionsHierarchy.subclass?(exc_name, target)
+            end
+          end)
+
+        _ ->
+          false
+      end
+
+    {:ok, inst, suppress?, env, ctx}
+  end
+
   def call_dunder_mut({:file_handle, _id} = handle, "__enter__", [], env, ctx) do
     {:ok, handle, handle, env, ctx}
   end
@@ -84,6 +120,13 @@ defmodule Pyex.Interpreter.Dunder do
   def call_dunder_mut(_, _, _, _, _), do: :not_found
 
   # ------ private helpers --------------------------------------------------
+
+  # The name of an exception class passed to contextlib.suppress(...).
+  # Builtins arrive as {:exception_class, name}; user-defined exceptions as
+  # {:class, name, ...}.
+  defp suppress_type_name({:exception_class, name}), do: name
+  defp suppress_type_name({:class, name, _, _}), do: name
+  defp suppress_type_name(_), do: nil
 
   defp call_dunder_on_class(instance, class, method, args, env, ctx) do
     case ClassLookup.resolve_class_attr(class, method) do

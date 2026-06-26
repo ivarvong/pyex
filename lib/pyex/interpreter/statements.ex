@@ -70,6 +70,65 @@ defmodule Pyex.Interpreter.Statements do
   end
 
   @doc """
+  Evaluates `del x[a:b:c]` — removes the slice's elements from a list or
+  bytearray.
+  """
+  @spec eval_del_slice(term(), term(), term(), term(), Env.t(), Ctx.t()) :: eval_result()
+  def eval_del_slice(target_expr, start_expr, stop_expr, step_expr, env, ctx) do
+    case Interpreter.eval(target_expr, env, ctx) do
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {raw_target, env, ctx} ->
+        {start, env, ctx} = eval_optional_bound(start_expr, env, ctx)
+        {stop, env, ctx} = eval_optional_bound(stop_expr, env, ctx)
+        {step, env, ctx} = eval_optional_bound(step_expr, env, ctx)
+        target = Ctx.deref(ctx, raw_target)
+
+        case del_slice_value(target, start, stop, step) do
+          {:exception, _} = signal ->
+            {signal, env, ctx}
+
+          updated ->
+            {_, env, ctx} = Assignments.write_back_subscript(target_expr, updated, env, ctx)
+            {nil, env, ctx}
+        end
+    end
+  end
+
+  defp eval_optional_bound(nil, env, ctx), do: {nil, env, ctx}
+
+  defp eval_optional_bound(expr, env, ctx) do
+    case Interpreter.eval(expr, env, ctx) do
+      {{:exception, _}, _env, _ctx} -> {nil, env, ctx}
+      {val, env, ctx} -> {val, env, ctx}
+    end
+  end
+
+  defp del_slice_value({:py_list, reversed, _}, start, stop, step) do
+    list = Enum.reverse(reversed)
+    kept = remove_slice(list, start, stop, step)
+    {:py_list, Enum.reverse(kept), length(kept)}
+  end
+
+  defp del_slice_value({:bytearray, bin}, start, stop, step) do
+    kept = remove_slice(:binary.bin_to_list(bin), start, stop, step)
+    {:bytearray, :binary.list_to_bin(kept)}
+  end
+
+  defp del_slice_value(_, _, _, _),
+    do: {:exception, "TypeError: object does not support slice deletion"}
+
+  defp remove_slice(list, start, stop, step) do
+    drop = Assignments.slice_indices(start, stop, step, length(list))
+
+    list
+    |> Enum.with_index()
+    |> Enum.reject(fn {_v, i} -> i in drop end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  @doc """
   Evaluates `pass`.
   """
   @spec eval_pass(Env.t(), Ctx.t()) :: eval_result()

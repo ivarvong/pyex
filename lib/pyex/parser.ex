@@ -257,6 +257,9 @@ defmodule Pyex.Parser do
       {:ok, {:subscript, _, [target_expr, key_expr]}, rest} ->
         {:ok, {:del, [line: line], [:subscript, target_expr, key_expr]}, drop_newline(rest)}
 
+      {:ok, {:slice, _, [target_expr, start, stop, step]}, rest} ->
+        {:ok, {:del, [line: line], [:slice, target_expr, start, stop, step]}, drop_newline(rest)}
+
       {:ok, {:getattr, _, [obj_expr, attr]}, rest} ->
         {:ok, {:del, [line: line], [:attr, obj_expr, attr]}, drop_newline(rest)}
 

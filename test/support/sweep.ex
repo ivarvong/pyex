@@ -63,11 +63,39 @@ defmodule Pyex.Test.Sweep do
     end
   end
 
+  # Statement cells: run a whole program and compare its stdout. Lets the
+  # harness reach the statement half of Python (assignment, del, unpacking,
+  # exceptions, control flow) that expression `code` cells can't.
+  defp cell_divergence(%{"program" => prog, "stdout" => want}) do
+    case pyex_run(prog) do
+      {:ok, ^want} -> []
+      {:ok, got} -> [{prog, "printed #{inspect(got)}", "CPython #{inspect(want)}"}]
+      :error -> [{prog, "raised", "CPython printed #{inspect(want)}"}]
+    end
+  end
+
+  defp cell_divergence(%{"program" => prog, "error" => exc}) do
+    case pyex_run(prog) do
+      :error -> []
+      {:ok, got} -> [{prog, "printed #{inspect(got)}", "CPython raised #{exc}"}]
+    end
+  end
+
   # Evaluate `repr(code)` in pyex; {:ok, repr_string} or :error (raised).
   defp pyex_eval(code) do
     case Pyex.run("repr(" <> code <> ")") do
       {:ok, repr, _ctx} when is_binary(repr) -> {:ok, repr}
       {:ok, other, _ctx} -> {:ok, inspect(other)}
+      {:error, _} -> :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  # Run a program in pyex; {:ok, captured_stdout} or :error (raised).
+  defp pyex_run(program) do
+    case Pyex.run(program) do
+      {:ok, _value, ctx} -> {:ok, Pyex.output(ctx)}
       {:error, _} -> :error
     end
   rescue
