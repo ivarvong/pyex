@@ -1194,33 +1194,11 @@ defmodule PyexTest do
       assert is_float(report["build_ms"])
       assert report["build_ms"] > 0
 
-      # Timing: 50 iterations with a fresh filesystem each time, using
-      # microsecond-resolution Elixir monotonic clock rather than the
-      # 1ms-quantized time.monotonic inside the script.
-      n_iters = 50
-
-      iter_times_us =
-        for _ <- 1..n_iters do
-          fresh_fs = Pyex.FS.from_map(Map.put(@ssg_fs, "style.css", @ssg_css))
-          t0 = System.monotonic_time(:microsecond)
-          {:ok, _, _} = Pyex.run(ast, filesystem: fresh_fs)
-          System.monotonic_time(:microsecond) - t0
-        end
-
-      sorted_us = Enum.sort(iter_times_us)
-      p50_ms = Enum.at(sorted_us, div(n_iters, 2)) / 1000.0
-      p90_ms = Enum.at(sorted_us, div(n_iters * 9, 10)) / 1000.0
-
-      # ctx.duration_ms from the warmup run (interpret-only, excludes compile)
-      ctx_ms = ctx.duration_ms
-
-      # p50 should be reasonable; p90 allows for scheduler jitter
-      assert p50_ms < 10.0, "warm p50 #{p50_ms}ms should be under 10ms"
-      assert p90_ms < 50.0, "warm p90 #{p90_ms}ms should be under 50ms"
-
-      # ctx_ms from the warmup run is interpretation time only, so it should
-      # be in the same ballpark as our timed iterations
-      assert ctx_ms < 50.0, "ctx.duration_ms #{ctx_ms}ms should be under 50ms"
+      # NOTE: a previous version asserted wall-clock latency ceilings here
+      # (warm p50 < 10ms, p90 < 50ms). Those are flaky on shared CI runners
+      # under scheduler jitter and gate correctness on machine speed. Track
+      # interpreter performance with the benchee suite instead; this test
+      # keeps the build correctness checks (output + build_ms measured).
     end
   end
 
