@@ -4085,9 +4085,13 @@ defmodule Pyex.Interpreter do
         {signal, env, ctx}
 
       {:mutate, _new_object, return_value, new_env, ctx} ->
+        # A decorator that transforms a class produces a new class value (same
+        # __id__); re-register so instances resolve to the decorated version.
+        ctx = Ctx.register_class(ctx, return_value)
         {nil, smart_put_decorated(new_env, name, return_value), ctx}
 
       {:mutate, _new_object, return_value, ctx} ->
+        ctx = Ctx.register_class(ctx, return_value)
         {nil, smart_put_decorated(env, name, return_value), ctx}
 
       {{:register_route, method, path, handler}, env, ctx} ->
@@ -4095,9 +4099,11 @@ defmodule Pyex.Interpreter do
         {nil, smart_put_decorated(env, name, handler), ctx}
 
       {result, env, ctx, _updated_func} ->
+        ctx = Ctx.register_class(ctx, result)
         {nil, smart_put_decorated(env, name, result), ctx}
 
       {result, env, ctx} ->
+        ctx = Ctx.register_class(ctx, result)
         {nil, smart_put_decorated(env, name, result), ctx}
     end
   end

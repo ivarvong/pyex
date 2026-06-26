@@ -34,6 +34,30 @@
       "stdout": "z\n"
     },
     {
+      "program": "class A:\n    x = 1\na = A()\nA.y = 2\nprint(getattr(a, 'y'))",
+      "stdout": "2\n"
+    },
+    {
+      "program": "class A:\n    x = 1\na = A()\nA.y = 2\nprint(hasattr(a, 'y'))",
+      "stdout": "True\n"
+    },
+    {
+      "program": "class A:\n    x = 1\na = A()\nA.y = 2\nprint('y' in dir(a))",
+      "stdout": "True\n"
+    },
+    {
+      "program": "class A:\n    x = 1\na = A()\nA.x = 9\nprint(a.__class__.x)",
+      "stdout": "9\n"
+    },
+    {
+      "program": "class A:\n    x = 1\na = A()\nA.x = 9\nprint(getattr(a, 'x'))",
+      "stdout": "9\n"
+    },
+    {
+      "program": "class A:\n    def __init__(self): self.v = 1\na = A()\nA.go = lambda self: self.v\nprint(callable(getattr(a, 'go')))",
+      "stdout": "True\n"
+    },
+    {
       "program": "class A:\n    def f(self): return 'A'\nclass B(A):\n    def f(self): return 'B'\nprint(B().f(), A().f())",
       "stdout": "B A\n"
     },

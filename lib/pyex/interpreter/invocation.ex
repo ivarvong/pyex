@@ -703,11 +703,20 @@ defmodule Pyex.Interpreter.Invocation do
   @spec deref_args_for((... -> term()), [Interpreter.pyvalue()], Ctx.t()) ::
           [Interpreter.pyvalue()]
   defp deref_args_for(fun, args, ctx) do
-    if Pyex.Builtins.shallow_arg_builtin?(fun) do
-      Enum.map(args, &Ctx.deref(ctx, &1))
-    else
-      Enum.map(args, &Ctx.deep_deref(ctx, &1))
-    end
+    deref = if Pyex.Builtins.shallow_arg_builtin?(fun), do: &Ctx.deref/2, else: &Ctx.deep_deref/2
+
+    Enum.map(args, fn arg ->
+      # Resolve any instance's embedded class snapshot to its live class so
+      # introspection builtins (getattr/hasattr/dir/vars/…) observe class
+      # mutations made after the instance was created.
+      case deref.(ctx, arg) do
+        {:instance, {:class, _, _, _} = cls, attrs} ->
+          {:instance, Ctx.live_class(ctx, cls), attrs}
+
+        other ->
+          other
+      end
+    end)
   end
 
   @doc false

@@ -30,6 +30,13 @@ PROGRAMS = [
     "class A:\n    count = 0\na = A()\nA.count = 9\nprint(a.count)",  # post-construction class-attr mutation
     "class A:\n    def __init__(self): self.v = 1\na = A()\nA.bonus = lambda self: self.v + 10\nprint(a.bonus())",  # monkeypatch method
     "class A:\n    tag = 'a'\nclass B(A):\n    pass\nb = B()\nA.tag = 'z'\nprint(b.tag)",  # parent mutation seen via subclass instance
+    # --- class identity through introspection (getattr/hasattr/dir/vars) ---
+    "class A:\n    x = 1\na = A()\nA.y = 2\nprint(getattr(a, 'y'))",  # getattr sees new class attr
+    "class A:\n    x = 1\na = A()\nA.y = 2\nprint(hasattr(a, 'y'))",  # hasattr sees new class attr
+    "class A:\n    x = 1\na = A()\nA.y = 2\nprint('y' in dir(a))",  # dir() lists new class attr
+    "class A:\n    x = 1\na = A()\nA.x = 9\nprint(a.__class__.x)",  # __class__ is the live class
+    "class A:\n    x = 1\na = A()\nA.x = 9\nprint(getattr(a, 'x'))",  # getattr sees mutated value
+    "class A:\n    def __init__(self): self.v = 1\na = A()\nA.go = lambda self: self.v\nprint(callable(getattr(a, 'go')))",  # getattr resolves monkeypatched method
     # --- inheritance + override ---
     "class A:\n    def f(self): return 'A'\nclass B(A):\n    def f(self): return 'B'\nprint(B().f(), A().f())",
     "class A:\n    def f(self): return 'A'\nclass B(A):\n    pass\nprint(B().f())",  # inherited
