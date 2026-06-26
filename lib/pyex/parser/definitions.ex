@@ -200,6 +200,20 @@ defmodule Pyex.Parser.Definitions do
     parse_base_classes(rest, acc)
   end
 
+  # Subscripted bases — `Generic[T]`, `List[int]`, `typing.Iterable[str]`.
+  # pyex has no runtime generics, so the parameters are dropped and the base
+  # is the (possibly dotted) class name.
+  defp parse_base_classes(
+         [{:name, _, name}, {:op, _, :dot}, {:name, _, attr}, {:op, _, :lbracket} | rest],
+         acc
+       ) do
+    parse_base_classes(skip_subscript(rest, 1), [{:dotted, name, attr} | acc])
+  end
+
+  defp parse_base_classes([{:name, _, name}, {:op, _, :lbracket} | rest], acc) do
+    parse_base_classes(skip_subscript(rest, 1), [name | acc])
+  end
+
   defp parse_base_classes([{:name, _, name}, {:op, _, :dot}, {:name, _, attr} | rest], acc) do
     parse_base_classes(rest, [{:dotted, name, attr} | acc])
   end
@@ -211,6 +225,14 @@ defmodule Pyex.Parser.Definitions do
   defp parse_base_classes(tokens, _acc) do
     {:error, "unexpected token in class bases at #{token_line(tokens)}"}
   end
+
+  # Consumes a balanced `[...]` subscript on a base class, returning the rest.
+  @spec skip_subscript([Lexer.token()], non_neg_integer()) :: [Lexer.token()]
+  defp skip_subscript([{:op, _, :lbracket} | rest], depth), do: skip_subscript(rest, depth + 1)
+  defp skip_subscript([{:op, _, :rbracket} | rest], 1), do: rest
+  defp skip_subscript([{:op, _, :rbracket} | rest], depth), do: skip_subscript(rest, depth - 1)
+  defp skip_subscript([_ | rest], depth), do: skip_subscript(rest, depth)
+  defp skip_subscript([], _depth), do: []
 
   @spec parse_params([Lexer.token()]) :: {:ok, [param()], [Lexer.token()]} | {:error, String.t()}
   defp parse_params(tokens), do: parse_params(tokens, [])
