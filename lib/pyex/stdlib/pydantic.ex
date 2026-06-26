@@ -67,21 +67,67 @@ defmodule Pyex.Stdlib.Pydantic do
   """
   @spec validate_body(Pyex.Interpreter.pyvalue(), map()) ::
           {:ok, Pyex.Interpreter.pyvalue()} | {:error, String.t()}
-  def validate_body(class, {:py_dict, _, _} = data) do
-    validate_body(class, PyDict.to_map(data))
+  def validate_body(class, data), do: validate_body(class, data, nil, nil)
+
+  @doc """
+  Like `validate_body/2`, but with the interpreter `env`/`ctx` so that
+  `@field_validator` methods (interpreted Python) run against the parsed
+  body — exactly as they do for the direct `Model(**data)` constructor.
+
+  FastAPI's request path has `env`/`ctx` in hand, so it calls this arity;
+  a validator raising `ValueError`/`AssertionError` becomes an `{:error,
+  msg}`, which the caller turns into a 422 — matching real pydantic.
+  """
+  @spec validate_body(Pyex.Interpreter.pyvalue(), map(), term(), term()) ::
+          {:ok, Pyex.Interpreter.pyvalue()} | {:error, String.t()}
+  def validate_body(class, {:py_dict, _, _} = data, env, ctx) do
+    validate_body(class, PyDict.to_map(data), env, ctx)
   end
 
-  def validate_body(class, data) when is_map(data) do
+  def validate_body(class, data, env, ctx) when is_map(data) do
     {annotations, defaults, field_constraints} = collect_fields(class)
     kwargs = Map.reject(data, fn {k, _} -> is_binary(k) and String.starts_with?(k, "__") end)
 
-    case validate_and_coerce(annotations, defaults, field_constraints, kwargs, class) do
-      {:ok, attrs} -> {:ok, {:instance, class, attrs}}
+    with {:ok, attrs} <-
+           validate_and_coerce(annotations, defaults, field_constraints, kwargs, class) do
+      apply_body_validators({:instance, class, attrs}, class, attrs, env, ctx)
+    else
       {:error, errors} -> {:error, format_validation_errors(errors)}
     end
   end
 
-  def validate_body(_class, _data), do: {:error, "request body is not a valid dict"}
+  def validate_body(_class, _data, _env, _ctx), do: {:error, "request body is not a valid dict"}
+
+  # Run @field_validator methods over a coerced body. Without env/ctx (the
+  # /2 arity) there's no interpreter to call them with, so the instance is
+  # returned as-is; with env/ctx, a raised validator error becomes {:error, _}.
+  @spec apply_body_validators(
+          Pyex.Interpreter.pyvalue(),
+          Pyex.Interpreter.pyvalue(),
+          %{String.t() => Pyex.Interpreter.pyvalue()},
+          term(),
+          term()
+        ) :: {:ok, Pyex.Interpreter.pyvalue()} | {:error, String.t()}
+  defp apply_body_validators(instance, _class, _attrs, env, ctx)
+       when is_nil(env) or is_nil(ctx),
+       do: {:ok, instance}
+
+  defp apply_body_validators(instance, class, attrs, env, ctx) do
+    case collect_validators(class) do
+      [] ->
+        {:ok, instance}
+
+      validators ->
+        case run_validators(class, attrs, validators, env, ctx) do
+          {{:exception, msg}, _env, _ctx} -> {:error, validation_message(msg)}
+          {validated, _env, _ctx} -> {:ok, validated}
+        end
+    end
+  end
+
+  @spec validation_message(String.t()) :: String.t()
+  defp validation_message("ValidationError: " <> rest), do: rest
+  defp validation_message(other), do: other
 
   @spec base_model_class() :: Pyex.Interpreter.pyvalue()
   defp base_model_class do
