@@ -333,7 +333,7 @@ defmodule Pyex.Stdlib.FastAPI do
   defp build_body(type, json_body, env, ctx) do
     case resolve_type(type, env, ctx) do
       {:ok, class} ->
-        case Pyex.Stdlib.Pydantic.validate_body(class, Pyex.Ctx.deref(ctx, json_body)) do
+        case Pyex.Stdlib.Pydantic.validate_body(class, Pyex.Ctx.deref(ctx, json_body), env, ctx) do
           {:ok, instance} -> {:ok, instance}
           {:error, msg} -> {:error, [body_error(msg)]}
         end
