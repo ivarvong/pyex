@@ -703,11 +703,20 @@ defmodule Pyex.Interpreter.Invocation do
   @spec deref_args_for((... -> term()), [Interpreter.pyvalue()], Ctx.t()) ::
           [Interpreter.pyvalue()]
   defp deref_args_for(fun, args, ctx) do
-    if Pyex.Builtins.shallow_arg_builtin?(fun) do
-      Enum.map(args, &Ctx.deref(ctx, &1))
-    else
-      Enum.map(args, &Ctx.deep_deref(ctx, &1))
-    end
+    deref = if Pyex.Builtins.shallow_arg_builtin?(fun), do: &Ctx.deref/2, else: &Ctx.deep_deref/2
+
+    Enum.map(args, fn arg ->
+      # Resolve any instance's embedded class snapshot to its live class so
+      # introspection builtins (getattr/hasattr/dir/vars/…) observe class
+      # mutations made after the instance was created.
+      case deref.(ctx, arg) do
+        {:instance, {:class, _, _, _} = cls, attrs} ->
+          {:instance, Ctx.live_class(ctx, cls), attrs}
+
+        other ->
+          other
+      end
+    end)
   end
 
   @doc false
@@ -977,8 +986,107 @@ defmodule Pyex.Interpreter.Invocation do
           Ctx.t()
         ) :: Interpreter.call_result()
   defp call_class_generic({:class, _, _, _} = class, name, args, kwargs, env, ctx) do
-    instance = {:instance, class, %{}}
+    case resolve_user_new(class) do
+      {:ok, new_func, owner} ->
+        construct_via_new(class, {new_func, owner}, name, args, kwargs, env, ctx)
 
+      :none ->
+        run_init({:instance, class, %{}}, class, name, args, kwargs, env, ctx)
+    end
+  end
+
+  # A user-defined `__new__` (object's default is implicit and never stored).
+  @spec resolve_user_new(Interpreter.pyvalue()) ::
+          {:ok, Interpreter.pyvalue(), Interpreter.pyvalue()} | :none
+  defp resolve_user_new(class) do
+    case ClassLookup.resolve_class_attr_with_owner(class, "__new__") do
+      {:ok, {:function, _, _, _, _, _, _} = func, owner} -> {:ok, func, owner}
+      _ -> :none
+    end
+  end
+
+  # `cls(...)` with an overridden `__new__`: call `__new__(cls, *args)`, then
+  # run `__init__` on the result iff it is an instance of `cls` (CPython rule).
+  @spec construct_via_new(
+          Interpreter.pyvalue(),
+          {Interpreter.pyvalue(), Interpreter.pyvalue()},
+          String.t(),
+          [Interpreter.pyvalue()],
+          %{optional(String.t()) => Interpreter.pyvalue()},
+          Env.t(),
+          Ctx.t()
+        ) :: Interpreter.call_result()
+  defp construct_via_new(class, {new_func, owner}, name, args, kwargs, env, ctx) do
+    case call_new(new_func, owner, [class | args], kwargs, env, ctx) do
+      {{:exception, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {value, env, ctx} ->
+        case Ctx.deref(ctx, value) do
+          {:instance, inst_class, _} = inst ->
+            if instance_of_class?(inst_class, class) do
+              run_init(inst, class, name, args, kwargs, env, ctx)
+            else
+              {value, env, ctx}
+            end
+
+          _ ->
+            {value, env, ctx}
+        end
+    end
+  end
+
+  # Invoke `__new__` like a staticmethod: `cls` is passed explicitly in
+  # `new_args` (no `self`/`cls` auto-binding), but `__class__` must be set so a
+  # zero-arg `super()` inside the body resolves.
+  @spec call_new(
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue(),
+          [Interpreter.pyvalue()],
+          %{optional(String.t()) => Interpreter.pyvalue()},
+          Env.t(),
+          Ctx.t()
+        ) :: Interpreter.call_result()
+  defp call_new(
+         {:function, fname, params, body, closure_env, is_generator, _kind},
+         owner,
+         new_args,
+         kwargs,
+         env,
+         ctx
+       ) do
+    fresh_closure = Env.refresh_from_caller(closure_env, env)
+    new_fn = {:function, fname, params, body, closure_env, is_generator, :sync}
+    base_env = Env.push_scope(Env.put(fresh_closure, fname, new_fn))
+    base_env = Env.put(base_env, "__class__", owner)
+
+    case CallSupport.bind_params(params, new_args, kwargs, base_env, ctx) do
+      {:exception, msg, ctx} ->
+        {{:exception, msg}, env, ctx}
+
+      {call_env, ctx} ->
+        {result, post_call_env, ctx} = Interpreter.eval_statements(body, call_env, ctx)
+        env = Env.propagate_scopes(env, fresh_closure, post_call_env)
+        {Helpers.unwrap_function_result(result), env, ctx}
+    end
+  end
+
+  @spec instance_of_class?(Interpreter.pyvalue(), Interpreter.pyvalue()) :: boolean()
+  defp instance_of_class?({:class, _, _, _} = cls, {:class, _, _, _} = target),
+    do: cls == target or is_strict_subclass?(cls, target)
+
+  defp instance_of_class?(_, _), do: false
+
+  @spec run_init(
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue(),
+          String.t(),
+          [Interpreter.pyvalue()],
+          %{optional(String.t()) => Interpreter.pyvalue()},
+          Env.t(),
+          Ctx.t()
+        ) :: Interpreter.call_result()
+  defp run_init(instance, {:class, _, _, _} = class, name, args, kwargs, env, ctx) do
     case ClassLookup.resolve_class_attr_with_owner(class, "__init__") do
       {:ok, {:function, init_name, params, body, closure_env, is_generator, _kind},
        defining_class} ->

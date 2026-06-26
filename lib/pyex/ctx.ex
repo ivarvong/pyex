@@ -83,7 +83,8 @@ defmodule Pyex.Ctx do
           steps: non_neg_integer(),
           memory_bytes: non_neg_integer(),
           output_bytes: non_neg_integer(),
-          asyncio_running: boolean()
+          asyncio_running: boolean(),
+          class_registry: %{optional(reference()) => term()}
         }
 
   defstruct filesystem: nil,
@@ -118,7 +119,8 @@ defmodule Pyex.Ctx do
             steps: 0,
             memory_bytes: 0,
             output_bytes: 0,
-            asyncio_running: false
+            asyncio_running: false,
+            class_registry: %{}
 
   @doc """
   Creates a fresh live context that captures output and execution counters.
@@ -846,6 +848,60 @@ defmodule Pyex.Ctx do
   @spec deref(t(), term()) :: term()
   def deref(%__MODULE__{heap: heap}, {:ref, id}), do: Map.fetch!(heap, id)
   def deref(_ctx, value), do: value
+
+  @doc """
+  Records a class under its stable `__id__` identity so that later
+  attribute mutations are visible through every alias and instance.
+
+  Classes are otherwise by-value: `A.x = 1` rebinds the `A` variable to a
+  fresh class tuple, but existing instances embed the old snapshot. The
+  registry gives classes identity — `live_class/2` resolves any snapshot
+  (matched by `__id__`) to the most recently registered version.
+  """
+  @spec register_class(t(), term()) :: t()
+  def register_class(%__MODULE__{class_registry: reg} = ctx, {:class, _, _, attrs} = class) do
+    case attrs do
+      %{"__id__" => id} -> %{ctx | class_registry: Map.put(reg, id, class)}
+      _ -> ctx
+    end
+  end
+
+  def register_class(ctx, _other), do: ctx
+
+  @doc """
+  Resolves a class value to its currently-registered version (by `__id__`).
+
+  Returns the live class if one is registered, otherwise the value
+  unchanged — so unregistered/built-in classes behave exactly as before.
+  """
+  @spec live_class(t(), term()) :: term()
+  def live_class(%__MODULE__{class_registry: reg}, {:class, _, _, %{"__id__" => id}} = class)
+      when reg != %{} do
+    reg |> Map.get(id, class) |> refresh_mro_tail(reg)
+  end
+
+  def live_class(_ctx, class), do: class
+
+  # Refresh a class's cached MRO ancestors to their registered versions so
+  # that mutations to a *parent* class are visible through a subclass
+  # instance too. Returns the class unchanged when no ancestor moved (the
+  # common case), avoiding a tuple allocation on every attribute access.
+  @spec refresh_mro_tail(term(), map()) :: term()
+  defp refresh_mro_tail({:class, name, bases, %{"__mro_cache__" => tail} = attrs} = class, reg) do
+    new_tail =
+      Enum.map(tail, fn
+        {:class, _, _, %{"__id__" => aid}} = ancestor -> Map.get(reg, aid, ancestor)
+        other -> other
+      end)
+
+    if new_tail == tail do
+      class
+    else
+      {:class, name, bases, %{attrs | "__mro_cache__" => new_tail}}
+    end
+  end
+
+  defp refresh_mro_tail(class, _reg), do: class
 
   @doc """
   Looks up `forward_idx` in a heap-stored `py_list`, using a lazy

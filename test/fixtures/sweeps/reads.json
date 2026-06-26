@@ -1,0 +1,209 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "program": "print([x * x for x in range(5)])",
+      "stdout": "[0, 1, 4, 9, 16]\n"
+    },
+    {
+      "program": "print([x for x in range(10) if x % 2 == 0])",
+      "stdout": "[0, 2, 4, 6, 8]\n"
+    },
+    {
+      "program": "print([x for x in range(20) if x % 2 == 0 if x % 3 == 0])",
+      "stdout": "[0, 6, 12, 18]\n"
+    },
+    {
+      "program": "print([(x, y) for x in range(2) for y in range(2)])",
+      "stdout": "[(0, 0), (0, 1), (1, 0), (1, 1)]\n"
+    },
+    {
+      "program": "print([x for row in [[1, 2], [3, 4]] for x in row])",
+      "stdout": "[1, 2, 3, 4]\n"
+    },
+    {
+      "program": "print([[y for y in range(x)] for x in range(4)])",
+      "stdout": "[[], [0], [0, 1], [0, 1, 2]]\n"
+    },
+    {
+      "program": "print([x if x % 2 == 0 else -x for x in range(5)])",
+      "stdout": "[0, -1, 2, -3, 4]\n"
+    },
+    {
+      "program": "print(sorted({x % 3 for x in range(10)}))",
+      "stdout": "[0, 1, 2]\n"
+    },
+    {
+      "program": "print(sorted({x: x * x for x in range(4)}.items()))",
+      "stdout": "[(0, 0), (1, 1), (2, 4), (3, 9)]\n"
+    },
+    {
+      "program": "print(sum(x * x for x in range(5)))",
+      "stdout": "30\n"
+    },
+    {
+      "program": "print(list(x for x in range(3)))",
+      "stdout": "[0, 1, 2]\n"
+    },
+    {
+      "program": "print({k: v for k, v in [('a', 1), ('b', 2)]})",
+      "stdout": "{'a': 1, 'b': 2}\n"
+    },
+    {
+      "program": "x = 99\n[x for x in range(3)]\nprint(x)",
+      "stdout": "99\n"
+    },
+    {
+      "program": "vals = [1, 2, 3]\nprint([v * 2 for v in vals])\nprint(vals)",
+      "stdout": "[2, 4, 6]\n[1, 2, 3]\n"
+    },
+    {
+      "program": "print([i for i in range(3)] + [i + 10 for i in range(3)])",
+      "stdout": "[0, 1, 2, 10, 11, 12]\n"
+    },
+    {
+      "program": "print([c.upper() for c in 'abc'])",
+      "stdout": "['A', 'B', 'C']\n"
+    },
+    {
+      "program": "d = {'a': 1, 'b': 2}\nprint(sorted(k for k in d))",
+      "stdout": "['a', 'b']\n"
+    },
+    {
+      "program": "d = {'a': 1, 'b': 2}\nprint(sorted(d.values()))",
+      "stdout": "[1, 2]\n"
+    },
+    {
+      "program": "print([y for x in range(5) if (y := x * 2) > 4])",
+      "stdout": "[6, 8]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][1:3])",
+      "stdout": "[1, 2]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][:2])",
+      "stdout": "[0, 1]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][2:])",
+      "stdout": "[2, 3, 4]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][:])",
+      "stdout": "[0, 1, 2, 3, 4]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][-2:])",
+      "stdout": "[3, 4]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][:-1])",
+      "stdout": "[0, 1, 2, 3]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][::2])",
+      "stdout": "[0, 2, 4]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][::-1])",
+      "stdout": "[4, 3, 2, 1, 0]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][4:1:-1])",
+      "stdout": "[4, 3, 2]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][1:100])",
+      "stdout": "[1, 2, 3, 4]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][3:1])",
+      "stdout": "[]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][-100:100])",
+      "stdout": "[0, 1, 2, 3, 4]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][1:4:2])",
+      "stdout": "[1, 3]\n"
+    },
+    {
+      "program": "print('abcdef'[1:4])",
+      "stdout": "bcd\n"
+    },
+    {
+      "program": "print('abcdef'[::-1])",
+      "stdout": "fedcba\n"
+    },
+    {
+      "program": "print('abcdef'[-3:])",
+      "stdout": "def\n"
+    },
+    {
+      "program": "print('abcdef'[::2])",
+      "stdout": "ace\n"
+    },
+    {
+      "program": "print('abcdef'[10:])",
+      "stdout": "\n"
+    },
+    {
+      "program": "print((0, 1, 2, 3, 4)[1:3])",
+      "stdout": "(1, 2)\n"
+    },
+    {
+      "program": "print((0, 1, 2, 3, 4)[::-1])",
+      "stdout": "(4, 3, 2, 1, 0)\n"
+    },
+    {
+      "program": "print(b'abcdef'[1:4])",
+      "stdout": "b'bcd'\n"
+    },
+    {
+      "program": "print(b'abcdef'[::-1])",
+      "stdout": "b'fedcba'\n"
+    },
+    {
+      "program": "print(bytearray(b'abcdef')[2:])",
+      "stdout": "bytearray(b'cdef')\n"
+    },
+    {
+      "program": "print(list(range(10)[2:8:2]))",
+      "stdout": "[2, 4, 6]\n"
+    },
+    {
+      "program": "print(list(range(10)[::-1]))",
+      "stdout": "[9, 8, 7, 6, 5, 4, 3, 2, 1, 0]\n"
+    },
+    {
+      "program": "print([10, 20, 30][-1])",
+      "stdout": "30\n"
+    },
+    {
+      "program": "print('hello'[-2])",
+      "stdout": "l\n"
+    },
+    {
+      "program": "print((1, 2, 3)[-3])",
+      "stdout": "1\n"
+    },
+    {
+      "program": "print([1, 2, 3][5])",
+      "error": "IndexError"
+    },
+    {
+      "program": "print('ab'[9])",
+      "error": "IndexError"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][slice(1, 4)])",
+      "stdout": "[1, 2, 3]\n"
+    },
+    {
+      "program": "print([0, 1, 2, 3, 4][slice(None, None, 2)])",
+      "stdout": "[0, 2, 4]\n"
+    }
+  ]
+}
