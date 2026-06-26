@@ -785,6 +785,23 @@ defmodule Pyex.Interpreter.ControlFlow do
   defp run_finally(result, nil), do: result
 
   defp run_finally({original_signal, env, ctx}, finally_body) do
+    # If an exception is in flight as `finally` runs, record it so a `raise`
+    # inside the body chains it as the new exception's __context__.
+    env =
+      case original_signal do
+        {:exception, msg} ->
+          handling =
+            case ctx.exception_instance do
+              {:instance, _, _} = inst -> Exceptions.with_chaining_defaults(inst)
+              _ -> Exceptions.synthesize_exception_instance(msg)
+            end
+
+          Env.put(env, "__handling_exception__", handling)
+
+        _ ->
+          env
+      end
+
     case Interpreter.eval_statements(finally_body, env, ctx) do
       {{:exception, _} = new_signal, env, ctx} ->
         {new_signal, env, ctx}
@@ -809,6 +826,14 @@ defmodule Pyex.Interpreter.ControlFlow do
 
   defp match_handler([{nil, nil, handler_body} | _], message, env, ctx) do
     env = Env.put(env, "__current_exception__", message)
+
+    handling =
+      case ctx.exception_instance do
+        {:instance, _, _} = inst -> Exceptions.with_chaining_defaults(inst)
+        _ -> Exceptions.synthesize_exception_instance(message)
+      end
+
+    env = Env.put(env, "__handling_exception__", handling)
     ctx = %{ctx | exception_instance: nil}
     Interpreter.eval_statements(handler_body, env, ctx)
   end
@@ -826,18 +851,17 @@ defmodule Pyex.Interpreter.ControlFlow do
     if matches do
       env = Env.put(env, "__current_exception__", message)
 
-      env =
-        if var_name do
-          exc_value =
-            case ctx.exception_instance do
-              {:instance, _, _} = inst -> inst
-              _ -> Exceptions.synthesize_exception_instance(message)
-            end
-
-          Env.put(env, var_name, exc_value)
-        else
-          env
+      exc_value =
+        case ctx.exception_instance do
+          {:instance, _, _} = inst -> inst
+          _ -> Exceptions.synthesize_exception_instance(message)
         end
+        |> Exceptions.with_chaining_defaults()
+
+      # Record the exception being handled so a `raise` inside the body chains
+      # it as the new exception's implicit __context__ (PEP 3134).
+      env = Env.put(env, "__handling_exception__", exc_value)
+      env = if var_name, do: Env.put(env, var_name, exc_value), else: env
 
       ctx = %{ctx | exception_instance: nil}
       Interpreter.eval_statements(handler_body, env, ctx)

@@ -688,11 +688,11 @@ defmodule Pyex.Interpreter do
   end
 
   def eval({:raise, meta, [expr]}, env, ctx) do
-    Exceptions.eval_raise(expr, meta, env, ctx)
+    Exceptions.eval_raise(expr, meta, env, ctx) |> Exceptions.chain_context()
   end
 
   def eval({:raise, meta, [expr, cause_expr]}, env, ctx) do
-    Exceptions.eval_raise_from(expr, cause_expr, meta, env, ctx)
+    Exceptions.eval_raise_from(expr, cause_expr, meta, env, ctx) |> Exceptions.chain_context()
   end
 
   def eval({:assert, _, [condition, msg_expr]}, env, ctx) do

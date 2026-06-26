@@ -140,7 +140,14 @@ defmodule Pyex.Interpreter.Exceptions do
             new_instance =
               case ctx.exception_instance do
                 {:instance, cls, attrs} ->
-                  {:instance, cls, Map.put(attrs, "__cause__", cause)}
+                  # `raise ... from X` (and `from None`) sets __cause__ and
+                  # suppresses the implicit __context__ display.
+                  attrs =
+                    attrs
+                    |> Map.put("__cause__", cause)
+                    |> Map.put("__suppress_context__", true)
+
+                  {:instance, cls, attrs}
 
                 _ ->
                   nil
@@ -157,6 +164,44 @@ defmodule Pyex.Interpreter.Exceptions do
         end
     end
   end
+
+  @doc """
+  Sets the implicit `__context__` on a freshly-raised exception to the
+  exception currently being handled (`__handling_exception__` in the env),
+  per PEP 3134. A no-op outside an `except` body, on a bare re-raise (the
+  new exception is the one being handled), or when `__context__` is already
+  set.
+  """
+  @spec chain_context({term(), Env.t(), Ctx.t()}) :: {term(), Env.t(), Ctx.t()}
+  def chain_context({signal, env, ctx}) do
+    with {:ok, handling} <- Env.get(env, "__handling_exception__"),
+         {:instance, cls, attrs} = inst <- ctx.exception_instance,
+         true <- inst != handling and Map.get(attrs, "__context__") in [nil, :undefined] do
+      new_inst = {:instance, cls, Map.put(attrs, "__context__", handling)}
+      {signal, env, %{ctx | exception_instance: new_inst}}
+    else
+      _ -> {signal, env, ctx}
+    end
+  end
+
+  @doc """
+  Ensures an exception instance carries the chaining dunders so attribute
+  access returns CPython's defaults: `__cause__`/`__context__` default to
+  `None` and `__suppress_context__` to `False`. Existing values (e.g. a
+  `__cause__` set by `raise ... from`) are preserved.
+  """
+  @spec with_chaining_defaults(Interpreter.pyvalue()) :: Interpreter.pyvalue()
+  def with_chaining_defaults({:instance, cls, attrs}) do
+    attrs =
+      attrs
+      |> Map.put_new("__cause__", nil)
+      |> Map.put_new("__context__", nil)
+      |> Map.put_new("__suppress_context__", false)
+
+    {:instance, cls, attrs}
+  end
+
+  def with_chaining_defaults(other), do: other
 
   @doc false
   @spec synthesize_exception_instance(String.t()) :: Interpreter.pyvalue()
