@@ -876,6 +876,8 @@ defmodule Pyex.Interpreter.Assignments do
 
           {:class, name, bases, class_attrs} ->
             updated = {:class, name, bases, Map.put(class_attrs, attr, value)}
+            # Re-register so existing instances see the mutation (class identity).
+            ctx = Ctx.register_class(ctx, updated)
             {nil, Env.put_at_source(env, var_name, updated), ctx}
 
           {:py_dict, _, _} = dict ->

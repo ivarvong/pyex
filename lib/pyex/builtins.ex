@@ -161,6 +161,7 @@ defmodule Pyex.Builtins do
     [
       {"len", &builtin_len/1},
       {"range", &builtin_range/1},
+      {"slice", &builtin_slice/1},
       {"print", {:kw, &builtin_print/2}},
       # "type" is bound to `type_class()` in `build_env/0` so that
       # `type(x) is type` holds via structural class identity. The
@@ -210,7 +211,6 @@ defmodule Pyex.Builtins do
       {"vars", &builtin_vars/1},
       {"id", &builtin_id/1},
       {"hash", &builtin_hash/1},
-      {"object", &builtin_object/1},
       {"property", &builtin_property/1},
       {"staticmethod", &builtin_staticmethod/1},
       {"classmethod", &builtin_classmethod/1},
@@ -221,6 +221,7 @@ defmodule Pyex.Builtins do
   @spec type_constructors() :: [{String.t(), ([Interpreter.pyvalue()] -> Interpreter.pyvalue())}]
   defp type_constructors do
     [
+      {"object", &builtin_object/1},
       {"str", &builtin_str/1},
       {"int", &builtin_int/1},
       {"float", &builtin_float/1},
@@ -272,6 +273,16 @@ defmodule Pyex.Builtins do
        do: {:range, start, stop, step}
 
   defp builtin_range([_, _, 0]), do: {:exception, "ValueError: range() arg 3 must not be zero"}
+
+  # slice(stop) / slice(start, stop) / slice(start, stop, step) — a slice
+  # object usable as a subscript key, with omitted bounds as `nil` (None).
+  @spec builtin_slice([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp builtin_slice([stop]), do: {:slice_obj, nil, stop, nil}
+  defp builtin_slice([start, stop]), do: {:slice_obj, start, stop, nil}
+  defp builtin_slice([start, stop, step]), do: {:slice_obj, start, stop, step}
+
+  defp builtin_slice(_),
+    do: {:exception, "TypeError: slice expected 1 to 3 arguments"}
 
   @max_range_len 10_000_000
 
@@ -402,6 +413,15 @@ defmodule Pyex.Builtins do
   end
 
   defp builtin_str([val]), do: py_repr(val)
+
+  @doc false
+  @spec builtin_int([Interpreter.pyvalue()], map()) :: integer() | {:exception, String.t()}
+  def builtin_int(args, kwargs) do
+    case Map.fetch(kwargs, "base") do
+      {:ok, base} -> builtin_int(args ++ [base])
+      :error -> builtin_int(args)
+    end
+  end
 
   @spec builtin_int([Interpreter.pyvalue()]) :: integer() | {:exception, String.t()}
   defp builtin_int([]), do: 0
@@ -1181,6 +1201,10 @@ defmodule Pyex.Builtins do
 
     cond do
       actual == type_name ->
+        true
+
+      # Every value is an instance of object.
+      type_name == "object" ->
         true
 
       type_name == "int" and actual == "bool" ->

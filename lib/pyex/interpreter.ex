@@ -463,6 +463,7 @@ defmodule Pyex.Interpreter do
         end
 
       class_val = ClassLookup.with_mro_cache(class_val)
+      ctx = Ctx.register_class(ctx, class_val)
 
       {nil, Env.smart_put(env, name, class_val), ctx}
     end
@@ -775,7 +776,11 @@ defmodule Pyex.Interpreter do
     case Env.get(env, name) do
       {:ok, raw} ->
         case Ctx.deref(ctx, raw) do
-          {:instance, {:class, _, _, _} = class, inst_attrs} = instance ->
+          {:instance, {:class, _, _, _} = snapshot_class, inst_attrs} = instance ->
+            # Resolve to the live class so class-attribute mutations made after
+            # this instance was created are visible (class identity).
+            class = Ctx.live_class(ctx, snapshot_class)
+
             case attr do
               "__class__" ->
                 {class, env, ctx}
@@ -854,7 +859,11 @@ defmodule Pyex.Interpreter do
         object = Ctx.deref(ctx, raw_object)
 
         case object do
-          {:instance, {:class, _, _, _} = class, inst_attrs} ->
+          {:instance, {:class, _, _, _} = snapshot_class, inst_attrs} ->
+            # Resolve to the live class so class-attribute mutations made after
+            # this instance was created are visible (class identity).
+            class = Ctx.live_class(ctx, snapshot_class)
+
             case attr do
               "__class__" ->
                 {class, env, ctx}
@@ -1841,6 +1850,15 @@ defmodule Pyex.Interpreter do
           {:ok, value, _owner} ->
             {value, env, ctx}
 
+          :error when attr == "__new__" ->
+            # `super().__new__(cls)` with no base overriding it resolves to
+            # `object.__new__`, which allocates a blank instance of `cls`.
+            {{:builtin, &object_new/1}, env, ctx}
+
+          :error when attr == "__init__" ->
+            # `object.__init__` is a no-op accepting any arguments.
+            {{:builtin, fn _ -> nil end}, env, ctx}
+
           :error ->
             # Fall back to instance attrs or forwarded stdlib methods.
             # Stdlib subclasses (e.g. class MyDT(datetime.datetime)) bake
@@ -2176,6 +2194,10 @@ defmodule Pyex.Interpreter do
     Invocation.call_builtin_kw(&Builtins.builtin_dict/2, args, kwargs, env, ctx)
   end
 
+  def call_function({:builtin_type, "int", _fun}, args, kwargs, env, ctx) do
+    Invocation.call_builtin_kw(&Builtins.builtin_int/2, args, kwargs, env, ctx)
+  end
+
   def call_function({:builtin_type, _name, fun}, args, kwargs, env, ctx) do
     call_function({:builtin, fun}, args, kwargs, env, ctx)
   end
@@ -2408,10 +2430,30 @@ defmodule Pyex.Interpreter do
 
   @doc false
   @spec invoke_descriptor_get(pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  # `object.__new__(cls)` — a fresh instance of `cls` with no attributes.
+  @spec object_new([pyvalue()]) :: pyvalue()
+  defp object_new([{:class, _, _, _} = cls | _]), do: {:instance, cls, %{}}
+  defp object_new(_), do: {:exception, "TypeError: object.__new__(X): X is not a type object"}
+
   def invoke_descriptor_get(value, instance, owner_class, env, ctx) do
     derefed = Ctx.deref(ctx, value)
 
     case derefed do
+      {:property, fget, _, _} when fget != nil ->
+        case call_function(fget, [instance], %{}, env, ctx) do
+          {val, env, ctx, _} -> {val, env, ctx}
+          other -> other
+        end
+
+      {:property, nil, _, _} ->
+        {{:exception, "AttributeError: unreadable attribute"}, env, ctx}
+
+      {:staticmethod, func} ->
+        {func, env, ctx}
+
+      {:classmethod, func} ->
+        {{:bound_method, owner_class, func}, env, ctx}
+
       {:instance, {:class, _, _, _} = desc_class, _} ->
         case ClassLookup.resolve_class_attr(desc_class, "__get__") do
           {:ok, {:function, _, _, _, _, _, _} = func} ->
@@ -2678,6 +2720,10 @@ defmodule Pyex.Interpreter do
   # is cheaper than the cache lookup + bookkeeping, and short-list
   # indexing is rarely a hot path anyway.
   @list_cache_min_len 32
+
+  defp eval_subscript(object, {:slice_obj, start, stop, step}, env, ctx) do
+    eval_slice(object, start, stop, step, env, ctx)
+  end
 
   defp eval_subscript(object, key, env, ctx) do
     # Fast path: a heap-stored Python list indexed by an integer key.
@@ -3626,30 +3672,49 @@ defmodule Pyex.Interpreter do
       {:ok, raw_self} ->
         case Ctx.deref(ctx, raw_self) do
           {:instance, inst_class, _} = instance ->
-            case Env.get(env, "__class__") do
-              {:ok, {:class, _, _, _} = current_class} ->
-                # Use the MRO of the instance's actual class, then drop everything
-                # up to and including current_class. This is how Python's super()
-                # enables cooperative multiple inheritance.
-                mro = ClassLookup.c3_linearize(inst_class)
-                mro_tail = Enum.drop_while(mro, &(&1 != current_class)) |> Enum.drop(1)
-
-                if mro_tail == [] do
-                  {{:exception, "TypeError: super(): no parent class"}, env, ctx}
-                else
-                  {{:super_proxy, instance, mro_tail}, env, ctx}
-                end
-
-              _ ->
-                {{:exception, "RuntimeError: super(): __class__ is not set"}, env, ctx}
-            end
+            super_proxy_for(instance, inst_class, env, ctx)
 
           _ ->
-            {{:exception, "RuntimeError: super(): self is not bound"}, env, ctx}
+            super_from_class_arg(env, ctx)
         end
 
       _ ->
+        super_from_class_arg(env, ctx)
+    end
+  end
+
+  # `super()` inside `__new__`/classmethods: there is no `self`, but the first
+  # positional arg is the class (conventionally `cls`). Bind the proxy to it.
+  @spec super_from_class_arg(Env.t(), Ctx.t()) :: eval_result()
+  defp super_from_class_arg(env, ctx) do
+    case Env.get(env, "cls") do
+      {:ok, {:class, _, _, _} = cls} ->
+        super_proxy_for(cls, cls, env, ctx)
+
+      _ ->
         {{:exception, "RuntimeError: super(): self is not bound"}, env, ctx}
+    end
+  end
+
+  # Build a super proxy bound to `bound` (an instance or class) whose method
+  # lookup walks `derived`'s MRO starting just past the enclosing `__class__`.
+  @spec super_proxy_for(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp super_proxy_for(bound, derived, env, ctx) do
+    case Env.get(env, "__class__") do
+      {:ok, {:class, _, _, _} = current_class} ->
+        # Use the MRO of the actual class, then drop everything up to and
+        # including current_class. This is how Python's super() enables
+        # cooperative multiple inheritance.
+        mro = ClassLookup.c3_linearize(derived)
+        mro_tail = Enum.drop_while(mro, &(&1 != current_class)) |> Enum.drop(1)
+
+        # An empty tail means the only ancestor left is the implicit `object`
+        # (which c3_linearize does not list). Keep the proxy so `object`'s
+        # `__new__`/`__init__` still resolve through the fallback below.
+        {{:super_proxy, bound, mro_tail}, env, ctx}
+
+      _ ->
+        {{:exception, "RuntimeError: super(): __class__ is not set"}, env, ctx}
     end
   end
 

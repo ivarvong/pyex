@@ -1,0 +1,149 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "program": "class A:\n    def __init__(self, x):\n        self.x = x\n    def double(self):\n        return self.x * 2\nprint(A(5).double())",
+      "stdout": "10\n"
+    },
+    {
+      "program": "class A:\n    pass\na = A()\na.x = 1\na.y = 2\nprint(a.x + a.y)",
+      "stdout": "3\n"
+    },
+    {
+      "program": "class A:\n    count = 0\na = A()\nb = A()\nA.count = 9\nprint(a.count, b.count)",
+      "stdout": "9 9\n"
+    },
+    {
+      "program": "class A:\n    items = []\na = A()\nb = A()\na.items.append(1)\nprint(b.items)",
+      "stdout": "[1]\n"
+    },
+    {
+      "program": "class A:\n    x = 1\na = A()\na.x = 99\nprint(a.x, A.x)",
+      "stdout": "99 1\n"
+    },
+    {
+      "program": "class A:\n    count = 0\na = A()\nA.count = 9\nprint(a.count)",
+      "stdout": "9\n"
+    },
+    {
+      "program": "class A:\n    def __init__(self): self.v = 1\na = A()\nA.bonus = lambda self: self.v + 10\nprint(a.bonus())",
+      "stdout": "11\n"
+    },
+    {
+      "program": "class A:\n    tag = 'a'\nclass B(A):\n    pass\nb = B()\nA.tag = 'z'\nprint(b.tag)",
+      "stdout": "z\n"
+    },
+    {
+      "program": "class A:\n    def f(self): return 'A'\nclass B(A):\n    def f(self): return 'B'\nprint(B().f(), A().f())",
+      "stdout": "B A\n"
+    },
+    {
+      "program": "class A:\n    def f(self): return 'A'\nclass B(A):\n    pass\nprint(B().f())",
+      "stdout": "A\n"
+    },
+    {
+      "program": "class A:\n    def __init__(self):\n        self.x = 1\nclass B(A):\n    def __init__(self):\n        super().__init__()\n        self.y = 2\nb = B()\nprint(b.x, b.y)",
+      "stdout": "1 2\n"
+    },
+    {
+      "program": "class A:\n    def f(self): return 1\nclass B(A):\n    def f(self): return super().f() + 10\nprint(B().f())",
+      "stdout": "11\n"
+    },
+    {
+      "program": "class A:\n    def f(self): return 'A'\nclass B(A):\n    def f(self): return 'B' + super().f()\nclass C(A):\n    def f(self): return 'C' + super().f()\nclass D(B, C):\n    def f(self): return 'D' + super().f()\nprint(D().f())",
+      "stdout": "DBCA\n"
+    },
+    {
+      "program": "class A: pass\nclass B(A): pass\nclass C(A): pass\nclass D(B, C): pass\nprint([c.__name__ for c in D.__mro__])",
+      "stdout": "['D', 'B', 'C', 'A', 'object']\n"
+    },
+    {
+      "program": "class A:\n    @staticmethod\n    def add(a, b): return a + b\nprint(A.add(2, 3))",
+      "stdout": "5\n"
+    },
+    {
+      "program": "class A:\n    name = 'A'\n    @classmethod\n    def who(cls): return cls.name\nclass B(A):\n    name = 'B'\nprint(A.who(), B.who())",
+      "stdout": "A B\n"
+    },
+    {
+      "program": "class A:\n    @classmethod\n    def make(cls): return cls()\n    def __init__(self): self.v = 7\nprint(A.make().v)",
+      "stdout": "7\n"
+    },
+    {
+      "program": "class A:\n    def __init__(self, r): self._r = r\n    @property\n    def area(self): return self._r * self._r\nprint(A(4).area)",
+      "stdout": "16\n"
+    },
+    {
+      "program": "class A:\n    def __init__(self): self._x = 0\n    @property\n    def x(self): return self._x\n    @x.setter\n    def x(self, v): self._x = v * 2\na = A()\na.x = 5\nprint(a.x)",
+      "stdout": "10\n"
+    },
+    {
+      "program": "class A:\n    def __new__(cls):\n        obj = super().__new__(cls)\n        obj.tag = 'new'\n        return obj\nprint(A().tag)",
+      "stdout": "new\n"
+    },
+    {
+      "program": "class A: pass\nclass B(A): pass\nprint(isinstance(B(), A), isinstance(A(), B))",
+      "stdout": "True False\n"
+    },
+    {
+      "program": "class A: pass\nclass B(A): pass\nprint(issubclass(B, A), issubclass(A, B))",
+      "stdout": "True False\n"
+    },
+    {
+      "program": "class A: pass\nprint(isinstance(A(), object))",
+      "stdout": "True\n"
+    },
+    {
+      "program": "class P:\n    def __init__(self, v): self.v = v\n    def __eq__(self, o): return self.v == o.v\nprint(P(1) == P(1), P(1) == P(2))",
+      "stdout": "True False\n"
+    },
+    {
+      "program": "class P:\n    def __init__(self, v): self.v = v\n    def __lt__(self, o): return self.v < o.v\nprint([p.v for p in sorted([P(3), P(1), P(2)])])",
+      "stdout": "[1, 2, 3]\n"
+    },
+    {
+      "program": "class P:\n    def __init__(self, v): self.v = v\n    def __hash__(self): return self.v % 2\n    def __eq__(self, o): return self.v == o.v\nprint(len({P(1), P(1), P(2)}))",
+      "stdout": "2\n"
+    },
+    {
+      "program": "class A:\n    def __repr__(self): return 'A!'\nprint(repr(A()), str(A()))",
+      "stdout": "A! A!\n"
+    },
+    {
+      "program": "class A:\n    def __str__(self): return 'as-str'\nprint(str(A()))",
+      "stdout": "as-str\n"
+    },
+    {
+      "program": "class A:\n    def __repr__(self): return 'rep'\nprint([A(), A()])",
+      "stdout": "[rep, rep]\n"
+    },
+    {
+      "program": "class Adder:\n    def __init__(self, n): self.n = n\n    def __call__(self, x): return x + self.n\nadd5 = Adder(5)\nprint(add5(10))",
+      "stdout": "15\n"
+    },
+    {
+      "program": "class Box:\n    def __init__(self, items): self.items = items\n    def __len__(self): return len(self.items)\n    def __getitem__(self, i): return self.items[i]\nb = Box([10, 20, 30])\nprint(len(b), b[1])",
+      "stdout": "3 20\n"
+    },
+    {
+      "program": "class Box:\n    def __contains__(self, x): return x == 42\nprint(42 in Box(), 1 in Box())",
+      "stdout": "True False\n"
+    },
+    {
+      "program": "class A:\n    def __init__(self): self.__secret = 7\n    def get(self): return self.__secret\nprint(A().get())",
+      "stdout": "7\n"
+    },
+    {
+      "program": "class A: pass\nprint(A().missing)",
+      "error": "AttributeError"
+    },
+    {
+      "program": "class A:\n    def f(self, x): return x + 1\na = A()\ng = a.f\nprint(g(10))",
+      "stdout": "11\n"
+    },
+    {
+      "program": "class A:\n    def f(self, x): return x + 1\nprint(A.f(A(), 10))",
+      "stdout": "11\n"
+    }
+  ]
+}

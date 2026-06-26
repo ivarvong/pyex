@@ -132,7 +132,6 @@ defmodule Pyex.ParityTest do
       "globals" => :unimplemented,
       "locals" => :unimplemented,
       "memoryview" => :unimplemented,
-      "slice" => :unimplemented,
       "EncodingWarning" => :unimplemented,
       "EnvironmentError" => :unimplemented,
       "IOError" => :unimplemented,

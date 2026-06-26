@@ -1,0 +1,197 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "program": "def f(a, b): return a - b\nprint(f(5, 2))",
+      "stdout": "3\n"
+    },
+    {
+      "program": "def f(a, b=10): return a - b\nprint(f(5))",
+      "stdout": "-5\n"
+    },
+    {
+      "program": "def f(a, b=10): return a - b\nprint(f(5, 2))",
+      "stdout": "3\n"
+    },
+    {
+      "program": "def f(a, b=2, c=3): return (a, b, c)\nprint(f(1))",
+      "stdout": "(1, 2, 3)\n"
+    },
+    {
+      "program": "def f(a, b=2, c=3): return (a, b, c)\nprint(f(1, c=9))",
+      "stdout": "(1, 2, 9)\n"
+    },
+    {
+      "program": "def f(a, b, c): return (a, b, c)\nprint(f(c=3, a=1, b=2))",
+      "stdout": "(1, 2, 3)\n"
+    },
+    {
+      "program": "def f(a, b): return (a, b)\nprint(f(b=2, a=1))",
+      "stdout": "(1, 2)\n"
+    },
+    {
+      "program": "def f(a, b): return (a, b)\nprint(f(1, b=2))",
+      "stdout": "(1, 2)\n"
+    },
+    {
+      "program": "def f(*args): return args\nprint(f())",
+      "stdout": "()\n"
+    },
+    {
+      "program": "def f(*args): return args\nprint(f(1, 2, 3))",
+      "stdout": "(1, 2, 3)\n"
+    },
+    {
+      "program": "def f(a, *args): return (a, args)\nprint(f(1, 2, 3))",
+      "stdout": "(1, (2, 3))\n"
+    },
+    {
+      "program": "def f(a, b=5, *args): return (a, b, args)\nprint(f(1, 2, 3, 4))",
+      "stdout": "(1, 2, (3, 4))\n"
+    },
+    {
+      "program": "def f(**kw): return sorted(kw.items())\nprint(f(x=1, y=2))",
+      "stdout": "[('x', 1), ('y', 2)]\n"
+    },
+    {
+      "program": "def f(a, **kw): return (a, sorted(kw.items()))\nprint(f(1, x=2, y=3))",
+      "stdout": "(1, [('x', 2), ('y', 3)])\n"
+    },
+    {
+      "program": "def f(**kw): return sorted(kw.items())\nprint(f())",
+      "stdout": "[]\n"
+    },
+    {
+      "program": "def f(a, *args, **kw): return (a, args, sorted(kw.items()))\nprint(f(1, 2, 3, x=4))",
+      "stdout": "(1, (2, 3), [('x', 4)])\n"
+    },
+    {
+      "program": "def f(*args, **kw): return (args, sorted(kw.items()))\nprint(f(1, 2, k=3))",
+      "stdout": "((1, 2), [('k', 3)])\n"
+    },
+    {
+      "program": "def f(a, *, b): return (a, b)\nprint(f(1, b=2))",
+      "stdout": "(1, 2)\n"
+    },
+    {
+      "program": "def f(a, *, b=9): return (a, b)\nprint(f(1))",
+      "stdout": "(1, 9)\n"
+    },
+    {
+      "program": "def f(*args, key): return (args, key)\nprint(f(1, 2, key=3))",
+      "stdout": "((1, 2), 3)\n"
+    },
+    {
+      "program": "def f(a, *, b): return (a, b)\nprint(f(1, 2))",
+      "error": "TypeError"
+    },
+    {
+      "program": "def f(a, *, b): return (a, b)\nprint(f(1))",
+      "error": "TypeError"
+    },
+    {
+      "program": "def f(a, b, /): return (a, b)\nprint(f(1, 2))",
+      "stdout": "(1, 2)\n"
+    },
+    {
+      "program": "def f(a, b, /): return (a, b)\nprint(f(1, b=2))",
+      "error": "TypeError"
+    },
+    {
+      "program": "def f(a, /, b): return (a, b)\nprint(f(1, b=2))",
+      "stdout": "(1, 2)\n"
+    },
+    {
+      "program": "def f(a, /, b): return (a, b)\nprint(f(1, 2))",
+      "stdout": "(1, 2)\n"
+    },
+    {
+      "program": "def f(a, b, c): return (a, b, c)\nargs = [1, 2, 3]\nprint(f(*args))",
+      "stdout": "(1, 2, 3)\n"
+    },
+    {
+      "program": "def f(a, b, c): return (a, b, c)\nprint(f(1, *[2, 3]))",
+      "stdout": "(1, 2, 3)\n"
+    },
+    {
+      "program": "def f(a, b, c): return (a, b, c)\nd = {'a': 1, 'b': 2, 'c': 3}\nprint(f(**d))",
+      "stdout": "(1, 2, 3)\n"
+    },
+    {
+      "program": "def f(a, b, c): return (a, b, c)\nprint(f(1, **{'b': 2, 'c': 3}))",
+      "stdout": "(1, 2, 3)\n"
+    },
+    {
+      "program": "def f(*args, **kw): return (args, sorted(kw.items()))\nprint(f(*[1, 2], **{'x': 3}))",
+      "stdout": "((1, 2), [('x', 3)])\n"
+    },
+    {
+      "program": "def f(a, b): return a\nprint(f(1))",
+      "error": "TypeError"
+    },
+    {
+      "program": "def f(a, b): return a\nprint(f(1, 2, 3))",
+      "error": "TypeError"
+    },
+    {
+      "program": "def f(a): return a\nprint(f(1, a=2))",
+      "error": "TypeError"
+    },
+    {
+      "program": "def f(a): return a\nprint(f(1, x=2))",
+      "error": "TypeError"
+    },
+    {
+      "program": "def f(): return 1\nprint(f(1))",
+      "error": "TypeError"
+    },
+    {
+      "program": "def f(x=[]):\n    x.append(1)\n    return x\nprint(f())\nprint(f())",
+      "stdout": "[1]\n[1, 1]\n"
+    },
+    {
+      "program": "def f(acc={}):\n    acc[len(acc)] = len(acc)\n    return sorted(acc.items())\nprint(f())\nprint(f())",
+      "stdout": "[(0, 0)]\n[(0, 0), (1, 1)]\n"
+    },
+    {
+      "program": "n = 5\ndef f(x=n): return x\nn = 99\nprint(f())",
+      "stdout": "5\n"
+    },
+    {
+      "program": "g = lambda a, b=3: a * b\nprint(g(4))\nprint(g(4, 2))",
+      "stdout": "12\n8\n"
+    },
+    {
+      "program": "g = lambda *a, **k: (a, sorted(k.items()))\nprint(g(1, 2, x=3))",
+      "stdout": "((1, 2), [('x', 3)])\n"
+    },
+    {
+      "program": "def f(a, b, c): return a + b + c\ndef g(*args): return f(*args)\nprint(g(1, 2, 3))",
+      "stdout": "6\n"
+    },
+    {
+      "program": "def f(**kw): return sorted(kw.items())\ndef g(**kw): return f(**kw)\nprint(g(p=1, q=2))",
+      "stdout": "[('p', 1), ('q', 2)]\n"
+    },
+    {
+      "program": "print(sorted([3, 1, 2], reverse=True))",
+      "stdout": "[3, 2, 1]\n"
+    },
+    {
+      "program": "print(sorted(['bb', 'a', 'ccc'], key=len))",
+      "stdout": "['a', 'bb', 'ccc']\n"
+    },
+    {
+      "program": "print(dict(a=1, b=2))",
+      "stdout": "{'a': 1, 'b': 2}\n"
+    },
+    {
+      "program": "print(max([1, 2], key=lambda x: -x))",
+      "stdout": "1\n"
+    },
+    {
+      "program": "print(int('11', base=2))",
+      "stdout": "3\n"
+    }
+  ]
+}
