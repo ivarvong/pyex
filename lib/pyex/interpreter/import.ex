@@ -256,7 +256,9 @@ defmodule Pyex.Interpreter.Import do
       "chdir" => {:builtin, &os_chdir/1},
       "makedirs" => {:builtin, &os_makedirs/1},
       "listdir" => {:builtin, &os_listdir/1},
-      "walk" => {:builtin, &os_walk/1}
+      "walk" => {:builtin, &os_walk/1},
+      "remove" => {:builtin, &os_remove/1},
+      "unlink" => {:builtin, &os_remove/1}
     }
 
     {:ok, {:module, "os", attrs}}
@@ -303,6 +305,35 @@ defmodule Pyex.Interpreter.Import do
 
   defp os_listdir(_args) do
     {:exception, "TypeError: listdir expected at most 1 argument"}
+  end
+
+  @spec os_remove([Interpreter.pyvalue()]) ::
+          {:ctx_call, (Pyex.Env.t(), Ctx.t() -> {term(), Pyex.Env.t(), Ctx.t()})}
+          | {:exception, String.t()}
+  defp os_remove([path]) do
+    case Pyex.Path.coerce(path) do
+      {:ok, path} ->
+        {:ctx_call,
+         fn env, ctx ->
+           case ctx.filesystem do
+             nil ->
+               {{:exception, "OSError: no filesystem configured"}, env, ctx}
+
+             fs ->
+               case Pyex.FS.rm(fs, ctx.cwd, path) do
+                 {:ok, fs} -> {nil, env, %{ctx | filesystem: fs}}
+                 {:error, msg} -> {{:exception, msg}, env, ctx}
+               end
+           end
+         end}
+
+      :error ->
+        {:exception, "TypeError: remove: path should be string"}
+    end
+  end
+
+  defp os_remove(_args) do
+    {:exception, "TypeError: remove expected exactly 1 argument"}
   end
 
   @spec os_walk([Interpreter.pyvalue()]) ::

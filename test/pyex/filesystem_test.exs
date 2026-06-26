@@ -777,4 +777,48 @@ defmodule Pyex.FilesystemTest do
       assert value == ["file.txt"]
     end
   end
+
+  describe "os.remove / os.unlink" do
+    test "remove deletes a file" do
+      fs = Memory.new(%{"a.txt" => "x", "b.txt" => "y"})
+
+      {value, _ctx} =
+        run_with_fs!("import os\nos.remove('a.txt')\nsorted(os.listdir('.'))", fs)
+
+      assert value == ["b.txt"]
+    end
+
+    test "unlink is an alias for remove" do
+      fs = Memory.new(%{"a.txt" => "x"})
+      {value, _ctx} = run_with_fs!("import os\nos.unlink('a.txt')\nos.listdir('.')", fs)
+      assert value == []
+    end
+
+    test "a removed file can no longer be opened" do
+      fs = Memory.new(%{"a.txt" => "x"})
+
+      assert {:error, "FileNotFoundError:" <> _} =
+               run_with_fs_public!(
+                 "import os\nos.remove('a.txt')\nopen('a.txt').read()",
+                 fs
+               )
+    end
+
+    test "removing a missing file raises FileNotFoundError" do
+      assert {:error, "FileNotFoundError:" <> _} =
+               run_with_fs_public!("import os\nos.remove('nope.txt')", Memory.new())
+    end
+
+    test "remove respects the cwd for relative paths" do
+      fs = Memory.new(%{"proj/data.txt" => "x"})
+
+      {_value, ctx} =
+        run_with_fs_public!(
+          "import os\nos.chdir('proj')\nos.remove('data.txt')",
+          fs
+        )
+
+      assert {:error, "FileNotFoundError:" <> _} = Memory.read(ctx.filesystem, "proj/data.txt")
+    end
+  end
 end
