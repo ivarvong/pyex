@@ -29,9 +29,23 @@ defmodule Pyex.Stdlib.Pydantic do
     %{
       "BaseModel" => base_model_class(),
       "Field" => {:builtin_kw, &field/2},
+      "field_validator" => {:builtin, &field_validator/1},
       "ValidationError" => {:exception_class, "ValidationError"}
     }
   end
+
+  # @field_validator(*fields) — returns a decorator that tags the method as a
+  # validator for those fields. The @classmethod/@staticmethod a validator is
+  # usually also decorated with is unwrapped to the underlying function.
+  @spec field_validator([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp field_validator(args) do
+    fields = Enum.filter(args, &is_binary/1)
+    {:builtin, fn [method] -> {:pydantic_validator, fields, unwrap_method(method)} end}
+  end
+
+  defp unwrap_method({:classmethod, func}), do: func
+  defp unwrap_method({:staticmethod, func}), do: func
+  defp unwrap_method(func), do: func
 
   @doc """
   Returns `true` if `value` is a class that inherits from `BaseModel`.
@@ -76,6 +90,7 @@ defmodule Pyex.Stdlib.Pydantic do
        "__init__" => {:builtin_kw, &base_model_init/2},
        "__pydantic__" => true,
        "model_dump" => {:builtin_kw, &model_dump/2},
+       "model_dump_json" => {:builtin_kw, &model_dump_json/2},
        "model_validate" => {:builtin_kw, &model_validate_classmethod/2},
        "model_json_schema" => {:builtin_kw, &model_json_schema_classmethod/2}
      }}
@@ -108,13 +123,86 @@ defmodule Pyex.Stdlib.Pydantic do
 
     case validate_and_coerce(annotations, defaults, field_constraints, kwargs, class) do
       {:ok, attrs} ->
-        {:instance, class, attrs}
+        case collect_validators(class) do
+          [] ->
+            {:instance, class, attrs}
+
+          validators ->
+            {:ctx_call, fn env, ctx -> run_validators(class, attrs, validators, env, ctx) end}
+        end
 
       {:error, errors} ->
         msg = format_validation_errors(errors)
         {:exception, "ValidationError: #{msg}"}
     end
   end
+
+  # Validator methods tagged by @field_validator, gathered across the MRO.
+  @spec collect_validators(Pyex.Interpreter.pyvalue()) ::
+          [{[String.t()], Pyex.Interpreter.pyvalue()}]
+  defp collect_validators(class) do
+    class
+    |> linearize()
+    |> Enum.flat_map(fn {:class, _, _, attrs} ->
+      Enum.flat_map(attrs, fn
+        {_name, {:pydantic_validator, fields, func}} -> [{fields, func}]
+        _ -> []
+      end)
+    end)
+  end
+
+  # Runs each field validator as `validator(cls, value)`, replacing the field
+  # with its return. A ValueError/AssertionError raised by a validator becomes
+  # a ValidationError, matching pydantic.
+  @spec run_validators(
+          Pyex.Interpreter.pyvalue(),
+          %{String.t() => Pyex.Interpreter.pyvalue()},
+          [{[String.t()], Pyex.Interpreter.pyvalue()}],
+          term(),
+          term()
+        ) :: {Pyex.Interpreter.pyvalue(), term(), term()}
+  defp run_validators(class, attrs, validators, env, ctx) do
+    jobs =
+      Enum.flat_map(validators, fn {fields, func} ->
+        fields |> Enum.filter(&Map.has_key?(attrs, &1)) |> Enum.map(&{&1, func})
+      end)
+
+    run_validator_jobs(class, attrs, jobs, env, ctx)
+  end
+
+  defp run_validator_jobs(class, attrs, [], env, ctx), do: {{:instance, class, attrs}, env, ctx}
+
+  defp run_validator_jobs(class, attrs, [{field, func} | rest], env, ctx) do
+    value = Map.get(attrs, field)
+
+    case Pyex.Interpreter.call_function(func, [class, value], %{}, env, ctx) do
+      {{:exception, msg}, env, ctx} ->
+        {{:exception, validation_error_from(msg)}, env, reset_exception(ctx, msg)}
+
+      {{:exception, msg}, env, ctx, _} ->
+        {{:exception, validation_error_from(msg)}, env, reset_exception(ctx, msg)}
+
+      {new_value, env, ctx} ->
+        run_validator_jobs(class, Map.put(attrs, field, new_value), rest, env, ctx)
+
+      {new_value, env, ctx, _} ->
+        run_validator_jobs(class, Map.put(attrs, field, new_value), rest, env, ctx)
+    end
+  end
+
+  @spec validation_error_from(String.t()) :: String.t()
+  defp validation_error_from("ValueError: " <> rest), do: "ValidationError: #{rest}"
+  defp validation_error_from("AssertionError: " <> rest), do: "ValidationError: #{rest}"
+  defp validation_error_from(other), do: other
+
+  # When a validator's ValueError/AssertionError is rewritten to a
+  # ValidationError, drop the captured original instance so `as e` / `type(e)`
+  # reflect the new class (synthesized from the message); other exceptions
+  # propagate with their instance intact.
+  @spec reset_exception(term(), String.t()) :: term()
+  defp reset_exception(ctx, "ValueError: " <> _), do: %{ctx | exception_instance: nil}
+  defp reset_exception(ctx, "AssertionError: " <> _), do: %{ctx | exception_instance: nil}
+  defp reset_exception(ctx, _other), do: ctx
 
   @spec collect_fields(Pyex.Interpreter.pyvalue()) ::
           {%{String.t() => String.t() | Pyex.Interpreter.pyvalue()},
@@ -497,6 +585,24 @@ defmodule Pyex.Stdlib.Pydantic do
       value = Map.get(attrs, name)
       PyDict.put(acc, name, dump_value(value))
     end)
+  end
+
+  @spec model_dump_json(
+          [Pyex.Interpreter.pyvalue()],
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: Pyex.Interpreter.pyvalue()
+  defp model_dump_json([self], kwargs) do
+    dict = model_dump([self], Map.drop(kwargs, ["indent"]))
+
+    # pydantic's model_dump_json is compact by default; an `indent=N`
+    # produces an indented document with the same item/key separators.
+    json_kwargs =
+      case Map.get(kwargs, "indent") do
+        n when is_integer(n) -> %{"indent" => n}
+        _ -> %{"separators" => {",", ":"}}
+      end
+
+    Pyex.Stdlib.JSON.dumps(dict, json_kwargs)
   end
 
   @spec dump_value(Pyex.Interpreter.pyvalue()) :: Pyex.Interpreter.pyvalue()
