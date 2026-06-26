@@ -1,0 +1,93 @@
+{
+  "python_version": "3.14.5",
+  "cells": [
+    {
+      "program": "def deco(f):\n    def w(*a, **k):\n        return f(*a, **k) + 1\n    return w\n@deco\ndef add(a, b):\n    return a + b\nprint(add(2, 3))",
+      "stdout": "6\n"
+    },
+    {
+      "program": "def d1(f):\n    def w():\n        return f() + 'A'\n    return w\ndef d2(f):\n    def w():\n        return f() + 'B'\n    return w\n@d1\n@d2\ndef g():\n    return 'x'\nprint(g())",
+      "stdout": "xBA\n"
+    },
+    {
+      "program": "def repeat(n):\n    def deco(f):\n        def w(*a):\n            return [f(*a) for _ in range(n)]\n        return w\n    return deco\n@repeat(3)\ndef hi():\n    return 'hi'\nprint(hi())",
+      "stdout": "['hi', 'hi', 'hi']\n"
+    },
+    {
+      "program": "def prefix(p):\n    def deco(f):\n        def w(s):\n            return p + f(s)\n        return w\n    return deco\n@prefix('>> ')\ndef shout(s):\n    return s.upper()\nprint(shout('go'))",
+      "stdout": ">> GO\n"
+    },
+    {
+      "program": "import functools\ndef deco(f):\n    @functools.wraps(f)\n    def w(*a, **k):\n        return f(*a, **k)\n    return w\n@deco\ndef foo():\n    'docstring'\n    return 1\nprint(foo.__name__, foo.__doc__)",
+      "stdout": "foo docstring\n"
+    },
+    {
+      "program": "import functools\ndef deco(f):\n    @functools.wraps(f)\n    def w(*a, **k):\n        return f(*a, **k)\n    return w\n@deco\ndef foo():\n    return 1\nprint(foo.__wrapped__.__name__)",
+      "stdout": "foo\n"
+    },
+    {
+      "program": "import functools\ndef deco(f):\n    @functools.wraps(f)\n    def w(*a, **k):\n        return f(*a, **k)\n    return w\n@deco\ndef foo():\n    return 1\nprint(foo())",
+      "stdout": "1\n"
+    },
+    {
+      "program": "def tag(f):\n    f.registered = True\n    return f\n@tag\ndef foo():\n    return 1\nprint(foo.registered, foo())",
+      "stdout": "True 1\n"
+    },
+    {
+      "program": "def const(f):\n    return 42\n@const\ndef foo():\n    return 1\nprint(foo)",
+      "stdout": "42\n"
+    },
+    {
+      "program": "def addattr(cls):\n    cls.tag = 'tagged'\n    return cls\n@addattr\nclass C:\n    pass\nprint(C.tag)",
+      "stdout": "tagged\n"
+    },
+    {
+      "program": "def singleton(cls):\n    inst = cls()\n    return inst\n@singleton\nclass Config:\n    value = 7\nprint(Config.value)",
+      "stdout": "7\n"
+    },
+    {
+      "program": "class C:\n    def __init__(self):\n        self._x = 0\n    @property\n    def x(self):\n        return self._x\n    @x.setter\n    def x(self, v):\n        self._x = v * 2\nc = C()\nc.x = 5\nprint(c.x)",
+      "stdout": "10\n"
+    },
+    {
+      "program": "class C:\n    def __init__(self):\n        self._x = 1\n    @property\n    def x(self):\n        return self._x\n    @x.deleter\n    def x(self):\n        self._x = None\nc = C()\ndel c.x\nprint(c.x)",
+      "stdout": "None\n"
+    },
+    {
+      "program": "class Circle:\n    def __init__(self, r):\n        self.r = r\n    @property\n    def area(self):\n        return 3 * self.r * self.r\nprint(Circle(2).area)",
+      "stdout": "12\n"
+    },
+    {
+      "program": "class C:\n    @property\n    def x(self):\n        return 1\nc = C()\ntry:\n    c.x = 5\nexcept AttributeError:\n    print('no setter')",
+      "stdout": "no setter\n"
+    },
+    {
+      "program": "class A:\n    name = 'A'\n    @classmethod\n    def who(cls):\n        return cls.name\nclass B(A):\n    name = 'B'\nprint(A.who(), B.who())",
+      "stdout": "A B\n"
+    },
+    {
+      "program": "class C:\n    @classmethod\n    def make(cls):\n        return cls()\n    def __init__(self):\n        self.v = 9\nprint(C.make().v)",
+      "stdout": "9\n"
+    },
+    {
+      "program": "class C:\n    @staticmethod\n    def add(a, b):\n        return a + b\nprint(C.add(2, 3))",
+      "stdout": "5\n"
+    },
+    {
+      "program": "class C:\n    @staticmethod\n    def add(a, b):\n        return a + b\nprint(C().add(4, 5))",
+      "stdout": "9\n"
+    },
+    {
+      "program": "import functools\n@functools.lru_cache(maxsize=None)\ndef fib(n):\n    return n if n < 2 else fib(n - 1) + fib(n - 2)\nprint(fib(15))",
+      "stdout": "610\n"
+    },
+    {
+      "program": "import functools\n@functools.lru_cache\ndef sq(n):\n    return n * n\nprint(sq(6), sq(6))",
+      "stdout": "36 36\n"
+    },
+    {
+      "program": "def tag(label):\n    def deco(f):\n        def w(*a):\n            return label + ':' + f(*a)\n        return w\n    return deco\n@tag('outer')\n@tag('inner')\ndef g():\n    return 'v'\nprint(g())",
+      "stdout": "outer:inner:v\n"
+    }
+  ]
+}

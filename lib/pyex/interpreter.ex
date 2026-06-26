@@ -716,28 +716,47 @@ defmodule Pyex.Interpreter do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
-      {obj, env, ctx} ->
-        obj = Ctx.deref(ctx, obj)
+      {raw_obj, env, ctx} ->
+        obj = Ctx.deref(ctx, raw_obj)
 
         case obj do
-          {:instance, _, attrs} = inst ->
-            if Map.has_key?(attrs, attr) do
-              new_inst = put_elem(inst, 2, Map.delete(attrs, attr))
+          {:instance, class, attrs} = inst ->
+            cond do
+              Map.has_key?(attrs, attr) ->
+                new_inst = put_elem(inst, 2, Map.delete(attrs, attr))
 
-              case obj_expr do
-                {:var, _, [var_name]} ->
-                  case Env.get(env, var_name) do
-                    {:ok, {:ref, id}} -> {nil, env, Ctx.heap_put(ctx, id, new_inst)}
-                    _ -> {nil, Env.put_at_source(env, var_name, new_inst), ctx}
-                  end
+                case obj_expr do
+                  {:var, _, [var_name]} ->
+                    case Env.get(env, var_name) do
+                      {:ok, {:ref, id}} -> {nil, env, Ctx.heap_put(ctx, id, new_inst)}
+                      _ -> {nil, Env.put_at_source(env, var_name, new_inst), ctx}
+                    end
 
-                _ ->
-                  {nil, env, ctx}
-              end
-            else
-              {{:exception,
-                "AttributeError: #{Helpers.py_type(obj)} object has no attribute '#{attr}'"}, env,
-               ctx}
+                  _ ->
+                    {nil, env, ctx}
+                end
+
+              # `del obj.attr` where attr is a property with a deleter calls it.
+              match?(
+                {:ok, {:property, _, _, fdel}, _} when fdel != nil,
+                ClassLookup.resolve_class_attr_with_owner(class, attr)
+              ) ->
+                {:ok, {:property, _fget, _fset, fdel}, _owner} =
+                  ClassLookup.resolve_class_attr_with_owner(class, attr)
+
+                self_arg = if match?({:ref, _}, raw_obj), do: raw_obj, else: inst
+
+                case call_function(fdel, [self_arg], %{}, env, ctx) do
+                  {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+                  {{:exception, _} = signal, env, ctx, _} -> {signal, env, ctx}
+                  {_, env, ctx, _} -> {nil, env, ctx}
+                  {_, env, ctx} -> {nil, env, ctx}
+                end
+
+              true ->
+                {{:exception,
+                  "AttributeError: #{Helpers.py_type(obj)} object has no attribute '#{attr}'"},
+                 env, ctx}
             end
 
           _ ->

@@ -52,11 +52,33 @@ defmodule Pyex.Stdlib.Functools do
   def functools_partial(_), do: {:exception, "TypeError: partial() requires at least 1 argument"}
 
   @doc false
+  @wraps_assigned ["__name__", "__qualname__", "__doc__", "__module__", "__annotations__"]
+
   @spec functools_wraps([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
-  def functools_wraps([_wrapped]) do
-    # Returns a decorator that copies __name__, __doc__ etc.
-    # We implement this as a passthrough decorator since we don't track __name__ on functions.
-    {:builtin, fn [func] -> func end}
+  def functools_wraps([wrapped]) do
+    # Returns a decorator that copies the wrapped function's identifying
+    # metadata onto the wrapper and records it as __wrapped__, matching
+    # functools.update_wrapper.
+    copied =
+      @wraps_assigned
+      |> Enum.reduce(%{}, fn key, acc ->
+        case Pyex.Interpreter.Helpers.function_attr(wrapped, key) do
+          {:ok, value} -> Map.put(acc, key, value)
+          :error -> acc
+        end
+      end)
+      |> Map.put("__wrapped__", wrapped)
+
+    {:builtin,
+     fn [wrapper] ->
+       {base, existing} =
+         case wrapper do
+           {:func_with_attrs, f, attrs} -> {f, attrs}
+           f -> {f, %{}}
+         end
+
+       {:func_with_attrs, base, Map.merge(existing, copied)}
+     end}
   end
 
   def functools_wraps(_), do: {:exception, "TypeError: wraps() takes 1 argument"}
