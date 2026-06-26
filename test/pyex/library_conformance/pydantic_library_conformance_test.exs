@@ -151,4 +151,103 @@ defmodule Pyex.LibraryConformance.PydanticTest do
       """)
     end
   end
+
+  describe "model_dump_json" do
+    test "compact JSON by default" do
+      assert_matches_library("""
+      from pydantic import BaseModel
+
+      class C(BaseModel):
+          a: int
+          b: str
+          items: list
+
+      print(C(a=1, b="x", items=[1, 2, 3]).model_dump_json())
+      """)
+    end
+
+    test "nested models serialize recursively" do
+      assert_matches_library("""
+      from pydantic import BaseModel
+
+      class Inner(BaseModel):
+          v: int
+
+      class Outer(BaseModel):
+          name: str
+          inner: Inner
+
+      print(Outer(name="o", inner=Inner(v=7)).model_dump_json())
+      """)
+    end
+
+    test "indent produces a pretty document" do
+      assert_matches_library("""
+      from pydantic import BaseModel
+
+      class C(BaseModel):
+          a: int
+          b: str
+
+      print(C(a=1, b="x").model_dump_json(indent=2))
+      """)
+    end
+  end
+
+  describe "field_validator" do
+    test "transforms the field value" do
+      assert_matches_library("""
+      from pydantic import BaseModel, field_validator
+
+      class C(BaseModel):
+          x: int
+
+          @field_validator("x")
+          @classmethod
+          def scale(cls, v):
+              return v * 10
+
+      print(C(x=5).x)
+      """)
+    end
+
+    test "raising ValueError surfaces as a ValidationError" do
+      assert_matches_library("""
+      from pydantic import BaseModel, field_validator
+
+      class C(BaseModel):
+          x: int
+
+          @field_validator("x")
+          @classmethod
+          def non_negative(cls, v):
+              if v < 0:
+                  raise ValueError("must be non-negative")
+              return v
+
+      try:
+          C(x=-1)
+      except Exception as e:
+          print(type(e).__name__)
+      """)
+    end
+
+    test "one validator covering multiple fields" do
+      assert_matches_library("""
+      from pydantic import BaseModel, field_validator
+
+      class C(BaseModel):
+          a: int
+          b: int
+
+          @field_validator("a", "b")
+          @classmethod
+          def double(cls, v):
+              return v * 2
+
+      c = C(a=1, b=2)
+      print(c.a, c.b)
+      """)
+    end
+  end
 end
