@@ -41,7 +41,7 @@ defmodule Pyex.Stdlib.FastAPI do
       "HTTPException" => http_exception_class(),
       "responses" => {:module, "fastapi.responses", responses_attrs},
       "testclient" =>
-        {:module, "fastapi.testclient", %{"TestClient" => {:builtin, &test_client/1}}},
+        {:module, "fastapi.testclient", %{"TestClient" => {:builtin_kw, &test_client/2}}},
       "HTMLResponse" => {:builtin_kw, &html_response/2},
       "JSONResponse" => {:builtin_kw, &json_response/2},
       "StreamingResponse" => {:builtin_kw, &streaming_response/2}
@@ -78,26 +78,39 @@ defmodule Pyex.Stdlib.FastAPI do
 
   # ── TestClient ────────────────────────────────────────────────────────────
 
-  @spec test_client([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
-  defp test_client([app]) do
+  @spec test_client([Interpreter.pyvalue()], %{optional(String.t()) => Interpreter.pyvalue()}) ::
+          Interpreter.pyvalue()
+  defp test_client([app | _], kwargs) do
+    # Like Starlette's TestClient, an unhandled exception in a handler is
+    # re-raised by default (raise_server_exceptions=True); set it False to get
+    # a 500 response instead — the behaviour a deployed app exhibits.
+    raise_server_exceptions = truthy(Map.get(kwargs, "raise_server_exceptions", true))
+
     %{
       "__testclient__" => true,
       "__app__" => app,
-      "get" => client_method("GET", app),
-      "post" => client_method("POST", app),
-      "put" => client_method("PUT", app),
-      "delete" => client_method("DELETE", app),
-      "patch" => client_method("PATCH", app)
+      "get" => client_method("GET", app, raise_server_exceptions),
+      "post" => client_method("POST", app, raise_server_exceptions),
+      "put" => client_method("PUT", app, raise_server_exceptions),
+      "delete" => client_method("DELETE", app, raise_server_exceptions),
+      "patch" => client_method("PATCH", app, raise_server_exceptions)
     }
   end
 
-  defp test_client(_), do: {:exception, "TypeError: TestClient() requires an app argument"}
+  defp test_client(_, _), do: {:exception, "TypeError: TestClient() requires an app argument"}
 
-  @spec client_method(String.t(), Interpreter.pyvalue()) :: Interpreter.pyvalue()
-  defp client_method(method, app) do
+  @spec truthy(Interpreter.pyvalue()) :: boolean()
+  defp truthy(false), do: false
+  defp truthy(nil), do: false
+  defp truthy(0), do: false
+  defp truthy(_), do: true
+
+  @spec client_method(String.t(), Interpreter.pyvalue(), boolean()) :: Interpreter.pyvalue()
+  defp client_method(method, app, raise_server_exceptions) do
     {:builtin_kw,
      fn [path | _], kwargs when is_binary(path) ->
-       {:ctx_call, fn env, ctx -> dispatch(method, app, path, kwargs, env, ctx) end}
+       {:ctx_call,
+        fn env, ctx -> dispatch(method, app, path, kwargs, raise_server_exceptions, env, ctx) end}
      end}
   end
 
@@ -108,23 +121,40 @@ defmodule Pyex.Stdlib.FastAPI do
           Interpreter.pyvalue(),
           String.t(),
           %{optional(String.t()) => Interpreter.pyvalue()},
+          boolean(),
           Pyex.Env.t(),
           Pyex.Ctx.t()
         ) :: {Interpreter.pyvalue(), Pyex.Env.t(), Pyex.Ctx.t()}
-  defp dispatch(method, app, full_path, kwargs, env, ctx) do
+  defp dispatch(method, app, full_path, kwargs, raise_server_exceptions, env, ctx) do
     {path, query} = split_query(full_path)
     routes = Map.get(app, "__routes__", [])
 
     case find_route(routes, method, path) do
       {:ok, handler, path_params} ->
-        args = build_handler_args(handler, path_params, query, kwargs, env, ctx)
+        case build_handler_args(handler, path_params, query, kwargs, env, ctx) do
+          {:ok, args} ->
+            case Interpreter.call_function(handler, [], args, env, ctx) do
+              {{:exception, msg}, env, ctx} ->
+                {error_response(msg, raise_server_exceptions, ctx), env, ctx}
 
-        case Interpreter.call_function(handler, [], args, env, ctx) do
-          {{:exception, msg}, env, ctx} -> {error_response(msg, ctx), env, ctx}
-          {{:exception, msg}, env, ctx, _} -> {error_response(msg, ctx), env, ctx}
-          {result, env, ctx} -> {success_response(result), env, ctx}
-          {result, env, ctx, _} -> {success_response(result), env, ctx}
+              {{:exception, msg}, env, ctx, _} ->
+                {error_response(msg, raise_server_exceptions, ctx), env, ctx}
+
+              {result, env, ctx} ->
+                {success_response(result), env, ctx}
+
+              {result, env, ctx, _} ->
+                {success_response(result), env, ctx}
+            end
+
+          {:error, errors} ->
+            # FastAPI returns 422 Unprocessable Entity for request-validation
+            # failures (bad path/query coercion or an invalid body).
+            {make_response(422, PyDict.from_pairs([{"detail", py_list(errors)}])), env, ctx}
         end
+
+      :method_not_allowed ->
+        {make_response(405, PyDict.from_pairs([{"detail", "Method Not Allowed"}])), env, ctx}
 
       :no_match ->
         {make_response(404, PyDict.from_pairs([{"detail", "Not Found"}])), env, ctx}
@@ -153,21 +183,27 @@ defmodule Pyex.Stdlib.FastAPI do
   end
 
   @spec find_route([route()], String.t(), String.t()) ::
-          {:ok, Interpreter.pyvalue(), %{String.t() => String.t()}} | :no_match
+          {:ok, Interpreter.pyvalue(), %{String.t() => String.t()}}
+          | :method_not_allowed
+          | :no_match
   defp find_route(routes, method, path) do
     request_segments = String.split(path, "/", trim: true)
 
-    Enum.find_value(routes, :no_match, fn
-      {{^method, template}, handler} ->
-        {segments, param_names} = compile_path(template)
+    # Halt on the first method+path match. If the path matches a route but the
+    # method differs, remember it so we can answer 405 rather than 404.
+    Enum.reduce_while(routes, :no_match, fn {{route_method, template}, handler}, acc ->
+      {segments, param_names} = compile_path(template)
 
-        case match_segments(segments, param_names, request_segments) do
-          {:ok, path_params} -> {:ok, handler, path_params}
-          :no_match -> false
-        end
+      case match_segments(segments, param_names, request_segments) do
+        {:ok, path_params} when route_method == method ->
+          {:halt, {:ok, handler, path_params}}
 
-      _ ->
-        false
+        {:ok, _path_params} ->
+          {:cont, :method_not_allowed}
+
+        :no_match ->
+          {:cont, acc}
+      end
     end)
   end
 
@@ -204,30 +240,43 @@ defmodule Pyex.Stdlib.FastAPI do
           %{optional(String.t()) => Interpreter.pyvalue()},
           Pyex.Env.t(),
           Pyex.Ctx.t()
-        ) :: %{String.t() => Interpreter.pyvalue()}
+        ) ::
+          {:ok, %{String.t() => Interpreter.pyvalue()}} | {:error, [Interpreter.pyvalue()]}
   defp build_handler_args(handler, path_params, query, kwargs, env, ctx) do
     json_body = Map.get(kwargs, "json")
 
     handler
     |> handler_params()
-    |> Enum.reduce(%{}, fn {name, default, type}, acc ->
+    |> Enum.reduce_while({:ok, %{}}, fn {name, _default, type}, {:ok, acc} ->
       cond do
         Map.has_key?(path_params, name) ->
-          Map.put(acc, name, coerce_param(Map.get(path_params, name), type))
+          bind_coerced(acc, name, Map.get(path_params, name), type, "path")
 
-        pydantic_param?(type, env, ctx) and json_body != nil ->
-          Map.put(acc, name, build_body(type, json_body, env, ctx))
+        pydantic_param?(type, env, ctx) ->
+          case build_body(type, json_body, env, ctx) do
+            {:ok, instance} -> {:cont, {:ok, Map.put(acc, name, instance)}}
+            {:error, errors} -> {:halt, {:error, errors}}
+          end
 
         Map.has_key?(query, name) ->
-          Map.put(acc, name, coerce_param(Map.get(query, name), type))
-
-        default != nil ->
-          acc
+          bind_coerced(acc, name, Map.get(query, name), type, "query")
 
         true ->
-          acc
+          {:cont, {:ok, acc}}
       end
     end)
+  end
+
+  @spec bind_coerced(map(), String.t(), String.t(), String.t() | nil, String.t()) ::
+          {:cont, {:ok, map()}} | {:halt, {:error, [Interpreter.pyvalue()]}}
+  defp bind_coerced(acc, name, raw, type, location) do
+    case coerce_param(raw, type) do
+      {:ok, value} ->
+        {:cont, {:ok, Map.put(acc, name, value)}}
+
+      :error ->
+        {:halt, {:error, [coercion_error(location, name, type)]}}
+    end
   end
 
   @spec handler_params(Interpreter.pyvalue()) :: [{String.t(), term(), String.t() | nil}]
@@ -246,23 +295,23 @@ defmodule Pyex.Stdlib.FastAPI do
   defp normalize_type(type) when is_binary(type) and type != "", do: type
   defp normalize_type(_), do: nil
 
-  @spec coerce_param(String.t(), String.t() | nil) :: Interpreter.pyvalue()
+  @spec coerce_param(String.t(), String.t() | nil) :: {:ok, Interpreter.pyvalue()} | :error
   defp coerce_param(value, "int") do
     case Integer.parse(value) do
-      {n, ""} -> n
-      _ -> value
+      {n, ""} -> {:ok, n}
+      _ -> :error
     end
   end
 
   defp coerce_param(value, "float") do
     case Float.parse(value) do
-      {f, ""} -> f
-      _ -> value
+      {f, ""} -> {:ok, f}
+      _ -> :error
     end
   end
 
-  defp coerce_param(value, "bool"), do: value in ["true", "1", "True"]
-  defp coerce_param(value, _), do: value
+  defp coerce_param(value, "bool"), do: {:ok, value in ["true", "1", "True"]}
+  defp coerce_param(value, _), do: {:ok, value}
 
   @spec pydantic_param?(String.t() | nil, Pyex.Env.t(), Pyex.Ctx.t()) :: boolean()
   defp pydantic_param?(nil, _env, _ctx), do: false
@@ -274,15 +323,23 @@ defmodule Pyex.Stdlib.FastAPI do
     end
   end
 
-  @spec build_body(String.t(), Interpreter.pyvalue(), Pyex.Env.t(), Pyex.Ctx.t()) ::
-          Interpreter.pyvalue()
+  # Validates the request body against the pydantic model. A missing body or a
+  # validation failure (wrong type, missing field, non-dict) is a 422.
+  @spec build_body(String.t(), Interpreter.pyvalue() | nil, Pyex.Env.t(), Pyex.Ctx.t()) ::
+          {:ok, Interpreter.pyvalue()} | {:error, [Interpreter.pyvalue()]}
+  defp build_body(_type, nil, _env, _ctx),
+    do: {:error, [body_error("Field required")]}
+
   defp build_body(type, json_body, env, ctx) do
-    with {:ok, class} <- resolve_type(type, env, ctx),
-         {:ok, instance} <-
-           Pyex.Stdlib.Pydantic.validate_body(class, Pyex.Ctx.deref(ctx, json_body)) do
-      instance
-    else
-      _ -> json_body
+    case resolve_type(type, env, ctx) do
+      {:ok, class} ->
+        case Pyex.Stdlib.Pydantic.validate_body(class, Pyex.Ctx.deref(ctx, json_body)) do
+          {:ok, instance} -> {:ok, instance}
+          {:error, msg} -> {:error, [body_error(msg)]}
+        end
+
+      :error ->
+        {:ok, json_body}
     end
   end
 
@@ -295,6 +352,28 @@ defmodule Pyex.Stdlib.FastAPI do
     end
   end
 
+  # ── 422 validation error detail (FastAPI-shaped: a list of error objects) ──
+
+  @spec coercion_error(String.t(), String.t(), String.t() | nil) :: Interpreter.pyvalue()
+  defp coercion_error(location, name, type) do
+    error_object(
+      "#{type}_parsing",
+      py_list([location, name]),
+      "Input should be a valid #{type || "value"}"
+    )
+  end
+
+  @spec body_error(String.t()) :: Interpreter.pyvalue()
+  defp body_error(msg), do: error_object("value_error", py_list(["body"]), msg)
+
+  @spec error_object(String.t(), Interpreter.pyvalue(), String.t()) :: Interpreter.pyvalue()
+  defp error_object(type, loc, msg) do
+    PyDict.from_pairs([{"type", type}, {"loc", loc}, {"msg", msg}])
+  end
+
+  @spec py_list([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp py_list(items), do: {:py_list, Enum.reverse(items), length(items)}
+
   # ── Response construction ─────────────────────────────────────────────────
 
   @spec success_response(Interpreter.pyvalue()) :: Interpreter.pyvalue()
@@ -304,16 +383,24 @@ defmodule Pyex.Stdlib.FastAPI do
 
   defp success_response(result), do: make_response(200, to_json_body(result))
 
-  @spec error_response(String.t(), Pyex.Ctx.t()) :: Interpreter.pyvalue()
-  defp error_response(msg, ctx) do
+  @spec error_response(String.t(), boolean(), Pyex.Ctx.t()) ::
+          Interpreter.pyvalue() | {:exception, String.t()}
+  defp error_response(msg, raise_server_exceptions, ctx) do
     case ctx.exception_instance do
       {:instance, {:class, "HTTPException", _, _}, attrs} ->
+        # HTTPException is always turned into a response, never re-raised.
         status = Map.get(attrs, "status_code", 500)
         detail = Map.get(attrs, "detail")
         make_response(status, PyDict.from_pairs([{"detail", detail}]))
 
+      _ when raise_server_exceptions ->
+        # Default TestClient behaviour: an unhandled handler exception
+        # propagates out of the request call for debugging.
+        {:exception, msg}
+
       _ ->
-        make_response(500, PyDict.from_pairs([{"detail", strip_prefix(msg)}]))
+        # raise_server_exceptions=False: behave like a deployed server.
+        make_response(500, PyDict.from_pairs([{"detail", "Internal Server Error"}]))
     end
   end
 
@@ -365,14 +452,6 @@ defmodule Pyex.Stdlib.FastAPI do
     case Pyex.Stdlib.JSON.dumps(body, %{"separators" => {",", ":"}}) do
       text when is_binary(text) -> text
       _ -> ""
-    end
-  end
-
-  @spec strip_prefix(String.t()) :: String.t()
-  defp strip_prefix(msg) do
-    case String.split(msg, ": ", parts: 2) do
-      [_type, rest] -> rest
-      _ -> msg
     end
   end
 
