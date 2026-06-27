@@ -174,27 +174,31 @@ defmodule Pyex do
             System.convert_time_unit(System.monotonic_time() - start_mono, :native, :microsecond) /
               1000.0
 
-          :telemetry.execute([:pyex, :run, :stop], %{duration_ms: duration_ms}, %{
-            compute: Ctx.compute_time(final_ctx)
-          })
+          final_ctx = %{final_ctx | duration_ms: duration_ms}
+
+          # Footprint == the turn's whole observable effect; the host turns
+          # these measurements into an OpenTelemetry span. See `Pyex.Turn`.
+          :telemetry.execute([:pyex, :run, :stop], Pyex.Turn.footprint(final_ctx), %{})
 
           derefed = Ctx.deep_deref(final_ctx, value)
 
-          {:ok, Interpreter.Helpers.to_python_view(derefed),
-           %{final_ctx | duration_ms: duration_ms}}
+          {:ok, Interpreter.Helpers.to_python_view(derefed), final_ctx}
 
         {:error, msg, final_ctx} ->
-          close_open_handles(final_ctx)
+          final_ctx = close_open_handles(final_ctx)
 
           duration_ms =
             System.convert_time_unit(System.monotonic_time() - start_mono, :native, :microsecond) /
               1000.0
 
+          final_ctx = %{final_ctx | duration_ms: duration_ms}
           error = Error.from_message(msg)
 
-          :telemetry.execute([:pyex, :run, :exception], %{duration_ms: duration_ms}, %{
-            error: error
-          })
+          :telemetry.execute(
+            [:pyex, :run, :exception],
+            Pyex.Turn.footprint(final_ctx),
+            %{error: error}
+          )
 
           {:error, error}
       end
