@@ -841,19 +841,29 @@ defmodule Pyex.Interpreter do
                         invoke_descriptor_get(value, instance, class, env, ctx)
 
                       :error ->
-                        case forward_method_to_wrapped(inst_attrs, attr) do
-                          {:ok, bound} ->
-                            {bound, env, ctx}
+                        cond do
+                          # StopIteration(value).value — the carried value, the
+                          # first arg, or None. Used by the generator/coroutine
+                          # return protocol (PEP 380/479).
+                          attr == "value" and
+                              Helpers.py_type(instance) in ["StopIteration", "StopAsyncIteration"] ->
+                            {stop_iteration_value(inst_attrs), env, ctx}
 
-                          :not_found ->
-                            case Dunder.call_dunder(instance, "__getattr__", [attr], env, ctx) do
-                              {:ok, val, env, ctx} ->
-                                {val, env, ctx}
+                          true ->
+                            case forward_method_to_wrapped(inst_attrs, attr) do
+                              {:ok, bound} ->
+                                {bound, env, ctx}
 
                               :not_found ->
-                                {{:exception,
-                                  "AttributeError: '#{Helpers.py_type(instance)}' object has no attribute '#{attr}'"},
-                                 env, ctx}
+                                case Dunder.call_dunder(instance, "__getattr__", [attr], env, ctx) do
+                                  {:ok, val, env, ctx} ->
+                                    {val, env, ctx}
+
+                                  :not_found ->
+                                    {{:exception,
+                                      "AttributeError: '#{Helpers.py_type(instance)}' object has no attribute '#{attr}'"},
+                                     env, ctx}
+                                end
                             end
                         end
                     end
@@ -1987,6 +1997,10 @@ defmodule Pyex.Interpreter do
                        ctx
                      )
 
+                   {:gen_pending, _val, _cont, _gen_env} when sent_value == nil ->
+                     # send(None) on a just-started generator primes it, like next().
+                     Pyex.Interpreter.BuiltinResults.prime_generator(id, env, ctx)
+
                    {:gen_pending, _val, _cont, _gen_env} ->
                      {{:exception,
                        "TypeError: can't send non-None value to a just-started generator"}, env,
@@ -2663,6 +2677,15 @@ defmodule Pyex.Interpreter do
   end
 
   def forward_method_to_wrapped(_, _), do: :not_found
+
+  # StopIteration.value: the first constructor arg, or None when absent.
+  @spec stop_iteration_value(%{optional(String.t()) => pyvalue()}) :: pyvalue()
+  defp stop_iteration_value(attrs) do
+    case Map.get(attrs, "args") do
+      {:tuple, [value | _]} -> value
+      _ -> nil
+    end
+  end
 
   @spec builtin_type_base_class(pyvalue()) :: pyvalue()
   defp builtin_type_base_class({:builtin_type, name, factory}) do
