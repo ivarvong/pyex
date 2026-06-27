@@ -133,7 +133,11 @@ model unusually simple to reason about.
   Postgres/Redis/managed-KV backend implementing the one-function
   `Pyex.Storage` protocol. Like the filesystem it fails closed without a
   backend (`StorageError`), and the same backend threaded across runs makes
-  a program a *persistent service* rather than a script.
+  a program a *persistent service* rather than a script. Multitenancy is an
+  object boundary, not a `tenant_id` filter: bind a distinct backend per
+  tenant per request (the Workers model), and attenuate to least authority
+  with `Pyex.Storage.View` (read-only, scoped) — the program holds only the
+  capability it was handed and cannot widen or escape it.
 - **No subprocess, shell, or `os.exec`.** Not implemented. There is
   no path from Python source to a host process.
 - **No native code.** No `ctypes`, no C extension loading, no

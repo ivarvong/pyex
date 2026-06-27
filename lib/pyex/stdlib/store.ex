@@ -48,6 +48,7 @@ defmodule Pyex.Stdlib.Store do
       case Pyex.Storage.get(backend, key) do
         {:ok, json} -> {JSON.decode(json), env, ctx}
         :miss -> {nil, env, ctx}
+        {:error, reason} -> {storage_error(reason), env, ctx}
       end
     end)
   end
@@ -63,8 +64,10 @@ defmodule Pyex.Stdlib.Store do
           {exc, env, ctx}
 
         json when is_binary(json) ->
-          {:ok, backend} = Pyex.Storage.put(backend, key, json)
-          {nil, env, %{ctx | storage: backend}}
+          case Pyex.Storage.put(backend, key, json) do
+            {:ok, backend} -> {nil, env, %{ctx | storage: backend}}
+            {:error, reason} -> {storage_error(reason), env, ctx}
+          end
       end
     end)
   end
@@ -76,9 +79,18 @@ defmodule Pyex.Stdlib.Store do
   @spec store_delete([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp store_delete([key]) when is_binary(key) do
     with_backend(fn backend, env, ctx ->
-      existed = match?({:ok, _}, Pyex.Storage.get(backend, key))
-      {:ok, backend} = Pyex.Storage.delete(backend, key)
-      {existed, env, %{ctx | storage: backend}}
+      case Pyex.Storage.get(backend, key) do
+        {:error, reason} ->
+          {storage_error(reason), env, ctx}
+
+        existence ->
+          existed = match?({:ok, _}, existence)
+
+          case Pyex.Storage.delete(backend, key) do
+            {:ok, backend} -> {existed, env, %{ctx | storage: backend}}
+            {:error, reason} -> {storage_error(reason), env, ctx}
+          end
+      end
     end)
   end
 
@@ -91,13 +103,19 @@ defmodule Pyex.Stdlib.Store do
 
   defp store_keys([prefix]) when is_binary(prefix) do
     with_backend(fn backend, env, ctx ->
-      {:ok, keys} = Pyex.Storage.list_prefix(backend, prefix)
-      {{:py_list, Enum.reverse(keys), length(keys)}, env, ctx}
+      case Pyex.Storage.list_prefix(backend, prefix) do
+        {:ok, keys} -> {{:py_list, Enum.reverse(keys), length(keys)}, env, ctx}
+        {:error, reason} -> {storage_error(reason), env, ctx}
+      end
     end)
   end
 
   defp store_keys(_),
     do: {:exception, "TypeError: store.keys(prefix='') expects an optional string prefix"}
+
+  # A backend (or attenuating membrane) denial/failure, surfaced to Python.
+  @spec storage_error(String.t()) :: Pyex.Interpreter.pyvalue()
+  defp storage_error(reason), do: {:exception, "StorageError: #{reason}"}
 
   # Gates every operation on a configured backend — presence is the grant,
   # mirroring how the filesystem is enabled. Absent → StorageError.
