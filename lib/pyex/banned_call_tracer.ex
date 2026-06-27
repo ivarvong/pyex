@@ -356,6 +356,17 @@ defmodule Pyex.BannedCallTracer do
     end
   end
 
+  # Skip the dispatch functions the compiler generates during protocol
+  # consolidation (`impl_for/1`, `struct_impl_for/1`, …). Their only
+  # "banned" content is the `is_pid`/`is_port`/`is_reference`/`is_bitstring`
+  # type guards the compiler emits to select an implementation — never real
+  # OS/process access. Every hand-written protocol clause lives in a `defimpl`
+  # module, which is a separate beam and still fully scanned, so skipping
+  # these generated stubs loses no coverage.
+  defp walk({:function, _ann, name, _arity, _clauses}, _beam, acc)
+       when name in [:impl_for, :impl_for!, :struct_impl_for, :__protocol__, :assert_impl!],
+       do: acc
+
   defp walk(tuple, beam, acc) when is_tuple(tuple) do
     tuple |> Tuple.to_list() |> Enum.reduce(acc, &walk(&1, beam, &2))
   end
