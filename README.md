@@ -127,6 +127,13 @@ model unusually simple to reason about.
   `VFS.Mountable`. Without one, file I/O fails closed. One filesystem
   value threads through Pyex and any other `vfs` tool unchanged — see the
   [VFS integration guide](docs/integrating-vfs.md) and `Pyex.FS`.
+- **State is host-owned (experimental).** The `store` module is a
+  key/value API (`store.get/set/delete/keys`) backed by whatever you pass
+  as `storage:` — the in-memory `Pyex.Storage.Memory`, or your own
+  Postgres/Redis/managed-KV backend implementing the one-function
+  `Pyex.Storage` protocol. Like the filesystem it fails closed without a
+  backend (`StorageError`), and the same backend threaded across runs makes
+  a program a *persistent service* rather than a script.
 - **No subprocess, shell, or `os.exec`.** Not implemented. There is
   no path from Python source to a host process.
 - **No native code.** No `ctypes`, no C extension loading, no

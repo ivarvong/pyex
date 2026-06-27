@@ -52,6 +52,7 @@ defmodule Pyex.Ctx do
 
   @type t :: %__MODULE__{
           filesystem: term(),
+          storage: term(),
           cwd: String.t(),
           handles: %{optional(non_neg_integer()) => file_handle()},
           next_handle: non_neg_integer(),
@@ -89,6 +90,7 @@ defmodule Pyex.Ctx do
         }
 
   defstruct filesystem: nil,
+            storage: nil,
             cwd: "/",
             handles: %{},
             next_handle: 0,
@@ -131,6 +133,11 @@ defmodule Pyex.Ctx do
   - `:filesystem` -- a `VFS.Mountable` backend (e.g. `VFS.Memory.new(%{"/a.txt" => "hi"})`
     or a `%VFS{}` mount table), or a plain `%{path => content}` map which is
     wrapped as a seeded in-memory backend. See `Pyex.FS`.
+  - `:storage` -- **experimental.** A host-provided key/value backend for the
+    Python `store` module: a struct implementing the `Pyex.Storage` protocol
+    (e.g. `Pyex.Storage.Memory.new()`), or a plain `%{key => json_string}`
+    map wrapped as a seeded in-memory backend. Absent → `store` raises
+    `StorageError`. See `Pyex.Storage`.
   - `:cwd` -- the current working directory relative paths resolve against,
     an absolute path string (default `"/"`). Set this to a shell's cwd when
     sharing a filesystem so `open("rel")` resolves the same way `cat rel` does.
@@ -190,6 +197,7 @@ defmodule Pyex.Ctx do
   """
   @valid_keys [
     :filesystem,
+    :storage,
     :cwd,
     :env,
     :modules,
@@ -214,6 +222,7 @@ defmodule Pyex.Ctx do
     end
 
     fs = normalize_filesystem(Keyword.get(opts, :filesystem))
+    storage = normalize_storage(Keyword.get(opts, :storage))
     cwd = normalize_cwd(Keyword.get(opts, :cwd, "/"))
     env = Keyword.get(opts, :env, %{})
     modules = Keyword.get(opts, :modules, %{}) |> normalize_modules()
@@ -237,6 +246,7 @@ defmodule Pyex.Ctx do
 
     %__MODULE__{
       filesystem: fs,
+      storage: storage,
       cwd: cwd,
       env: env,
       modules: modules,
@@ -267,6 +277,24 @@ defmodule Pyex.Ctx do
     raise ArgumentError,
           "filesystem must be a VFS.Mountable struct or a %{path => content} map, " <>
             "got: #{inspect(other)}"
+  end
+
+  # Accepts any struct implementing the `Pyex.Storage` protocol, or a plain
+  # `%{key => json_string}` map (wrapped as a seeded in-memory backend).
+  @spec normalize_storage(term()) :: term() | nil
+  defp normalize_storage(nil), do: nil
+
+  defp normalize_storage(backend) when is_struct(backend) do
+    Pyex.Storage.impl_for!(backend)
+    backend
+  end
+
+  defp normalize_storage(map) when is_map(map), do: Pyex.Storage.Memory.new(map)
+
+  defp normalize_storage(other) do
+    raise ArgumentError,
+          "storage must be a struct implementing Pyex.Storage or a " <>
+            "%{key => json_string} map, got: #{inspect(other)}"
   end
 
   # The cwd is an absolute VFS path. A relative or empty value is rooted at "/".

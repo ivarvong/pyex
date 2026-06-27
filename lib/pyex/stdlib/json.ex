@@ -171,6 +171,20 @@ defmodule Pyex.Stdlib.JSON do
           String.t() | {:exception, String.t()}
   def dumps(value, kwargs \\ %{}), do: dumps_encode(value, kwargs)
 
+  @doc """
+  Decodes a JSON string to a pyvalue, the same engine `json.loads` uses.
+  Lets other shims (e.g. the `store` module) round-trip Python values
+  through a string-only backend without duplicating the decoder. Returns
+  an `{:exception, _}` tuple on malformed input.
+  """
+  @spec decode(String.t()) :: Pyex.Interpreter.pyvalue()
+  def decode(string) when is_binary(string) do
+    case Jason.decode(string) do
+      {:ok, value} -> from_json(value)
+      {:error, reason} -> {:exception, "JSONDecodeError: #{format_decode_error(reason)}"}
+    end
+  end
+
   @spec dumps_encode(
           Pyex.Interpreter.pyvalue(),
           %{optional(String.t()) => Pyex.Interpreter.pyvalue()}

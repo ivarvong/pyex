@@ -63,6 +63,7 @@ defmodule Pyex.Stdlib do
     "zoneinfo" => Pyex.Stdlib.Zoneinfo,
     "operator" => Pyex.Stdlib.Operator,
     "bisect" => Pyex.Stdlib.Bisect,
+    "store" => Pyex.Stdlib.Store,
     "pygments" => Pyex.Stdlib.Pygments,
     "zipfile" => Pyex.Stdlib.Zipfile,
     "statistics" => Pyex.Stdlib.Statistics
