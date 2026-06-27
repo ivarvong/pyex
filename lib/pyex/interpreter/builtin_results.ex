@@ -380,6 +380,25 @@ defmodule Pyex.Interpreter.BuiltinResults do
        "TypeError: unsupported operand type(s) for +: " <>
          "'#{Helpers.py_type(acc)}' and '#{Helpers.py_type(x)}'"}
 
+  @doc """
+  Primes a just-started generator (equivalent to `next/1`). CPython treats
+  `gen.send(None)` on an unstarted generator as `next(gen)`; the `send` method
+  delegates here for that case.
+  """
+  @spec prime_generator(non_neg_integer(), Env.t(), Ctx.t()) :: eval_result()
+  def prime_generator(id, env, ctx) do
+    case Ctx.iter_entry(ctx, id) do
+      {:gen_pending, val, cont, gen_env} ->
+        step_generator(id, val, cont, gen_env, env, ctx)
+
+      {:gen_awaiting_send, _val, cont, gen_env} ->
+        advance_with_sent_value(id, cont, gen_env, nil, env, ctx)
+
+      _ ->
+        {{:exception, "StopIteration"}, env, ctx}
+    end
+  end
+
   # Pop the queued yield value, then resume the generator (with the
   # interpreter back in `:defer_inner` mode) so the next `next()` call
   # finds the new pending value. Mirrors what `eval_for_generator_iter`
