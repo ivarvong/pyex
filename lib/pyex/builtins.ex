@@ -1596,12 +1596,17 @@ defmodule Pyex.Builtins do
 
         {:ctx_call,
          fn env, ctx ->
+           # Platform capability span: the tamper-proof record of which file the
+           # turn opened and with what intent (read/write/append). See Pyex.Turn.
+           {ctx, span} =
+             Pyex.Ctx.open_span(ctx, "fs.open", %{"path" => path, "mode" => Atom.to_string(mode)})
+
            case Pyex.Ctx.open_handle(ctx, path, mode) do
              {:ok, id, ctx} ->
-               {{:file_handle, id}, env, ctx}
+               {{:file_handle, id}, env, Pyex.Ctx.close_span(ctx, span)}
 
              {:error, msg} ->
-               {{:exception, msg}, env, ctx}
+               {{:exception, msg}, env, Pyex.Ctx.close_span(ctx, span, %{"error" => msg})}
            end
          end}
 

@@ -90,7 +90,11 @@ defmodule Pyex.Ctx do
           otel_seq: non_neg_integer(),
           otel_stack: [non_neg_integer()],
           otel_active: %{optional(non_neg_integer()) => map()},
-          otel_finished: [map()]
+          otel_finished: [map()],
+          pyex_otel_seq: non_neg_integer(),
+          pyex_otel_stack: [non_neg_integer()],
+          pyex_otel_active: %{optional(non_neg_integer()) => map()},
+          pyex_otel_finished: [map()]
         }
 
   defstruct filesystem: nil,
@@ -132,7 +136,11 @@ defmodule Pyex.Ctx do
             otel_seq: 0,
             otel_stack: [],
             otel_active: %{},
-            otel_finished: []
+            otel_finished: [],
+            pyex_otel_seq: 0,
+            pyex_otel_stack: [],
+            pyex_otel_active: %{},
+            pyex_otel_finished: []
 
   @doc """
   Creates a fresh live context that captures output and execution counters.

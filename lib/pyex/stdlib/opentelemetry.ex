@@ -19,14 +19,24 @@ defmodule Pyex.Stdlib.Opentelemetry do
       spans = opentelemetry.get_finished_spans()
       opentelemetry.flush_spans("/otel/spans.jsonl")
 
+  ## Platform / tenant separation
+
+  This is the TENANT (sandboxed Python) telemetry channel. Its spans live in a
+  namespace dedicated to guest code — `pyex_otel_seq`, `pyex_otel_stack`,
+  `pyex_otel_active`, `pyex_otel_finished` — that is fully DISJOINT from the
+  platform's host-side telemetry (`Ctx.open_span`/`close_span`/`spans` over
+  `otel_seq`/`otel_finished`, exported by `Pyex.Turn`). Sandboxed code must not
+  be able to write into, parent onto, or read the platform's trace, so the two
+  never share storage, a counter, or a stack. `get_finished_spans/0` and
+  `flush_spans/1` only ever see tenant spans.
+
   ## Determinism and isolation
 
-  All span state lives in `Pyex.Ctx` (`otel_seq`, `otel_stack`,
-  `otel_active`, `otel_finished`) and is threaded through the interpreter.
-  There is no process dictionary, ETS, or other global state, so concurrent
-  `Pyex.run/2` calls are fully isolated. Span and trace ids are drawn from a
-  monotonic per-run counter (`otel_seq`) — never wall-clock time or random —
-  so a given program always produces identical spans.
+  All tenant span state lives in `Pyex.Ctx`; there is no process dictionary,
+  ETS, or other global state, so concurrent `Pyex.run/2` calls are fully
+  isolated. Span and trace ids are drawn from a monotonic per-run counter
+  (`pyex_otel_seq`) — never wall-clock time or random — so a given program
+  always produces identical spans.
   """
 
   @behaviour Pyex.Stdlib.Module
@@ -176,14 +186,14 @@ defmodule Pyex.Stdlib.Opentelemetry do
   @doc """
   Opens a new span: allocates the next id, links it to the current stack head
   as parent, inherits the parent's trace id (or starts a new trace), pushes it
-  onto the active stack, and stores it in `otel_active`. Returns `{id, ctx}`.
+  onto the active stack, and stores it in `pyex_otel_active`. Returns `{id, ctx}`.
   """
   @spec enter(Ctx.t(), Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
           {non_neg_integer(), Ctx.t()}
   def enter(%Ctx{} = ctx, name, kind) do
-    seq = ctx.otel_seq + 1
+    seq = ctx.pyex_otel_seq + 1
     id = seq
-    parent_id = List.first(ctx.otel_stack)
+    parent_id = List.first(ctx.pyex_otel_stack)
     trace_id = trace_id_for(ctx, parent_id, id)
 
     span = %{
@@ -202,9 +212,9 @@ defmodule Pyex.Stdlib.Opentelemetry do
 
     ctx = %{
       ctx
-      | otel_seq: seq,
-        otel_stack: [id | ctx.otel_stack],
-        otel_active: Map.put(ctx.otel_active, id, span)
+      | pyex_otel_seq: seq,
+        pyex_otel_stack: [id | ctx.pyex_otel_stack],
+        pyex_otel_active: Map.put(ctx.pyex_otel_active, id, span)
     }
 
     {id, ctx}
@@ -217,7 +227,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
   defp trace_id_for(_ctx, nil, id), do: id
 
   defp trace_id_for(ctx, parent_id, id) do
-    case Map.get(ctx.otel_active, parent_id) do
+    case Map.get(ctx.pyex_otel_active, parent_id) do
       %{trace_id: tid} -> tid
       _ -> id
     end
@@ -226,7 +236,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
   @doc """
   Closes the span identified by `id` (from a context manager's `__exit__`):
   finalizes it (setting status/end_seq, recording an exception event on the
-  error path), moves it from `otel_active` to the end of `otel_finished`, and
+  error path), moves it from `pyex_otel_active` to the end of `pyex_otel_finished`, and
   pops it off the active stack. Safe (no-op finalize) if the span was already
   ended explicitly via `.end()`.
   """
@@ -255,12 +265,12 @@ defmodule Pyex.Stdlib.Opentelemetry do
         ) ::
           Ctx.t()
   defp finalize(ctx, id, exc_type, exc_val) do
-    case Map.pop(ctx.otel_active, id) do
+    case Map.pop(ctx.pyex_otel_active, id) do
       {nil, _active} ->
         ctx
 
       {span, active} ->
-        seq = ctx.otel_seq + 1
+        seq = ctx.pyex_otel_seq + 1
 
         {status, span} =
           if exc_type != nil do
@@ -271,34 +281,34 @@ defmodule Pyex.Stdlib.Opentelemetry do
 
         span = %{span | status: status, end_seq: seq}
 
-        # Prepend (newest-first) to match Ctx.close_span's convention: there is
-        # one shared otel_finished and one completion-order accessor
-        # (finished_in_order/1 here, Ctx.spans/1 for the host), so spans from
-        # `store` instrumentation and from this module interleave coherently.
+        # Prepend (newest-first); finished_in_order/1 reverses for completion
+        # order. This is the tenant's OWN pyex_otel_finished — never the
+        # platform's otel_finished — so guest spans cannot leak into the host
+        # trace exported by Pyex.Turn.
         %{
           ctx
-          | otel_seq: seq,
-            otel_active: active,
-            otel_finished: [span | ctx.otel_finished]
+          | pyex_otel_seq: seq,
+            pyex_otel_active: active,
+            pyex_otel_finished: [span | ctx.pyex_otel_finished]
         }
     end
   end
 
-  # Finished spans in completion order (oldest first). otel_finished is stored
+  # Finished spans in completion order (oldest first). pyex_otel_finished is stored
   # newest-first; reverse to read. Kept local so the module does not depend on
   # Ctx.spans/1.
   @spec finished_in_order(Ctx.t()) :: [map()]
-  defp finished_in_order(ctx), do: Enum.reverse(ctx.otel_finished)
+  defp finished_in_order(ctx), do: Enum.reverse(ctx.pyex_otel_finished)
 
   @spec pop_stack(Ctx.t(), non_neg_integer()) :: Ctx.t()
   defp pop_stack(ctx, id) do
     new_stack =
-      case ctx.otel_stack do
+      case ctx.pyex_otel_stack do
         [^id | rest] -> rest
         other -> List.delete(other, id)
       end
 
-    %{ctx | otel_stack: new_stack}
+    %{ctx | pyex_otel_stack: new_stack}
   end
 
   @spec add_exception_event(map(), Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
@@ -439,7 +449,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
 
   @spec span_is_recording([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp span_is_recording([self | _]) do
-    {:ctx_call, fn env, ctx -> {Map.has_key?(ctx.otel_active, span_id(self)), env, ctx} end}
+    {:ctx_call, fn env, ctx -> {Map.has_key?(ctx.pyex_otel_active, span_id(self)), env, ctx} end}
   end
 
   @spec span_end([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
@@ -466,8 +476,8 @@ defmodule Pyex.Stdlib.Opentelemetry do
   # entered) is a safe no-op — never crash.
   @spec update_active(Ctx.t(), non_neg_integer() | nil, (map() -> map())) :: Ctx.t()
   defp update_active(ctx, id, fun) do
-    case Map.fetch(ctx.otel_active, id) do
-      {:ok, span} -> %{ctx | otel_active: Map.put(ctx.otel_active, id, fun.(span))}
+    case Map.fetch(ctx.pyex_otel_active, id) do
+      {:ok, span} -> %{ctx | pyex_otel_active: Map.put(ctx.pyex_otel_active, id, fun.(span))}
       :error -> ctx
     end
   end
@@ -569,28 +579,34 @@ defmodule Pyex.Stdlib.Opentelemetry do
   # ── serialization to pyvalues (matches json.ex's value shapes) ────────────
 
   @spec serialize_span(map()) :: Pyex.Interpreter.pyvalue()
+  # Tenant spans are uniform (this module is the only writer of
+  # pyex_otel_finished), but every non-core key is still Map.get-with-default
+  # as belt-and-suspenders so serialization can never crash on a malformed or
+  # future span shape.
   defp serialize_span(span) do
     PyDict.from_pairs([
-      {"name", span.name},
-      {"span_id", span.id},
-      {"parent_id", span.parent_id},
-      {"trace_id", span.trace_id},
-      {"kind", span.kind},
+      {"name", Map.get(span, :name)},
+      {"span_id", Map.get(span, :id)},
+      {"parent_id", Map.get(span, :parent_id)},
+      {"trace_id", Map.get(span, :trace_id, Map.get(span, :id))},
+      {"kind", Map.get(span, :kind)},
       {"attributes", attrs_to_pydict(span)},
-      {"status", span.status},
-      {"events", events_to_pylist(span.events)},
-      {"start_seq", span.start_seq},
-      {"end_seq", span.end_seq}
+      {"status", Map.get(span, :status)},
+      {"events", events_to_pylist(Map.get(span, :events, []))},
+      {"start_seq", Map.get(span, :start_seq)},
+      {"end_seq", Map.get(span, :end_seq)}
     ])
   end
 
   @spec attrs_to_pydict(map()) :: Pyex.Interpreter.pyvalue()
   defp attrs_to_pydict(span) do
+    attributes = Map.get(span, :attributes, %{})
+
     order =
       Map.get(span, :attr_order, []) ++
-        (Map.keys(span.attributes) -- Map.get(span, :attr_order, []))
+        (Map.keys(attributes) -- Map.get(span, :attr_order, []))
 
-    PyDict.from_pairs(Enum.map(order, fn k -> {k, Map.fetch!(span.attributes, k)} end))
+    PyDict.from_pairs(Enum.map(order, fn k -> {k, Map.fetch!(attributes, k)} end))
   end
 
   @spec events_to_pylist([map()]) :: Pyex.Interpreter.pyvalue()
