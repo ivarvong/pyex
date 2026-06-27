@@ -45,7 +45,7 @@ defmodule Pyex.Stdlib.Store do
   @spec store_get([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp store_get([key]) when is_binary(key) do
     with_backend(fn backend, env, ctx ->
-      {ctx, span} = Pyex.Ctx.open_runtime_span(ctx, "store.get", %{"key" => key})
+      {ctx, span} = Pyex.Ctx.open_runtime_span(ctx, "db.get", db_attrs("get", key))
 
       case Pyex.Storage.get(backend, key) do
         {:ok, json} ->
@@ -66,7 +66,7 @@ defmodule Pyex.Stdlib.Store do
   @spec store_set([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp store_set([key, value]) when is_binary(key) do
     with_backend(fn backend, env, ctx ->
-      {ctx, span} = Pyex.Ctx.open_runtime_span(ctx, "store.set", %{"key" => key})
+      {ctx, span} = Pyex.Ctx.open_runtime_span(ctx, "db.set", db_attrs("set", key))
 
       case JSON.dumps(value) do
         {:exception, _} = exc ->
@@ -94,7 +94,7 @@ defmodule Pyex.Stdlib.Store do
   @spec store_delete([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp store_delete([key]) when is_binary(key) do
     with_backend(fn backend, env, ctx ->
-      {ctx, span} = Pyex.Ctx.open_runtime_span(ctx, "store.delete", %{"key" => key})
+      {ctx, span} = Pyex.Ctx.open_runtime_span(ctx, "db.delete", db_attrs("delete", key))
 
       case Pyex.Storage.get(backend, key) do
         {:error, reason} ->
@@ -126,7 +126,7 @@ defmodule Pyex.Stdlib.Store do
 
   defp store_keys([prefix]) when is_binary(prefix) do
     with_backend(fn backend, env, ctx ->
-      {ctx, span} = Pyex.Ctx.open_runtime_span(ctx, "store.keys", %{"prefix" => prefix})
+      {ctx, span} = Pyex.Ctx.open_runtime_span(ctx, "db.query", db_attrs("query", prefix))
 
       case Pyex.Storage.list_prefix(backend, prefix) do
         {:ok, keys} ->
@@ -141,6 +141,16 @@ defmodule Pyex.Stdlib.Store do
 
   defp store_keys(_),
     do: {:exception, "TypeError: store.keys(prefix='') expects an optional string prefix"}
+
+  # OTel database semantic-convention attributes for a KV operation.
+  @spec db_attrs(String.t(), String.t()) :: %{String.t() => String.t()}
+  defp db_attrs(operation, target) do
+    %{
+      "db.system.name" => "pyex.kv",
+      "db.operation.name" => operation,
+      "db.collection.name" => target
+    }
+  end
 
   # A backend (or attenuating membrane) denial/failure, surfaced to Python.
   @spec storage_error(String.t()) :: Pyex.Interpreter.pyvalue()

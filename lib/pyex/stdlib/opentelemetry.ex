@@ -24,7 +24,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
   This is the TENANT (sandboxed Python) telemetry channel. Its spans live in a
   namespace dedicated to guest code — `app_span_seq`, `app_span_stack`,
   `app_span_active`, `app_spans` — that is fully DISJOINT from the
-  platform's host-side telemetry (`Ctx.open_runtime_span`/`close_span`/`spans` over
+  platform's host-side telemetry (`Ctx.open_runtime_span`/`close_runtime_span`/`runtime_spans` over
   `runtime_span_seq`/`runtime_spans`, exported by `Pyex.Turn`). Sandboxed code must not
   be able to write into, parent onto, or read the platform's trace, so the two
   never share storage, a counter, or a stack. `get_finished_spans/0` and
@@ -144,20 +144,27 @@ defmodule Pyex.Stdlib.Opentelemetry do
           [Pyex.Interpreter.pyvalue()],
           %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
         ) :: Pyex.Interpreter.pyvalue()
-  defp start_as_current_span([_self, name | _], kwargs) do
+  defp start_as_current_span([self, name | _], kwargs) do
     kind = Map.get(kwargs, "kind", "INTERNAL")
-    span_cm(name, kind)
+    span_cm(name, kind, tracer_scope(self))
   end
 
-  defp start_as_current_span([_self], kwargs) do
-    span_cm("", Map.get(kwargs, "kind", "INTERNAL"))
+  defp start_as_current_span([self], kwargs) do
+    span_cm("", Map.get(kwargs, "kind", "INTERNAL"), tracer_scope(self))
   end
 
-  @spec span_cm(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
+  # The instrumentation scope of a span is its tracer's name (get_tracer(name)).
+  @spec tracer_scope(Pyex.Interpreter.pyvalue()) :: String.t()
+  defp tracer_scope({:instance, _cls, attrs}),
+    do: to_string(Map.get(attrs, "__tracer_name__", ""))
+
+  defp tracer_scope(_), do: ""
+
+  @spec span_cm(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue(), String.t()) ::
           Pyex.Interpreter.pyvalue()
-  defp span_cm(name, kind) do
+  defp span_cm(name, kind, scope) do
     {:instance, {:class, "_OtelSpanCM", [], %{"__name__" => "_OtelSpanCM"}},
-     %{"__name__" => name, "__kind__" => kind}}
+     %{"__name__" => name, "__kind__" => kind, "__scope__" => scope}}
   end
 
   @doc """
@@ -191,7 +198,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
   """
   @spec enter(Ctx.t(), Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
           {non_neg_integer(), Ctx.t()}
-  def enter(%Ctx{} = ctx, name, kind) do
+  def enter(%Ctx{} = ctx, name, kind, scope \\ "") do
     seq = ctx.app_span_seq + 1
     id = seq
     parent_id = List.first(ctx.app_span_stack)
@@ -203,6 +210,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
       parent_id: parent_id,
       trace_id: trace_id,
       kind: kind,
+      scope: scope,
       attributes: %{},
       attr_order: [],
       status: nil,

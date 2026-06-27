@@ -65,8 +65,8 @@ defmodule Pyex.SpanTreeTest do
 
       out = Pyex.Turn.render(ctx)
       assert out =~ "runtime · scope=pyex"
-      assert out =~ "store.set"
-      assert out =~ ~s|key="order:1"|
+      assert out =~ "db.set"
+      assert out =~ ~s|db.collection.name="order:1"|
     end
   end
 
@@ -89,11 +89,11 @@ defmodule Pyex.SpanTreeTest do
       assert rendered =~ "handle"
       # ...but the capability op it performed is NOT in its render — the runtime
       # ledger is unreachable from inside the sandbox.
-      refute rendered =~ "store.set"
+      refute rendered =~ "db.set"
       refute rendered =~ "secret"
 
       # The host, however, sees the real op in the runtime ledger.
-      assert Pyex.Turn.render(ctx) =~ "store.set"
+      assert Pyex.Turn.render(ctx) =~ "db.set"
     end
   end
 

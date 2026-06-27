@@ -1623,6 +1623,10 @@ defmodule Pyex.Ctx do
       id: id,
       parent_id: List.first(ctx.runtime_span_stack),
       name: name,
+      # Reserved instrumentation scope: the runtime owns every span here, and a
+      # guest tracer can never claim "pyex" — that's what makes it unforgeable.
+      scope: "pyex",
+      kind: "CLIENT",
       attributes: attributes,
       start_seq: id,
       end_seq: nil

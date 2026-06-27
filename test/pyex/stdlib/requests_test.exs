@@ -114,10 +114,10 @@ defmodule Pyex.Stdlib.RequestsTest do
       :telemetry.detach(handler)
       assert_received {:spans, spans}
 
-      http = Enum.find(spans, &(&1.name == "http.request"))
-      assert http.attributes["method"] == "GET"
-      assert http.attributes["url"] == "http://localhost:#{port}/ok"
-      assert http.attributes["status"] == 204
+      http = Enum.find(spans, &(&1.name == "GET"))
+      assert http.attributes["http.request.method"] == "GET"
+      assert http.attributes["url.full"] == "http://localhost:#{port}/ok"
+      assert http.attributes["http.response.status_code"] == 204
     end
 
     test "response.json() parses JSON body", %{bypass: bypass} do

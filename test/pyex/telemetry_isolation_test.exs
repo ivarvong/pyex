@@ -59,8 +59,8 @@ defmodule Pyex.TelemetryIsolationTest do
           storage: Storage.Memory.new()
         )
 
-      assert "store.set" in platform_span_names(ctx)
-      assert "store.get" in platform_span_names(ctx)
+      assert "db.set" in platform_span_names(ctx)
+      assert "db.get" in platform_span_names(ctx)
       assert tenant_span_names(ctx) == []
       # The guest's view of its own spans contains no capability span.
       assert Pyex.output(ctx) |> String.trim() == "[]"
@@ -90,7 +90,7 @@ defmodule Pyex.TelemetryIsolationTest do
           import store
           store.set("real", 1)
           # Impersonation attempt: forge a span with the capability's own name.
-          with trace.get_tracer("evil").start_as_current_span("store.set") as s:
+          with trace.get_tracer("evil").start_as_current_span("db.set") as s:
               s.set_attribute("key", "victim")
           """,
           storage: Storage.Memory.new()
@@ -98,10 +98,10 @@ defmodule Pyex.TelemetryIsolationTest do
 
       # The platform trace holds exactly one store.set — the real one. The forged
       # span is confined to the tenant channel and cannot inflate or pollute it.
-      assert Enum.count(platform_span_names(ctx), &(&1 == "store.set")) == 1
-      real = ctx |> Ctx.runtime_spans() |> Enum.find(&(&1.name == "store.set"))
-      assert real.attributes["key"] == "real"
-      assert "store.set" in tenant_span_names(ctx)
+      assert Enum.count(platform_span_names(ctx), &(&1 == "db.set")) == 1
+      real = ctx |> Ctx.runtime_spans() |> Enum.find(&(&1.name == "db.set"))
+      assert real.attributes["db.collection.name"] == "real"
+      assert "db.set" in tenant_span_names(ctx)
     end
   end
 
@@ -128,9 +128,9 @@ defmodule Pyex.TelemetryIsolationTest do
 
       # The platform trace exposes the write the program never disclosed —
       # this is what an agent reviews instead of trusting self-instrumentation.
-      assert "store.set" in platform_span_names(ctx)
-      write = ctx |> Ctx.runtime_spans() |> Enum.find(&(&1.name == "store.set"))
-      assert write.attributes["key"] == "audit:exfil"
+      assert "db.set" in platform_span_names(ctx)
+      write = ctx |> Ctx.runtime_spans() |> Enum.find(&(&1.name == "db.set"))
+      assert write.attributes["db.collection.name"] == "audit:exfil"
     end
   end
 
@@ -147,9 +147,9 @@ defmodule Pyex.TelemetryIsolationTest do
           filesystem: Pyex.FS.new(%{})
         )
 
-      opens = platform_spans(ctx) |> Enum.filter(&(&1.name == "fs.open"))
-      assert Enum.map(opens, & &1.attributes["mode"]) == ["write", "read"]
-      assert Enum.all?(opens, &(&1.attributes["path"] == "/data/users.csv"))
+      opens = platform_spans(ctx) |> Enum.filter(&(&1.name == "file.open"))
+      assert Enum.map(opens, & &1.attributes["file.mode"]) == ["write", "read"]
+      assert Enum.all?(opens, &(&1.attributes["file.path"] == "/data/users.csv"))
     end
 
     test "a read-only handler is provable from the trace: every fs.open is mode=read" do
@@ -166,8 +166,8 @@ defmodule Pyex.TelemetryIsolationTest do
 
       modes =
         platform_spans(ctx)
-        |> Enum.filter(&(&1.name == "fs.open"))
-        |> Enum.map(& &1.attributes["mode"])
+        |> Enum.filter(&(&1.name == "file.open"))
+        |> Enum.map(& &1.attributes["file.mode"])
 
       # No write/append intent appears anywhere — the handler cannot have mutated
       # the filesystem, proven by the capability trace rather than by trust.
@@ -188,13 +188,13 @@ defmodule Pyex.TelemetryIsolationTest do
             pass
         """)
 
-      http = platform_spans(ctx) |> Enum.find(&(&1.name == "http.request"))
+      http = platform_spans(ctx) |> Enum.find(&(&1.name == "GET"))
 
       # The attempt is in the ground-truth trace even though it was denied —
       # an agent reviewing the trace sees the code tried to reach out, and where.
-      assert http.attributes["denied"] == true
-      assert http.attributes["method"] == "GET"
-      assert http.attributes["url"] == "https://evil.example.com/exfil?data=secret"
+      assert http.attributes["error.type"] =~ "disabled"
+      assert http.attributes["http.request.method"] == "GET"
+      assert http.attributes["url.full"] == "https://evil.example.com/exfil?data=secret"
     end
   end
 end
