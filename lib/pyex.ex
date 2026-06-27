@@ -181,7 +181,7 @@ defmodule Pyex do
           :telemetry.execute(
             [:pyex, :run, :stop],
             Pyex.Turn.footprint(final_ctx),
-            %{spans: Ctx.spans(final_ctx)}
+            %{spans: Ctx.runtime_spans(final_ctx)}
           )
 
           derefed = Ctx.deep_deref(final_ctx, value)

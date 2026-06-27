@@ -22,10 +22,10 @@ defmodule Pyex.Stdlib.Opentelemetry do
   ## Platform / tenant separation
 
   This is the TENANT (sandboxed Python) telemetry channel. Its spans live in a
-  namespace dedicated to guest code — `pyex_otel_seq`, `pyex_otel_stack`,
-  `pyex_otel_active`, `pyex_otel_finished` — that is fully DISJOINT from the
-  platform's host-side telemetry (`Ctx.open_span`/`close_span`/`spans` over
-  `otel_seq`/`otel_finished`, exported by `Pyex.Turn`). Sandboxed code must not
+  namespace dedicated to guest code — `app_span_seq`, `app_span_stack`,
+  `app_span_active`, `app_spans` — that is fully DISJOINT from the
+  platform's host-side telemetry (`Ctx.open_runtime_span`/`close_runtime_span`/`runtime_spans` over
+  `runtime_span_seq`/`runtime_spans`, exported by `Pyex.Turn`). Sandboxed code must not
   be able to write into, parent onto, or read the platform's trace, so the two
   never share storage, a counter, or a stack. `get_finished_spans/0` and
   `flush_spans/1` only ever see tenant spans.
@@ -35,7 +35,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
   All tenant span state lives in `Pyex.Ctx`; there is no process dictionary,
   ETS, or other global state, so concurrent `Pyex.run/2` calls are fully
   isolated. Span and trace ids are drawn from a monotonic per-run counter
-  (`pyex_otel_seq`) — never wall-clock time or random — so a given program
+  (`app_span_seq`) — never wall-clock time or random — so a given program
   always produces identical spans.
   """
 
@@ -54,6 +54,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
       "get_tracer" => {:builtin, &get_tracer/1},
       "get_finished_spans" => {:builtin, &get_finished_spans/1},
       "flush_spans" => {:builtin, &flush_spans/1},
+      "render" => {:builtin, &render/1},
       "SpanKind" => span_kind_class(),
       "Status" => {:builtin_kw, &status/2},
       "StatusCode" => status_code_class()
@@ -143,20 +144,27 @@ defmodule Pyex.Stdlib.Opentelemetry do
           [Pyex.Interpreter.pyvalue()],
           %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
         ) :: Pyex.Interpreter.pyvalue()
-  defp start_as_current_span([_self, name | _], kwargs) do
+  defp start_as_current_span([self, name | _], kwargs) do
     kind = Map.get(kwargs, "kind", "INTERNAL")
-    span_cm(name, kind)
+    span_cm(name, kind, tracer_scope(self))
   end
 
-  defp start_as_current_span([_self], kwargs) do
-    span_cm("", Map.get(kwargs, "kind", "INTERNAL"))
+  defp start_as_current_span([self], kwargs) do
+    span_cm("", Map.get(kwargs, "kind", "INTERNAL"), tracer_scope(self))
   end
 
-  @spec span_cm(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
+  # The instrumentation scope of a span is its tracer's name (get_tracer(name)).
+  @spec tracer_scope(Pyex.Interpreter.pyvalue()) :: String.t()
+  defp tracer_scope({:instance, _cls, attrs}),
+    do: to_string(Map.get(attrs, "__tracer_name__", ""))
+
+  defp tracer_scope(_), do: ""
+
+  @spec span_cm(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue(), String.t()) ::
           Pyex.Interpreter.pyvalue()
-  defp span_cm(name, kind) do
+  defp span_cm(name, kind, scope) do
     {:instance, {:class, "_OtelSpanCM", [], %{"__name__" => "_OtelSpanCM"}},
-     %{"__name__" => name, "__kind__" => kind}}
+     %{"__name__" => name, "__kind__" => kind, "__scope__" => scope}}
   end
 
   @doc """
@@ -186,14 +194,14 @@ defmodule Pyex.Stdlib.Opentelemetry do
   @doc """
   Opens a new span: allocates the next id, links it to the current stack head
   as parent, inherits the parent's trace id (or starts a new trace), pushes it
-  onto the active stack, and stores it in `pyex_otel_active`. Returns `{id, ctx}`.
+  onto the active stack, and stores it in `app_span_active`. Returns `{id, ctx}`.
   """
   @spec enter(Ctx.t(), Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
           {non_neg_integer(), Ctx.t()}
-  def enter(%Ctx{} = ctx, name, kind) do
-    seq = ctx.pyex_otel_seq + 1
+  def enter(%Ctx{} = ctx, name, kind, scope \\ "") do
+    seq = ctx.app_span_seq + 1
     id = seq
-    parent_id = List.first(ctx.pyex_otel_stack)
+    parent_id = List.first(ctx.app_span_stack)
     trace_id = trace_id_for(ctx, parent_id, id)
 
     span = %{
@@ -202,6 +210,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
       parent_id: parent_id,
       trace_id: trace_id,
       kind: kind,
+      scope: scope,
       attributes: %{},
       attr_order: [],
       status: nil,
@@ -212,9 +221,9 @@ defmodule Pyex.Stdlib.Opentelemetry do
 
     ctx = %{
       ctx
-      | pyex_otel_seq: seq,
-        pyex_otel_stack: [id | ctx.pyex_otel_stack],
-        pyex_otel_active: Map.put(ctx.pyex_otel_active, id, span)
+      | app_span_seq: seq,
+        app_span_stack: [id | ctx.app_span_stack],
+        app_span_active: Map.put(ctx.app_span_active, id, span)
     }
 
     {id, ctx}
@@ -227,7 +236,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
   defp trace_id_for(_ctx, nil, id), do: id
 
   defp trace_id_for(ctx, parent_id, id) do
-    case Map.get(ctx.pyex_otel_active, parent_id) do
+    case Map.get(ctx.app_span_active, parent_id) do
       %{trace_id: tid} -> tid
       _ -> id
     end
@@ -236,7 +245,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
   @doc """
   Closes the span identified by `id` (from a context manager's `__exit__`):
   finalizes it (setting status/end_seq, recording an exception event on the
-  error path), moves it from `pyex_otel_active` to the end of `pyex_otel_finished`, and
+  error path), moves it from `app_span_active` to the end of `app_spans`, and
   pops it off the active stack. Safe (no-op finalize) if the span was already
   ended explicitly via `.end()`.
   """
@@ -265,12 +274,12 @@ defmodule Pyex.Stdlib.Opentelemetry do
         ) ::
           Ctx.t()
   defp finalize(ctx, id, exc_type, exc_val) do
-    case Map.pop(ctx.pyex_otel_active, id) do
+    case Map.pop(ctx.app_span_active, id) do
       {nil, _active} ->
         ctx
 
       {span, active} ->
-        seq = ctx.pyex_otel_seq + 1
+        seq = ctx.app_span_seq + 1
 
         {status, span} =
           if exc_type != nil do
@@ -282,33 +291,33 @@ defmodule Pyex.Stdlib.Opentelemetry do
         span = %{span | status: status, end_seq: seq}
 
         # Prepend (newest-first); finished_in_order/1 reverses for completion
-        # order. This is the tenant's OWN pyex_otel_finished — never the
-        # platform's otel_finished — so guest spans cannot leak into the host
+        # order. This is the tenant's OWN app_spans — never the
+        # platform's runtime_spans — so guest spans cannot leak into the host
         # trace exported by Pyex.Turn.
         %{
           ctx
-          | pyex_otel_seq: seq,
-            pyex_otel_active: active,
-            pyex_otel_finished: [span | ctx.pyex_otel_finished]
+          | app_span_seq: seq,
+            app_span_active: active,
+            app_spans: [span | ctx.app_spans]
         }
     end
   end
 
-  # Finished spans in completion order (oldest first). pyex_otel_finished is stored
+  # Finished spans in completion order (oldest first). app_spans is stored
   # newest-first; reverse to read. Kept local so the module does not depend on
   # Ctx.spans/1.
   @spec finished_in_order(Ctx.t()) :: [map()]
-  defp finished_in_order(ctx), do: Enum.reverse(ctx.pyex_otel_finished)
+  defp finished_in_order(ctx), do: Enum.reverse(ctx.app_spans)
 
   @spec pop_stack(Ctx.t(), non_neg_integer()) :: Ctx.t()
   defp pop_stack(ctx, id) do
     new_stack =
-      case ctx.pyex_otel_stack do
+      case ctx.app_span_stack do
         [^id | rest] -> rest
         other -> List.delete(other, id)
       end
 
-    %{ctx | pyex_otel_stack: new_stack}
+    %{ctx | app_span_stack: new_stack}
   end
 
   @spec add_exception_event(map(), Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue()) ::
@@ -449,7 +458,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
 
   @spec span_is_recording([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp span_is_recording([self | _]) do
-    {:ctx_call, fn env, ctx -> {Map.has_key?(ctx.pyex_otel_active, span_id(self)), env, ctx} end}
+    {:ctx_call, fn env, ctx -> {Map.has_key?(ctx.app_span_active, span_id(self)), env, ctx} end}
   end
 
   @spec span_end([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
@@ -476,8 +485,8 @@ defmodule Pyex.Stdlib.Opentelemetry do
   # entered) is a safe no-op — never crash.
   @spec update_active(Ctx.t(), non_neg_integer() | nil, (map() -> map())) :: Ctx.t()
   defp update_active(ctx, id, fun) do
-    case Map.fetch(ctx.pyex_otel_active, id) do
-      {:ok, span} -> %{ctx | pyex_otel_active: Map.put(ctx.pyex_otel_active, id, fun.(span))}
+    case Map.fetch(ctx.app_span_active, id) do
+      {:ok, span} -> %{ctx | app_span_active: Map.put(ctx.app_span_active, id, fun.(span))}
       :error -> ctx
     end
   end
@@ -498,6 +507,18 @@ defmodule Pyex.Stdlib.Opentelemetry do
      fn env, ctx ->
        items = Enum.map(finished_in_order(ctx), &serialize_span/1)
        {{:py_list, Enum.reverse(items), length(items)}, env, ctx}
+     end}
+  end
+
+  # opentelemetry.render() -> an ASCII trace of the program's OWN spans.
+  # By design this can only see the guest's app_spans, never the platform's
+  # runtime ledger — rendering the latter from inside the sandbox would be a
+  # read channel into the unforgeable trace (see Pyex.SpanTree / Pyex.Turn).
+  @spec render([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp render(_args) do
+    {:ctx_call,
+     fn env, ctx ->
+       {Pyex.SpanTree.render(finished_in_order(ctx), title: "app"), env, ctx}
      end}
   end
 
@@ -580,7 +601,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
 
   @spec serialize_span(map()) :: Pyex.Interpreter.pyvalue()
   # Tenant spans are uniform (this module is the only writer of
-  # pyex_otel_finished), but every non-core key is still Map.get-with-default
+  # app_spans), but every non-core key is still Map.get-with-default
   # as belt-and-suspenders so serialization can never crash on a malformed or
   # future span shape.
   defp serialize_span(span) do

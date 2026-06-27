@@ -95,4 +95,23 @@ defmodule Pyex.Turn do
       output_bytes: ctx.output_bytes
     }
   end
+
+  @doc """
+  Renders a turn's spans as an ASCII trace (see `Pyex.SpanTree`) — the agent's
+  "see it" path. Defaults to the **runtime** capability ledger (the unforgeable
+  ground truth); pass `channel: :app` for the guest program's own trace.
+
+      Pyex.Turn.render(ctx)                 # capability ledger, scope=pyex
+      Pyex.Turn.render(ctx, channel: :app)  # the program's own instrumentation
+  """
+  @spec render(Ctx.t(), keyword()) :: String.t()
+  def render(%Ctx{} = ctx, opts \\ []) do
+    {spans, title} =
+      case Keyword.get(opts, :channel, :runtime) do
+        :runtime -> {Ctx.runtime_spans(ctx), "runtime · scope=pyex"}
+        :app -> {Enum.reverse(ctx.app_spans), "app"}
+      end
+
+    Pyex.SpanTree.render(spans, Keyword.put_new(opts, :title, title))
+  end
 end

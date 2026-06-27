@@ -114,7 +114,7 @@ defmodule Pyex.OtelReviewTest do
   defp span_names(turn), do: Enum.map(turn.spans, & &1.name)
 
   defp span_keys(turn),
-    do: turn.spans |> Enum.map(& &1.attributes["key"]) |> Enum.reject(&is_nil/1)
+    do: turn.spans |> Enum.map(& &1.attributes["db.collection.name"]) |> Enum.reject(&is_nil/1)
 
   describe "verification via OTel review" do
     test "a create turn writes exactly one task key (plus the id sequence)" do
@@ -127,7 +127,7 @@ defmodule Pyex.OtelReviewTest do
       assert t.out == "{'id': 1, 'title': 'ship it', 'priority': 1, 'done': False}"
 
       # The trace proves what was written: the id sequence + one task record.
-      assert span_names(t) == ["store.get", "store.set", "store.set"]
+      assert span_names(t) == ["db.get", "db.set", "db.set"]
       assert "task:1" in span_keys(t)
       assert "meta:seq" in span_keys(t)
     end
@@ -140,9 +140,9 @@ defmodule Pyex.OtelReviewTest do
 
       assert t.out == "2"
       # The review: NO write span exists. The handler cannot have mutated state.
-      refute "store.set" in span_names(t)
-      refute "store.delete" in span_names(t)
-      assert "store.keys" in span_names(t)
+      refute "db.set" in span_names(t)
+      refute "db.delete" in span_names(t)
+      assert "db.query" in span_names(t)
     end
 
     test "a complete turn is a read-then-write on the same key" do
@@ -151,7 +151,7 @@ defmodule Pyex.OtelReviewTest do
       t = turn(storage, ~s|r = client.post("/tasks/1/complete")\nprint(r.json()["done"])|)
 
       assert t.out == "True"
-      assert span_names(t) == ["store.get", "store.set"]
+      assert span_names(t) == ["db.get", "db.set"]
       assert span_keys(t) == ["task:1", "task:1"]
     end
 
@@ -163,9 +163,9 @@ defmodule Pyex.OtelReviewTest do
         )
 
       assert t.out == "404"
-      miss = Enum.find(t.spans, &(&1.name == "store.get"))
+      miss = Enum.find(t.spans, &(&1.name == "db.get"))
       assert miss.attributes["hit"] == false
-      refute "store.set" in span_names(t)
+      refute "db.set" in span_names(t)
     end
 
     test "an invalid body (422) never reaches storage" do

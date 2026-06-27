@@ -87,14 +87,14 @@ defmodule Pyex.Ctx do
           output_bytes: non_neg_integer(),
           asyncio_running: boolean(),
           class_registry: %{optional(reference()) => term()},
-          otel_seq: non_neg_integer(),
-          otel_stack: [non_neg_integer()],
-          otel_active: %{optional(non_neg_integer()) => map()},
-          otel_finished: [map()],
-          pyex_otel_seq: non_neg_integer(),
-          pyex_otel_stack: [non_neg_integer()],
-          pyex_otel_active: %{optional(non_neg_integer()) => map()},
-          pyex_otel_finished: [map()]
+          runtime_span_seq: non_neg_integer(),
+          runtime_span_stack: [non_neg_integer()],
+          runtime_span_active: %{optional(non_neg_integer()) => map()},
+          runtime_spans: [map()],
+          app_span_seq: non_neg_integer(),
+          app_span_stack: [non_neg_integer()],
+          app_span_active: %{optional(non_neg_integer()) => map()},
+          app_spans: [map()]
         }
 
   defstruct filesystem: nil,
@@ -133,14 +133,14 @@ defmodule Pyex.Ctx do
             output_bytes: 0,
             asyncio_running: false,
             class_registry: %{},
-            otel_seq: 0,
-            otel_stack: [],
-            otel_active: %{},
-            otel_finished: [],
-            pyex_otel_seq: 0,
-            pyex_otel_stack: [],
-            pyex_otel_active: %{},
-            pyex_otel_finished: []
+            runtime_span_seq: 0,
+            runtime_span_stack: [],
+            runtime_span_active: %{},
+            runtime_spans: [],
+            app_span_seq: 0,
+            app_span_stack: [],
+            app_span_active: %{},
+            app_spans: []
 
   @doc """
   Creates a fresh live context that captures output and execution counters.
@@ -1597,7 +1597,7 @@ defmodule Pyex.Ctx do
   #
   # Spans accumulate in the context, so they are part of the turn's value
   # footprint and inherit its purity: ordering is a *logical* clock
-  # (`otel_seq`), never the wall clock, so a turn's span tree is deterministic
+  # (`runtime_span_seq`), never the wall clock, so a turn's span tree is deterministic
   # and replayable. The host drains `spans/1` from the final context and exports
   # each to a real OpenTelemetry tracer (see `Pyex.Turn`).
 
@@ -1614,15 +1614,19 @@ defmodule Pyex.Ctx do
   Opens a span named `name`, parented to the innermost open span. Returns the
   updated context and the new span id (pass it to `close_span/3`).
   """
-  @spec open_span(t(), String.t(), %{optional(String.t()) => term()}) ::
+  @spec open_runtime_span(t(), String.t(), %{optional(String.t()) => term()}) ::
           {t(), non_neg_integer()}
-  def open_span(%__MODULE__{} = ctx, name, attributes \\ %{}) do
-    id = ctx.otel_seq
+  def open_runtime_span(%__MODULE__{} = ctx, name, attributes \\ %{}) do
+    id = ctx.runtime_span_seq
 
     span = %{
       id: id,
-      parent_id: List.first(ctx.otel_stack),
+      parent_id: List.first(ctx.runtime_span_stack),
       name: name,
+      # Reserved instrumentation scope: the runtime owns every span here, and a
+      # guest tracer can never claim "pyex" — that's what makes it unforgeable.
+      scope: "pyex",
+      kind: "CLIENT",
       attributes: attributes,
       start_seq: id,
       end_seq: nil
@@ -1630,9 +1634,9 @@ defmodule Pyex.Ctx do
 
     {%{
        ctx
-       | otel_seq: id + 1,
-         otel_stack: [id | ctx.otel_stack],
-         otel_active: Map.put(ctx.otel_active, id, span)
+       | runtime_span_seq: id + 1,
+         runtime_span_stack: [id | ctx.runtime_span_stack],
+         runtime_span_active: Map.put(ctx.runtime_span_active, id, span)
      }, id}
   end
 
@@ -1640,22 +1644,22 @@ defmodule Pyex.Ctx do
   Closes the span `id`, merging in `attributes`, and records it as finished.
   A no-op if the id is not open.
   """
-  @spec close_span(t(), non_neg_integer(), %{optional(String.t()) => term()}) :: t()
-  def close_span(%__MODULE__{} = ctx, id, attributes \\ %{}) do
-    case Map.pop(ctx.otel_active, id) do
+  @spec close_runtime_span(t(), non_neg_integer(), %{optional(String.t()) => term()}) :: t()
+  def close_runtime_span(%__MODULE__{} = ctx, id, attributes \\ %{}) do
+    case Map.pop(ctx.runtime_span_active, id) do
       {nil, _active} ->
         ctx
 
       {span, active} ->
-        end_seq = ctx.otel_seq
+        end_seq = ctx.runtime_span_seq
         finished = %{span | end_seq: end_seq, attributes: Map.merge(span.attributes, attributes)}
 
         %{
           ctx
-          | otel_seq: end_seq + 1,
-            otel_stack: List.delete(ctx.otel_stack, id),
-            otel_active: active,
-            otel_finished: [finished | ctx.otel_finished]
+          | runtime_span_seq: end_seq + 1,
+            runtime_span_stack: List.delete(ctx.runtime_span_stack, id),
+            runtime_span_active: active,
+            runtime_spans: [finished | ctx.runtime_spans]
         }
     end
   end
@@ -1664,6 +1668,6 @@ defmodule Pyex.Ctx do
   The turn's finished spans, in the order they closed — the trace the host
   exports to OpenTelemetry.
   """
-  @spec spans(t()) :: [span()]
-  def spans(%__MODULE__{} = ctx), do: Enum.reverse(ctx.otel_finished)
+  @spec runtime_spans(t()) :: [span()]
+  def runtime_spans(%__MODULE__{} = ctx), do: Enum.reverse(ctx.runtime_spans)
 end
