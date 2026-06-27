@@ -45,10 +45,12 @@ defmodule Pyex.Stdlib.Store do
   @spec store_get([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp store_get([key]) when is_binary(key) do
     with_backend(fn backend, env, ctx ->
+      {ctx, span} = Pyex.Ctx.open_span(ctx, "store.get", %{"key" => key})
+
       case Pyex.Storage.get(backend, key) do
-        {:ok, json} -> {JSON.decode(json), env, ctx}
-        :miss -> {nil, env, ctx}
-        {:error, reason} -> {storage_error(reason), env, ctx}
+        {:ok, json} -> {JSON.decode(json), env, Pyex.Ctx.close_span(ctx, span, %{"hit" => true})}
+        :miss -> {nil, env, Pyex.Ctx.close_span(ctx, span, %{"hit" => false})}
+        {:error, reason} -> {storage_error(reason), env, close_error(ctx, span, reason)}
       end
     end)
   end
@@ -59,14 +61,20 @@ defmodule Pyex.Stdlib.Store do
   @spec store_set([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp store_set([key, value]) when is_binary(key) do
     with_backend(fn backend, env, ctx ->
+      {ctx, span} = Pyex.Ctx.open_span(ctx, "store.set", %{"key" => key})
+
       case JSON.dumps(value) do
         {:exception, _} = exc ->
-          {exc, env, ctx}
+          {exc, env, close_error(ctx, span, "value not JSON-serializable")}
 
         json when is_binary(json) ->
           case Pyex.Storage.put(backend, key, json) do
-            {:ok, backend} -> {nil, env, %{ctx | storage: backend}}
-            {:error, reason} -> {storage_error(reason), env, ctx}
+            {:ok, backend} ->
+              {nil, env,
+               Pyex.Ctx.close_span(%{ctx | storage: backend}, span, %{"bytes" => byte_size(json)})}
+
+            {:error, reason} ->
+              {storage_error(reason), env, close_error(ctx, span, reason)}
           end
       end
     end)
@@ -79,16 +87,22 @@ defmodule Pyex.Stdlib.Store do
   @spec store_delete([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp store_delete([key]) when is_binary(key) do
     with_backend(fn backend, env, ctx ->
+      {ctx, span} = Pyex.Ctx.open_span(ctx, "store.delete", %{"key" => key})
+
       case Pyex.Storage.get(backend, key) do
         {:error, reason} ->
-          {storage_error(reason), env, ctx}
+          {storage_error(reason), env, close_error(ctx, span, reason)}
 
         existence ->
           existed = match?({:ok, _}, existence)
 
           case Pyex.Storage.delete(backend, key) do
-            {:ok, backend} -> {existed, env, %{ctx | storage: backend}}
-            {:error, reason} -> {storage_error(reason), env, ctx}
+            {:ok, backend} ->
+              {existed, env,
+               Pyex.Ctx.close_span(%{ctx | storage: backend}, span, %{"existed" => existed})}
+
+            {:error, reason} ->
+              {storage_error(reason), env, close_error(ctx, span, reason)}
           end
       end
     end)
@@ -103,9 +117,15 @@ defmodule Pyex.Stdlib.Store do
 
   defp store_keys([prefix]) when is_binary(prefix) do
     with_backend(fn backend, env, ctx ->
+      {ctx, span} = Pyex.Ctx.open_span(ctx, "store.keys", %{"prefix" => prefix})
+
       case Pyex.Storage.list_prefix(backend, prefix) do
-        {:ok, keys} -> {{:py_list, Enum.reverse(keys), length(keys)}, env, ctx}
-        {:error, reason} -> {storage_error(reason), env, ctx}
+        {:ok, keys} ->
+          ctx = Pyex.Ctx.close_span(ctx, span, %{"count" => length(keys)})
+          {{:py_list, Enum.reverse(keys), length(keys)}, env, ctx}
+
+        {:error, reason} ->
+          {storage_error(reason), env, close_error(ctx, span, reason)}
       end
     end)
   end
@@ -116,6 +136,12 @@ defmodule Pyex.Stdlib.Store do
   # A backend (or attenuating membrane) denial/failure, surfaced to Python.
   @spec storage_error(String.t()) :: Pyex.Interpreter.pyvalue()
   defp storage_error(reason), do: {:exception, "StorageError: #{reason}"}
+
+  # Close a storage span that ended in a denial/failure, tagging it for review.
+  @spec close_error(Pyex.Ctx.t(), non_neg_integer(), String.t()) :: Pyex.Ctx.t()
+  defp close_error(ctx, span, reason) do
+    Pyex.Ctx.close_span(ctx, span, %{"error" => reason})
+  end
 
   # Gates every operation on a configured backend — presence is the grant,
   # mirroring how the filesystem is enabled. Absent → StorageError.

@@ -86,7 +86,11 @@ defmodule Pyex.Ctx do
           memory_bytes: non_neg_integer(),
           output_bytes: non_neg_integer(),
           asyncio_running: boolean(),
-          class_registry: %{optional(reference()) => term()}
+          class_registry: %{optional(reference()) => term()},
+          otel_seq: non_neg_integer(),
+          otel_stack: [non_neg_integer()],
+          otel_active: %{optional(non_neg_integer()) => map()},
+          otel_finished: [map()]
         }
 
   defstruct filesystem: nil,
@@ -124,7 +128,11 @@ defmodule Pyex.Ctx do
             memory_bytes: 0,
             output_bytes: 0,
             asyncio_running: false,
-            class_registry: %{}
+            class_registry: %{},
+            otel_seq: 0,
+            otel_stack: [],
+            otel_active: %{},
+            otel_finished: []
 
   @doc """
   Creates a fresh live context that captures output and execution counters.
@@ -1576,4 +1584,78 @@ defmodule Pyex.Ctx do
   def delete_iterator(%__MODULE__{iterators: iters} = ctx, id) do
     %{ctx | iterators: Map.delete(iters, id)}
   end
+
+  # ── OpenTelemetry-style spans ──────────────────────────────────────────────
+  #
+  # Spans accumulate in the context, so they are part of the turn's value
+  # footprint and inherit its purity: ordering is a *logical* clock
+  # (`otel_seq`), never the wall clock, so a turn's span tree is deterministic
+  # and replayable. The host drains `spans/1` from the final context and exports
+  # each to a real OpenTelemetry tracer (see `Pyex.Turn`).
+
+  @type span :: %{
+          id: non_neg_integer(),
+          parent_id: non_neg_integer() | nil,
+          name: String.t(),
+          attributes: %{optional(String.t()) => term()},
+          start_seq: non_neg_integer(),
+          end_seq: non_neg_integer() | nil
+        }
+
+  @doc """
+  Opens a span named `name`, parented to the innermost open span. Returns the
+  updated context and the new span id (pass it to `close_span/3`).
+  """
+  @spec open_span(t(), String.t(), %{optional(String.t()) => term()}) ::
+          {t(), non_neg_integer()}
+  def open_span(%__MODULE__{} = ctx, name, attributes \\ %{}) do
+    id = ctx.otel_seq
+
+    span = %{
+      id: id,
+      parent_id: List.first(ctx.otel_stack),
+      name: name,
+      attributes: attributes,
+      start_seq: id,
+      end_seq: nil
+    }
+
+    {%{
+       ctx
+       | otel_seq: id + 1,
+         otel_stack: [id | ctx.otel_stack],
+         otel_active: Map.put(ctx.otel_active, id, span)
+     }, id}
+  end
+
+  @doc """
+  Closes the span `id`, merging in `attributes`, and records it as finished.
+  A no-op if the id is not open.
+  """
+  @spec close_span(t(), non_neg_integer(), %{optional(String.t()) => term()}) :: t()
+  def close_span(%__MODULE__{} = ctx, id, attributes \\ %{}) do
+    case Map.pop(ctx.otel_active, id) do
+      {nil, _active} ->
+        ctx
+
+      {span, active} ->
+        end_seq = ctx.otel_seq
+        finished = %{span | end_seq: end_seq, attributes: Map.merge(span.attributes, attributes)}
+
+        %{
+          ctx
+          | otel_seq: end_seq + 1,
+            otel_stack: List.delete(ctx.otel_stack, id),
+            otel_active: active,
+            otel_finished: [finished | ctx.otel_finished]
+        }
+    end
+  end
+
+  @doc """
+  The turn's finished spans, in the order they closed — the trace the host
+  exports to OpenTelemetry.
+  """
+  @spec spans(t()) :: [span()]
+  def spans(%__MODULE__{} = ctx), do: Enum.reverse(ctx.otel_finished)
 end

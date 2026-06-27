@@ -90,6 +90,45 @@ defmodule Pyex.Interpreter.Dunder do
     {:ok, inst, suppress?, env, ctx}
   end
 
+  # opentelemetry span context manager. The span is created in __enter__ (so an
+  # un-entered CM never leaks one) and finalized in __exit__ on both the normal
+  # and exception paths. Must precede the general instance clause below.
+  def call_dunder_mut(
+        {:instance, {:class, "_OtelSpanCM", _, _} = cls, attrs},
+        "__enter__",
+        _args,
+        env,
+        ctx
+      ) do
+    name = Map.get(attrs, "__name__")
+    kind = Map.get(attrs, "__kind__", "INTERNAL")
+    {id, ctx} = Pyex.Stdlib.Opentelemetry.enter(ctx, name, kind)
+    cm = {:instance, cls, Map.put(attrs, "__span_id__", id)}
+    span_handle = Pyex.Stdlib.Opentelemetry.span_handle(id)
+    {:ok, cm, span_handle, env, ctx}
+  end
+
+  def call_dunder_mut(
+        {:instance, {:class, "_OtelSpanCM", _, _}, attrs} = inst,
+        "__exit__",
+        args,
+        env,
+        ctx
+      ) do
+    id = Map.get(attrs, "__span_id__")
+
+    {exc_type, exc_val} =
+      case args do
+        [exc_type, exc_val | _] -> {exc_type, exc_val}
+        [exc_type] -> {exc_type, nil}
+        _ -> {nil, nil}
+      end
+
+    ctx = Pyex.Stdlib.Opentelemetry.exit(ctx, id, exc_type, exc_val)
+    # false = do not suppress; any in-flight exception propagates unchanged.
+    {:ok, inst, false, env, ctx}
+  end
+
   def call_dunder_mut({:file_handle, _id} = handle, "__enter__", [], env, ctx) do
     {:ok, handle, handle, env, ctx}
   end

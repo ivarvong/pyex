@@ -177,8 +177,12 @@ defmodule Pyex do
           final_ctx = %{final_ctx | duration_ms: duration_ms}
 
           # Footprint == the turn's whole observable effect; the host turns
-          # these measurements into an OpenTelemetry span. See `Pyex.Turn`.
-          :telemetry.execute([:pyex, :run, :stop], Pyex.Turn.footprint(final_ctx), %{})
+          # these measurements + the span trace into OpenTelemetry. See `Pyex.Turn`.
+          :telemetry.execute(
+            [:pyex, :run, :stop],
+            Pyex.Turn.footprint(final_ctx),
+            %{spans: Ctx.spans(final_ctx)}
+          )
 
           derefed = Ctx.deep_deref(final_ctx, value)
 
