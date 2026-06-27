@@ -32,3 +32,6 @@ pyex-*.tar
 
 # macOS Finder metadata.
 .DS_Store
+
+# opentelemetry flush_spans output artifacts.
+spans.jsonl

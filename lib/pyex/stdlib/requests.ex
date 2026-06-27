@@ -220,9 +220,15 @@ defmodule Pyex.Stdlib.Requests do
 
     {:io_call,
      fn env, ctx ->
+       # Platform capability span: the tamper-proof record of which URL the turn
+       # reached out to, and the outcome. See Pyex.Turn.
+       {ctx, span} =
+         Pyex.Ctx.open_span(ctx, "http.request", %{"method" => method_str, "url" => url})
+
        case Pyex.Ctx.check_network_access(ctx, method_str, url) do
          {:denied, reason} ->
-           {{:exception, reason}, env, ctx}
+           {{:exception, reason}, env,
+            Pyex.Ctx.close_span(ctx, span, %{"denied" => true, "error" => reason})}
 
          {:ok, inject_headers} ->
            # Injected headers override user-provided ones (host config wins)
@@ -242,7 +248,7 @@ defmodule Pyex.Stdlib.Requests do
              telemetry_meta
            )
 
-           result =
+           {result, span_attrs} =
              case Req.request(req_opts) do
                {:ok, resp} ->
                  response = build_response(resp)
@@ -255,7 +261,7 @@ defmodule Pyex.Stdlib.Requests do
                    response_body_size: byte_size(PyDict.get(response, "text"))
                  })
 
-                 response
+                 {response, %{"status" => resp.status}}
 
                {:error, reason} ->
                  duration = System.monotonic_time() - start_mono
@@ -266,10 +272,11 @@ defmodule Pyex.Stdlib.Requests do
                    error: inspect(reason)
                  })
 
-                 {:exception, "requests.#{method} failed: #{inspect(reason)}"}
+                 {{:exception, "requests.#{method} failed: #{inspect(reason)}"},
+                  %{"error" => inspect(reason)}}
              end
 
-           {result, env, ctx}
+           {result, env, Pyex.Ctx.close_span(ctx, span, span_attrs)}
        end
      end}
   end

@@ -66,7 +66,8 @@ defmodule Pyex.Stdlib do
     "store" => Pyex.Stdlib.Store,
     "pygments" => Pyex.Stdlib.Pygments,
     "zipfile" => Pyex.Stdlib.Zipfile,
-    "statistics" => Pyex.Stdlib.Statistics
+    "statistics" => Pyex.Stdlib.Statistics,
+    "opentelemetry" => Pyex.Stdlib.Opentelemetry
   }
 
   @doc """

@@ -91,6 +91,35 @@ defmodule Pyex.Stdlib.RequestsTest do
       assert result == false
     end
 
+    test "an allowed request emits an http.request platform span with method/url/status",
+         %{bypass: bypass} do
+      Bypass.expect_once(bypass, "GET", "/ok", fn conn -> Plug.Conn.resp(conn, 204, "") end)
+      port = bypass.port
+
+      handler = "http-span-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        [:pyex, :run, :stop],
+        fn _e, _m, meta, _ -> send(parent, {:spans, meta.spans}) end,
+        nil
+      )
+
+      Pyex.run!(
+        ~s|import requests\nrequests.get("http://localhost:#{port}/ok")|,
+        network: @network
+      )
+
+      :telemetry.detach(handler)
+      assert_received {:spans, spans}
+
+      http = Enum.find(spans, &(&1.name == "http.request"))
+      assert http.attributes["method"] == "GET"
+      assert http.attributes["url"] == "http://localhost:#{port}/ok"
+      assert http.attributes["status"] == 204
+    end
+
     test "response.json() parses JSON body", %{bypass: bypass} do
       Bypass.expect_once(bypass, "GET", "/json", fn conn ->
         conn
