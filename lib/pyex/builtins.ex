@@ -1609,7 +1609,8 @@ defmodule Pyex.Builtins do
                {{:file_handle, id}, env, Pyex.Ctx.close_runtime_span(ctx, span)}
 
              {:error, msg} ->
-               {{:exception, msg}, env, Pyex.Ctx.close_runtime_span(ctx, span, %{"error" => msg})}
+               {{:exception, msg}, env,
+                Pyex.Ctx.close_runtime_span(ctx, span, %{"error.type" => msg})}
            end
          end}
 

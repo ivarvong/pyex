@@ -102,7 +102,7 @@ defmodule Pyex.Stdlib.RequestsTest do
       :telemetry.attach(
         handler,
         [:pyex, :run, :stop],
-        fn _e, _m, meta, _ -> send(parent, {:spans, meta.spans}) end,
+        fn _e, _m, meta, _ -> send(parent, {:spans, meta.runtime_spans}) end,
         nil
       )
 

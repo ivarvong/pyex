@@ -181,7 +181,7 @@ defmodule Pyex do
           :telemetry.execute(
             [:pyex, :run, :stop],
             Pyex.Turn.footprint(final_ctx),
-            %{spans: Ctx.runtime_spans(final_ctx)}
+            %{runtime_spans: Ctx.runtime_spans(final_ctx)}
           )
 
           derefed = Ctx.deep_deref(final_ctx, value)
@@ -198,10 +198,13 @@ defmodule Pyex do
           final_ctx = %{final_ctx | duration_ms: duration_ms}
           error = Error.from_message(msg)
 
+          # A failed turn still surfaces what it touched: the capability ledger
+          # of everything done before the error rides on the exception event,
+          # so a host/agent can audit a crash even though `run` returns no ctx.
           :telemetry.execute(
             [:pyex, :run, :exception],
             Pyex.Turn.footprint(final_ctx),
-            %{error: error}
+            %{error: error, runtime_spans: Ctx.runtime_spans(final_ctx)}
           )
 
           {:error, error}
