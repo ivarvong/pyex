@@ -159,7 +159,7 @@ defmodule Pyex.Stdlib.Store do
   # Close a storage span that ended in a denial/failure, tagging it for review.
   @spec close_error(Pyex.Ctx.t(), non_neg_integer(), String.t()) :: Pyex.Ctx.t()
   defp close_error(ctx, span, reason) do
-    Pyex.Ctx.close_runtime_span(ctx, span, %{"error" => reason})
+    Pyex.Ctx.close_runtime_span(ctx, span, %{"error.type" => reason})
   end
 
   # Gates every operation on a configured backend — presence is the grant,

@@ -93,7 +93,7 @@ defmodule Pyex.OtelReviewTest do
       handler,
       [:pyex, :run, :stop],
       fn _e, measurements, meta, _ ->
-        send(parent, {:turn_telemetry, measurements, meta.spans})
+        send(parent, {:turn_telemetry, measurements, meta.runtime_spans})
       end,
       nil
     )
