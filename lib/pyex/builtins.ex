@@ -2358,9 +2358,30 @@ defmodule Pyex.Builtins do
     Pyex.Methods.method_names(val) |> Enum.sort()
   end
 
+  # dir() with no argument lists the names in the *current* scope, sorted — like
+  # CPython's locals()/globals() keys. Needs the env, so it defers. pyex seeds
+  # builtins into the global scope, so they are subtracted to match CPython,
+  # which keeps builtins in a separate namespace dir() does not show.
   defp builtin_dir([]) do
-    {:exception, "TypeError: dir expected at most 1 argument, got 0"}
+    {:ctx_call,
+     fn env, ctx ->
+       builtin_names = names()
+
+       scope_names =
+         env.scopes
+         |> List.first(%{})
+         |> Map.keys()
+         |> Enum.reject(&(&1 in builtin_names or internal_scope_name?(&1)))
+         |> Enum.sort()
+
+       {scope_names, env, ctx}
+     end}
   end
+
+  # Pyex injects a few sentinel bindings into scopes (e.g. the active exception);
+  # they are interpreter internals, not user names, so dir() must not surface them.
+  @spec internal_scope_name?(String.t()) :: boolean()
+  defp internal_scope_name?(name), do: name == "__current_exception__"
 
   @spec collect_inherited_attrs([Interpreter.pyvalue()]) :: %{
           optional(String.t()) => Interpreter.pyvalue()
