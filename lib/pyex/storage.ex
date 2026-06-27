@@ -38,6 +38,32 @@ defprotocol Pyex.Storage do
         def list_prefix(s, prefix), do: # SELECT key ... WHERE key LIKE $1 ...
       end
 
+  An operation may also return `{:error, reason}` (see `t:error/0`) to deny
+  or fail without crashing the run; the `store` module surfaces it as a
+  Python `StorageError`.
+
+  ## Multitenancy (the host-binding model)
+
+  Tenancy is an *object* boundary, not a keyspace partition: give each
+  tenant a **distinct backend** (its own table/schema/database/bucket) and
+  bind the right one per request, exactly like a Cloudflare Worker binding.
+  The Python program holds the capability it was handed and has no reference
+  with which to name another tenant's store.
+
+      def handle(tenant_id, source) do
+        Pyex.run(source, storage: MyApp.store_for(tenant_id))
+      end
+
+  For least-authority *within* a tenant, attenuate with `Pyex.Storage.View`
+  before binding — e.g. a read-only handle for a GET route, or a handle
+  scoped to one resource type:
+
+      Pyex.run(source, storage: Pyex.Storage.View.readonly(MyApp.store_for(tenant_id)))
+
+  Because a capability is handed out per request, **revocation is simply not
+  re-binding it** on the next request — no shared mutable state, and the
+  `Ctx` stays a serializable value.
+
   > #### Experimental {: .warning}
   > This API is new and may change without a major-version bump.
   """
@@ -45,19 +71,28 @@ defprotocol Pyex.Storage do
   @type key :: String.t()
   @type json :: String.t()
 
+  @typedoc """
+  A denial or failure. The `store` module surfaces it to Python as
+  `StorageError: <reason>`. Attenuating membranes (see `Pyex.Storage.View`)
+  return this to deny a verb the holder lacks the right to use; a real
+  backend may also return it to signal a transport failure instead of
+  crashing the run.
+  """
+  @type error :: {:error, String.t()}
+
   @doc "Fetches the JSON-encoded value at `key`, or `:miss` if absent."
-  @spec get(t, key) :: {:ok, json} | :miss
+  @spec get(t, key) :: {:ok, json} | :miss | error
   def get(backend, key)
 
   @doc "Stores the JSON-encoded `value` at `key`, returning the updated backend."
-  @spec put(t, key, json) :: {:ok, t}
+  @spec put(t, key, json) :: {:ok, t} | error
   def put(backend, key, value)
 
   @doc "Removes `key`, returning the updated backend (a no-op if absent)."
-  @spec delete(t, key) :: {:ok, t}
+  @spec delete(t, key) :: {:ok, t} | error
   def delete(backend, key)
 
   @doc "Returns all keys beginning with `prefix`, in ascending order."
-  @spec list_prefix(t, key) :: {:ok, [key]}
+  @spec list_prefix(t, key) :: {:ok, [key]} | error
   def list_prefix(backend, prefix)
 end
