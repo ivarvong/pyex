@@ -223,12 +223,12 @@ defmodule Pyex.Stdlib.Requests do
        # Platform capability span: the tamper-proof record of which URL the turn
        # reached out to, and the outcome. See Pyex.Turn.
        {ctx, span} =
-         Pyex.Ctx.open_span(ctx, "http.request", %{"method" => method_str, "url" => url})
+         Pyex.Ctx.open_runtime_span(ctx, "http.request", %{"method" => method_str, "url" => url})
 
        case Pyex.Ctx.check_network_access(ctx, method_str, url) do
          {:denied, reason} ->
            {{:exception, reason}, env,
-            Pyex.Ctx.close_span(ctx, span, %{"denied" => true, "error" => reason})}
+            Pyex.Ctx.close_runtime_span(ctx, span, %{"denied" => true, "error" => reason})}
 
          {:ok, inject_headers} ->
            # Injected headers override user-provided ones (host config wins)
@@ -276,7 +276,7 @@ defmodule Pyex.Stdlib.Requests do
                   %{"error" => inspect(reason)}}
              end
 
-           {result, env, Pyex.Ctx.close_span(ctx, span, span_attrs)}
+           {result, env, Pyex.Ctx.close_runtime_span(ctx, span, span_attrs)}
        end
      end}
   end

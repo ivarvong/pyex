@@ -6,7 +6,7 @@ defmodule Pyex.TelemetryIsolationTest do
     * **Platform trace** (`Pyex.Ctx.spans/1` over `otel_*`, exported by
       `Pyex.Turn`): pyex's own capability spans — a *tamper-proof* record of
       what the code actually touched.
-    * **Tenant trace** (`pyex_otel_*`, the guest `opentelemetry` module): the
+    * **Tenant trace** (`app_span_*`, the guest `opentelemetry` module): the
       sandboxed program's own instrumentation.
 
   The platform channel is the ground truth an agent reviews to verify behaviour.
@@ -25,9 +25,9 @@ defmodule Pyex.TelemetryIsolationTest do
     ctx
   end
 
-  defp platform_span_names(ctx), do: ctx |> Ctx.spans() |> Enum.map(& &1.name)
-  defp tenant_span_names(ctx), do: ctx.pyex_otel_finished |> Enum.map(& &1.name)
-  defp platform_spans(ctx), do: Ctx.spans(ctx)
+  defp platform_span_names(ctx), do: ctx |> Ctx.runtime_spans() |> Enum.map(& &1.name)
+  defp tenant_span_names(ctx), do: ctx.app_spans |> Enum.map(& &1.name)
+  defp platform_spans(ctx), do: Ctx.runtime_spans(ctx)
 
   describe "the wall: the two channels never share storage" do
     test "a guest's opentelemetry spans never enter the platform trace" do
@@ -43,7 +43,7 @@ defmodule Pyex.TelemetryIsolationTest do
       # counter never moved.
       assert "handle" in tenant_span_names(ctx)
       assert platform_span_names(ctx) == []
-      assert ctx.otel_seq == 0
+      assert ctx.runtime_span_seq == 0
     end
 
     test "capability spans never enter the guest's trace and the guest can't read them" do
@@ -76,8 +76,8 @@ defmodule Pyex.TelemetryIsolationTest do
 
       platform_only = run("import store\nstore.set('k', 1)", storage: Storage.Memory.new())
 
-      assert tenant_only.otel_seq == 0
-      assert platform_only.pyex_otel_seq == 0
+      assert tenant_only.runtime_span_seq == 0
+      assert platform_only.app_span_seq == 0
     end
   end
 
@@ -99,7 +99,7 @@ defmodule Pyex.TelemetryIsolationTest do
       # The platform trace holds exactly one store.set — the real one. The forged
       # span is confined to the tenant channel and cannot inflate or pollute it.
       assert Enum.count(platform_span_names(ctx), &(&1 == "store.set")) == 1
-      real = ctx |> Ctx.spans() |> Enum.find(&(&1.name == "store.set"))
+      real = ctx |> Ctx.runtime_spans() |> Enum.find(&(&1.name == "store.set"))
       assert real.attributes["key"] == "real"
       assert "store.set" in tenant_span_names(ctx)
     end
@@ -129,7 +129,7 @@ defmodule Pyex.TelemetryIsolationTest do
       # The platform trace exposes the write the program never disclosed —
       # this is what an agent reviews instead of trusting self-instrumentation.
       assert "store.set" in platform_span_names(ctx)
-      write = ctx |> Ctx.spans() |> Enum.find(&(&1.name == "store.set"))
+      write = ctx |> Ctx.runtime_spans() |> Enum.find(&(&1.name == "store.set"))
       assert write.attributes["key"] == "audit:exfil"
     end
   end

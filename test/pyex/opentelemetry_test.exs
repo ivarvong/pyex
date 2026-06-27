@@ -2,8 +2,8 @@ defmodule Pyex.OpentelemetryTest do
   @moduledoc """
   Adversarial tests for the native `opentelemetry` module.
 
-  Spans live entirely in `Pyex.Ctx` (`pyex_otel_seq`, `pyex_otel_stack`, `pyex_otel_active`,
-  `pyex_otel_finished`), so every test runs through `run_with_ctx_result/3` to keep
+  Spans live entirely in `Pyex.Ctx` (`app_span_seq`, `app_span_stack`, `app_span_active`,
+  `app_spans`), so every test runs through `run_with_ctx_result/3` to keep
   the final ctx even when the program ends in an unhandled exception — letting
   us assert the stack-integrity invariants directly against ctx.
   """
@@ -27,14 +27,14 @@ defmodule Pyex.OpentelemetryTest do
   # The single load-bearing invariant: no run may leak an active span — the
   # stack must be empty and nothing left in-progress.
   defp assert_stack_empty!(ctx) do
-    assert ctx.pyex_otel_stack == [], "pyex_otel_stack leaked: #{inspect(ctx.pyex_otel_stack)}"
+    assert ctx.app_span_stack == [], "app_span_stack leaked: #{inspect(ctx.app_span_stack)}"
 
-    assert ctx.pyex_otel_active == %{},
-           "pyex_otel_active leaked: #{inspect(Map.keys(ctx.pyex_otel_active))}"
+    assert ctx.app_span_active == %{},
+           "app_span_active leaked: #{inspect(Map.keys(ctx.app_span_active))}"
   end
 
   defp finished_by_name(ctx, name) do
-    Enum.find(ctx.pyex_otel_finished, &(&1.name == name))
+    Enum.find(ctx.app_spans, &(&1.name == name))
   end
 
   # ── basics ────────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ defmodule Pyex.OpentelemetryTest do
       """)
 
     assert_stack_empty!(ctx)
-    assert [span] = ctx.pyex_otel_finished
+    assert [span] = ctx.app_spans
     assert span.name == "parse"
     assert span.parent_id == nil
     assert span.attributes == %{"lines" => 42, "ok" => true}
@@ -167,21 +167,21 @@ defmodule Pyex.OpentelemetryTest do
 
     assert_stack_empty!(ctx)
     # root + 6 calls (f(5)..f(0))
-    assert length(ctx.pyex_otel_finished) == 7
+    assert length(ctx.app_spans) == 7
 
-    ids = MapSet.new(ctx.pyex_otel_finished, & &1.id)
-    roots = Enum.filter(ctx.pyex_otel_finished, &(&1.parent_id == nil))
+    ids = MapSet.new(ctx.app_spans, & &1.id)
+    roots = Enum.filter(ctx.app_spans, &(&1.parent_id == nil))
     assert length(roots) == 1
     [root] = roots
 
     # Every span's parent chain reaches the single root.
-    for span <- ctx.pyex_otel_finished do
-      assert reaches_root?(span, ctx.pyex_otel_finished, root.id)
+    for span <- ctx.app_spans do
+      assert reaches_root?(span, ctx.app_spans, root.id)
       if span.parent_id != nil, do: assert(MapSet.member?(ids, span.parent_id))
       assert span.trace_id == root.id
     end
 
-    assert MapSet.size(ids) == length(ctx.pyex_otel_finished), "span ids must be unique"
+    assert MapSet.size(ids) == length(ctx.app_spans), "span ids must be unique"
   end
 
   defp reaches_root?(%{id: id}, _all, root_id) when id == root_id, do: true
@@ -258,8 +258,8 @@ defmodule Pyex.OpentelemetryTest do
       """)
 
     assert_stack_empty!(ctx)
-    assert length(ctx.pyex_otel_finished) == 5000
-    assert Enum.all?(ctx.pyex_otel_finished, &(&1.end_seq != nil))
+    assert length(ctx.app_spans) == 5000
+    assert Enum.all?(ctx.app_spans, &(&1.end_seq != nil))
   end
 
   test "set_attribute on a span after its `with` exited is a safe no-op" do
@@ -296,8 +296,8 @@ defmodule Pyex.OpentelemetryTest do
     {{:ok, _}, ctx1} = run_otel(src.("alpha"))
     {{:ok, _}, ctx2} = run_otel(src.("beta"))
 
-    assert Enum.map(ctx1.pyex_otel_finished, & &1.name) == ["alpha"]
-    assert Enum.map(ctx2.pyex_otel_finished, & &1.name) == ["beta"]
+    assert Enum.map(ctx1.app_spans, & &1.name) == ["alpha"]
+    assert Enum.map(ctx2.app_spans, & &1.name) == ["beta"]
   end
 
   test "concurrent runs are fully isolated (no global state)" do
@@ -324,19 +324,19 @@ defmodule Pyex.OpentelemetryTest do
 
     for {label, expected_count, ctx} <- Task.await_many(tasks, 30_000) do
       assert_stack_empty!(ctx)
-      names = ctx.pyex_otel_finished |> Enum.map(& &1.name) |> Enum.uniq()
+      names = ctx.app_spans |> Enum.map(& &1.name) |> Enum.uniq()
       assert names == [label], "run for #{label} saw foreign spans: #{inspect(names)}"
-      assert length(ctx.pyex_otel_finished) == expected_count
+      assert length(ctx.app_spans) == expected_count
     end
   end
 
   # ── platform / tenant separation (security boundary) ──────────────────────
 
   # The tenant (sandboxed Python) telemetry MUST be fully isolated from the
-  # platform's host-side telemetry (Ctx.open_span/close_span/spans). Sandboxed
+  # platform's host-side telemetry (Ctx.open_runtime_span/close_span/spans). Sandboxed
   # code must not be able to inject into, parent onto, or read the platform
   # trace. Even with a platform span OPEN around the run, the guest span must:
-  #   - land in pyex_otel_finished, never the platform's pyex_otel_finished;
+  #   - land in app_spans, never the platform's app_spans;
   #   - be a root (parent_id == nil), never parented onto the platform span;
   #   - and get_finished_spans() must return ONLY tenant spans.
   test "tenant spans are isolated from the platform trace (no inject/parent/read)" do
@@ -354,19 +354,19 @@ defmodule Pyex.OpentelemetryTest do
 
     ctx = Ctx.new() |> Ctx.reset_compute()
     # a platform span is OPEN around the whole run (the host's turn span)
-    {ctx, hid} = Ctx.open_span(ctx, "host_root", %{"layer" => "elixir"})
+    {ctx, hid} = Ctx.open_runtime_span(ctx, "host_root", %{"layer" => "elixir"})
     env = Builtins.runtime_env(ctx)
 
     # the in-guest asserts above would raise if it could see/parent-onto the host
     {:ok, _v, _env, ctx} = Interpreter.run_with_ctx_result(ast, env, ctx)
-    ctx = Ctx.close_span(ctx, hid)
+    ctx = Ctx.close_runtime_span(ctx, hid)
 
     assert_stack_empty!(ctx)
     # platform trace: ONLY the host span (the perl rename must not touch this one)
-    assert ctx.otel_finished |> Enum.map(& &1.name) == ["host_root"]
+    assert ctx.runtime_spans |> Enum.map(& &1.name) == ["host_root"]
     # tenant trace: ONLY the guest span, and it is a root (no cross-parenting)
-    assert ctx.pyex_otel_finished |> Enum.map(& &1.name) == ["guest"]
-    assert [%{parent_id: nil}] = ctx.pyex_otel_finished
+    assert ctx.app_spans |> Enum.map(& &1.name) == ["guest"]
+    assert [%{parent_id: nil}] = ctx.app_spans
   end
 
   # ── VFS flush ─────────────────────────────────────────────────────────────
@@ -389,7 +389,7 @@ defmodule Pyex.OpentelemetryTest do
 
     assert {:ok, content} = Pyex.FS.read(ctx.filesystem, "/otel/spans.jsonl")
     lines = content |> String.split("\n", trim: true)
-    assert length(lines) == length(ctx.pyex_otel_finished)
+    assert length(lines) == length(ctx.app_spans)
     assert length(lines) == 2
 
     decoded = Enum.map(lines, &Jason.decode!/1)
@@ -438,15 +438,15 @@ defmodule Pyex.OpentelemetryTest do
                "#{inspect(result)}\n\n#{source}"
 
       # stack-integrity: nothing leaked
-      assert ctx.pyex_otel_stack == [], "seed #{seed}: stack leaked\n#{source}"
-      assert ctx.pyex_otel_active == %{}, "seed #{seed}: active leaked\n#{source}"
+      assert ctx.app_span_stack == [], "seed #{seed}: stack leaked\n#{source}"
+      assert ctx.app_span_active == %{}, "seed #{seed}: active leaked\n#{source}"
 
       # started == finished
-      assert length(ctx.pyex_otel_finished) == expected_count,
+      assert length(ctx.app_spans) == expected_count,
              "seed #{seed}: expected #{expected_count} spans, got " <>
-               "#{length(ctx.pyex_otel_finished)}\n#{source}"
+               "#{length(ctx.app_spans)}\n#{source}"
 
-      validate_tree!(ctx.pyex_otel_finished, seed, source)
+      validate_tree!(ctx.app_spans, seed, source)
     end
   end
 
