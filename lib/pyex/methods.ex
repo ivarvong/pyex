@@ -1092,11 +1092,19 @@ defmodule Pyex.Methods do
     end
   end
 
-  @spec str_join(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  @spec str_join(String.t(), [Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
   defp str_join(s, [{:py_list, reversed, _}]), do: reversed |> Enum.reverse() |> Enum.join(s)
   defp str_join(s, [list]) when is_list(list), do: Enum.join(list, s)
   defp str_join(s, [{:generator, items}]), do: Enum.join(items, s)
   defp str_join(s, [{:tuple, items}]), do: Enum.join(items, s)
+  # A str is iterable over its characters: "#".join("abc") -> "a#b#c".
+  defp str_join(s, [str]) when is_binary(str), do: str |> String.graphemes() |> Enum.join(s)
+  # A set/frozenset is iterable over its (string) members.
+  defp str_join(s, [{kind, members}]) when kind in [:set, :frozenset],
+    do: members |> MapSet.to_list() |> Enum.join(s)
+
+  # Anything non-iterable matches CPython's TypeError rather than leaking.
+  defp str_join(_s, [_arg]), do: {:exception, "TypeError: can only join an iterable"}
 
   @spec str_replace(String.t(), [Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
   defp str_replace(s, [old, new]) when is_binary(old) and is_binary(new) do
@@ -1165,11 +1173,51 @@ defmodule Pyex.Methods do
     Enum.any?(prefixes, fn p -> is_binary(p) and String.starts_with?(s, p) end)
   end
 
+  # str.startswith(prefix, start[, end]) — match within the s[start:end] window,
+  # with Python slice-style index clamping (negatives count from the end).
+  defp str_startswith(s, [prefix, start]) when is_integer(start),
+    do: str_startswith(s, [prefix, start, String.length(s)])
+
+  defp str_startswith(s, [prefix, start, stop]) when is_integer(start) and is_integer(stop),
+    do: affix_match?(prefix, affix_window(s, start, stop), &String.starts_with?/2)
+
   @spec str_endswith(String.t(), [Interpreter.pyvalue()]) :: boolean()
   defp str_endswith(s, [suffix]) when is_binary(suffix), do: String.ends_with?(s, suffix)
 
   defp str_endswith(s, [{:tuple, suffixes}]) do
     Enum.any?(suffixes, fn p -> is_binary(p) and String.ends_with?(s, p) end)
+  end
+
+  defp str_endswith(s, [suffix, start]) when is_integer(start),
+    do: str_endswith(s, [suffix, start, String.length(s)])
+
+  defp str_endswith(s, [suffix, start, stop]) when is_integer(start) and is_integer(stop),
+    do: affix_match?(suffix, affix_window(s, start, stop), &String.ends_with?/2)
+
+  # A single affix or a tuple of affixes, matched against `window` with `check`.
+  @spec affix_match?(Interpreter.pyvalue(), String.t(), (String.t(), String.t() -> boolean())) ::
+          boolean()
+  defp affix_match?(affix, window, check) when is_binary(affix), do: check.(window, affix)
+
+  defp affix_match?({:tuple, affixes}, window, check),
+    do: Enum.any?(affixes, fn a -> is_binary(a) and check.(window, a) end)
+
+  defp affix_match?(_affix, _window, _check), do: false
+
+  # The s[start:stop] substring with CPython slice-index semantics: negative
+  # indices count from the end, both ends clamp to [0, len].
+  @spec affix_window(String.t(), integer(), integer()) :: String.t()
+  defp affix_window(s, start, stop) do
+    len = String.length(s)
+    a = clamp_affix_index(start, len)
+    b = clamp_affix_index(stop, len)
+    if a >= b, do: "", else: String.slice(s, a, b - a)
+  end
+
+  @spec clamp_affix_index(integer(), non_neg_integer()) :: non_neg_integer()
+  defp clamp_affix_index(i, len) do
+    i = if i < 0, do: len + i, else: i
+    i |> max(0) |> min(len)
   end
 
   @spec str_find(String.t(), [Interpreter.pyvalue()]) :: integer()

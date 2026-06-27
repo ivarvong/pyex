@@ -156,7 +156,15 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:iter_sum, val, start} ->
         case Interpreter.to_iterable(val, env, ctx) do
           {:ok, items, env, ctx} ->
-            {Enum.reduce(items, start, &sum_step/2), env, ctx}
+            result =
+              Enum.reduce_while(items, start, fn x, acc ->
+                case sum_step(x, acc) do
+                  {:exception, _} = exc -> {:halt, exc}
+                  v -> {:cont, v}
+                end
+              end)
+
+            {result, env, ctx}
 
           {:exception, _} = signal ->
             {signal, env, ctx}
@@ -363,6 +371,14 @@ defmodule Pyex.Interpreter.BuiltinResults do
   defp sum_step(x, acc) when is_list(x) and is_list(acc), do: acc ++ x
   defp sum_step({:tuple, x}, {:tuple, acc}), do: {:tuple, acc ++ x}
   defp sum_step(x, acc) when is_binary(x) and is_binary(acc), do: acc <> x
+
+  # Type-mismatched accumulation (e.g. sum of strings off the default int 0)
+  # is a Python TypeError, not an Elixir crash — the reduce halts on it.
+  defp sum_step(x, acc),
+    do:
+      {:exception,
+       "TypeError: unsupported operand type(s) for +: " <>
+         "'#{Helpers.py_type(acc)}' and '#{Helpers.py_type(x)}'"}
 
   # Pop the queued yield value, then resume the generator (with the
   # interpreter back in `:defer_inner` mode) so the next `next()` call
