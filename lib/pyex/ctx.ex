@@ -28,6 +28,7 @@ defmodule Pyex.Ctx do
           :path => String.t(),
           :mode => :read | :write | :append,
           :buffer => String.t(),
+          optional(:name) => String.t(),
           optional(:pos) => non_neg_integer()
         }
 
@@ -1186,7 +1187,7 @@ defmodule Pyex.Ctx do
         case Pyex.FS.read_file(fs, ctx.cwd, path) do
           {:ok, content, fs} ->
             id = ctx.next_handle
-            handle = %{path: resolved, mode: :read, buffer: content, pos: 0}
+            handle = %{path: resolved, name: path, mode: :read, buffer: content, pos: 0}
 
             ctx = %{
               ctx
@@ -1204,7 +1205,7 @@ defmodule Pyex.Ctx do
 
       write_mode when write_mode in [:write, :append] ->
         id = ctx.next_handle
-        handle = %{path: resolved, mode: write_mode, buffer: ""}
+        handle = %{path: resolved, name: path, mode: write_mode, buffer: ""}
         ctx = %{ctx | handles: Map.put(ctx.handles, id, handle), next_handle: id + 1}
         ctx = record(ctx, :file_op, {:open, resolved, write_mode, id})
         {:ok, id, ctx}
@@ -1381,6 +1382,7 @@ defmodule Pyex.Ctx do
            %{
              mode: :read | :write | :append,
              path: String.t(),
+             name: String.t(),
              pos: non_neg_integer(),
              size: non_neg_integer()
            }}
@@ -1388,7 +1390,14 @@ defmodule Pyex.Ctx do
   def handle_meta(%__MODULE__{handles: handles}, id) do
     case Map.fetch(handles, id) do
       {:ok, %{mode: mode, path: path, buffer: buffer} = h} ->
-        {:ok, %{mode: mode, path: path, pos: Map.get(h, :pos, 0), size: byte_size(buffer)}}
+        {:ok,
+         %{
+           mode: mode,
+           path: path,
+           name: Map.get(h, :name, path),
+           pos: Map.get(h, :pos, 0),
+           size: byte_size(buffer)
+         }}
 
       :error ->
         :error

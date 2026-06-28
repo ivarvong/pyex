@@ -1970,6 +1970,9 @@ defmodule Pyex.Interpreter do
       {:iterator, id} ->
         iter_attr_for_generator(id, attr, env, ctx)
 
+      {:file_handle, id} when attr in ["closed", "mode", "name"] ->
+        file_handle_attr(id, attr, env, ctx)
+
       _ ->
         case Methods.resolve(object, attr) do
           {:ok, method} ->
@@ -1982,6 +1985,25 @@ defmodule Pyex.Interpreter do
         end
     end
   end
+
+  # File data attributes (read without a call): `closed` reflects whether the
+  # handle is still open, `mode`/`name` echo how it was opened. CPython exposes
+  # these on the stream object itself, so they resolve here, not via Methods.
+  @spec file_handle_attr(non_neg_integer(), String.t(), Env.t(), Ctx.t()) :: eval_result()
+  defp file_handle_attr(id, attr, env, ctx) do
+    case {attr, Ctx.handle_meta(ctx, id)} do
+      {"closed", :error} -> {true, env, ctx}
+      {"closed", {:ok, _}} -> {false, env, ctx}
+      {_, :error} -> {{:exception, "ValueError: I/O operation on closed file"}, env, ctx}
+      {"mode", {:ok, %{mode: mode}}} -> {file_mode_string(mode), env, ctx}
+      {"name", {:ok, %{name: name}}} -> {name, env, ctx}
+    end
+  end
+
+  @spec file_mode_string(:read | :write | :append) :: String.t()
+  defp file_mode_string(:read), do: "r"
+  defp file_mode_string(:write), do: "w"
+  defp file_mode_string(:append), do: "a"
 
   @spec iter_attr_for_generator(non_neg_integer(), String.t(), Env.t(), Ctx.t()) :: eval_result()
   defp iter_attr_for_generator(id, attr, env, ctx) do

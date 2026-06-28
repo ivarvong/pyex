@@ -254,4 +254,37 @@ defmodule Pyex.LanguageGapsTest do
              """) == "None\nabc"
     end
   end
+
+  describe "file data attributes (name, mode, closed)" do
+    test "name and mode echo the open arguments" do
+      assert file_out!("""
+             f = open("notes.txt", "w")
+             print(f.name, f.mode)
+             f.write("x")
+             f.close()
+             g = open("notes.txt")
+             print(g.name, g.mode)
+             a = open("notes.txt", "a")
+             print(a.mode)
+             """) == "notes.txt w\nnotes.txt r\na"
+    end
+
+    test "closed flips from False to True after close()" do
+      assert file_out!("""
+             f = open("a.txt", "w")
+             print(f.closed)
+             f.close()
+             print(f.closed)
+             """) == "False\nTrue"
+    end
+
+    test "dir(file) surfaces the data attributes alongside the methods" do
+      assert file_out!("""
+             f = open("a.txt", "w")
+             names = dir(f)
+             print(all(a in names for a in ["closed", "mode", "name"]))
+             print(all(m in names for m in ["read", "write", "seek", "tell"]))
+             """) == "True\nTrue"
+    end
+  end
 end

@@ -35,6 +35,9 @@ defmodule Pyex.Methods do
   )
   @tuple_methods ~w(count index)
   @file_methods ~w(close flush read readable readline readlines seek seekable tell truncate writable write writelines)
+  # Data attributes (read without a call); resolved in the interpreter's
+  # getattr path, listed here only so dir(file) matches CPython.
+  @file_attributes ~w(closed mode name)
 
   @doc """
   Attempts to resolve `attr` on `object`. Returns
@@ -246,7 +249,7 @@ defmodule Pyex.Methods do
 
   def method_names({:tuple, _}), do: @tuple_methods
   def method_names({:pyex_decimal, _}), do: @decimal_methods
-  def method_names({:file_handle, _}), do: @file_methods
+  def method_names({:file_handle, _}), do: @file_methods ++ @file_attributes
   def method_names(_), do: []
 
   @spec bound(

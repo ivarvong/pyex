@@ -65,10 +65,6 @@ defmodule Pyex.ParityTest do
     "tuple" => %{},
     "frozenset" => %{},
     "file" => %{
-      # data attributes (not methods); need ctx-at-getattr resolution still
-      "closed" => :unimplemented,
-      "mode" => :unimplemented,
-      "name" => :unimplemented,
       # OS / encoding-layer internals with no meaning in the sandbox
       "buffer" => :out_of_scope,
       "detach" => :out_of_scope,
