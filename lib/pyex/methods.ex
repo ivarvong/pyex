@@ -146,6 +146,13 @@ defmodule Pyex.Methods do
     end
   end
 
+  def resolve({:memoryview, _} = object, attr) do
+    case memoryview_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
   def resolve(object, attr) when is_integer(object) do
     case int_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
@@ -250,6 +257,7 @@ defmodule Pyex.Methods do
   def method_names({:tuple, _}), do: @tuple_methods
   def method_names({:pyex_decimal, _}), do: @decimal_methods
   def method_names({:file_handle, _}), do: @file_methods ++ @file_attributes
+  def method_names({:memoryview, _}), do: ~w(tobytes hex tolist)
   def method_names(_), do: []
 
   @spec bound(
@@ -848,6 +856,20 @@ defmodule Pyex.Methods do
   defp bytes_method("replace"), do: {:ok, &bytes_replace/2}
   defp bytes_method("__len__"), do: {:ok, fn {_tag, b}, [] -> byte_size(b) end}
   defp bytes_method(_), do: :error
+
+  @spec memoryview_method(String.t()) :: {:ok, (term(), [term()] -> term())} | :error
+  defp memoryview_method("tobytes"), do: {:ok, fn {:memoryview, b}, [] -> {:bytes, b} end}
+  defp memoryview_method("hex"), do: {:ok, &bytes_hex/2}
+
+  defp memoryview_method("tolist") do
+    {:ok,
+     fn {:memoryview, b}, [] ->
+       bytes = :binary.bin_to_list(b)
+       {:py_list, Enum.reverse(bytes), length(bytes)}
+     end}
+  end
+
+  defp memoryview_method(_), do: :error
 
   @spec bytes_decode(term(), [term()]) :: String.t() | {:exception, String.t()}
   defp bytes_decode({_tag, b}, []), do: b

@@ -3255,8 +3255,8 @@ defmodule Pyex.Interpreter do
           {Enum.at(codepoints, index), env, ctx}
         end
 
-      {tag, bin} when tag in [:bytes, :bytearray] and is_integer(key) ->
-        # Indexing bytes/bytearray yields the integer byte value.
+      {tag, bin} when tag in [:bytes, :bytearray, :memoryview] and is_integer(key) ->
+        # Indexing bytes/bytearray/memoryview yields the integer byte value.
         bytes = :binary.bin_to_list(bin)
         len = length(bytes)
         index = if key < 0, do: len + key, else: key
@@ -3450,7 +3450,7 @@ defmodule Pyex.Interpreter do
           result -> {{:tuple, result}, env, ctx}
         end
 
-      {tag, bin} when tag in [:bytes, :bytearray] ->
+      {tag, bin} when tag in [:bytes, :bytearray, :memoryview] ->
         case py_slice(:binary.bin_to_list(bin), start, stop, step) do
           {:exception, msg} -> {{:exception, msg}, env, ctx}
           result -> {{tag, :binary.list_to_bin(result)}, env, ctx}

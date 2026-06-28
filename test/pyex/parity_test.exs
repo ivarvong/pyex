@@ -85,7 +85,6 @@ defmodule Pyex.ParityTest do
       # fails too), so these stay gapped rather than ship a crashing builtin
       "aiter" => :unimplemented,
       "anext" => :unimplemented,
-      "memoryview" => :unimplemented,
       # keywords / singletons, not environment bindings
       "True" => :language_literal,
       "False" => :language_literal,

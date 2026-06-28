@@ -226,6 +226,7 @@ defmodule Pyex.Builtins do
       {"complex", &builtin_complex/1},
       {"bytes", &builtin_bytes/1},
       {"bytearray", &builtin_bytearray/1},
+      {"memoryview", &builtin_memoryview/1},
       {"dir", &builtin_dir/1},
       {"vars", &builtin_vars/1},
       {"globals", &builtin_globals/1},
@@ -267,6 +268,7 @@ defmodule Pyex.Builtins do
   defp builtin_len([val]) when is_map(val), do: map_size(visible_dict(val))
   defp builtin_len([{:tuple, items}]), do: length(items)
   defp builtin_len([{:struct_time, fields}]), do: length(fields)
+  defp builtin_len([{:memoryview, b}]), do: byte_size(b)
   defp builtin_len([{:set, s}]), do: MapSet.size(s)
   defp builtin_len([{:frozenset, s}]), do: MapSet.size(s)
   defp builtin_len([{:bytes, b}]), do: byte_size(b)
@@ -2959,6 +2961,14 @@ defmodule Pyex.Builtins do
     end
   end
 
+  @spec builtin_memoryview([Interpreter.pyvalue()]) ::
+          {:memoryview, binary()} | {:exception, String.t()}
+  defp builtin_memoryview([{tag, b}]) when tag in [:bytes, :bytearray, :memoryview],
+    do: {:memoryview, b}
+
+  defp builtin_memoryview(_),
+    do: {:exception, "TypeError: memoryview: a bytes-like object is required"}
+
   @doc """
   Returns whether a Python value is truthy.
   """
@@ -2997,6 +3007,7 @@ defmodule Pyex.Builtins do
   defp pytype(:ellipsis), do: "ellipsis"
   defp pytype(:not_implemented), do: "NotImplementedType"
   defp pytype({:struct_time, _}), do: "struct_time"
+  defp pytype({:memoryview, _}), do: "memoryview"
   defp pytype(val) when is_binary(val), do: "str"
   defp pytype(val) when is_boolean(val), do: "bool"
   defp pytype(nil), do: "NoneType"
@@ -3063,6 +3074,8 @@ defmodule Pyex.Builtins do
 
   def py_repr({:struct_time, fields}),
     do: Pyex.Interpreter.Helpers.struct_time_repr(fields)
+
+  def py_repr({:memoryview, _}), do: "<memory>"
 
   def py_repr(val) when is_float(val), do: Pyex.Interpreter.Helpers.py_float_str(val)
 

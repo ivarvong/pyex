@@ -22,6 +22,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type(:ellipsis), do: "ellipsis"
   def py_type(:not_implemented), do: "NotImplementedType"
   def py_type({:struct_time, _}), do: "struct_time"
+  def py_type({:memoryview, _}), do: "memoryview"
   def py_type(val) when is_float(val), do: "float"
   def py_type(val) when is_binary(val), do: "str"
   def py_type(val) when is_boolean(val), do: "bool"
@@ -166,6 +167,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_str(:ellipsis), do: "Ellipsis"
   def py_str(:not_implemented), do: "NotImplemented"
   def py_str({:struct_time, fields}), do: struct_time_repr(fields)
+  def py_str({:memoryview, _}), do: "<memory>"
   def py_str(val) when is_float(val), do: py_float_str(val)
 
   def py_str({:py_list, reversed, _len}) do

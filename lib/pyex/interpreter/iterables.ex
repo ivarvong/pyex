@@ -31,6 +31,10 @@ defmodule Pyex.Interpreter.Iterables do
 
   def to_iterable({:tuple, elements}, env, ctx), do: {:ok, elements, env, ctx}
   def to_iterable({:struct_time, fields}, env, ctx), do: {:ok, fields, env, ctx}
+
+  def to_iterable({:memoryview, b}, env, ctx),
+    do: {:ok, :binary.bin_to_list(b), env, ctx}
+
   def to_iterable({:set, set}, env, ctx), do: {:ok, MapSet.to_list(set), env, ctx}
   def to_iterable({:frozenset, set}, env, ctx), do: {:ok, MapSet.to_list(set), env, ctx}
 

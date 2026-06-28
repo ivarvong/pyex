@@ -881,6 +881,29 @@ defmodule Pyex.LanguageGapsTest do
     end
   end
 
+  describe "memoryview" do
+    test "memoryview over bytes supports index, len, slice, iterate" do
+      assert out!("""
+             mv = memoryview(b"abcdef")
+             print(mv[0], mv[-1])
+             print(len(mv))
+             print(mv[1:4].tobytes())
+             print([x for x in memoryview(b"AB")])
+             print(type(mv).__name__)
+             """) == "97 102\n6\nb'bcd'\n[65, 66]\nmemoryview"
+    end
+
+    test "tobytes / hex / tolist, and memoryview over a bytearray" do
+      assert out!("""
+             mv = memoryview(b"abc")
+             print(mv.tobytes())
+             print(mv.hex())
+             print(mv.tolist())
+             print(memoryview(bytearray(b"hi")).tobytes())
+             """) == "b'abc'\n616263\n[97, 98, 99]\nb'hi'"
+    end
+  end
+
   describe "ExceptionGroup / BaseExceptionGroup" do
     test "ExceptionGroup can be raised and caught, and is an Exception" do
       assert out!("""
