@@ -766,6 +766,31 @@ defmodule Pyex.LanguageGapsTest do
              print("base defined")
              """) == "base defined"
     end
+
+    test "class keyword arguments are threaded to __init_subclass__" do
+      assert out!("""
+             class Base:
+                 def __init_subclass__(cls, label=None, **kwargs):
+                     cls.label = label
+                     print(sorted(kwargs.items()))
+             class Sub(Base, label="hi", a=1, b=2):
+                 pass
+             print(Sub.label)
+             """) == "[('a', 1), ('b', 2)]\nhi"
+    end
+
+    test "a metaclass keyword is accepted (class builds normally)" do
+      assert out!("""
+             from abc import ABCMeta
+             class C(metaclass=ABCMeta):
+                 x = 1
+             print(C().x)
+             D = type("D", (), {})
+             class E(D, metaclass=type):
+                 pass
+             print(E.__name__)
+             """) == "1\nE"
+    end
   end
 
   describe "data descriptors (__set__) and instance __dict__" do

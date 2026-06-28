@@ -376,105 +376,16 @@ defmodule Pyex.Interpreter do
   end
 
   def eval({:class, _, [name, base_names, body]}, env, ctx) do
-    bases =
-      Enum.map(base_names, fn
-        {:dotted, mod_name, attr_name} ->
-          case Env.get(env, mod_name) do
-            {:ok, {:module, _, %{^attr_name => {:class, _, _, _} = base}}} -> base
-            {:ok, %{^attr_name => {:class, _, _, _} = base}} -> base
-            _ -> nil
-          end
+    do_eval_class(name, base_names, body, [], env, ctx)
+  end
 
-        base_name ->
-          case Env.get(env, base_name) do
-            {:ok, {:class, _, _, _} = base} ->
-              base
-
-            {:ok, {:exception_class, _} = exc} ->
-              # Reify to a real {:class, name, bases, attrs} so the MRO
-              # and super() paths find the builtin __init__ etc.
-              exception_instance_class(exc)
-
-            {:ok, {:builtin_type, _, _} = btype} ->
-              # Reify `list`, `dict`, `set`, `str`, `int`, `tuple`, ... so
-              # `class MyList(list)` works.  Subclass instances carry their
-              # wrapped value under `__wrapped__`.
-              builtin_type_base_class(btype)
-
-            _ ->
-              # Fallback: legacy stub for bases that aren't in env but
-              # happen to be registered exception names (for very old
-              # callsites that may predate the exception_class builtins).
-              builtin_exception_base_stub(base_name)
-          end
-      end)
-      |> Enum.reject(&is_nil/1)
-
-    class_env =
-      Env.push_scope_with(env, %{"__annotations__" => %{}, "__annotations_order__" => []})
-
-    {class_env, ctx, error} =
-      Enum.reduce_while(body, {class_env, ctx, nil}, fn stmt, {ce, c, _err} ->
-        case eval(stmt, ce, c) do
-          {{:exception, _} = signal, ce, c} -> {:halt, {ce, c, signal}}
-          {_val, ce, c} -> {:cont, {ce, c, nil}}
-        end
-      end)
-
-    if error do
-      {error, env, ctx}
-    else
-      class_scope = Env.current_scope(class_env)
-
-      docstring =
-        case body do
-          [{:expr, _, [{:lit, _, [s]}]} | _] when is_binary(s) -> s
-          [{:lit, _, [s]} | _] when is_binary(s) -> s
-          _ -> nil
-        end
-
-      module_name =
-        case Env.get(env, "__name__") do
-          {:ok, n} when is_binary(n) -> n
-          _ -> "__main__"
-        end
-
-      raw_attrs =
-        Enum.reduce(class_scope, %{}, fn {k, v}, acc ->
-          Map.put(acc, k, v)
-        end)
-        |> Map.put("__name__", name)
-        |> Map.put("__qualname__", name)
-        |> Map.put("__module__", module_name)
-        |> Map.put("__doc__", docstring)
-
-      class_val = {:class, name, bases, raw_attrs}
-
-      # Enum subclasses transform plain value assignments into enum
-      # member instances with `.name` and `.value` attributes.
-      class_val =
-        if enum_base?(bases) do
-          # Preserve the definition order of member names by walking
-          # the class body AST.
-          body_order = body_assignment_order(body)
-          transform_enum_class(class_val, body_order)
-        else
-          class_val
-        end
-
-      class_val = ClassLookup.with_mro_cache(class_val)
-      ctx = Ctx.register_class(ctx, class_val)
-
-      # PEP 487: defining a subclass invokes the nearest parent's
-      # __init_subclass__(cls=...). It may set attributes on cls, so re-fetch
-      # the (possibly mutated) class from the registry before binding.
-      case call_init_subclass(class_val, bases, env, ctx) do
-        {:ok, env, ctx} ->
-          {nil, Env.smart_put(env, name, Ctx.live_class(ctx, class_val)), ctx}
-
-        {{:exception, _} = signal, env, ctx} ->
-          {signal, env, ctx}
-      end
+  # Class header with keyword args: `class C(Base, metaclass=M, key=val)`.
+  # Evaluate the keyword expressions, then build the class threading them to
+  # __init_subclass__ (and consuming `metaclass`).
+  def eval({:class, _, [name, base_names, body, kw_ast]}, env, ctx) do
+    case eval_class_keywords(kw_ast, env, ctx) do
+      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+      {keywords, env, ctx} -> do_eval_class(name, base_names, body, keywords, env, ctx)
     end
   end
 
@@ -1598,6 +1509,136 @@ defmodule Pyex.Interpreter do
     case Env.get(env, name) do
       {:ok, value} -> {value, env, ctx}
       :undefined -> {{:exception, "NameError: name '#{name}' is not defined"}, env, ctx}
+    end
+  end
+
+  @spec eval_class_keywords([{String.t(), Parser.ast_node()}], Env.t(), Ctx.t()) ::
+          {[{String.t(), pyvalue()}] | {:exception, String.t()}, Env.t(), Ctx.t()}
+  defp eval_class_keywords(kw_ast, env, ctx) do
+    Enum.reduce_while(kw_ast, {[], env, ctx}, fn {kw_name, expr}, {acc, env, ctx} ->
+      case eval(expr, env, ctx) do
+        {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
+        {value, env, ctx} -> {:cont, {[{kw_name, value} | acc], env, ctx}}
+      end
+    end)
+    |> case do
+      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+      {acc, env, ctx} -> {Enum.reverse(acc), env, ctx}
+    end
+  end
+
+  @spec do_eval_class(
+          String.t(),
+          [term()],
+          [Parser.ast_node()],
+          [{String.t(), pyvalue()}],
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp do_eval_class(name, base_names, body, class_keywords, env, ctx) do
+    bases =
+      Enum.map(base_names, fn
+        {:dotted, mod_name, attr_name} ->
+          case Env.get(env, mod_name) do
+            {:ok, {:module, _, %{^attr_name => {:class, _, _, _} = base}}} -> base
+            {:ok, %{^attr_name => {:class, _, _, _} = base}} -> base
+            _ -> nil
+          end
+
+        base_name ->
+          case Env.get(env, base_name) do
+            {:ok, {:class, _, _, _} = base} ->
+              base
+
+            {:ok, {:exception_class, _} = exc} ->
+              # Reify to a real {:class, name, bases, attrs} so the MRO
+              # and super() paths find the builtin __init__ etc.
+              exception_instance_class(exc)
+
+            {:ok, {:builtin_type, _, _} = btype} ->
+              # Reify `list`, `dict`, `set`, `str`, `int`, `tuple`, ... so
+              # `class MyList(list)` works.  Subclass instances carry their
+              # wrapped value under `__wrapped__`.
+              builtin_type_base_class(btype)
+
+            _ ->
+              # Fallback: legacy stub for bases that aren't in env but
+              # happen to be registered exception names (for very old
+              # callsites that may predate the exception_class builtins).
+              builtin_exception_base_stub(base_name)
+          end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    class_env =
+      Env.push_scope_with(env, %{"__annotations__" => %{}, "__annotations_order__" => []})
+
+    {class_env, ctx, error} =
+      Enum.reduce_while(body, {class_env, ctx, nil}, fn stmt, {ce, c, _err} ->
+        case eval(stmt, ce, c) do
+          {{:exception, _} = signal, ce, c} -> {:halt, {ce, c, signal}}
+          {_val, ce, c} -> {:cont, {ce, c, nil}}
+        end
+      end)
+
+    if error do
+      {error, env, ctx}
+    else
+      class_scope = Env.current_scope(class_env)
+
+      docstring =
+        case body do
+          [{:expr, _, [{:lit, _, [s]}]} | _] when is_binary(s) -> s
+          [{:lit, _, [s]} | _] when is_binary(s) -> s
+          _ -> nil
+        end
+
+      module_name =
+        case Env.get(env, "__name__") do
+          {:ok, n} when is_binary(n) -> n
+          _ -> "__main__"
+        end
+
+      raw_attrs =
+        Enum.reduce(class_scope, %{}, fn {k, v}, acc ->
+          Map.put(acc, k, v)
+        end)
+        |> Map.put("__name__", name)
+        |> Map.put("__qualname__", name)
+        |> Map.put("__module__", module_name)
+        |> Map.put("__doc__", docstring)
+
+      class_val = {:class, name, bases, raw_attrs}
+
+      # Enum subclasses transform plain value assignments into enum
+      # member instances with `.name` and `.value` attributes.
+      class_val =
+        if enum_base?(bases) do
+          # Preserve the definition order of member names by walking
+          # the class body AST.
+          body_order = body_assignment_order(body)
+          transform_enum_class(class_val, body_order)
+        else
+          class_val
+        end
+
+      class_val = ClassLookup.with_mro_cache(class_val)
+      ctx = Ctx.register_class(ctx, class_val)
+
+      # PEP 487: defining a subclass invokes the nearest parent's
+      # __init_subclass__(cls=..., **class_keywords) — `metaclass` is consumed
+      # here, not forwarded. It may set attributes on cls, so re-fetch the
+      # (possibly mutated) class from the registry before binding.
+      init_kwargs =
+        class_keywords |> Enum.reject(fn {k, _} -> k == "metaclass" end) |> Map.new()
+
+      case call_init_subclass(class_val, bases, env, ctx, init_kwargs) do
+        {:ok, env, ctx} ->
+          {nil, Env.smart_put(env, name, Ctx.live_class(ctx, class_val)), ctx}
+
+        {{:exception, _} = signal, env, ctx} ->
+          {signal, env, ctx}
+      end
     end
   end
 
@@ -5070,7 +5111,7 @@ defmodule Pyex.Interpreter do
   # parent's hook (an implicit classmethod) with cls and any class keywords.
   @spec call_init_subclass(pyvalue(), [pyvalue()], Env.t(), Ctx.t(), map()) ::
           {:ok, Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
-  defp call_init_subclass(class_val, bases, env, ctx, kwargs \\ %{}) do
+  defp call_init_subclass(class_val, bases, env, ctx, kwargs) do
     case find_in_bases(bases, "__init_subclass__") do
       nil ->
         {:ok, env, ctx}
