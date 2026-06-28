@@ -38,9 +38,22 @@ defmodule Pyex.Stdlib.Boto3 do
   @spec module_value() :: Pyex.Stdlib.Module.module_value()
   def module_value do
     %{
-      "client" => {:builtin_kw, &create_client/2}
+      "client" => {:builtin_kw, &create_client/2},
+      "resource" => {:builtin_kw, &create_resource/2}
     }
   end
+
+  @spec create_resource(
+          [Pyex.Interpreter.pyvalue()],
+          %{optional(String.t()) => Pyex.Interpreter.pyvalue()}
+        ) :: Pyex.Interpreter.pyvalue()
+  defp create_resource(["dynamodb" | _], _kwargs), do: Pyex.Stdlib.Boto3.DynamoDB.resource()
+
+  defp create_resource([service | _], _kwargs) when is_binary(service),
+    do: {:exception, "boto3.resource: unsupported service '#{service}'"}
+
+  defp create_resource(_, _kwargs),
+    do: {:exception, "TypeError: boto3.resource() requires a service name string"}
 
   @spec create_client(
           [Pyex.Interpreter.pyvalue()],
