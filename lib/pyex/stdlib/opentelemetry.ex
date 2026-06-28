@@ -205,7 +205,10 @@ defmodule Pyex.Stdlib.Opentelemetry do
     trace_id = trace_id_for(ctx, parent_id, id)
 
     span = %{
-      name: name,
+      # coerce to a string at the source: OTel span names are strings, and a
+      # non-string name (e.g. start_as_current_span(123)) must never reach a
+      # consumer that assumes a binary (SpanTree.render did, crashing the host).
+      name: to_string_key(name),
       id: id,
       parent_id: parent_id,
       trace_id: trace_id,

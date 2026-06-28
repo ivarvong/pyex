@@ -75,7 +75,9 @@ defmodule Pyex.SpanTree do
 
   defp render_line(s, depth, lo, span_w, width) do
     bar = waterfall(s, lo, span_w, width)
-    label = String.pad_trailing(String.duplicate("  ", depth) <> s.name, 26)
+    # to_string/1 defensively: a span name should already be a string, but the
+    # renderer must never crash the host on a malformed span from any source.
+    label = String.pad_trailing(String.duplicate("  ", depth) <> to_string(s.name), 26)
     meta = [s.kind, s.status, attrs(s.attributes)] |> Enum.reject(&(&1 in [nil, ""]))
     String.trim_trailing("#{bar} #{label} #{Enum.join(meta, " ")}")
   end
