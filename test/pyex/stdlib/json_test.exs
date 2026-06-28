@@ -1,5 +1,6 @@
 defmodule Pyex.Stdlib.JSONTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Pyex.Error
 
@@ -187,6 +188,71 @@ defmodule Pyex.Stdlib.JSONTest do
 
       assert is_binary(result)
       assert result =~ "\"a\""
+    end
+  end
+
+  # Conformance gaps found by a round-trip bug hunt and fixed here.
+  describe "round-trip fidelity" do
+    defp out!(src) do
+      {:ok, _v, ctx} = Pyex.run(src)
+      String.trim(Pyex.output(ctx))
+    end
+
+    property "json.loads preserves object key insertion order (not sorted)" do
+      check all(
+              keys <-
+                uniq_list_of(string(:alphanumeric, min_length: 1, max_length: 5),
+                  min_length: 1,
+                  max_length: 6
+                )
+            ) do
+        json = "{" <> Enum.map_join(keys, ", ", &~s|"#{&1}": 1|) <> "}"
+        expected = "[" <> Enum.map_join(keys, ", ", &"'#{&1}'") <> "]"
+        assert out!("import json\nprint(list(json.loads('#{json}').keys()))") == expected
+      end
+    end
+
+    test "nested object key order is preserved at every level" do
+      assert out!(
+               ~S|import json| <> "\n" <> ~S|print(json.loads('{"z": {"y": 1, "x": 2}, "a": 3}'))|
+             ) ==
+               "{'z': {'y': 1, 'x': 2}, 'a': 3}"
+    end
+
+    test "dumps/loads round-trips a dict in insertion order" do
+      assert out!(~S"""
+             import json
+             d = {"b": 1, "a": [2, 3], "m": {"z": True, "y": None}}
+             print(json.loads(json.dumps(d)) == d)
+             print(list(json.loads(json.dumps(d)).keys()))
+             """) == "True\n['b', 'a', 'm']"
+    end
+
+    test "json.dumps(set) raises TypeError (no silent array)" do
+      assert out!(~S"""
+             import json
+             try:
+                 json.dumps({1, 2, 3})
+             except TypeError:
+                 print("TypeError")
+             """) == "TypeError"
+    end
+
+    test "json.dumps(frozenset) raises TypeError" do
+      assert out!(~S"""
+             import json
+             try:
+                 json.dumps(frozenset({1, 2}))
+             except TypeError:
+                 print("TypeError")
+             """) == "TypeError"
+    end
+
+    test "a set is still serializable via a default= callback" do
+      assert out!(~S"""
+             import json
+             print(json.dumps({"s": {1, 2, 3}}, default=list))
+             """) =~ "["
     end
   end
 end

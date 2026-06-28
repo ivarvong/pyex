@@ -39,7 +39,7 @@ defmodule Pyex.Stdlib.JSON do
      fn env, ctx ->
        case Pyex.Ctx.read_handle(ctx, id) do
          {:ok, content, ctx} ->
-           case Jason.decode(content) do
+           case Jason.decode(content, objects: :ordered_objects) do
              {:ok, value} ->
                {from_json(value), env, ctx}
 
@@ -95,7 +95,7 @@ defmodule Pyex.Stdlib.JSON do
 
   @spec do_loads([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp do_loads([string]) when is_binary(string) do
-    case Jason.decode(string) do
+    case Jason.decode(string, objects: :ordered_objects) do
       {:ok, value} ->
         from_json(value)
 
@@ -126,6 +126,13 @@ defmodule Pyex.Stdlib.JSON do
   end
 
   @spec from_json(term()) :: Pyex.Interpreter.pyvalue()
+  # Objects are decoded with `objects: :ordered_objects`, so JSON object key
+  # order is preserved (CPython's json keeps insertion order) instead of being
+  # lost through an unordered Elixir map.
+  defp from_json(%Jason.OrderedObject{values: pairs}) do
+    pairs |> Enum.map(fn {k, v} -> {k, from_json(v)} end) |> PyDict.from_pairs()
+  end
+
   defp from_json(list) when is_list(list) do
     items = Enum.map(list, &from_json/1)
     {:py_list, Enum.reverse(items), length(items)}
@@ -179,7 +186,7 @@ defmodule Pyex.Stdlib.JSON do
   """
   @spec decode(String.t()) :: Pyex.Interpreter.pyvalue()
   def decode(string) when is_binary(string) do
-    case Jason.decode(string) do
+    case Jason.decode(string, objects: :ordered_objects) do
       {:ok, value} -> from_json(value)
       {:error, reason} -> {:exception, "JSONDecodeError: #{format_decode_error(reason)}"}
     end
@@ -260,20 +267,10 @@ defmodule Pyex.Stdlib.JSON do
     end
   end
 
-  defp apply_default({:set, set}, default, env, ctx) do
-    case apply_default_list(MapSet.to_list(set), default, env, ctx) do
-      {:ok, new_items, ctx} -> {:ok, {:set, MapSet.new(new_items)}, ctx}
-      other -> other
-    end
-  end
-
-  defp apply_default({:frozenset, set}, default, env, ctx) do
-    case apply_default_list(MapSet.to_list(set), default, env, ctx) do
-      {:ok, new_items, ctx} -> {:ok, {:frozenset, MapSet.new(new_items)}, ctx}
-      other -> other
-    end
-  end
-
+  # NB: sets/frozensets are deliberately NOT recursed here — they have no JSON
+  # form, so they fall through to the catch-all and are passed to the `default`
+  # callback (CPython: `json.dumps(s, default=list)` converts them). Without a
+  # default they reach the encoder and raise TypeError.
   defp apply_default({:py_dict, _, _} = dict, default, env, ctx) do
     case apply_default_pairs(PyDict.items(dict), default, env, ctx) do
       {:ok, pairs, ctx} -> {:ok, PyDict.from_pairs(pairs), ctx}
@@ -383,8 +380,13 @@ defmodule Pyex.Stdlib.JSON do
   defp encode(list, opts) when is_list(list), do: encode_array(list, opts)
 
   defp encode({:tuple, items}, opts), do: encode_array(items, opts)
-  defp encode({:set, s}, opts), do: encode_array(MapSet.to_list(s), opts)
-  defp encode({:frozenset, s}, opts), do: encode_array(MapSet.to_list(s), opts)
+  # A set/frozenset has no JSON representation; CPython raises TypeError (a
+  # `default=` callback converts it earlier, before reaching the encoder).
+  defp encode({:set, _s}, _opts),
+    do: {:exception, "TypeError: Object of type set is not JSON serializable"}
+
+  defp encode({:frozenset, _s}, _opts),
+    do: {:exception, "TypeError: Object of type frozenset is not JSON serializable"}
 
   defp encode({:py_dict, _, _} = dict, opts) do
     pairs = PyDict.items(dict)
