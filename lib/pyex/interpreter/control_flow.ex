@@ -78,6 +78,9 @@ defmodule Pyex.Interpreter.ControlFlow do
         # interleaving (gen-before, body, gen-after, gen-before, ...)
         # and eager materialisation (which mis-orders side effects).
         case Pyex.Ctx.iter_entry(ctx, id) do
+          {:gen_sync, _started?, _cont, _gen_env} ->
+            eval_for_generator_iter(var_name, id, body, else_body, env, ctx)
+
           {:gen_pending, _val, _cont, _gen_env} ->
             eval_for_generator_iter(var_name, id, body, else_body, env, ctx)
 
@@ -144,6 +147,44 @@ defmodule Pyex.Interpreter.ControlFlow do
         ) :: eval_result()
   defp eval_for_generator_iter(var_name, id, body, else_body, env, ctx) do
     case Pyex.Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, cont, gen_env} ->
+        # Lazy step: advance the generator to its next yield, bind the loop
+        # variable, then run the body. Side effects in the generator and the
+        # body interleave exactly as CPython sequences them.
+        case Pyex.Ctx.check_step(ctx) do
+          {:exceeded, msg} ->
+            {{:exception, msg}, env, ctx}
+
+          {:ok, ctx} ->
+            case Pyex.Interpreter.BuiltinResults.advance_gen_sync_raw(
+                   id,
+                   cont,
+                   gen_env,
+                   :next,
+                   ctx
+                 ) do
+              {:yield, val, _new_cont, _new_gen_env, ctx} ->
+                ctx = Pyex.Ctx.record(ctx, :loop, nil)
+
+                case bind_loop_var(var_name, val, env) do
+                  {:exception, _} = signal ->
+                    {signal, env, ctx}
+
+                  env ->
+                    run_gen_sync_body(var_name, id, body, else_body, env, ctx)
+                end
+
+              {:return, _return_value, ctx} ->
+                eval_loop_else(else_body, env, ctx)
+
+              {:exhausted, ctx} ->
+                eval_loop_else(else_body, env, ctx)
+
+              {:raise, msg, ctx} ->
+                {{:exception, msg}, env, ctx}
+            end
+        end
+
       {:gen_pending, val, cont, gen_env} ->
         case Pyex.Ctx.check_step(ctx) do
           {:exceeded, msg} ->
@@ -167,6 +208,42 @@ defmodule Pyex.Interpreter.ControlFlow do
 
       _ ->
         eval_loop_else(else_body, env, ctx)
+    end
+  end
+
+  # Run one for-body iteration over a lazy `:gen_sync` generator, then loop.
+  # On a body `yield` (the for-loop is itself inside a generator), suspend with
+  # a `:cont_for_gen_iter` frame; otherwise advance to the next item.
+  @spec run_gen_sync_body(
+          String.t() | [term()],
+          non_neg_integer(),
+          [Parser.ast_node()],
+          [Parser.ast_node()] | nil,
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp run_gen_sync_body(var_name, id, body, else_body, env, ctx) do
+    case Interpreter.eval_statements(body, env, ctx) do
+      {{:returned, _} = signal, env, ctx} ->
+        {signal, env, ctx}
+
+      {{:break}, env, ctx} ->
+        ctx = Pyex.Ctx.mark_iter_exhausted(ctx, id)
+        {nil, env, ctx}
+
+      {{:exception, _} = signal, env, ctx} ->
+        ctx = Pyex.Ctx.mark_iter_exhausted(ctx, id)
+        {signal, env, ctx}
+
+      {{:yielded, val, inner_cont}, env, ctx} ->
+        cont_frame = {:cont_for_gen_iter, var_name, id, body, else_body}
+        {{:yielded, val, inner_cont ++ [cont_frame]}, env, ctx}
+
+      {{:continue}, env, ctx} ->
+        eval_for_generator_iter(var_name, id, body, else_body, env, ctx)
+
+      {_, env, ctx} ->
+        eval_for_generator_iter(var_name, id, body, else_body, env, ctx)
     end
   end
 
@@ -230,6 +307,11 @@ defmodule Pyex.Interpreter.ControlFlow do
         ) :: eval_result()
   def resume_for_gen_iter(var_name, id, body, else_body, env, ctx) do
     case Pyex.Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, _cont, _gen_env} ->
+        # The body's post-yield continuation has already run; advance the
+        # generator to the next item and continue the loop.
+        eval_for_generator_iter(var_name, id, body, else_body, env, ctx)
+
       {:gen_pending, _, _, _} ->
         case Pyex.Ctx.iter_next(ctx, id) do
           {:gen_pending, val, cont, gen_env} ->
@@ -538,20 +620,63 @@ defmodule Pyex.Interpreter.ControlFlow do
           Ctx.t()
         ) :: eval_result()
   def eval_try(body, handlers, else_body, finally_body, env, ctx) do
-    result =
-      case Interpreter.eval_statements(body, env, ctx) do
-        {{:exception, msg}, body_env, ctx} ->
-          match_handler(handlers, msg, body_env, ctx)
+    case Interpreter.eval_statements(body, env, ctx) do
+      {{:yielded, val, body_cont}, env, ctx} ->
+        # A `yield` inside the try suspends the WHOLE try. The except/else/finally
+        # are preserved in a :cont_try frame and re-applied when the generator
+        # resumes — so finally runs at try-exit (not at the yield), close() runs
+        # it lazily, and throw() lands in the except. (Was: eager, mis-ordered.)
+        {{:yielded, val, [{:cont_try, body_cont, handlers, else_body, finally_body}]}, env, ctx}
 
-        {val, env, ctx} ->
-          if else_body do
-            Interpreter.eval_statements(else_body, env, ctx)
-          else
-            {val, env, ctx}
-          end
-      end
+      {{:exception, msg}, body_env, ctx} ->
+        run_finally(match_handler(handlers, msg, body_env, ctx), finally_body)
+
+      {val, env, ctx} ->
+        result =
+          if else_body,
+            do: Interpreter.eval_statements(else_body, env, ctx),
+            else: {val, env, ctx}
+
+        run_finally(result, finally_body)
+    end
+  end
+
+  @doc "Applies a try's except handlers + finally to a resumed body result; used by the generator engine's :cont_try resume."
+  @spec finish_try(
+          eval_result(),
+          [{String.t() | nil, String.t() | nil, [Parser.ast_node()]}],
+          [Parser.ast_node()] | nil,
+          [Parser.ast_node()] | nil
+        ) :: eval_result()
+  def finish_try({{:exception, msg}, env, ctx}, handlers, _else_body, finally_body) do
+    run_finally(match_handler(handlers, msg, env, ctx), finally_body)
+  end
+
+  def finish_try({{:returned, _} = sig, env, ctx}, _handlers, _else_body, finally_body) do
+    run_finally({sig, env, ctx}, finally_body)
+  end
+
+  def finish_try({{:done_with_value, _} = sig, env, ctx}, _handlers, _else_body, finally_body) do
+    run_finally({sig, env, ctx}, finally_body)
+  end
+
+  def finish_try({val, env, ctx}, _handlers, else_body, finally_body) do
+    result =
+      if else_body, do: Interpreter.eval_statements(else_body, env, ctx), else: {val, env, ctx}
 
     run_finally(result, finally_body)
+  end
+
+  @doc "Runs a try's except handlers + finally for a thrown-in exception (throw() landing at a yield)."
+  @spec throw_into_try(
+          String.t(),
+          [{String.t() | nil, String.t() | nil, [Parser.ast_node()]}],
+          [Parser.ast_node()] | nil,
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  def throw_into_try(exc_msg, handlers, finally_body, env, ctx) do
+    run_finally(match_handler(handlers, exc_msg, env, ctx), finally_body)
   end
 
   @spec eval_if_clauses(

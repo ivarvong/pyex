@@ -1510,6 +1510,32 @@ defmodule Pyex.Ctx do
   end
 
   @doc """
+  Creates a fresh, **unstarted** sync generator iterator (CPython
+  semantics: calling a generator function runs none of its body). The
+  whole body is staged as a continuation; the first `next()`/`send()`
+  runs it lazily up to the first `yield`. `started?` is `false` until
+  the first advance, so `send(non_None)` to a just-created generator can
+  raise `TypeError` exactly as CPython does.
+  """
+  @spec new_sync_generator(t(), [term()], term()) ::
+          {{:iterator, non_neg_integer()}, t()}
+  def new_sync_generator(%__MODULE__{iterators: iters, next_iterator_id: id} = ctx, cont, gen_env) do
+    entry = {:gen_sync, false, cont, gen_env}
+    ctx = %{ctx | iterators: Map.put(iters, id, entry), next_iterator_id: id + 1}
+    {{:iterator, id}, ctx}
+  end
+
+  @doc """
+  Records a lazy sync generator's suspension after a yield: `cont` is the
+  live continuation to resume on the next `next()`/`send()`/`throw()`.
+  Nothing is pre-computed (unlike the legacy buffered `set_gen_pending/5`).
+  """
+  @spec set_gen_sync(t(), non_neg_integer(), boolean(), [term()], term()) :: t()
+  def set_gen_sync(%__MODULE__{iterators: iters} = ctx, id, started?, cont, gen_env) do
+    %{ctx | iterators: Map.put(iters, id, {:gen_sync, started?, cont, gen_env})}
+  end
+
+  @doc """
   Updates a generator iterator's pending entry after a successful resume.
   """
   @spec set_gen_pending(t(), non_neg_integer(), term(), [term()], term()) :: t()
@@ -1544,6 +1570,7 @@ defmodule Pyex.Ctx do
           | {:gen_pending, term(), [term()], term()}
           | {:gen_awaiting_send, term(), [term()], term()}
           | {:gen_unstarted, [term()], term()}
+          | {:gen_sync, boolean(), [term()], term()}
   def iter_next(%__MODULE__{iterators: iters} = ctx, id) do
     case Map.get(iters, id) do
       {:list, [item | rest]} ->
@@ -1555,6 +1582,9 @@ defmodule Pyex.Ctx do
 
       {:instance, inst} ->
         {:instance, inst}
+
+      {:gen_sync, started?, cont, gen_env} ->
+        {:gen_sync, started?, cont, gen_env}
 
       {:gen_pending, val, cont, gen_env} ->
         {:gen_pending, val, cont, gen_env}

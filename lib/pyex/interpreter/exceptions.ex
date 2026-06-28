@@ -70,6 +70,17 @@ defmodule Pyex.Interpreter.Exceptions do
   end
 
   @spec eval_raise_value(Interpreter.pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  @doc """
+  Turn an already-evaluated exception value (an `{:exception_class, _}`, an
+  exception instance, or a bare string) into the `{{:exception, msg}, env,
+  ctx}` signal — exactly as `raise <value>` would, including stashing the
+  instance in `ctx.exception_instance` so a downstream `except ... as e`
+  binds it. Used by `generator.throw()`.
+  """
+  @spec raise_value_signal(Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
+          eval_result()
+  def raise_value_signal(value, env, ctx), do: eval_raise_value(value, env, ctx)
+
   defp eval_raise_value(value, env, ctx) do
     case value do
       # An already-constructed exception instance bubbles up with the

@@ -778,6 +778,12 @@ defmodule Pyex.Interpreter.Invocation do
           {Interpreter.pyvalue(), Env.t(), Ctx.t()} | {:exception, String.t()}
   defp maybe_drain_gen_iter({:iterator, id} = iter, env, ctx) do
     case Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, _, _} ->
+        case Pyex.Interpreter.Iterables.to_iterable(iter, env, ctx) do
+          {:ok, items, env, ctx} -> {{:generator, items}, env, ctx}
+          {:exception, _} = signal -> signal
+        end
+
       {:gen_pending, _, _, _} ->
         case Pyex.Interpreter.Iterables.drain_generator_iter(id, env, ctx) do
           {:ok, items, env, ctx} -> {{:generator, items}, env, ctx}
@@ -785,6 +791,9 @@ defmodule Pyex.Interpreter.Invocation do
         end
 
       :gen_done ->
+        {{:generator, []}, env, ctx}
+
+      {:gen_done, _value} ->
         {{:generator, []}, env, ctx}
 
       _ ->
@@ -1263,37 +1272,18 @@ defmodule Pyex.Interpreter.Invocation do
         end
 
       mode when mode in [:lazy_iter, :defer_inner] ->
-        # Wrap the suspended generator into an iterator-pool entry so
-        # `g = gen()` produces a stateful, identity-preserving handle —
-        # the same way CPython returns a generator object. Subsequent
-        # `next(g)` / `for x in g` calls advance the same state.
+        # CPython semantics: calling a generator function runs NONE of its
+        # body. Stage the whole body as a continuation in a lazy `:gen_sync`
+        # pool entry; the first `next(g)`/`send(g, …)`/`for x in g` runs it up
+        # to the first `yield`. This makes side effects fire exactly when the
+        # generator is advanced (not at creation) and keeps suspension points
+        # intact for `send`/`throw`/`close`/`yield from`.
         #
-        # `:defer_inner` callers are themselves generator bodies: when
-        # an outer generator calls `inner()`, that inner *must* also
-        # behave lazily so `yield from inner()` interleaves yields
-        # rather than running inner to completion eagerly.
-        gen_ctx = %{ctx | generator_mode: :defer_inner}
-
-        case Interpreter.eval_statements(body, call_env, gen_ctx) do
-          {{:yielded, val, cont}, gen_env, gen_ctx} ->
-            ctx = sync_generator_ctx(ctx, gen_ctx)
-            {iter_token, ctx} = Ctx.new_generator_iterator(ctx, val, cont, gen_env)
-            {iter_token, env, ctx}
-
-          {{:exception, _} = signal, _post_env, gen_ctx} ->
-            ctx = sync_generator_ctx(ctx, gen_ctx)
-            {signal, env, ctx}
-
-          {result, _post_env, gen_ctx} ->
-            ctx = sync_generator_ctx(ctx, gen_ctx)
-            # Generator (or coroutine) that never yields — capture the
-            # body's return value via PEP 380 StopIteration semantics
-            # so `await` and `yield from` can surface it.
-            return_value = Helpers.unwrap_function_result(result)
-            {iter_token, ctx} = Ctx.new_generator_iterator(ctx, nil, [], call_env)
-            ctx = Ctx.mark_iter_done_with_value(ctx, elem(iter_token, 1), return_value)
-            {iter_token, env, ctx}
-        end
+        # `:defer_inner` callers are themselves generator bodies: an inner
+        # `inner()` call must also be lazy so `yield from inner()` interleaves
+        # yields rather than running inner eagerly.
+        {iter_token, ctx} = Ctx.new_sync_generator(ctx, [{:cont_stmts, body}], call_env)
+        {iter_token, env, ctx}
 
       _ ->
         prev_acc = ctx.generator_acc
