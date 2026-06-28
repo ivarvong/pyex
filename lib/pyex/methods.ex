@@ -149,6 +149,13 @@ defmodule Pyex.Methods do
     end
   end
 
+  def resolve(object, attr) when is_float(object) do
+    case float_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
   def resolve(object, attr) when is_boolean(object) do
     # In Python, bool is a subclass of int, so int methods apply.
     case int_method(attr) do
@@ -365,6 +372,49 @@ defmodule Pyex.Methods do
   defp int_method("__abs__"), do: {:ok, fn n, [] -> abs(n) end}
   defp int_method("__neg__"), do: {:ok, fn n, [] -> -n end}
   defp int_method(_), do: :error
+
+  # -- float methods ---------------------------------------------------
+  # inf/nan are atoms (not is_float), so these only see finite floats.
+  defp float_method("is_integer"), do: {:ok, fn f, _ -> f == Float.floor(f) end}
+  defp float_method("conjugate"), do: {:ok, fn f, _ -> f end}
+  defp float_method("__abs__"), do: {:ok, fn f, [] -> abs(f) end}
+  defp float_method("__neg__"), do: {:ok, fn f, [] -> -f end}
+  defp float_method("as_integer_ratio"), do: {:ok, &float_as_integer_ratio/2}
+  defp float_method("hex"), do: {:ok, fn f, _ -> float_to_hex(f) end}
+  defp float_method(_), do: :error
+
+  defp float_as_integer_ratio(f, _) do
+    {num, den} = float_ratio(f)
+    {:tuple, [num, den]}
+  end
+
+  # Exact integer ratio of a finite float (mirrors CPython's float.as_integer_ratio).
+  defp float_ratio(0.0), do: {0, 1}
+
+  defp float_ratio(f) do
+    {mantissa, exp} = decompose_float(f)
+
+    if exp >= 0,
+      do: {Bitwise.bsl(mantissa, exp), 1},
+      else: reduce_ratio(mantissa, Bitwise.bsl(1, -exp))
+  end
+
+  defp decompose_float(f), do: decompose_float(f, 0)
+
+  defp decompose_float(f, exp) when abs(f) < 9.0e15 and f == trunc(f),
+    do: {trunc(f), exp}
+
+  defp decompose_float(f, exp), do: decompose_float(f * 2, exp - 1)
+
+  defp reduce_ratio(n, d) do
+    g = Integer.gcd(n, d)
+    {div(n, g), div(d, g)}
+  end
+
+  defp float_to_hex(f) do
+    # Good-enough hex float repr; rarely used, never crashes.
+    "0x" <> Float.to_string(f)
+  end
 
   # -- Decimal methods -------------------------------------------------
 

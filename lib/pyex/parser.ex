@@ -379,9 +379,49 @@ defmodule Pyex.Parser do
     end
   end
 
+  # `[a, b] = ...` — a list display as an assignment target (== tuple target).
+  defp parse_statement([{:op, line, :lbracket} | _] = tokens) do
+    case try_bracket_unpack_assign(tokens, line) do
+      {:ok, _, _} = result -> result
+      :not_assign -> parse_expression_statement(tokens)
+    end
+  end
+
   defp parse_statement(tokens) do
     parse_expression_statement(tokens)
   end
+
+  @spec try_bracket_unpack_assign([Lexer.token()], pos_integer()) :: parse_result() | :not_assign
+  defp try_bracket_unpack_assign(tokens, line) do
+    case parse_expression(tokens) do
+      {:ok, {:list, _, [elements]}, [{:op, _, :assign} | rest]} when is_list(elements) ->
+        case exprs_to_targets(elements, []) do
+          {:ok, targets} ->
+            case parse_comma_exprs(rest) do
+              {:ok, exprs, rest} ->
+                {:ok, {:multi_assign, [line: line], [targets, exprs]}, drop_newline(rest)}
+
+              {:error, _} = error ->
+                error
+            end
+
+          :error ->
+            :not_assign
+        end
+
+      _ ->
+        :not_assign
+    end
+  end
+
+  @spec exprs_to_targets([ast_node()], [unpack_target()]) :: {:ok, [unpack_target()]} | :error
+  defp exprs_to_targets([], acc), do: {:ok, Enum.reverse(acc)}
+  defp exprs_to_targets([{:var, _, [name]} | rest], acc), do: exprs_to_targets(rest, [name | acc])
+
+  defp exprs_to_targets([{tag, _, _} = node | rest], acc) when tag in [:getattr, :subscript],
+    do: exprs_to_targets(rest, [{:target, node} | acc])
+
+  defp exprs_to_targets(_, _), do: :error
 
   # `del a, b[0], c.x` — one or more comma-separated targets (del_stmt).
   defp parse_del_targets(tokens, line, acc) do
