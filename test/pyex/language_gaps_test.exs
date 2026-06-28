@@ -881,6 +881,30 @@ defmodule Pyex.LanguageGapsTest do
     end
   end
 
+  describe "ExceptionGroup / BaseExceptionGroup" do
+    test "ExceptionGroup can be raised and caught, and is an Exception" do
+      assert out!("""
+             try:
+                 raise ExceptionGroup("boom", [ValueError("v"), TypeError("t")])
+             except ExceptionGroup:
+                 print("caught EG")
+             try:
+                 raise ExceptionGroup("x", [ValueError()])
+             except Exception:
+                 print("as Exception")
+             """) == "caught EG\nas Exception"
+    end
+
+    test "BaseExceptionGroup exists and the names resolve" do
+      assert out!("""
+             print(ExceptionGroup.__name__)
+             print(BaseExceptionGroup.__name__)
+             eg = ExceptionGroup("m", [ValueError()])
+             print(isinstance(eg, Exception))
+             """) == "ExceptionGroup\nBaseExceptionGroup\nTrue"
+    end
+  end
+
   describe "globals() and locals()" do
     test "globals() returns the module namespace; builtins are excluded" do
       assert out!("""

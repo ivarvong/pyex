@@ -81,11 +81,11 @@ defmodule Pyex.ParityTest do
     "datetime" => %{},
     "builtins" => %{
       # not yet implemented (burn-down queue)
+      # async iteration over custom async iterators is unsupported (async for
+      # fails too), so these stay gapped rather than ship a crashing builtin
       "aiter" => :unimplemented,
       "anext" => :unimplemented,
       "memoryview" => :unimplemented,
-      "ExceptionGroup" => :unimplemented,
-      "BaseExceptionGroup" => :unimplemented,
       # keywords / singletons, not environment bindings
       "True" => :language_literal,
       "False" => :language_literal,

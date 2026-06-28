@@ -16,6 +16,8 @@ defmodule Pyex.ExceptionsHierarchy do
     "KeyboardInterrupt" => "BaseException",
     "GeneratorExit" => "BaseException",
     "Exception" => "BaseException",
+    "BaseExceptionGroup" => "BaseException",
+    "ExceptionGroup" => "Exception",
     "StopIteration" => "Exception",
     "StopAsyncIteration" => "Exception",
     "ArithmeticError" => "Exception",
