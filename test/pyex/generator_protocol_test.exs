@@ -109,4 +109,46 @@ defmodule Pyex.GeneratorProtocolTest do
              """) == "propagated"
     end
   end
+
+  describe "yield from delegates the sub-generator's return value (PEP 380)" do
+    test "positive: `r = yield from sub()` binds r to sub's return" do
+      assert out!("""
+             def sub():
+                 yield 1
+                 return 7
+             def g():
+                 r = yield from sub()
+                 yield r
+             print(list(g()))
+             """) == "[1, 7]"
+    end
+
+    test "positive: the return value chains through nested yield from" do
+      assert out!("""
+             def a():
+                 yield 1
+                 return "A"
+             def b():
+                 r = yield from a()
+                 return r + "B"
+             def c():
+                 r = yield from b()
+                 yield r
+             print(list(c()))
+             """) == "[1, 'AB']"
+    end
+
+    test "negative: a bare `yield from` (return value unused) still iterates fully" do
+      assert out!("""
+             def sub():
+                 yield 1
+                 yield 2
+                 return 99
+             def g():
+                 yield from sub()
+                 yield 3
+             print(list(g()))
+             """) == "[1, 2, 3]"
+    end
+  end
 end

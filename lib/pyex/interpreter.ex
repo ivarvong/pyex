@@ -4012,7 +4012,10 @@ defmodule Pyex.Interpreter do
           {{:done_with_value, return_value}, _gen_env, ctx} ->
             ctx = %{ctx | generator_mode: saved_mode}
             ctx = Pyex.Ctx.mark_iter_done_with_value(ctx, id, return_value)
-            resume_generator(rest, env, ctx)
+            # PEP 380: `r = yield from sub()` evaluates to the sub-generator's
+            # return value, so feed it into the outer continuation as the value
+            # of the yield-from expression (a bare `yield from` ignores it).
+            resume_generator_with_send(rest, env, ctx, return_value)
 
           {:done, _gen_env, ctx} ->
             ctx = %{ctx | generator_mode: saved_mode}
