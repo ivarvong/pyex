@@ -1647,13 +1647,36 @@ defmodule Pyex.Ctx do
       end_seq: nil
     }
 
-    {%{
-       ctx
-       | runtime_span_seq: id + 1,
-         runtime_span_stack: [id | ctx.runtime_span_stack],
-         runtime_span_active: Map.put(ctx.runtime_span_active, id, span)
-     }, id}
+    ctx = %{
+      ctx
+      | runtime_span_seq: id + 1,
+        runtime_span_stack: [id | ctx.runtime_span_stack],
+        runtime_span_active: Map.put(ctx.runtime_span_active, id, span)
+    }
+
+    {charge_span_memory(ctx, name, attributes), id}
   end
+
+  @doc """
+  Charges a span's footprint against the memory budget. Spans accumulate in the
+  context (both channels), so without this the telemetry would be an uncounted,
+  unbounded memory sink — a span in a hot loop could exhaust host memory while
+  staying under `max_memory_bytes`. Called from both span-open paths.
+  """
+  @span_base_bytes 128
+  @spec charge_span_memory(t(), String.t(), %{optional(String.t()) => term()}) :: t()
+  def charge_span_memory(%__MODULE__{} = ctx, name, attributes) do
+    attr_bytes =
+      Enum.reduce(attributes, 0, fn {k, v}, acc ->
+        acc + span_term_bytes(k) + span_term_bytes(v)
+      end)
+
+    track_memory(ctx, @span_base_bytes + span_term_bytes(name) + attr_bytes)
+  end
+
+  @spec span_term_bytes(term()) :: non_neg_integer()
+  defp span_term_bytes(t) when is_binary(t), do: byte_size(t)
+  defp span_term_bytes(_), do: 8
 
   @doc """
   Closes the span `id`, merging in `attributes`, and records it as finished.

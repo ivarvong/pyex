@@ -226,7 +226,9 @@ defmodule Pyex.Stdlib.Opentelemetry do
         app_span_active: Map.put(ctx.app_span_active, id, span)
     }
 
-    {id, ctx}
+    # Count the span against the memory budget so guest instrumentation can't
+    # become an unbounded, uncounted memory sink.
+    {id, Ctx.charge_span_memory(ctx, to_string(name), %{})}
   end
 
   # All spans in one trace share the root span's id as trace_id. Derive it
