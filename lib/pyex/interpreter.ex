@@ -1003,6 +1003,17 @@ defmodule Pyex.Interpreter do
                  env, ctx}
             end
 
+          {:struct_time, fields} ->
+            case Enum.find_index(Helpers.struct_time_fields(), &(&1 == attr)) do
+              nil ->
+                {{:exception,
+                  "AttributeError: 'time.struct_time' object has no attribute '#{attr}'"}, env,
+                 ctx}
+
+              idx ->
+                {Enum.at(fields, idx), env, ctx}
+            end
+
           {:property, fget, fset, fdel} ->
             case attr do
               "setter" ->
@@ -1998,6 +2009,16 @@ defmodule Pyex.Interpreter do
 
       {:file_handle, id} when attr in ["closed", "mode", "name"] ->
         file_handle_attr(id, attr, env, ctx)
+
+      {:struct_time, fields} ->
+        case Enum.find_index(Helpers.struct_time_fields(), &(&1 == attr)) do
+          nil ->
+            {{:exception, "AttributeError: 'time.struct_time' object has no attribute '#{attr}'"},
+             env, ctx}
+
+          idx ->
+            {Enum.at(fields, idx), env, ctx}
+        end
 
       _ ->
         case Methods.resolve(object, attr) do
@@ -3106,6 +3127,16 @@ defmodule Pyex.Interpreter do
           {Enum.at(items, index), env, ctx}
         end
 
+      {:struct_time, fields} when is_integer(key) ->
+        len = length(fields)
+        index = if key < 0, do: len + key, else: key
+
+        if index < 0 or index >= len do
+          {{:exception, "IndexError: tuple index out of range"}, env, ctx}
+        else
+          {Enum.at(fields, index), env, ctx}
+        end
+
       str when is_binary(str) and is_integer(key) ->
         codepoints = String.codepoints(str)
         len = length(codepoints)
@@ -3305,6 +3336,13 @@ defmodule Pyex.Interpreter do
           result -> {{:tuple, result}, env, ctx}
         end
 
+      # Slicing a struct_time yields a plain tuple, like CPython.
+      {:struct_time, fields} ->
+        case py_slice(fields, start, stop, step) do
+          {:exception, msg} -> {{:exception, msg}, env, ctx}
+          result -> {{:tuple, result}, env, ctx}
+        end
+
       {tag, bin} when tag in [:bytes, :bytearray] ->
         case py_slice(:binary.bin_to_list(bin), start, stop, step) do
           {:exception, msg} -> {{:exception, msg}, env, ctx}
@@ -3496,6 +3534,9 @@ defmodule Pyex.Interpreter do
 
       {:tuple, items} ->
         check_unpack_length(items, names)
+
+      {:struct_time, fields} ->
+        check_unpack_length(fields, names)
 
       {:range, _, _, _} = r ->
         case Builtins.range_to_list(r) do

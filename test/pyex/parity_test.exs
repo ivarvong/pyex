@@ -77,14 +77,8 @@ defmodule Pyex.ParityTest do
       "reconfigure" => :out_of_scope,
       "write_through" => :out_of_scope
     },
-    "date" => %{
-      "strptime" => :unimplemented,
-      "timetuple" => :unimplemented
-    },
-    "datetime" => %{
-      "timetuple" => :unimplemented,
-      "utctimetuple" => :unimplemented
-    },
+    "date" => %{},
+    "datetime" => %{},
     "builtins" => %{
       # not yet implemented (burn-down queue)
       "aiter" => :unimplemented,

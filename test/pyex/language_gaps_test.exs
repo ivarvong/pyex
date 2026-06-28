@@ -565,6 +565,51 @@ defmodule Pyex.LanguageGapsTest do
     end
   end
 
+  describe "struct_time via timetuple / utctimetuple (date + datetime surface complete)" do
+    test "timetuple behaves as a tuple: index, unpack, len, iterate, equality" do
+      assert out!("""
+             import datetime as dt
+             tt = dt.date(2024, 3, 15).timetuple()
+             print(tt[0], tt[1], tt[2], tt[6], tt[7], tt[8])
+             y, mo, d, h, mi, s, wd, yd, isdst = tt
+             print(y, mo, d, wd, yd, isdst)
+             print(len(tt))
+             print(list(tt))
+             print(tt == (2024, 3, 15, 0, 0, 0, 4, 75, -1))
+             """) ==
+               "2024 3 15 4 75 -1\n2024 3 15 4 75 -1\n9\n" <>
+                 "[2024, 3, 15, 0, 0, 0, 4, 75, -1]\nTrue"
+    end
+
+    test "struct_time exposes named tm_* fields and a CPython repr" do
+      assert out!("""
+             import datetime as dt
+             tt = dt.datetime(2024, 3, 15, 10, 30, 45).timetuple()
+             print(tt.tm_year, tt.tm_mon, tt.tm_mday, tt.tm_hour, tt.tm_min, tt.tm_sec)
+             print(tt.tm_wday, tt.tm_yday, tt.tm_isdst)
+             print(repr(tt))
+             """) ==
+               "2024 3 15 10 30 45\n4 75 -1\n" <>
+                 "time.struct_time(tm_year=2024, tm_mon=3, tm_mday=15, tm_hour=10, " <>
+                 "tm_min=30, tm_sec=45, tm_wday=4, tm_yday=75, tm_isdst=-1)"
+    end
+
+    test "utctimetuple reports tm_isdst as 0" do
+      assert out!("""
+             import datetime as dt
+             print(dt.datetime(2024, 3, 15, 10, 0).utctimetuple().tm_isdst)
+             """) == "0"
+    end
+
+    test "date.strptime parses like datetime.strptime and yields a datetime" do
+      assert out!("""
+             import datetime as dt
+             d = dt.date.strptime("2024-01-15", "%Y-%m-%d")
+             print(d, type(d).__name__)
+             """) == "2024-01-15 00:00:00 datetime"
+    end
+  end
+
   describe "super() variants: two-argument and inside classmethods" do
     test "explicit super(Class, self) walks the MRO from Class" do
       assert out!("""

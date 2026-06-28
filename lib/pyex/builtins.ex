@@ -253,6 +253,7 @@ defmodule Pyex.Builtins do
   defp builtin_len([{:py_dict, _, _} = dict]), do: PyDict.size(visible_dict(dict))
   defp builtin_len([val]) when is_map(val), do: map_size(visible_dict(val))
   defp builtin_len([{:tuple, items}]), do: length(items)
+  defp builtin_len([{:struct_time, fields}]), do: length(fields)
   defp builtin_len([{:set, s}]), do: MapSet.size(s)
   defp builtin_len([{:frozenset, s}]), do: MapSet.size(s)
   defp builtin_len([{:bytes, b}]), do: byte_size(b)
@@ -2961,6 +2962,7 @@ defmodule Pyex.Builtins do
   defp pytype(val) when is_float(val), do: "float"
   defp pytype(:ellipsis), do: "ellipsis"
   defp pytype(:not_implemented), do: "NotImplementedType"
+  defp pytype({:struct_time, _}), do: "struct_time"
   defp pytype(val) when is_binary(val), do: "str"
   defp pytype(val) when is_boolean(val), do: "bool"
   defp pytype(nil), do: "NoneType"
@@ -3024,6 +3026,10 @@ defmodule Pyex.Builtins do
   def py_repr(:nan), do: "nan"
   def py_repr(:ellipsis), do: "Ellipsis"
   def py_repr(:not_implemented), do: "NotImplemented"
+
+  def py_repr({:struct_time, fields}),
+    do: Pyex.Interpreter.Helpers.struct_time_repr(fields)
+
   def py_repr(val) when is_float(val), do: Pyex.Interpreter.Helpers.py_float_str(val)
 
   def py_repr({:py_list, reversed, _len}) do

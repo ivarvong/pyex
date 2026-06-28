@@ -351,6 +351,9 @@ defmodule Pyex.Stdlib.Datetime do
        "fromordinal" => {:builtin, &date_fromordinal/1},
        "fromtimestamp" => {:builtin, &date_fromtimestamp/1},
        "fromisocalendar" => {:builtin, &date_fromisocalendar/1},
+       # date.strptime is the same classmethod as datetime.strptime and yields
+       # a datetime (CPython behaviour), since date doesn't override it.
+       "strptime" => {:builtin, &datetime_strptime/1},
        # Class constants are lazy thunks so building the class doesn't recurse
        # through make_date (which itself references date_class()).
        "min" => {:class_const, fn -> make_date(~D[0001-01-01]) end},
@@ -1060,6 +1063,12 @@ defmodule Pyex.Stdlib.Datetime do
        "tzname" => {:builtin, fn [] -> nil end},
        "time" => {:builtin, fn [] -> make_time_instance(dt.hour, dt.minute, dt.second, us) end},
        "timetz" => {:builtin, fn [] -> make_time_instance(dt.hour, dt.minute, dt.second, us) end},
+       "timetuple" =>
+         {:builtin,
+          fn [] -> date_timetuple(DateTime.to_date(dt), dt.hour, dt.minute, dt.second, -1) end},
+       "utctimetuple" =>
+         {:builtin,
+          fn [] -> date_timetuple(DateTime.to_date(dt), dt.hour, dt.minute, dt.second, 0) end},
        "fold" => 0,
        "astimezone" =>
          {:builtin,
@@ -1224,6 +1233,22 @@ defmodule Pyex.Stdlib.Datetime do
        "timetz" =>
          {:builtin,
           fn [] -> make_time_instance(local_dt.hour, local_dt.minute, local_dt.second, us) end},
+       "timetuple" =>
+         {:builtin,
+          fn [] ->
+            date_timetuple(
+              DateTime.to_date(local_dt),
+              local_dt.hour,
+              local_dt.minute,
+              local_dt.second,
+              -1
+            )
+          end},
+       "utctimetuple" =>
+         {:builtin,
+          fn [] ->
+            date_timetuple(DateTime.to_date(utc_dt), utc_dt.hour, utc_dt.minute, utc_dt.second, 0)
+          end},
        "fold" => 0,
        "astimezone" => {:builtin, fn [new_tz] -> make_datetime_from_utc(utc_dt, new_tz) end},
        "__dt__" => utc_dt,
@@ -1280,6 +1305,7 @@ defmodule Pyex.Stdlib.Datetime do
        "weekday" => {:builtin, fn [] -> Date.day_of_week(d) - 1 end},
        "isoweekday" => {:builtin, fn [] -> Date.day_of_week(d) end},
        "isocalendar" => {:builtin, fn [] -> date_isocalendar(d) end},
+       "timetuple" => {:builtin, fn [] -> date_timetuple(d, 0, 0, 0, -1) end},
        "toordinal" => {:builtin, fn [] -> proleptic_ordinal(d) end},
        "ctime" => {:builtin, fn [] -> ctime_str(d.year, d.month, d.day, 0, 0, 0) end},
        "__date__" => d
@@ -1292,6 +1318,27 @@ defmodule Pyex.Stdlib.Datetime do
   # Proleptic Gregorian ordinal: 0001-01-01 -> 1 (matches date.toordinal()).
   @spec proleptic_ordinal(Date.t()) :: integer()
   defp proleptic_ordinal(d), do: Date.diff(d, ~D[0001-01-01]) + 1
+
+  # time.struct_time value (a 9-field tuple subtype). The interpreter handles
+  # indexing, unpacking, len, named tm_* attributes, repr, and equality.
+  @spec make_struct_time([integer()]) :: {:struct_time, [integer()]}
+  defp make_struct_time(fields), do: {:struct_time, fields}
+
+  @spec date_timetuple(Date.t(), integer(), integer(), integer(), integer()) ::
+          {:struct_time, [integer()]}
+  defp date_timetuple(d, hour, minute, second, isdst) do
+    make_struct_time([
+      d.year,
+      d.month,
+      d.day,
+      hour,
+      minute,
+      second,
+      Date.day_of_week(d) - 1,
+      Date.day_of_year(d),
+      isdst
+    ])
+  end
 
   # CPython's ctime()/asctime() format: "Mon Jan  1 00:00:00 2024"
   # (day is space-padded to width 2).

@@ -557,6 +557,15 @@ defmodule Pyex.Interpreter.BinaryOps do
 
   # -- equality -------------------------------------------------------
 
+  # struct_time is a tuple subtype: it compares equal to a tuple (or another
+  # struct_time) with the same fields.
+  defp dispatch(:eq, {:struct_time, a}, {:struct_time, b}), do: a == b
+  defp dispatch(:eq, {:struct_time, a}, {:tuple, b}), do: a == b
+  defp dispatch(:eq, {:tuple, a}, {:struct_time, b}), do: a == b
+  defp dispatch(:neq, {:struct_time, a}, {:struct_time, b}), do: a != b
+  defp dispatch(:neq, {:struct_time, a}, {:tuple, b}), do: a != b
+  defp dispatch(:neq, {:tuple, a}, {:struct_time, b}), do: a != b
+
   # set and frozenset compare equal by element membership, across types.
   defp dispatch(:eq, {sl, a}, {sr, b})
        when sl in [:set, :frozenset] and sr in [:set, :frozenset],

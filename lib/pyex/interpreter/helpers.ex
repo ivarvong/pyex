@@ -21,6 +21,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_type(:nan), do: "float"
   def py_type(:ellipsis), do: "ellipsis"
   def py_type(:not_implemented), do: "NotImplementedType"
+  def py_type({:struct_time, _}), do: "struct_time"
   def py_type(val) when is_float(val), do: "float"
   def py_type(val) when is_binary(val), do: "str"
   def py_type(val) when is_boolean(val), do: "bool"
@@ -164,6 +165,7 @@ defmodule Pyex.Interpreter.Helpers do
   def py_str(:nan), do: "nan"
   def py_str(:ellipsis), do: "Ellipsis"
   def py_str(:not_implemented), do: "NotImplemented"
+  def py_str({:struct_time, fields}), do: struct_time_repr(fields)
   def py_str(val) when is_float(val), do: py_float_str(val)
 
   def py_str({:py_list, reversed, _len}) do
@@ -364,6 +366,23 @@ defmodule Pyex.Interpreter.Helpers do
 
   def truthy?({:ref, _}), do: true
   def truthy?(_), do: true
+
+  @struct_time_fields ~w(tm_year tm_mon tm_mday tm_hour tm_min tm_sec tm_wday tm_yday tm_isdst)
+
+  @doc "The ordered field names of a time.struct_time."
+  @spec struct_time_fields() :: [String.t()]
+  def struct_time_fields, do: @struct_time_fields
+
+  @doc "CPython repr of a time.struct_time value."
+  @spec struct_time_repr([integer()]) :: String.t()
+  def struct_time_repr(fields) do
+    body =
+      @struct_time_fields
+      |> Enum.zip(fields)
+      |> Enum.map_join(", ", fn {name, val} -> "#{name}=#{val}" end)
+
+    "time.struct_time(#{body})"
+  end
 
   @doc """
   Appends a line number to an error message when available.
