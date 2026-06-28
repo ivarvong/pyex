@@ -610,6 +610,39 @@ defmodule Pyex.LanguageGapsTest do
     end
   end
 
+  describe "globals() and locals()" do
+    test "globals() returns the module namespace; builtins are excluded" do
+      assert out!("""
+             x = 1
+             y = 2
+             g = globals()
+             print(g["x"], g["y"])
+             print("__name__" in g)
+             print("print" in g)
+             """) == "1 2\nTrue\nFalse"
+    end
+
+    test "locals() inside a function returns just its locals" do
+      assert out!("""
+             def f():
+                 a = 10
+                 b = 20
+                 return locals()
+             l = f()
+             print(sorted(l.keys()), l["a"], l["b"])
+             """) == "['a', 'b'] 10 20"
+    end
+
+    test "globals() inside a function still sees the module scope" do
+      assert out!("""
+             z = 99
+             def f():
+                 return globals()["z"]
+             print(f())
+             """) == "99"
+    end
+  end
+
   describe "super() variants: two-argument and inside classmethods" do
     test "explicit super(Class, self) walks the MRO from Class" do
       assert out!("""

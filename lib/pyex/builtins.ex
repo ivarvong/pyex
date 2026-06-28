@@ -217,6 +217,8 @@ defmodule Pyex.Builtins do
       {"bytearray", &builtin_bytearray/1},
       {"dir", &builtin_dir/1},
       {"vars", &builtin_vars/1},
+      {"globals", &builtin_globals/1},
+      {"locals", &builtin_locals/1},
       {"id", &builtin_id/1},
       {"hash", &builtin_hash/1},
       {"property", &builtin_property/1},
@@ -2486,6 +2488,27 @@ defmodule Pyex.Builtins do
 
        {scope_names, env, ctx}
      end}
+  end
+
+  # locals(): the current (innermost) scope as a dict. globals(): the module
+  # scope (bottom of the stack). Builtins are seeded into the global scope, so
+  # they're subtracted to match CPython's separate-namespace model.
+  defp builtin_locals([]) do
+    {:ctx_call, fn env, ctx -> {scope_to_dict(List.first(env.scopes, %{}), ctx), env, ctx} end}
+  end
+
+  defp builtin_globals([]) do
+    {:ctx_call, fn env, ctx -> {scope_to_dict(List.last(env.scopes) || %{}, ctx), env, ctx} end}
+  end
+
+  @spec scope_to_dict(map(), Ctx.t()) :: Interpreter.pyvalue()
+  defp scope_to_dict(scope, ctx) do
+    builtin_names = names()
+
+    scope
+    |> Enum.reject(fn {k, _v} -> k in builtin_names or internal_scope_name?(k) end)
+    |> Enum.map(fn {k, v} -> {k, Ctx.deref(ctx, v)} end)
+    |> PyDict.from_pairs()
   end
 
   # Pyex injects a few sentinel bindings into scopes (e.g. the active exception);

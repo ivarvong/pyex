@@ -83,8 +83,6 @@ defmodule Pyex.ParityTest do
       # not yet implemented (burn-down queue)
       "aiter" => :unimplemented,
       "anext" => :unimplemented,
-      "globals" => :unimplemented,
-      "locals" => :unimplemented,
       "memoryview" => :unimplemented,
       "ExceptionGroup" => :unimplemented,
       "BaseExceptionGroup" => :unimplemented,
