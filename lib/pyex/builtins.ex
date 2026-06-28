@@ -198,6 +198,7 @@ defmodule Pyex.Builtins do
       {"hasattr", &builtin_hasattr/1},
       {"getattr", &builtin_getattr/1},
       {"setattr", &builtin_setattr/1},
+      {"delattr", &builtin_delattr/1},
       {"super", &builtin_super/1},
       {"iter", &builtin_iter/1},
       {"next", &builtin_next/1},
@@ -2317,6 +2318,19 @@ defmodule Pyex.Builtins do
   defp builtin_setattr([_, attr, _]) when is_binary(attr) do
     {:exception, "AttributeError: cannot set attribute '#{attr}'"}
   end
+
+  @spec builtin_delattr([Interpreter.pyvalue()]) ::
+          {:mutate, Interpreter.pyvalue(), nil} | {:exception, String.t()}
+  defp builtin_delattr([{:instance, class, attrs}, attr]) when is_binary(attr) do
+    if Map.has_key?(attrs, attr) do
+      {:mutate, {:instance, class, Map.delete(attrs, attr)}, nil}
+    else
+      {:exception, "AttributeError: #{attr}"}
+    end
+  end
+
+  defp builtin_delattr([_, attr]) when is_binary(attr),
+    do: {:exception, "AttributeError: cannot delete attribute '#{attr}'"}
 
   @spec builtin_super([Interpreter.pyvalue()]) :: {:super_call}
   defp builtin_super([]), do: {:super_call}
