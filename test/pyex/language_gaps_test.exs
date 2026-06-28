@@ -427,4 +427,54 @@ defmodule Pyex.LanguageGapsTest do
              """) == "TypeError"
     end
   end
+
+  describe "__format__ protocol via format() and f-strings" do
+    test "format() and f-strings dispatch to a custom __format__ with the spec" do
+      assert out!("""
+             class Temp:
+                 def __init__(self, c):
+                     self.c = c
+                 def __format__(self, spec):
+                     return f"{self.c}°{spec or 'C'}"
+             t = Temp(20)
+             print(format(t, "F"))
+             print(f"{t:K}")
+             print(f"{t}")
+             """) == "20°F\n20°K\n20°C"
+    end
+
+    test "an object with no __format__ falls back to str on an empty spec" do
+      assert out!("""
+             class P:
+                 def __str__(self):
+                     return "pretty"
+             print(format(P()))
+             print(f"{P()}")
+             """) == "pretty\npretty"
+    end
+
+    test "a non-empty spec on an object without __format__ raises TypeError" do
+      assert out!("""
+             class P:
+                 def __str__(self):
+                     return "x"
+             try:
+                 format(P(), ">10")
+             except TypeError:
+                 print("TypeError")
+             """) == "TypeError"
+    end
+
+    test "a __format__ returning a non-string raises TypeError" do
+      assert out!("""
+             class P:
+                 def __format__(self, spec):
+                     return 42
+             try:
+                 format(P(), "")
+             except TypeError:
+                 print("TypeError")
+             """) == "TypeError"
+    end
+  end
 end

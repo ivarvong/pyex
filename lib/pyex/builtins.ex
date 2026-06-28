@@ -2549,7 +2549,12 @@ defmodule Pyex.Builtins do
 
   # format(value[, spec]) delegates to the same spec engine f-strings use.
   @spec builtin_format([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
-  defp builtin_format([val]), do: FstringFormat.apply_format_spec(val, "")
+  defp builtin_format([val]), do: builtin_format([val, ""])
+
+  # Instances go through the full __format__ protocol (needs the interpreter
+  # for method dispatch); everything else uses the pure format mini-language.
+  defp builtin_format([{:instance, _, _} = val, spec]) when is_binary(spec),
+    do: {:ctx_call, fn env, ctx -> Interpreter.format_with_protocol(val, spec, env, ctx) end}
 
   defp builtin_format([val, spec]) when is_binary(spec),
     do: FstringFormat.apply_format_spec(val, spec)

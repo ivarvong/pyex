@@ -3263,8 +3263,19 @@ defmodule Pyex.Interpreter do
 
       {raw, env, ctx} ->
         val = Ctx.deref(ctx, raw)
-        {str, env, ctx} = eval_py_str(val, env, ctx)
-        eval_fstring(rest, <<acc::binary, str::binary>>, env, ctx)
+        # A bare `{obj}` field is `format(obj, "")`; for an instance that means
+        # __format__("") (which may differ from str), so route it through the
+        # protocol. Non-instances keep the str fast path.
+        {result, env, ctx} =
+          case val do
+            {:instance, _, _} -> format_with_protocol(val, "", env, ctx)
+            _ -> eval_py_str(val, env, ctx)
+          end
+
+        case result do
+          {:exception, _} = signal -> {signal, env, ctx}
+          str -> eval_fstring(rest, <<acc::binary, str::binary>>, env, ctx)
+        end
     end
   end
 
@@ -3282,14 +3293,74 @@ defmodule Pyex.Interpreter do
             {signal, env, ctx}
 
           {resolved_spec, env, ctx} ->
-            case Pyex.Interpreter.FstringFormat.apply_format_spec(val, resolved_spec) do
-              {:exception, _} = signal ->
+            case format_with_protocol(val, resolved_spec, env, ctx) do
+              {{:exception, _} = signal, env, ctx} ->
                 {signal, env, ctx}
 
-              formatted ->
+              {formatted, env, ctx} ->
                 eval_fstring(rest, <<acc::binary, formatted::binary>>, env, ctx)
             end
         end
+    end
+  end
+
+  @doc """
+  Formats a value against a format spec, honoring the `__format__` protocol.
+
+  For an instance, dispatches to its `__format__`; absent one, an empty spec
+  falls back to `str(self)` and a non-empty spec is a TypeError (CPython's
+  `object.__format__`). Non-instances use the built-in format mini-language.
+  """
+  @spec format_with_protocol(pyvalue(), String.t(), Env.t(), Ctx.t()) ::
+          {String.t() | {:exception, String.t()}, Env.t(), Ctx.t()}
+  def format_with_protocol({:instance, _, _} = val, spec, env, ctx) do
+    case Dunder.call_dunder(val, "__format__", [spec], env, ctx) do
+      {:ok, result, env, ctx} when is_binary(result) ->
+        {result, env, ctx}
+
+      {:ok, other, env, ctx} ->
+        {{:exception, "TypeError: __format__ must return str, not #{Helpers.py_type(other)}"},
+         env, ctx}
+
+      :not_found ->
+        if spec == "" do
+          stringify_instance(val, env, ctx)
+        else
+          {{:exception,
+            "TypeError: unsupported format string passed to #{Helpers.py_type(val)}.__format__"},
+           env, ctx}
+        end
+    end
+  end
+
+  def format_with_protocol(val, spec, env, ctx) do
+    case Pyex.Interpreter.FstringFormat.apply_format_spec(val, spec) do
+      {:exception, _} = signal -> {signal, env, ctx}
+      formatted -> {formatted, env, ctx}
+    end
+  end
+
+  # str(instance): __str__, then __repr__, then the default object repr.
+  @spec stringify_instance(pyvalue(), Env.t(), Ctx.t()) :: {String.t(), Env.t(), Ctx.t()}
+  defp stringify_instance(val, env, ctx) do
+    case call_str_dunder(val, "__str__", env, ctx) do
+      {:ok, s, env, ctx} ->
+        {s, env, ctx}
+
+      :not_found ->
+        case call_str_dunder(val, "__repr__", env, ctx) do
+          {:ok, s, env, ctx} -> {s, env, ctx}
+          :not_found -> {Helpers.py_str(val), env, ctx}
+        end
+    end
+  end
+
+  @spec call_str_dunder(pyvalue(), String.t(), Env.t(), Ctx.t()) ::
+          {:ok, String.t(), Env.t(), Ctx.t()} | :not_found
+  defp call_str_dunder(val, name, env, ctx) do
+    case Dunder.call_dunder(val, name, [], env, ctx) do
+      {:ok, s, env, ctx} when is_binary(s) -> {:ok, s, env, ctx}
+      _ -> :not_found
     end
   end
 
