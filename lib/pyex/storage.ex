@@ -95,4 +95,19 @@ defprotocol Pyex.Storage do
   @doc "Returns all keys beginning with `prefix`, in ascending order."
   @spec list_prefix(t, key) :: {:ok, [key]} | error
   def list_prefix(backend, prefix)
+
+  @doc """
+  Returns all `{key, json}` pairs whose key begins with `prefix`, in ascending
+  key order.
+
+  This is `list_prefix/2` plus the values, in a single call. It is the
+  primitive a range query is built on: the `dynamo` table module encodes items
+  under lexicographically-sorted composite keys (`table␟pk␟sk`), so one
+  `scan_prefix("table␟pk␟")` returns a whole partition already sorted by sort
+  key — no per-item round trip. A SQL backend implements it as one
+  `SELECT key, value WHERE key LIKE $1 || '%' ORDER BY key`; a CSV/file backend
+  as a filtered, sorted read.
+  """
+  @spec scan_prefix(t, key) :: {:ok, [{key, json}]} | error
+  def scan_prefix(backend, prefix)
 end

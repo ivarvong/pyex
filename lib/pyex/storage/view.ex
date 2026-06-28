@@ -159,4 +159,18 @@ defimpl Pyex.Storage, for: Pyex.Storage.View do
       denied(:list)
     end
   end
+
+  def scan_prefix(%View{rights: rights} = view, prefix) do
+    if MapSet.member?(rights, :list) do
+      case Storage.scan_prefix(view.inner, prefix) do
+        {:ok, pairs} ->
+          {:ok, Enum.filter(pairs, fn {k, _v} -> View.reachable?(view.selector, k) end)}
+
+        {:error, _} = err ->
+          err
+      end
+    else
+      denied(:list)
+    end
+  end
 end

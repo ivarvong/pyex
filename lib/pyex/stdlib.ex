@@ -64,6 +64,7 @@ defmodule Pyex.Stdlib do
     "operator" => Pyex.Stdlib.Operator,
     "bisect" => Pyex.Stdlib.Bisect,
     "store" => Pyex.Stdlib.Store,
+    "dynamo" => Pyex.Stdlib.Dynamo,
     "pygments" => Pyex.Stdlib.Pygments,
     "zipfile" => Pyex.Stdlib.Zipfile,
     "statistics" => Pyex.Stdlib.Statistics,
