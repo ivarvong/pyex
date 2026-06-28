@@ -32,14 +32,28 @@ defmodule Pyex.Stdlib.Time do
     }
   end
 
-  @spec do_time([Pyex.Interpreter.pyvalue()]) :: float()
+  # time.time()/time_ns() return the host-pinned `clock:` when set (a
+  # deterministic, replayable turn), else the wall clock.
+  @spec do_time([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp do_time([]) do
-    :os.system_time(:nanosecond) / 1.0e9
+    {:ctx_call,
+     fn env, ctx ->
+       t =
+         if is_number(ctx.clock), do: ctx.clock / 1.0, else: :os.system_time(:nanosecond) / 1.0e9
+
+       {t, env, ctx}
+     end}
   end
 
-  @spec do_time_ns([Pyex.Interpreter.pyvalue()]) :: integer()
+  @spec do_time_ns([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp do_time_ns([]) do
-    :os.system_time(:nanosecond)
+    {:ctx_call,
+     fn env, ctx ->
+       ns =
+         if is_number(ctx.clock), do: round(ctx.clock * 1.0e9), else: :os.system_time(:nanosecond)
+
+       {ns, env, ctx}
+     end}
   end
 
   @spec do_monotonic([Pyex.Interpreter.pyvalue()]) :: float()

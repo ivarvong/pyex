@@ -161,6 +161,13 @@ defmodule Pyex do
     saved_decimal_ctx = Decimal.Context.get()
     Decimal.Context.set(%Decimal.Context{precision: 28, rounding: :half_even})
 
+    # Entropy is process-local (`:rand`). Snapshot the caller's stream, then
+    # seed this turn: from `seed:` for a deterministic, replayable turn, or
+    # freshly otherwise. Restoring afterward means a turn's randomness never
+    # leaks into — or perturbs — the host (or the next turn in a reused worker).
+    saved_rand = :rand.export_seed()
+    seed_rand(ctx.seed)
+
     try do
       env = Builtins.runtime_env(ctx)
 
@@ -211,6 +218,7 @@ defmodule Pyex do
       end
     after
       Decimal.Context.set(saved_decimal_ctx)
+      restore_rand(saved_rand)
     end
   end
 
@@ -253,6 +261,16 @@ defmodule Pyex do
   """
   @spec output(Ctx.t()) :: String.t()
   def output(%Ctx{} = ctx), do: ctx |> Ctx.output() |> IO.iodata_to_binary()
+
+  # Seed the per-turn entropy stream. A `seed:` gives a deterministic, replayable
+  # turn; otherwise seed freshly so the turn is independent of any prior one.
+  defp seed_rand(seed) when is_integer(seed), do: :rand.seed(:exsss, {seed, seed, seed})
+  defp seed_rand(_), do: :rand.seed(:exsss)
+
+  # Restore the caller's entropy stream. If the caller had none, leave a fresh
+  # state (there is no "unseed"); its next draw behaves as if this turn never ran.
+  defp restore_rand(:undefined), do: :rand.seed(:exsss)
+  defp restore_rand(state), do: :rand.seed(state)
 
   @spec close_open_handles(Ctx.t()) :: Ctx.t()
   defp close_open_handles(final_ctx) do

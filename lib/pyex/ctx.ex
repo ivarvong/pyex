@@ -53,6 +53,8 @@ defmodule Pyex.Ctx do
   @type t :: %__MODULE__{
           filesystem: term(),
           storage: term(),
+          seed: integer() | nil,
+          clock: number() | nil,
           cwd: String.t(),
           handles: %{optional(non_neg_integer()) => file_handle()},
           next_handle: non_neg_integer(),
@@ -99,6 +101,8 @@ defmodule Pyex.Ctx do
 
   defstruct filesystem: nil,
             storage: nil,
+            seed: nil,
+            clock: nil,
             cwd: "/",
             handles: %{},
             next_handle: 0,
@@ -154,6 +158,11 @@ defmodule Pyex.Ctx do
     (e.g. `Pyex.Storage.Memory.new()`), or a plain `%{key => json_string}`
     map wrapped as a seeded in-memory backend. Absent → `store` raises
     `StorageError`. See `Pyex.Storage`.
+  - `:seed` -- an integer that seeds `random`/`uuid`/`secrets` deterministically
+    for a replayable turn. Without it, entropy is fresh per turn. Either way a
+    turn never perturbs the host process's entropy.
+  - `:clock` -- a Unix timestamp (number) that `time.time()`/`time_ns()` return,
+    for deterministic time. Without it, the wall clock is used.
   - `:cwd` -- the current working directory relative paths resolve against,
     an absolute path string (default `"/"`). Set this to a shell's cwd when
     sharing a filesystem so `open("rel")` resolves the same way `cat rel` does.
@@ -214,6 +223,8 @@ defmodule Pyex.Ctx do
   @valid_keys [
     :filesystem,
     :storage,
+    :seed,
+    :clock,
     :cwd,
     :env,
     :modules,
@@ -239,6 +250,8 @@ defmodule Pyex.Ctx do
 
     fs = normalize_filesystem(Keyword.get(opts, :filesystem))
     storage = normalize_storage(Keyword.get(opts, :storage))
+    seed = Keyword.get(opts, :seed)
+    clock = Keyword.get(opts, :clock)
     cwd = normalize_cwd(Keyword.get(opts, :cwd, "/"))
     env = Keyword.get(opts, :env, %{})
     modules = Keyword.get(opts, :modules, %{}) |> normalize_modules()
@@ -263,6 +276,8 @@ defmodule Pyex.Ctx do
     %__MODULE__{
       filesystem: fs,
       storage: storage,
+      seed: seed,
+      clock: clock,
       cwd: cwd,
       env: env,
       modules: modules,
