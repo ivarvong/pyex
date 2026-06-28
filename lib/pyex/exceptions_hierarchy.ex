@@ -35,6 +35,9 @@ defmodule Pyex.ExceptionsHierarchy do
     "NameError" => "Exception",
     "UnboundLocalError" => "NameError",
     "OSError" => "Exception",
+    # CPython aliases of OSError (IOError is OSError); modelled as subclasses.
+    "IOError" => "OSError",
+    "EnvironmentError" => "OSError",
     "BlockingIOError" => "OSError",
     "ChildProcessError" => "OSError",
     "ConnectionError" => "OSError",
@@ -75,6 +78,7 @@ defmodule Pyex.ExceptionsHierarchy do
     "UnicodeWarning" => "Warning",
     "BytesWarning" => "Warning",
     "ResourceWarning" => "Warning",
+    "EncodingWarning" => "Warning",
     "DecimalException" => "ArithmeticError",
     "Clamped" => "DecimalException",
     "InvalidOperation" => "ArithmeticError",

@@ -122,13 +122,9 @@ defmodule Pyex.ParityTest do
       # not yet implemented (burn-down queue)
       "aiter" => :unimplemented,
       "anext" => :unimplemented,
-      "ascii" => :unimplemented,
       "globals" => :unimplemented,
       "locals" => :unimplemented,
       "memoryview" => :unimplemented,
-      "EncodingWarning" => :unimplemented,
-      "EnvironmentError" => :unimplemented,
-      "IOError" => :unimplemented,
       "ExceptionGroup" => :unimplemented,
       "BaseExceptionGroup" => :unimplemented,
       # keywords / singletons, not environment bindings

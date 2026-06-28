@@ -199,6 +199,7 @@ defmodule Pyex.Builtins do
       {"getattr", &builtin_getattr/1},
       {"setattr", &builtin_setattr/1},
       {"delattr", &builtin_delattr/1},
+      {"ascii", &builtin_ascii/1},
       {"super", &builtin_super/1},
       {"iter", &builtin_iter/1},
       {"next", &builtin_next/1},
@@ -2039,6 +2040,45 @@ defmodule Pyex.Builtins do
   end
 
   defp builtin_repr([val]), do: py_repr_quoted(val)
+
+  # ascii(obj) == repr(obj) with all non-ASCII chars backslash-escaped.
+  @spec builtin_ascii([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp builtin_ascii([{:instance, _, _} = inst]) do
+    {:ctx_call,
+     fn env, ctx ->
+       {repr, env, ctx} = Pyex.Interpreter.Protocols.eval_py_repr(inst, env, ctx)
+       {ascii_escape(repr), env, ctx}
+     end}
+  end
+
+  defp builtin_ascii([val]) do
+    case builtin_repr([val]) do
+      {:ctx_call, fun} ->
+        {:ctx_call,
+         fn env, ctx ->
+           {repr, env, ctx} = fun.(env, ctx)
+           {ascii_escape(repr), env, ctx}
+         end}
+
+      repr when is_binary(repr) ->
+        ascii_escape(repr)
+    end
+  end
+
+  @spec ascii_escape(String.t()) :: String.t()
+  defp ascii_escape(str) do
+    str
+    |> String.to_charlist()
+    |> Enum.map_join(fn
+      cp when cp < 128 -> <<cp::utf8>>
+      cp when cp <= 0xFF -> "\\x" <> hex(cp, 2)
+      cp when cp <= 0xFFFF -> "\\u" <> hex(cp, 4)
+      cp -> "\\U" <> hex(cp, 8)
+    end)
+  end
+
+  defp hex(cp, width),
+    do: cp |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(width, "0")
 
   @spec builtin_hasattr([Interpreter.pyvalue()]) :: boolean()
   defp builtin_hasattr([{:instance, {:class, _, _, _} = class, attrs}, attr])
