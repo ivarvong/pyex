@@ -100,6 +100,11 @@ defmodule Pyex.Interpreter.ClassLookup do
   defp bind_through_class(class, {:classmethod, func}, owner),
     do: {:bound_method, class, func, owner}
 
+  # A lazily-built class constant (e.g. date.max): its thunk is pure, so it can
+  # be evaluated on access without the recursion that embedding the instance in
+  # the class map would trigger.
+  defp bind_through_class(_class, {:class_const, thunk}, _owner), do: thunk.()
+
   defp bind_through_class(_class, value, _owner), do: value
 
   @doc "Compute the C3 linearized MRO for a class."

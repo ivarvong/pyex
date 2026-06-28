@@ -2660,6 +2660,12 @@ defmodule Pyex.Interpreter do
     derefed = Ctx.deref(ctx, value)
 
     case derefed do
+      # A lazily-built class constant (e.g. date.max): the thunk is pure, so
+      # evaluating it here avoids the construction-time recursion that embedding
+      # the instance directly in the class map would cause.
+      {:class_const, thunk} ->
+        {thunk.(), env, ctx}
+
       {:property, fget, _, _} when fget != nil ->
         case call_function(fget, [instance], %{}, env, ctx) do
           {val, env, ctx, _} -> {val, env, ctx}

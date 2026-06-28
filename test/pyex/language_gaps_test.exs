@@ -505,6 +505,34 @@ defmodule Pyex.LanguageGapsTest do
     end
   end
 
+  describe "date / datetime class constants (min, max, resolution)" do
+    test "date exposes min, max, and resolution" do
+      assert out!("""
+             import datetime as dt
+             print(dt.date.min)
+             print(dt.date.max)
+             print(dt.date.resolution)
+             """) == "0001-01-01\n9999-12-31\n1 day, 0:00:00"
+    end
+
+    test "datetime exposes min, max, and resolution" do
+      assert out!("""
+             import datetime as dt
+             print(dt.datetime.min)
+             print(dt.datetime.max)
+             print(dt.datetime.resolution)
+             """) == "0001-01-01 00:00:00\n9999-12-31 23:59:59.999999\n0:00:00.000001"
+    end
+
+    test "the constants are also reachable through an instance" do
+      assert out!("""
+             import datetime as dt
+             print(dt.date(2024, 1, 1).max)
+             print(type(dt.date.max).__name__)
+             """) == "9999-12-31\ndate"
+    end
+  end
+
   describe "super() variants: two-argument and inside classmethods" do
     test "explicit super(Class, self) walks the MRO from Class" do
       assert out!("""

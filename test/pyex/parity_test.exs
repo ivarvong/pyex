@@ -78,17 +78,11 @@ defmodule Pyex.ParityTest do
       "write_through" => :out_of_scope
     },
     "date" => %{
-      "max" => :unimplemented,
-      "min" => :unimplemented,
-      "resolution" => :unimplemented,
       "strptime" => :unimplemented,
       "timetuple" => :unimplemented
     },
     "datetime" => %{
       "fold" => :unimplemented,
-      "max" => :unimplemented,
-      "min" => :unimplemented,
-      "resolution" => :unimplemented,
       "time" => :unimplemented,
       "timetuple" => :unimplemented,
       "timetz" => :unimplemented,

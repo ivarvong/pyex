@@ -322,8 +322,21 @@ defmodule Pyex.Stdlib.Datetime do
        "utcfromtimestamp" => {:builtin, &datetime_fromtimestamp/1},
        "combine" => {:builtin_kw, &datetime_combine/2},
        "fromordinal" => {:builtin, &datetime_fromordinal/1},
-       "fromisocalendar" => {:builtin, &datetime_fromisocalendar/1}
+       "fromisocalendar" => {:builtin, &datetime_fromisocalendar/1},
+       # Lazy class constants (see date_class/0 for why thunks).
+       "min" => {:class_const, fn -> make_naive_datetime_const(~N[0001-01-01 00:00:00]) end},
+       "max" =>
+         {:class_const, fn -> make_naive_datetime_const(~N[9999-12-31 23:59:59.999999]) end},
+       "resolution" => {:class_const, fn -> make_timedelta_instance(0, 0.000001) end}
      })}
+  end
+
+  # Builds a naive datetime constant from a NaiveDateTime (used for the
+  # datetime.min / datetime.max class attributes).
+  @spec make_naive_datetime_const(NaiveDateTime.t()) :: Pyex.Interpreter.pyvalue()
+  defp make_naive_datetime_const(ndt) do
+    {:ok, dt} = DateTime.from_naive(ndt, "Etc/UTC")
+    make_datetime(dt, nil)
   end
 
   @spec date_class() ::
@@ -337,7 +350,12 @@ defmodule Pyex.Stdlib.Datetime do
        "fromisoformat" => {:builtin, &date_fromisoformat/1},
        "fromordinal" => {:builtin, &date_fromordinal/1},
        "fromtimestamp" => {:builtin, &date_fromtimestamp/1},
-       "fromisocalendar" => {:builtin, &date_fromisocalendar/1}
+       "fromisocalendar" => {:builtin, &date_fromisocalendar/1},
+       # Class constants are lazy thunks so building the class doesn't recurse
+       # through make_date (which itself references date_class()).
+       "min" => {:class_const, fn -> make_date(~D[0001-01-01]) end},
+       "max" => {:class_const, fn -> make_date(~D[9999-12-31]) end},
+       "resolution" => {:class_const, fn -> make_timedelta_instance(1, 0) end}
      })}
   end
 
