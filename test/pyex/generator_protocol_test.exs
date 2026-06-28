@@ -7,10 +7,9 @@ defmodule Pyex.GeneratorProtocolTest do
 
   Scope of this pass: `gen.send(None)` priming and `StopIteration.value`. The
   deeper coroutine cases (throw-injection into a paused frame, `yield from`
-  send/return passthrough, `close()` running `finally` lazily, and surfacing a
-  generator's `return` value through `StopIteration.value`) require lazy-engine
-  work and are intentionally not covered yet — they are tracked, not asserted as
-  correct here.
+  send/return passthrough, `close()` running `finally` lazily) are now handled
+  by the lazy generator engine and asserted in
+  `Pyex.LazyGeneratorTest`.
   """
 
   use ExUnit.Case, async: true

@@ -30,6 +30,7 @@ defmodule Pyex.BannedCallTracerTest do
     Elixir.Pyex.Test.Fixture
     Elixir.Pyex.Test.Oracle
     Elixir.Pyex.Test.DifferentialFuzz
+    Elixir.Pyex.Test.GeneratorOracle
     Elixir.Pyex.Test.LibraryConformance
     Elixir.Pyex.Test.Sweep
   ]

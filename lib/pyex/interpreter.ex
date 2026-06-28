@@ -630,10 +630,16 @@ defmodule Pyex.Interpreter do
 
       {{:iterator, id} = iter, env, ctx} ->
         case Pyex.Ctx.iter_entry(ctx, id) do
+          {:gen_sync, _started?, _, _} when ctx.generator_mode in [:defer, :defer_inner] ->
+            yield_from_gen_iter(id, env, ctx)
+
           {:gen_pending, _, _, _} when ctx.generator_mode in [:defer, :defer_inner] ->
             yield_from_gen_iter(id, env, ctx)
 
           :gen_done when ctx.generator_mode in [:defer, :defer_inner] ->
+            {nil, env, ctx}
+
+          {:gen_done, _value} when ctx.generator_mode in [:defer, :defer_inner] ->
             {nil, env, ctx}
 
           _ ->
@@ -1986,6 +1992,23 @@ defmodule Pyex.Interpreter do
               {:ctx_call,
                fn env, ctx ->
                  case Ctx.iter_entry(ctx, id) do
+                   {:gen_sync, false, _cont, _gen_env} when sent_value != nil ->
+                     # send(non-None) to a just-created generator is a TypeError:
+                     # there is no `yield` expression waiting to receive the value.
+                     {{:exception,
+                       "TypeError: can't send non-None value to a just-started generator"}, env,
+                      ctx}
+
+                   {:gen_sync, _started?, cont, gen_env} ->
+                     Pyex.Interpreter.BuiltinResults.advance_gen_sync(
+                       id,
+                       cont,
+                       gen_env,
+                       {:send, sent_value},
+                       env,
+                       ctx
+                     )
+
                    {:gen_awaiting_send, _val, cont, gen_env} ->
                      # Generator is waiting for a sent value to advance.
                      Pyex.Interpreter.BuiltinResults.send_to_awaiting_generator(
@@ -2007,7 +2030,10 @@ defmodule Pyex.Interpreter do
                       ctx}
 
                    :gen_done ->
-                     {{:exception, "StopIteration"}, env, ctx}
+                     Pyex.Interpreter.BuiltinResults.stop_iteration(:no_value, env, ctx)
+
+                   {:gen_done, _value} ->
+                     Pyex.Interpreter.BuiltinResults.stop_iteration(:no_value, env, ctx)
 
                    _ ->
                      {{:exception, "TypeError: can only send to a generator"}, env, ctx}
@@ -2023,8 +2049,50 @@ defmodule Pyex.Interpreter do
           fn _ ->
             {:ctx_call,
              fn env, ctx ->
-               ctx = Ctx.mark_iter_exhausted(ctx, id)
-               {nil, env, ctx}
+               # close() throws GeneratorExit at the suspension point so finally
+               # blocks run; the exit then propagates and the generator is done.
+               case Ctx.iter_entry(ctx, id) do
+                 {:gen_sync, _started?, cont, gen_env} ->
+                   exit_inst =
+                     {:instance, exception_instance_class({:exception_class, "GeneratorExit"}),
+                      %{"args" => {:tuple, []}}}
+
+                   ctx = %{ctx | exception_instance: exit_inst}
+
+                   {_result, _genv, ctx} =
+                     Pyex.Interpreter.BuiltinResults.advance_gen_sync(
+                       id,
+                       cont,
+                       gen_env,
+                       {:throw, "GeneratorExit"},
+                       env,
+                       ctx
+                     )
+
+                   {nil, env, Ctx.mark_iter_exhausted(ctx, id)}
+
+                 {state, _val, cont, gen_env} when state in [:gen_pending, :gen_awaiting_send] ->
+                   exit_inst =
+                     {:instance, exception_instance_class({:exception_class, "GeneratorExit"}),
+                      %{"args" => {:tuple, []}}}
+
+                   ctx = %{ctx | exception_instance: exit_inst}
+
+                   {_result, _genv, ctx} =
+                     Pyex.Interpreter.BuiltinResults.throw_into_generator(
+                       id,
+                       cont,
+                       gen_env,
+                       "GeneratorExit",
+                       env,
+                       ctx
+                     )
+
+                   {nil, env, Ctx.mark_iter_exhausted(ctx, id)}
+
+                 _ ->
+                   {nil, env, ctx}
+               end
              end}
           end}, env, ctx}
 
@@ -2032,7 +2100,39 @@ defmodule Pyex.Interpreter do
         {{:builtin,
           fn
             [exc_type | _rest] ->
-              {:exception, Helpers.py_type(exc_type)}
+              {:ctx_call,
+               fn env, ctx ->
+                 # Build the exception signal exactly as `raise exc_type` would
+                 # (sets ctx.exception_instance for `except ... as e` binding).
+                 {{:exception, exc_msg}, env, ctx} =
+                   Pyex.Interpreter.Exceptions.raise_value_signal(exc_type, env, ctx)
+
+                 case Ctx.iter_entry(ctx, id) do
+                   {:gen_sync, _started?, cont, gen_env} ->
+                     Pyex.Interpreter.BuiltinResults.advance_gen_sync(
+                       id,
+                       cont,
+                       gen_env,
+                       {:throw, exc_msg},
+                       env,
+                       ctx
+                     )
+
+                   {state, _val, cont, gen_env}
+                   when state in [:gen_pending, :gen_awaiting_send] ->
+                     Pyex.Interpreter.BuiltinResults.throw_into_generator(
+                       id,
+                       cont,
+                       gen_env,
+                       exc_msg,
+                       env,
+                       ctx
+                     )
+
+                   _ ->
+                     {{:exception, exc_msg}, env, ctx}
+                 end
+               end}
 
             _ ->
               {:exception, "TypeError: throw() requires an exception type"}
@@ -3819,6 +3919,74 @@ defmodule Pyex.Interpreter do
   end
 
   @doc """
+  Finalize every still-suspended generator at turn end — CPython's
+  interpreter-shutdown behavior, where a generator left paused has
+  `GeneratorExit` thrown into it so its `finally`/`with` cleanup runs.
+
+  Ordering matches CPython shutdown: ascending iterator id (creation order).
+  `yield from` delegation falls out for free — finalizing the (lower-id) outer
+  generator propagates `GeneratorExit` into the inner one, so the inner
+  `finally` runs first and the inner is already done when its own (higher) id
+  comes up. A cleanup block that raises is swallowed (CPython prints "Exception
+  ignored" and continues finalizing the rest); the turn result is unaffected.
+
+  NOTE: this is the *shutdown* timing only. CPython also finalizes a generator
+  the instant its last reference drops (refcount GC) — observable as cleanup
+  running mid-script. That timing is a CPython implementation detail (not a
+  language guarantee, and not shared by e.g. PyPy) and is not reproducible in
+  Pyex's reference-free value model, so it is intentionally not emulated.
+  """
+  @spec finalize_suspended_generators(Ctx.t()) :: Ctx.t()
+  def finalize_suspended_generators(%Ctx{} = ctx) do
+    suspended_ids =
+      ctx.iterators
+      |> Enum.filter(fn {_id, entry} -> match?({:gen_sync, _, _, _}, entry) end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.sort()
+
+    case suspended_ids do
+      [] ->
+        ctx
+
+      ids ->
+        env = Builtins.runtime_env(ctx)
+        Enum.reduce(ids, ctx, fn id, ctx -> finalize_one_generator(id, env, ctx) end)
+    end
+  end
+
+  @spec finalize_one_generator(non_neg_integer(), Env.t(), Ctx.t()) :: Ctx.t()
+  defp finalize_one_generator(id, env, ctx) do
+    case Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, cont, gen_env} ->
+        exit_inst =
+          {:instance, exception_instance_class({:exception_class, "GeneratorExit"}),
+           %{"args" => {:tuple, []}}}
+
+        ctx = %{ctx | exception_instance: exit_inst}
+
+        # Run the cleanup. The result (a propagated GeneratorExit, a different
+        # exception raised by the cleanup, or even a re-yield) is discarded —
+        # the generator is done either way.
+        {_result, _env, ctx} =
+          Pyex.Interpreter.BuiltinResults.advance_gen_sync(
+            id,
+            cont,
+            gen_env,
+            {:throw, "GeneratorExit"},
+            env,
+            ctx
+          )
+
+        Ctx.mark_iter_exhausted(ctx, id)
+
+      _ ->
+        # Already finalized (e.g. an inner `yield from` target closed while
+        # finalizing its outer generator).
+        ctx
+    end
+  end
+
+  @doc """
   Lazy `yield from` over a generator iterator. Yields the first
   pending value, then attaches a `:cont_yield_from_iter` frame so the
   generator advances one step at a time on resumption — preserving
@@ -3827,6 +3995,26 @@ defmodule Pyex.Interpreter do
   @spec yield_from_gen_iter(non_neg_integer(), Env.t(), Ctx.t()) :: eval_result()
   def yield_from_gen_iter(id, env, ctx) do
     case Pyex.Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, cont, gen_env} ->
+        # Lazy delegation: advance the sub-generator to its first yield. If it
+        # yields, propagate the value out of the outer generator and attach a
+        # `:cont_yield_from_iter` frame so subsequent next()/send()/throw()
+        # route through the sub-generator (PEP 380). If it finishes
+        # immediately, `yield from` evaluates to the sub's return value.
+        case Pyex.Interpreter.BuiltinResults.advance_gen_sync_raw(id, cont, gen_env, :next, ctx) do
+          {:yield, val, _c, _e, ctx} ->
+            {{:yielded, val, [{:cont_yield_from_iter, id}]}, env, ctx}
+
+          {:return, return_value, ctx} ->
+            {return_value, env, ctx}
+
+          {:exhausted, ctx} ->
+            {nil, env, ctx}
+
+          {:raise, msg, ctx} ->
+            {{:exception, msg}, env, ctx}
+        end
+
       {:gen_pending, val, _cont, _gen_env} ->
         {{:yielded, val, [{:cont_yield_from_iter, id}]}, env, ctx}
 
@@ -3838,6 +4026,38 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  # Thread one resumed step of a delegated `yield from` sub-generator into the
+  # outer continuation `rest`. Used by the `:cont_yield_from_iter` resume
+  # clauses (next/send/throw).
+  @spec yield_from_step(
+          non_neg_integer(),
+          {:yield, pyvalue(), [cont_frame()], Env.t(), Ctx.t()}
+          | {:return, pyvalue(), Ctx.t()}
+          | {:exhausted, Ctx.t()}
+          | {:raise, String.t(), Ctx.t()},
+          [cont_frame()],
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp yield_from_step(id, step, rest, env, _ctx) do
+    case step do
+      {:yield, val, _new_cont, _new_gen_env, ctx} ->
+        {{:yielded, val, [{:cont_yield_from_iter, id}] ++ rest}, env, ctx}
+
+      {:return, return_value, ctx} ->
+        # PEP 380: `x = yield from sub()` evaluates to the sub's return value.
+        resume_generator_with_send(rest, env, ctx, return_value)
+
+      {:exhausted, ctx} ->
+        resume_generator(rest, env, ctx)
+
+      {:raise, msg, ctx} ->
+        # Exception escaped the sub-generator: re-raise it at the delegation
+        # point inside the outer generator (caught by its enclosing try, if any).
+        resume_generator_with_throw(rest, env, ctx, msg)
+    end
+  end
+
   @type cont_frame ::
           {:cont_stmts, [Parser.ast_node()]}
           | {:cont_for, String.t() | [String.t()], [pyvalue()], [Parser.ast_node()],
@@ -3845,6 +4065,9 @@ defmodule Pyex.Interpreter do
           | {:cont_while, Parser.ast_node(), [Parser.ast_node()], [Parser.ast_node()] | nil}
           | {:cont_yield_from, [pyvalue()]}
           | {:cont_yield_from_iter, non_neg_integer()}
+          | {:cont_try, [cont_frame()],
+             [{String.t() | nil, String.t() | nil, [Parser.ast_node()]}],
+             [Parser.ast_node()] | nil, [Parser.ast_node()] | nil}
           | {:cont_for_gen_iter, String.t(), non_neg_integer(), [Parser.ast_node()],
              [Parser.ast_node()] | nil}
           | {:cont_bind_sent, String.t()}
@@ -3874,6 +4097,12 @@ defmodule Pyex.Interpreter do
     # next() resumes with sent_value = nil (Python semantics)
     env = Env.smart_put(env, name, nil)
     resume_generator(rest, env, ctx)
+  end
+
+  def resume_generator([{:cont_call_resume, _, _, _, _, _, _, _} | _] = cont, env, ctx) do
+    # A `yield` suspended inside a function call's arguments (e.g.
+    # `f((yield x))`). `next()` == `send(None)`: resume the call with nil.
+    resume_generator_with_send(cont, env, ctx, nil)
   end
 
   def resume_generator([{:cont_return_value} | _rest], env, ctx) do
@@ -3907,6 +4136,26 @@ defmodule Pyex.Interpreter do
 
       {_, env, ctx} ->
         resume_generator(rest, env, ctx)
+    end
+  end
+
+  # Resume a generator suspended at a `yield` inside a try. Run the rest of the
+  # try body; if it yields again, stay inside the try; otherwise apply the
+  # except/else/finally and continue the outer continuation. This is what makes
+  # try/finally generators lazy (finally at exit, not at the yield).
+  def resume_generator(
+        [{:cont_try, body_cont, handlers, else_body, finally_body} | rest],
+        env,
+        ctx
+      ) do
+    case resume_generator(body_cont, env, ctx) do
+      {{:yielded, val, inner_cont}, env, ctx} ->
+        {{:yielded, val, [{:cont_try, inner_cont, handlers, else_body, finally_body}] ++ rest},
+         env, ctx}
+
+      body_result ->
+        ControlFlow.finish_try(body_result, handlers, else_body, finally_body)
+        |> continue_after_try(rest)
     end
   end
 
@@ -3994,14 +4243,18 @@ defmodule Pyex.Interpreter do
   end
 
   def resume_generator([{:cont_yield_from_iter, id} | rest], env, ctx) do
-    # Advance the source generator one step. On yield, propagate. On
-    # done, fall through to the rest of the outer continuation. On
-    # exception, surface it (this is how `yield from gen()` exposes
-    # exceptions raised mid-stream).
+    # Advance the source generator one step (next == send nil). On yield,
+    # propagate and stay delegating. On done, feed the return value into the
+    # rest of the outer continuation (PEP 380). On exception, re-raise it at
+    # the delegation point.
     saved_mode = ctx.generator_mode
     inner_ctx = %{ctx | generator_mode: :defer_inner}
 
     case Pyex.Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, cont, gen_env} ->
+        step = Pyex.Interpreter.BuiltinResults.advance_gen_sync_raw(id, cont, gen_env, :next, ctx)
+        yield_from_step(id, step, rest, env, ctx)
+
       {:gen_pending, _val, cont, gen_env} ->
         case resume_generator(cont, gen_env, inner_ctx) do
           {{:yielded, val, next_cont}, next_gen_env, ctx} ->
@@ -4036,6 +4289,80 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  # Thread a try's resolved result into the outer continuation: re-yield (from a
+  # handler/finally), propagate a return, keep throwing an uncaught exception
+  # through outer trys, or continue normally.
+  @spec continue_after_try(eval_result(), [cont_frame()]) :: eval_result()
+  defp continue_after_try({{:yielded, val, c}, env, ctx}, rest),
+    do: {{:yielded, val, c ++ rest}, env, ctx}
+
+  defp continue_after_try({{:exception, msg}, env, ctx}, rest),
+    do: resume_generator_with_throw(rest, env, ctx, msg)
+
+  defp continue_after_try({{:done_with_value, _} = d, env, ctx}, _rest), do: {d, env, ctx}
+
+  defp continue_after_try({{:returned, v}, env, ctx}, _rest),
+    do: {{:done_with_value, v}, env, ctx}
+
+  defp continue_after_try({_, env, ctx}, rest), do: resume_generator(rest, env, ctx)
+
+  @doc false
+  # Resume a generator by raising an exception at its current suspension point
+  # (the `throw()`/`close()` path). The exception propagates through the
+  # continuation, caught by the first enclosing try whose handler matches.
+  @spec resume_generator_with_throw([cont_frame()], Env.t(), Ctx.t(), String.t()) ::
+          {{:yielded, pyvalue(), [cont_frame()]}, Env.t(), Ctx.t()}
+          | {:done, Env.t(), Ctx.t()}
+          | {{:done_with_value, pyvalue()}, Env.t(), Ctx.t()}
+          | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  def resume_generator_with_throw([], env, ctx, exc_msg), do: {{:exception, exc_msg}, env, ctx}
+
+  def resume_generator_with_throw(
+        [{:cont_try, body_cont, handlers, else_body, finally_body} | rest],
+        env,
+        ctx,
+        exc_msg
+      ) do
+    # The suspension may be nested *inside* this try (e.g. an inner try, whose
+    # finally must run first). Throw into the body continuation first; whatever
+    # it produces then passes through this try's except/finally. (Throwing into
+    # an empty body_cont yields `{:exception, exc_msg}`, so a flat try still
+    # runs its own handler/finally — same as the old throw_into_try path.)
+    case resume_generator_with_throw(body_cont, env, ctx, exc_msg) do
+      {{:yielded, val, inner_cont}, env, ctx} ->
+        {{:yielded, val, [{:cont_try, inner_cont, handlers, else_body, finally_body}] ++ rest},
+         env, ctx}
+
+      body_result ->
+        ControlFlow.finish_try(body_result, handlers, else_body, finally_body)
+        |> continue_after_try(rest)
+    end
+  end
+
+  def resume_generator_with_throw([{:cont_yield_from_iter, id} | rest], env, ctx, exc_msg) do
+    # throw() into a generator suspended at `yield from sub`: per PEP 380, the
+    # exception is thrown into the sub-generator first.
+    case Pyex.Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, cont, gen_env} ->
+        step =
+          Pyex.Interpreter.BuiltinResults.advance_gen_sync_raw(
+            id,
+            cont,
+            gen_env,
+            {:throw, exc_msg},
+            ctx
+          )
+
+        yield_from_step(id, step, rest, env, ctx)
+
+      _ ->
+        resume_generator_with_throw(rest, env, ctx, exc_msg)
+    end
+  end
+
+  def resume_generator_with_throw([_frame | rest], env, ctx, exc_msg),
+    do: resume_generator_with_throw(rest, env, ctx, exc_msg)
+
   @doc false
   @spec resume_generator_with_send([cont_frame()], Env.t(), Ctx.t(), pyvalue()) ::
           {{:yielded, pyvalue(), [cont_frame()]}, Env.t(), Ctx.t()}
@@ -4045,6 +4372,27 @@ defmodule Pyex.Interpreter do
   def resume_generator_with_send([{:cont_bind_sent, name} | rest], env, ctx, sent_value) do
     env = Env.smart_put(env, name, sent_value)
     resume_generator(rest, env, ctx)
+  end
+
+  def resume_generator_with_send(
+        [{:cont_try, body_cont, handlers, else_body, finally_body} | rest],
+        env,
+        ctx,
+        sent_value
+      ) do
+    # A generator suspended at a `yield` *inside* a try has `:cont_try` as its
+    # outermost frame. Thread the sent value into the try body's continuation
+    # (where the `:cont_bind_sent` lives) rather than dropping it; re-apply the
+    # except/else/finally when the body resumes past the yield.
+    case resume_generator_with_send(body_cont, env, ctx, sent_value) do
+      {{:yielded, val, inner_cont}, env, ctx} ->
+        {{:yielded, val, [{:cont_try, inner_cont, handlers, else_body, finally_body}] ++ rest},
+         env, ctx}
+
+      body_result ->
+        ControlFlow.finish_try(body_result, handlers, else_body, finally_body)
+        |> continue_after_try(rest)
+    end
   end
 
   def resume_generator_with_send([{:cont_return_value} | _rest], env, ctx, sent_value) do
@@ -4093,6 +4441,27 @@ defmodule Pyex.Interpreter do
 
       {:error, signal, env, ctx} ->
         {signal, env, ctx}
+    end
+  end
+
+  def resume_generator_with_send([{:cont_yield_from_iter, id} | rest], env, ctx, sent_value) do
+    # send() into a generator suspended at `yield from sub`: PEP 380 routes the
+    # value into the sub-generator's own suspended `yield`.
+    case Pyex.Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, cont, gen_env} ->
+        step =
+          Pyex.Interpreter.BuiltinResults.advance_gen_sync_raw(
+            id,
+            cont,
+            gen_env,
+            {:send, sent_value},
+            ctx
+          )
+
+        yield_from_step(id, step, rest, env, ctx)
+
+      _ ->
+        resume_generator([{:cont_yield_from_iter, id} | rest], env, ctx)
     end
   end
 

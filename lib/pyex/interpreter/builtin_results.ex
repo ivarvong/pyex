@@ -86,10 +86,13 @@ defmodule Pyex.Interpreter.BuiltinResults do
             {item, env, ctx}
 
           :exhausted ->
-            {{:exception, "StopIteration"}, env, ctx}
+            stop_iteration(:no_value, env, ctx)
 
           {:instance, inst} ->
             Interpreter.eval_instance_next(inst, id, :no_default, env, ctx)
+
+          {:gen_sync, _started?, cont, gen_env} ->
+            advance_gen_sync(id, cont, gen_env, :next, env, ctx)
 
           {:gen_pending, val, cont, gen_env} ->
             step_generator(id, val, cont, gen_env, env, ctx)
@@ -109,6 +112,12 @@ defmodule Pyex.Interpreter.BuiltinResults do
 
           {:instance, inst} ->
             Interpreter.eval_instance_next(inst, id, {:default, default}, env, ctx)
+
+          {:gen_sync, _started?, cont, gen_env} ->
+            case advance_gen_sync(id, cont, gen_env, :next, env, ctx) do
+              {{:exception, "StopIteration"}, env, ctx} -> {default, env, ctx}
+              other -> other
+            end
 
           {:gen_pending, val, cont, gen_env} ->
             case step_generator(id, val, cont, gen_env, env, ctx) do
@@ -388,6 +397,9 @@ defmodule Pyex.Interpreter.BuiltinResults do
   @spec prime_generator(non_neg_integer(), Env.t(), Ctx.t()) :: eval_result()
   def prime_generator(id, env, ctx) do
     case Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, cont, gen_env} ->
+        advance_gen_sync(id, cont, gen_env, :next, env, ctx)
+
       {:gen_pending, val, cont, gen_env} ->
         step_generator(id, val, cont, gen_env, env, ctx)
 
@@ -396,6 +408,101 @@ defmodule Pyex.Interpreter.BuiltinResults do
 
       _ ->
         {{:exception, "StopIteration"}, env, ctx}
+    end
+  end
+
+  @typep gen_resume :: :next | {:send, term()} | {:throw, String.t()}
+
+  @doc """
+  Advance a **lazy** sync generator one step. `resume` selects the driver:
+  `:next` (resume sending `None`), `{:send, value}`, or `{:throw, exc_msg}`.
+
+  Runs the live continuation in `:defer_inner` mode, then stores the new
+  suspension (`{:gen_sync, true, new_cont, env}`) or the terminal state and
+  returns the yielded value — or `StopIteration` / a propagated exception.
+  No value is pre-computed: side effects happen exactly when the caller
+  advances, matching CPython's lazy generator semantics.
+  """
+  @spec advance_gen_sync(non_neg_integer(), [term()], term(), gen_resume(), Env.t(), Ctx.t()) ::
+          eval_result()
+  def advance_gen_sync(id, cont, gen_env, resume, env, ctx) do
+    case advance_gen_sync_raw(id, cont, gen_env, resume, ctx) do
+      {:yield, val, _new_cont, _new_gen_env, ctx} -> {val, env, ctx}
+      {:return, return_value, ctx} -> stop_iteration(return_value, env, ctx)
+      {:exhausted, ctx} -> stop_iteration(:no_value, env, ctx)
+      {:raise, msg, ctx} -> {{:exception, msg}, env, ctx}
+    end
+  end
+
+  @doc """
+  Build the `StopIteration` signal raised when a generator is exhausted,
+  carrying the body's `return` value as `StopIteration.value` (PEP 479).
+
+  The message stays exactly `"StopIteration"` so the many call sites that
+  exact-match it (e.g. `next(g, default)`) keep working; the value rides on
+  `ctx.exception_instance`, which is what `except StopIteration as e` binds
+  and `e.value` reads. Pass `:no_value` for a bare exhaustion (value `None`).
+  """
+  @spec stop_iteration(term() | :no_value, Env.t(), Ctx.t()) :: eval_result()
+  def stop_iteration(value, env, ctx) do
+    args = if value == :no_value, do: {:tuple, []}, else: {:tuple, [value]}
+
+    inst =
+      {:instance, Interpreter.exception_instance_class({:exception_class, "StopIteration"}),
+       %{"args" => args}}
+
+    {{:exception, "StopIteration"}, env, %{ctx | exception_instance: inst}}
+  end
+
+  @typep gen_step ::
+           {:yield, term(), [term()], term(), Ctx.t()}
+           | {:return, term(), Ctx.t()}
+           | {:exhausted, Ctx.t()}
+           | {:raise, term(), Ctx.t()}
+
+  @doc """
+  Advance a lazy sync generator one step, returning a *normalized* outcome
+  (`:yield` / `:return` / `:exhausted` / `:raise`) plus the updated ctx, with
+  the pool entry already restored to its new suspension or terminal state.
+
+  This is the building block for both `advance_gen_sync/6` (which maps it to
+  the `next()`/`send()` value-or-`StopIteration` protocol) and the `yield
+  from` frames (which need the sub-generator's return value, not
+  `StopIteration`).
+  """
+  @spec advance_gen_sync_raw(non_neg_integer(), [term()], term(), gen_resume(), Ctx.t()) ::
+          gen_step()
+  def advance_gen_sync_raw(id, cont, gen_env, resume, ctx) do
+    saved_mode = ctx.generator_mode
+    inner_ctx = %{ctx | generator_mode: :defer_inner}
+
+    result =
+      case resume do
+        :next -> Interpreter.resume_generator(cont, gen_env, inner_ctx)
+        {:send, value} -> Interpreter.resume_generator_with_send(cont, gen_env, inner_ctx, value)
+        {:throw, exc} -> Interpreter.resume_generator_with_throw(cont, gen_env, inner_ctx, exc)
+      end
+
+    case result do
+      {{:yielded, val, new_cont}, new_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.set_gen_sync(ctx, id, true, new_cont, new_gen_env)
+        {:yield, val, new_cont, new_gen_env, ctx}
+
+      {{:done_with_value, return_value}, _new_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_done_with_value(ctx, id, return_value)
+        {:return, return_value, ctx}
+
+      {:done, _new_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {:exhausted, ctx}
+
+      {{:exception, msg}, _new_gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {:raise, msg, ctx}
     end
   end
 
@@ -470,22 +577,12 @@ defmodule Pyex.Interpreter.BuiltinResults do
     inner_ctx = %{ctx | generator_mode: :defer_inner}
 
     case Interpreter.resume_generator_with_send(cont, gen_env, inner_ctx, sent_value) do
-      {{:yielded, next_val, [{:cont_bind_sent, _} | _] = next_cont}, next_gen_env, ctx} ->
-        ctx = %{ctx | generator_mode: saved_mode}
-        ctx = Ctx.set_gen_awaiting_send(ctx, id, next_val, next_cont, next_gen_env)
-        {next_val, env, ctx}
-
-      {{:yielded, next_val, []}, _next_gen_env, ctx} ->
-        # Empty continuation: generator will be done after this yield.
-        # Mark as exhausted now so the next next()/send() raises StopIteration.
-        ctx = %{ctx | generator_mode: saved_mode}
-        ctx = Ctx.mark_iter_exhausted(ctx, id)
-        {next_val, env, ctx}
-
       {{:yielded, next_val, next_cont}, next_gen_env, ctx} ->
+        # send()/next() returns next_val NOW; the lookahead model requires we
+        # queue the value AFTER it (not next_val again). step_generator does
+        # exactly that: returns next_val and advances next_cont by one yield.
         ctx = %{ctx | generator_mode: saved_mode}
-        ctx = Ctx.set_gen_pending(ctx, id, next_val, next_cont, next_gen_env)
-        {next_val, env, ctx}
+        step_generator(id, next_val, next_cont, next_gen_env, env, ctx)
 
       {{:done_with_value, return_value}, _gen_env, ctx} ->
         ctx = %{ctx | generator_mode: saved_mode}
@@ -495,6 +592,47 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:done, _gen_env, ctx} ->
         ctx = %{ctx | generator_mode: saved_mode}
         ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {{:exception, "StopIteration"}, env, ctx}
+
+      {{:exception, _} = signal, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_exhausted(ctx, id)
+        {signal, env, ctx}
+    end
+  end
+
+  @doc """
+  Resume a suspended generator by raising `exc_msg` at its current `yield`
+  (the `gen.throw()` path). The exception unwinds through the saved
+  continuation; if an enclosing `try` catches it the generator may resume and
+  yield again, otherwise the exception propagates out and the generator is done.
+
+  Mirrors `advance_with_sent_value/6`'s post-yield bookkeeping so a generator
+  thrown-into and re-yielded ends up in the same iterator state it would after
+  a normal `send`.
+  """
+  @spec throw_into_generator(
+          non_neg_integer(),
+          [term()],
+          Env.t(),
+          String.t(),
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  def throw_into_generator(id, cont, gen_env, exc_msg, env, ctx) do
+    saved_mode = ctx.generator_mode
+    inner_ctx = %{ctx | generator_mode: :defer_inner}
+
+    case Interpreter.resume_generator_with_throw(cont, gen_env, inner_ctx, exc_msg) do
+      {{:yielded, next_val, next_cont}, next_gen_env, ctx} ->
+        # throw() that lands in an except and re-yields returns next_val NOW;
+        # queue the value after it (see advance_with_sent_value).
+        ctx = %{ctx | generator_mode: saved_mode}
+        step_generator(id, next_val, next_cont, next_gen_env, env, ctx)
+
+      {{:done_with_value, return_value}, _gen_env, ctx} ->
+        ctx = %{ctx | generator_mode: saved_mode}
+        ctx = Ctx.mark_iter_done_with_value(ctx, id, return_value)
         {{:exception, "StopIteration"}, env, ctx}
 
       {{:exception, _} = signal, _gen_env, ctx} ->
@@ -586,6 +724,13 @@ defmodule Pyex.Interpreter.BuiltinResults do
 
       :exhausted ->
         {:exhausted, env, ctx}
+
+      {:gen_sync, _started?, cont, gen_env} ->
+        case advance_gen_sync(id, cont, gen_env, :next, env, ctx) do
+          {{:exception, "StopIteration" <> _}, env, ctx} -> {:exhausted, env, ctx}
+          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+          {value, env, ctx} -> {{:ok, value}, env, ctx}
+        end
 
       {:gen_pending, val, cont, gen_env} ->
         case step_generator(id, val, cont, gen_env, env, ctx) do

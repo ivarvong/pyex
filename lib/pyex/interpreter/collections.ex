@@ -105,10 +105,27 @@ defmodule Pyex.Interpreter.Collections do
   """
   @spec eval_gen_expr(Parser.ast_node(), [comp_clause()], Env.t(), Ctx.t()) :: eval_result()
   def eval_gen_expr(expr, clauses, env, ctx) do
-    case eval_comp_clauses(:list, expr, clauses, [], env, ctx) do
-      {result, env, ctx} when is_list(result) -> {{:generator, Enum.reverse(result)}, env, ctx}
-      other -> other
-    end
+    # A generator expression is lazy (CPython): nothing runs until it is
+    # advanced, and an infinite source is fine. Desugar `(expr for x in it
+    # if cond ...)` into a real generator body — nested `for`/`if` around a
+    # `yield expr` — and stage it as an unstarted `:gen_sync` iterator that
+    # shares all the laziness, `send`/`throw`/`close`, and interleaving
+    # semantics of a generator function.
+    body_stmt = build_comp_gen_body({:yield, [], [expr]}, clauses)
+    {iter_token, ctx} = Ctx.new_sync_generator(ctx, [{:cont_stmts, [body_stmt]}], env)
+    {iter_token, env, ctx}
+  end
+
+  # Fold comprehension clauses (outermost first) into a single nested
+  # statement wrapping the innermost `yield`.
+  @spec build_comp_gen_body(Parser.ast_node(), [comp_clause()]) :: Parser.ast_node()
+  defp build_comp_gen_body(innermost, clauses) do
+    clauses
+    |> Enum.reverse()
+    |> Enum.reduce(innermost, fn
+      {:comp_for, var, iter}, inner -> {:for, [], [var, iter, [inner], nil]}
+      {:comp_if, cond}, inner -> {:if, [], [{cond, [inner]}]}
+    end)
   end
 
   @doc """

@@ -67,6 +67,9 @@ defmodule Pyex.Interpreter.Iterables do
 
   def to_iterable({:iterator, id}, env, ctx) do
     case Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, _cont, _gen_env} ->
+        drain_gen_sync(id, [], env, ctx)
+
       {:gen_pending, _val, _cont, _gen_env} ->
         drain_generator_iter(id, env, ctx)
 
@@ -114,6 +117,33 @@ defmodule Pyex.Interpreter.Iterables do
 
   def to_iterable(val, _env, _ctx) do
     {:exception, "TypeError: '#{Helpers.py_type(val)}' object is not iterable"}
+  end
+
+  # Materialize a lazy `:gen_sync` generator by advancing it to exhaustion,
+  # collecting yields. Each step updates the pool entry, so afterwards the
+  # iterator is `:gen_done` (a subsequent `next()` raises StopIteration).
+  @spec drain_gen_sync(non_neg_integer(), [Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
+          {:ok, [Interpreter.pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
+  defp drain_gen_sync(id, acc, env, ctx) do
+    case Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, cont, gen_env} ->
+        case Pyex.Interpreter.BuiltinResults.advance_gen_sync_raw(id, cont, gen_env, :next, ctx) do
+          {:yield, val, _new_cont, _new_gen_env, ctx} ->
+            drain_gen_sync(id, [val | acc], env, ctx)
+
+          {:return, _return_value, ctx} ->
+            {:ok, Enum.reverse(acc), env, ctx}
+
+          {:exhausted, ctx} ->
+            {:ok, Enum.reverse(acc), env, ctx}
+
+          {:raise, msg, _ctx} ->
+            {:exception, msg}
+        end
+
+      _ ->
+        {:ok, Enum.reverse(acc), env, ctx}
+    end
   end
 
   @doc false
