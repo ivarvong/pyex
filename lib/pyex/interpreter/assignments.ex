@@ -930,11 +930,18 @@ defmodule Pyex.Interpreter.Assignments do
         {{:exception, "AttributeError: can't set attribute '#{attr}' — no setter defined"}, env,
          ctx}
 
-      {:ok, {:instance, _, _} = descriptor, _owner} ->
-        # Generic data descriptor with __set__.
+      {:ok, descriptor, _owner}
+      when (is_tuple(descriptor) and elem(descriptor, 0) == :instance) or
+             (is_tuple(descriptor) and elem(descriptor, 0) == :ref) ->
+        # Generic data descriptor with __set__. The class attribute may be a
+        # heap ref (class-body `x = D()` is stored on the heap), so let
+        # invoke_descriptor_set deref it; non-descriptors fall through.
         case Interpreter.invoke_descriptor_set(descriptor, self_arg, value, env, ctx) do
           {:ok, env, ctx} ->
             {nil, env, ctx}
+
+          {:exception, signal, env, ctx} ->
+            {signal, env, ctx}
 
           :no_descriptor ->
             check_slots_and_assign(inst, raw, var_name, attr, value, env, ctx)

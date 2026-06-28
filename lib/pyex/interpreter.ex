@@ -820,6 +820,9 @@ defmodule Pyex.Interpreter do
               "__class__" ->
                 {class, env, ctx}
 
+              "__dict__" ->
+                {instance_dict(inst_attrs, ctx), env, ctx}
+
               _ ->
                 override = subclass_method_override(class, attr)
 
@@ -912,6 +915,9 @@ defmodule Pyex.Interpreter do
             case attr do
               "__class__" ->
                 {class, env, ctx}
+
+              "__dict__" ->
+                {instance_dict(inst_attrs, ctx), env, ctx}
 
               _ ->
                 override = subclass_method_override(class, attr)
@@ -2052,6 +2058,16 @@ defmodule Pyex.Interpreter do
   defp file_mode_string(:write), do: "w"
   defp file_mode_string(:append), do: "a"
 
+  # An instance's __dict__: its string-keyed attributes as a dict (values
+  # deref'd). Mirrors CPython's vars(obj) / obj.__dict__ read view.
+  @spec instance_dict(%{optional(String.t()) => pyvalue()}, Ctx.t()) :: pyvalue()
+  defp instance_dict(inst_attrs, ctx) do
+    inst_attrs
+    |> Enum.filter(fn {k, _v} -> is_binary(k) end)
+    |> Enum.map(fn {k, v} -> {k, Ctx.deref(ctx, v)} end)
+    |> PyDict.from_pairs()
+  end
+
   @spec iter_attr_for_generator(non_neg_integer(), String.t(), Env.t(), Ctx.t()) :: eval_result()
   defp iter_attr_for_generator(id, attr, env, ctx) do
     iter_token = {:iterator, id}
@@ -2726,7 +2742,9 @@ defmodule Pyex.Interpreter do
   end
 
   @spec invoke_descriptor_set(pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) ::
-          {:ok, Env.t(), Ctx.t()} | :no_descriptor
+          {:ok, Env.t(), Ctx.t()}
+          | {:exception, {:exception, String.t()}, Env.t(), Ctx.t()}
+          | :no_descriptor
   def invoke_descriptor_set(value, instance, new_value, env, ctx) do
     derefed = Ctx.deref(ctx, value)
 
@@ -2744,6 +2762,7 @@ defmodule Pyex.Interpreter do
               )
 
             case normalize_call_result(result) do
+              {{:exception, _} = signal, env, ctx} -> {:exception, signal, env, ctx}
               {_val, env, ctx} -> {:ok, env, ctx}
             end
 

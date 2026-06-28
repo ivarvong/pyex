@@ -734,6 +734,41 @@ defmodule Pyex.LanguageGapsTest do
     end
   end
 
+  describe "data descriptors (__set__) and instance __dict__" do
+    test "a data descriptor's __set__ runs on assignment" do
+      assert out!("""
+             class Positive:
+                 def __set__(self, obj, value):
+                     if value < 0:
+                         raise ValueError("must be >= 0")
+                     obj._value = value
+                 def __get__(self, obj, owner):
+                     return obj._value
+             class Account:
+                 balance = Positive()
+             a = Account()
+             a.balance = 100
+             print(a.balance)
+             try:
+                 a.balance = -5
+             except ValueError:
+                 print("rejected")
+             """) == "100\nrejected"
+    end
+
+    test "instance __dict__ exposes the attributes as a dict" do
+      assert out!("""
+             class C:
+                 def __init__(self):
+                     self.a = 1
+                     self.b = 2
+             c = C()
+             print(c.__dict__)
+             print(c.__dict__["a"])
+             """) == "{'a': 1, 'b': 2}\n1"
+    end
+  end
+
   describe "three-argument type() constructs a class" do
     test "type(name, bases, namespace) builds a usable class" do
       assert out!("""
