@@ -129,4 +129,62 @@ defmodule Pyex.LanguageGapsTest do
              """) == "12"
     end
   end
+
+  describe "NotImplemented singleton and the binop reflection protocol" do
+    test "NotImplemented has the right repr, type, and truthiness" do
+      assert out!("""
+             print(repr(NotImplemented))
+             print(type(NotImplemented).__name__)
+             print(bool(NotImplemented))
+             """) == "NotImplemented\nNotImplementedType\nTrue"
+    end
+
+    test "a left dunder returning NotImplemented defers to the right __r-dunder" do
+      assert out!("""
+             class A:
+                 def __add__(self, other):
+                     return NotImplemented
+             class B:
+                 def __radd__(self, other):
+                     return "right-handled"
+             print(A() + B())
+             """) == "right-handled"
+    end
+
+    test "both operands declining with NotImplemented raises TypeError" do
+      assert out!("""
+             class A:
+                 def __add__(self, other):
+                     return NotImplemented
+             class B:
+                 def __radd__(self, other):
+                     return NotImplemented
+             try:
+                 A() + B()
+             except TypeError:
+                 print("TypeError")
+             """) == "TypeError"
+    end
+
+    test "a builtin left operand falls back to the instance __r-dunder" do
+      assert out!("""
+             class Money:
+                 def __radd__(self, other):
+                     return other + 100
+             print(5 + Money())
+             """) == "105"
+    end
+
+    test "__eq__ returning NotImplemented defers to the other operand's __eq__" do
+      assert out!("""
+             class A:
+                 def __eq__(self, other):
+                     return NotImplemented
+             class B:
+                 def __eq__(self, other):
+                     return True
+             print(A() == B())
+             """) == "True"
+    end
+  end
 end

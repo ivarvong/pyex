@@ -78,6 +78,12 @@ defmodule Pyex.Builtins do
 
     env = Env.put(env, "Ellipsis", :ellipsis)
 
+    # The NotImplemented singleton. Guests `return NotImplemented` from a
+    # binary dunder to signal "I don't handle this operand"; the binop
+    # dispatcher then tries the reflected dunder. (Bound here, not in
+    # `names/0`, since CPython lists it as a value, not in dir(builtins).)
+    env = Env.put(env, "NotImplemented", :not_implemented)
+
     # `type` is simultaneously a class and a callable. We bind it to
     # `type_class()` so `type(x) is type` holds for class arguments, and
     # the class-call dispatch in `invocation.ex` intercepts it to run
@@ -107,7 +113,7 @@ defmodule Pyex.Builtins do
     functions = Enum.map(all(), fn {name, _} -> name end)
     types = Enum.map(type_constructors(), fn {name, _} -> name end)
 
-    (functions ++ types ++ exception_class_names() ++ ["type", "Ellipsis"])
+    (functions ++ types ++ exception_class_names() ++ ["type", "Ellipsis", "NotImplemented"])
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -2918,6 +2924,7 @@ defmodule Pyex.Builtins do
   defp pytype(val) when is_integer(val), do: "int"
   defp pytype(val) when is_float(val), do: "float"
   defp pytype(:ellipsis), do: "ellipsis"
+  defp pytype(:not_implemented), do: "NotImplementedType"
   defp pytype(val) when is_binary(val), do: "str"
   defp pytype(val) when is_boolean(val), do: "bool"
   defp pytype(nil), do: "NoneType"
@@ -2980,6 +2987,7 @@ defmodule Pyex.Builtins do
   def py_repr(:neg_infinity), do: "-inf"
   def py_repr(:nan), do: "nan"
   def py_repr(:ellipsis), do: "Ellipsis"
+  def py_repr(:not_implemented), do: "NotImplemented"
   def py_repr(val) when is_float(val), do: Pyex.Interpreter.Helpers.py_float_str(val)
 
   def py_repr({:py_list, reversed, _len}) do

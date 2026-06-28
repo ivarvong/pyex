@@ -210,7 +210,7 @@ defmodule Pyex.ParityTest do
       cpython = @manifest["builtins"]["functions"] ++ @manifest["builtins"]["exceptions"]
       pyex = Pyex.Builtins.names()
 
-      extra = ((pyex -- cpython) -- @builtin_extensions) -- ["type", "Ellipsis"]
+      extra = ((pyex -- cpython) -- @builtin_extensions) -- ["type", "Ellipsis", "NotImplemented"]
 
       assert extra == [],
              "builtins: pyex binds #{inspect(extra)} which CPython does not. " <>

@@ -3417,11 +3417,16 @@ defmodule Pyex.Interpreter do
 
       dunder ->
         case Dunder.call_dunder(l, dunder, [r], env, ctx) do
+          # `return NotImplemented` from the left dunder defers to the
+          # right operand's reflected dunder (CPython's binop protocol).
+          {:ok, :not_implemented, env, ctx} ->
+            binop_reflected_fallback(op, l, r, env, ctx)
+
           {:ok, result, env, ctx} ->
             {result, env, ctx}
 
           :not_found ->
-            BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+            binop_reflected_fallback(op, l, r, env, ctx)
         end
     end
   end
@@ -3452,6 +3457,11 @@ defmodule Pyex.Interpreter do
 
       rdunder ->
         case Dunder.call_dunder(r, rdunder, [l], env, ctx) do
+          # A reflected dunder that returns NotImplemented declines too;
+          # fall through to the built-in coercion / TypeError path.
+          {:ok, :not_implemented, env, ctx} ->
+            BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+
           {:ok, result, env, ctx} ->
             {result, env, ctx}
 
@@ -3496,6 +3506,28 @@ defmodule Pyex.Interpreter do
 
   defp do_eval_binop(op, l, r, env, ctx) do
     BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+  end
+
+  # Left dunder declined (NotImplemented / absent): try the right operand's
+  # reflected dunder, then fall back to built-in coercion. Mirrors CPython:
+  # `a + b` -> `a.__add__(b)` then `b.__radd__(a)` then TypeError.
+  defp binop_reflected_fallback(op, l, r, env, ctx) do
+    rdunder = match?({:instance, _, _}, r) && BinaryOps.rdunder_for_op(op)
+
+    if is_binary(rdunder) do
+      case Dunder.call_dunder(r, rdunder, [l], env, ctx) do
+        {:ok, :not_implemented, env, ctx} ->
+          BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+
+        {:ok, result, env, ctx} ->
+          {result, env, ctx}
+
+        :not_found ->
+          BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+      end
+    else
+      BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+    end
   end
 
   @spec compare_sequence_equality(atom(), [pyvalue()], [pyvalue()], Env.t(), Ctx.t()) ::
