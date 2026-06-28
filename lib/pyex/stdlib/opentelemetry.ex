@@ -42,9 +42,21 @@ defmodule Pyex.Stdlib.Opentelemetry do
   @behaviour Pyex.Stdlib.Module
 
   alias Pyex.{Ctx, Env, PyDict}
+  alias Pyex.Interpreter.Helpers
   alias Pyex.Stdlib.JSON
 
   @default_flush_path "/otel/spans.jsonl"
+
+  # A coerced (non-string) span/attr/event label is bounded so a guest can't
+  # turn one misused field into an unbounded string. Genuine string values pass
+  # through unbounded and are charged to the memory budget instead.
+  @max_coerced_bytes 4096
+
+  # Flat per-attribute / per-event overhead charged to the memory budget, on top
+  # of the measured key/value/name bytes — mirrors Ctx.estimate_memory's
+  # per-entry accounting so many tiny attributes still cost memory.
+  @attr_overhead_bytes 48
+  @event_overhead_bytes 64
 
   @impl Pyex.Stdlib.Module
   @spec module_value() :: Pyex.Stdlib.Module.module_value()
@@ -156,7 +168,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
   # The instrumentation scope of a span is its tracer's name (get_tracer(name)).
   @spec tracer_scope(Pyex.Interpreter.pyvalue()) :: String.t()
   defp tracer_scope({:instance, _cls, attrs}),
-    do: to_string(Map.get(attrs, "__tracer_name__", ""))
+    do: to_string_key(Map.get(attrs, "__tracer_name__", ""))
 
   defp tracer_scope(_), do: ""
 
@@ -204,6 +216,13 @@ defmodule Pyex.Stdlib.Opentelemetry do
     parent_id = List.first(ctx.app_span_stack)
     trace_id = trace_id_for(ctx, parent_id, id)
 
+    # Coerce every guest-controlled string field to a (bounded) string at the
+    # source, so neither serialization nor the host-facing renderer can be
+    # crashed by a non-string name/kind/scope.
+    name = to_string_key(name)
+    kind = to_string_key(kind)
+    scope = to_string_key(scope)
+
     span = %{
       name: name,
       id: id,
@@ -212,6 +231,8 @@ defmodule Pyex.Stdlib.Opentelemetry do
       kind: kind,
       scope: scope,
       attributes: %{},
+      # Newest-first; reversed when serialized/rendered. Appending (`++ [x]`)
+      # was O(n) per call → O(n²) per span, an uncounted CPU DoS.
       attr_order: [],
       status: nil,
       events: [],
@@ -228,7 +249,7 @@ defmodule Pyex.Stdlib.Opentelemetry do
 
     # Count the span against the memory budget so guest instrumentation can't
     # become an unbounded, uncounted memory sink.
-    {id, Ctx.charge_span_memory(ctx, to_string(name), %{})}
+    {id, Ctx.charge_span_memory(ctx, name, %{})}
   end
 
   # All spans in one trace share the root span's id as trace_id. Derive it
@@ -333,7 +354,19 @@ defmodule Pyex.Stdlib.Opentelemetry do
       }
     }
 
-    %{span | events: span.events ++ [event]}
+    # Prepend (newest-first); reversed in events_to_pylist/1.
+    %{span | events: [event | span.events]}
+  end
+
+  # Byte estimate for an event, charged to the memory budget.
+  @spec event_bytes(map()) :: non_neg_integer()
+  defp event_bytes(event) do
+    attr_bytes =
+      Enum.reduce(event.attributes, 0, fn {k, v}, acc ->
+        acc + @attr_overhead_bytes + byte_size(to_string_key(k)) + Ctx.estimate_memory(v)
+      end)
+
+    @event_overhead_bytes + byte_size(to_string_key(event.name)) + attr_bytes
   end
 
   @spec exception_type_name(Pyex.Interpreter.pyvalue()) :: String.t()
@@ -346,13 +379,15 @@ defmodule Pyex.Stdlib.Opentelemetry do
   defp exception_message({:instance, _, attrs}) do
     case Map.get(attrs, "args") do
       {:tuple, [msg | _]} when is_binary(msg) -> msg
-      _ -> Map.get(attrs, "__message__", "") |> to_string()
+      # __message__ may be any pyvalue; to_string_key is total + bounded
+      # (raw to_string/1 would crash the host on a tuple/list message).
+      _ -> to_string_key(Map.get(attrs, "__message__", ""))
     end
   end
 
   defp exception_message(msg) when is_binary(msg), do: msg
   defp exception_message(nil), do: ""
-  defp exception_message(other), do: inspect(other)
+  defp exception_message(other), do: to_string_key(other)
 
   # ── span methods (run as {:ctx_call, _} so they can mutate ctx) ───────────
 
@@ -390,7 +425,9 @@ defmodule Pyex.Stdlib.Opentelemetry do
 
   @spec span_set_status([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp span_set_status([self, status | _]) do
-    code = extract_status_code(status)
+    # Coerce to a bounded string: Status(status_code=<anything>) can carry a
+    # non-string code, and span.status reaches the host renderer.
+    code = to_string_key(extract_status_code(status))
 
     {:ctx_call,
      fn env, ctx ->
@@ -420,7 +457,11 @@ defmodule Pyex.Stdlib.Opentelemetry do
 
     {:ctx_call,
      fn env, ctx ->
-       {nil, env, update_active(ctx, span_id(self), &%{&1 | events: &1.events ++ [event]})}
+       # Charge the event (name + attr bytes + overhead) — events were an
+       # uncounted, unbounded memory sink. Prepend (newest-first); reversed in
+       # events_to_pylist/1.
+       ctx = Ctx.track_memory(ctx, event_bytes(event))
+       {nil, env, update_active(ctx, span_id(self), &%{&1 | events: [event | &1.events]})}
      end}
   end
 
@@ -443,6 +484,11 @@ defmodule Pyex.Stdlib.Opentelemetry do
   defp span_record_exception([self, exc | _]) do
     {:ctx_call,
      fn env, ctx ->
+       # Charge the exception event — record_exception() writes events too, and
+       # in a loop it was an uncounted memory sink (it bypasses add_event/1).
+       charge = @event_overhead_bytes + byte_size(exception_message(exc))
+       ctx = Ctx.track_memory(ctx, charge)
+
        ctx =
          update_active(ctx, span_id(self), fn span ->
            add_exception_event(span, exc_type_of(exc), exc)
@@ -473,11 +519,19 @@ defmodule Pyex.Stdlib.Opentelemetry do
   @spec put_attribute(Ctx.t(), non_neg_integer() | nil, String.t(), Pyex.Interpreter.pyvalue()) ::
           Ctx.t()
   defp put_attribute(ctx, id, key, value) do
+    # Charge attributes added AFTER span open against the memory budget — they
+    # were previously uncounted, so a hot loop of set_attribute() was an
+    # unbounded memory sink that bypassed max_memory_bytes entirely.
+    ctx =
+      Ctx.track_memory(ctx, @attr_overhead_bytes + byte_size(key) + Ctx.estimate_memory(value))
+
     update_active(ctx, id, fn span ->
+      # Prepend (newest-first), O(1) — `++ [key]` was O(n²) over a span's life.
+      # Order is restored (oldest-first) in attrs_to_pydict/1.
       attr_order =
         if Map.has_key?(span.attributes, key),
           do: span.attr_order,
-          else: span.attr_order ++ [key]
+          else: [key | span.attr_order]
 
       %{span | attributes: Map.put(span.attributes, key, value), attr_order: attr_order}
     end)
@@ -497,9 +551,30 @@ defmodule Pyex.Stdlib.Opentelemetry do
   defp span_id({:instance, _, attrs}), do: Map.get(attrs, "__span_id__")
   defp span_id(_), do: nil
 
+  # TOTAL coercion of any guest pyvalue to a bounded string. Span names, kinds,
+  # attribute keys, event names, and status codes are string fields, but a
+  # hostile guest can pass a tuple/list/dict/instance/ref. Elixir's `to_string/1`
+  # raises `Protocol.UndefinedError` on those — and this string reaches the
+  # host-facing renderer (`Pyex.Turn.render`/`SpanTree`), so a raise here crashes
+  # the HOST. This never raises: `py_str` for Python-shaped values, `inspect` as
+  # a last resort, bounded either way.
   @spec to_string_key(Pyex.Interpreter.pyvalue()) :: String.t()
   defp to_string_key(k) when is_binary(k), do: k
-  defp to_string_key(k), do: to_string(k)
+
+  defp to_string_key(k) do
+    coerced =
+      try do
+        Helpers.py_str(k)
+      rescue
+        _ -> inspect(k)
+      catch
+        _, _ -> inspect(k)
+      end
+
+    if byte_size(coerced) > @max_coerced_bytes,
+      do: binary_part(coerced, 0, @max_coerced_bytes),
+      else: coerced
+  end
 
   # ── read / flush helpers ──────────────────────────────────────────────────
 
@@ -624,15 +699,18 @@ defmodule Pyex.Stdlib.Opentelemetry do
   @spec attrs_to_pydict(map()) :: Pyex.Interpreter.pyvalue()
   defp attrs_to_pydict(span) do
     attributes = Map.get(span, :attributes, %{})
-
-    order =
-      Map.get(span, :attr_order, []) ++
-        (Map.keys(attributes) -- Map.get(span, :attr_order, []))
+    # attr_order is stored newest-first; reverse for insertion (oldest-first)
+    # order. Any key not tracked in attr_order (defensive) is appended.
+    tracked = Enum.reverse(Map.get(span, :attr_order, []))
+    order = tracked ++ (Map.keys(attributes) -- tracked)
 
     PyDict.from_pairs(Enum.map(order, fn k -> {k, Map.fetch!(attributes, k)} end))
   end
 
   @spec events_to_pylist([map()]) :: Pyex.Interpreter.pyvalue()
+  # events is stored newest-first; the py_list internal list is itself stored
+  # reversed, so mapping the newest-first events directly yields oldest-first
+  # display order.
   defp events_to_pylist(events) do
     items =
       Enum.map(events, fn ev ->
@@ -642,6 +720,6 @@ defmodule Pyex.Stdlib.Opentelemetry do
         ])
       end)
 
-    {:py_list, Enum.reverse(items), length(items)}
+    {:py_list, items, length(items)}
   end
 end

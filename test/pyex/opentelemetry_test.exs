@@ -424,6 +424,31 @@ defmodule Pyex.OpentelemetryTest do
     assert content |> String.split("\n", trim: true) |> length() == 1
   end
 
+  # ── render / robustness ───────────────────────────────────────────────────
+
+  # Regression: a non-string span name (e.g. start_as_current_span(123) or None)
+  # must NOT crash the host — SpanTree.render did binary-concat on the raw name.
+  # The name is coerced to a string at the source, so render/serialize are safe.
+  test "non-string span name is coerced and render never crashes the host" do
+    {{:ok, _}, ctx} =
+      run_otel("""
+      from opentelemetry import trace
+      import opentelemetry
+      tracer = trace.get_tracer("t")
+      with tracer.start_as_current_span(123):
+          pass
+      with tracer.start_as_current_span(None):
+          pass
+      RENDER = opentelemetry.render()
+      NAME0 = opentelemetry.get_finished_spans()[0]["name"]
+      """)
+
+    assert_stack_empty!(ctx)
+    # names coerced to strings everywhere
+    assert Enum.all?(ctx.app_spans, &is_binary(&1.name))
+    assert (finished_by_name(ctx, "123") || finished_by_name(ctx, "")) != nil
+  end
+
   # ── property / fuzz ───────────────────────────────────────────────────────
 
   test "fuzz: 150 random nested-with programs all satisfy the invariants" do

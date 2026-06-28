@@ -75,9 +75,24 @@ defmodule Pyex.SpanTree do
 
   defp render_line(s, depth, lo, span_w, width) do
     bar = waterfall(s, lo, span_w, width)
-    label = String.pad_trailing(String.duplicate("  ", depth) <> s.name, 26)
+    label = String.pad_trailing(String.duplicate("  ", depth) <> safe_label(s.name), 26)
     meta = [s.kind, s.status, attrs(s.attributes)] |> Enum.reject(&(&1 in [nil, ""]))
     String.trim_trailing("#{bar} #{label} #{Enum.join(meta, " ")}")
+  end
+
+  # The renderer is host-facing (Pyex.Turn.render) and consumes spans from any
+  # source, so it must NEVER crash the host on a malformed field. A span name /
+  # kind / status should already be a string (the tenant module coerces at the
+  # source), but `to_string/1` raises on a tuple/list/dict; this never does.
+  @spec safe_label(term()) :: String.t()
+  defp safe_label(v) when is_binary(v), do: v
+
+  defp safe_label(v) do
+    to_string(v)
+  rescue
+    _ -> inspect(v)
+  catch
+    _, _ -> inspect(v)
   end
 
   defp waterfall(s, lo, span_w, width) do
@@ -107,9 +122,9 @@ defmodule Pyex.SpanTree do
   end
 
   defp format_kind(nil), do: nil
-  defp format_kind(k), do: to_string(k)
+  defp format_kind(k), do: safe_label(k)
 
   defp format_status(nil), do: nil
   defp format_status("UNSET"), do: nil
-  defp format_status(s), do: to_string(s)
+  defp format_status(s), do: safe_label(s)
 end
