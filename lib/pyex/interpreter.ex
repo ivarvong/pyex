@@ -154,7 +154,7 @@ defmodule Pyex.Interpreter do
           | {:groupby_call, [pyvalue()], pyvalue()}
           | {:unittest_main}
           | {:assert_raises, String.t()}
-          | {:register_route, String.t(), String.t(), pyvalue()}
+          | {:register_route, String.t(), String.t(), pyvalue(), integer() | nil}
           | {:super_call}
 
   @typep eval_result :: {pyvalue() | signal(), Env.t(), Ctx.t()}
@@ -2377,7 +2377,8 @@ defmodule Pyex.Interpreter do
           | {:mutate, pyvalue(), pyvalue(), Env.t(), Ctx.t()}
           | {:mutate_arg, non_neg_integer(), pyvalue(), pyvalue(), Ctx.t()}
           | {:mutate_arg, non_neg_integer(), pyvalue(), pyvalue(), Env.t(), Ctx.t()}
-          | {{:register_route, String.t(), String.t(), pyvalue()}, Env.t(), Ctx.t()}
+          | {{:register_route, String.t(), String.t(), pyvalue(), integer() | nil}, Env.t(),
+             Ctx.t()}
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
           | {{:yielded, pyvalue() | coroutine_signal(), [cont_frame()]}, Env.t(), Ctx.t()}
 
@@ -3754,13 +3755,20 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  @spec register_route(Parser.ast_node(), String.t(), String.t(), pyvalue(), Env.t()) :: Env.t()
-  defp register_route(decorator_expr, method, path, handler, env) do
+  @spec register_route(
+          Parser.ast_node(),
+          String.t(),
+          String.t(),
+          pyvalue(),
+          integer() | nil,
+          Env.t()
+        ) :: Env.t()
+  defp register_route(decorator_expr, method, path, handler, status, env) do
     case Helpers.root_var_name(decorator_expr) do
       {:ok, var_name} ->
         case Env.get(env, var_name) do
           {:ok, %{"__routes__" => routes} = app} ->
-            new_app = Map.put(app, "__routes__", routes ++ [{{method, path}, handler}])
+            new_app = Map.put(app, "__routes__", routes ++ [{{method, path}, handler, status}])
             Env.put(env, var_name, new_app)
 
           _ ->
@@ -4999,8 +5007,8 @@ defmodule Pyex.Interpreter do
         ctx = Ctx.register_class(ctx, return_value)
         {nil, smart_put_decorated(env, name, return_value), ctx}
 
-      {{:register_route, method, path, handler}, env, ctx} ->
-        env = register_route(decorator_expr, method, path, handler, env)
+      {{:register_route, method, path, handler, status}, env, ctx} ->
+        env = register_route(decorator_expr, method, path, handler, status, env)
         {nil, smart_put_decorated(env, name, handler), ctx}
 
       {result, env, ctx, _updated_func} ->

@@ -22,7 +22,9 @@ defmodule Pyex.Stdlib.FastAPI do
 
   alias Pyex.{Interpreter, PyDict}
 
-  @type route :: {{String.t(), String.t()}, Interpreter.pyvalue()}
+  @type route ::
+          {{String.t(), String.t()}, Interpreter.pyvalue(), integer() | nil}
+          | {{String.t(), String.t()}, Interpreter.pyvalue()}
 
   @type compiled_route ::
           {String.t(), [String.t() | :param], [String.t()], Interpreter.pyvalue()}
@@ -130,7 +132,7 @@ defmodule Pyex.Stdlib.FastAPI do
     routes = Map.get(app, "__routes__", [])
 
     case find_route(routes, method, path) do
-      {:ok, handler, path_params} ->
+      {:ok, handler, path_params, status} ->
         case build_handler_args(handler, path_params, query, kwargs, env, ctx) do
           {:ok, args} ->
             case Interpreter.call_function(handler, [], args, env, ctx) do
@@ -141,10 +143,10 @@ defmodule Pyex.Stdlib.FastAPI do
                 {error_response(msg, raise_server_exceptions, ctx), env, ctx}
 
               {result, env, ctx} ->
-                {success_response(result), env, ctx}
+                {success_response(result, status), env, ctx}
 
               {result, env, ctx, _} ->
-                {success_response(result), env, ctx}
+                {success_response(result, status), env, ctx}
             end
 
           {:error, errors} ->
@@ -183,7 +185,7 @@ defmodule Pyex.Stdlib.FastAPI do
   end
 
   @spec find_route([route()], String.t(), String.t()) ::
-          {:ok, Interpreter.pyvalue(), %{String.t() => String.t()}}
+          {:ok, Interpreter.pyvalue(), %{String.t() => String.t()}, integer() | nil}
           | :method_not_allowed
           | :no_match
   defp find_route(routes, method, path) do
@@ -191,12 +193,13 @@ defmodule Pyex.Stdlib.FastAPI do
 
     # Halt on the first method+path match. If the path matches a route but the
     # method differs, remember it so we can answer 405 rather than 404.
-    Enum.reduce_while(routes, :no_match, fn {{route_method, template}, handler}, acc ->
+    Enum.reduce_while(routes, :no_match, fn route, acc ->
+      {{route_method, template}, handler, status} = normalize_route(route)
       {segments, param_names} = compile_path(template)
 
       case match_segments(segments, param_names, request_segments) do
         {:ok, path_params} when route_method == method ->
-          {:halt, {:ok, handler, path_params}}
+          {:halt, {:ok, handler, path_params, status}}
 
         {:ok, _path_params} ->
           {:cont, :method_not_allowed}
@@ -206,6 +209,11 @@ defmodule Pyex.Stdlib.FastAPI do
       end
     end)
   end
+
+  # Routes registered before status_code support are 2-tuples; new ones carry
+  # the declared status as a third element.
+  defp normalize_route({{_m, _t}, _h, _s} = route), do: route
+  defp normalize_route({{m, t}, h}), do: {{m, t}, h, nil}
 
   @spec match_segments([String.t() | :param], [String.t()], [String.t()]) ::
           {:ok, %{String.t() => String.t()}} | :no_match
@@ -376,12 +384,15 @@ defmodule Pyex.Stdlib.FastAPI do
 
   # ── Response construction ─────────────────────────────────────────────────
 
-  @spec success_response(Interpreter.pyvalue()) :: Interpreter.pyvalue()
-  defp success_response(%{"__response__" => true} = resp) do
+  @spec success_response(Interpreter.pyvalue(), integer() | nil) :: Interpreter.pyvalue()
+  # A handler that returns an explicit Response keeps its own status; otherwise
+  # the route's declared status_code applies, defaulting to 200.
+  defp success_response(%{"__response__" => true} = resp, _route_status) do
     make_response(Map.get(resp, "status_code", 200), Map.get(resp, "body"))
   end
 
-  defp success_response(result), do: make_response(200, to_json_body(result))
+  defp success_response(result, route_status),
+    do: make_response(route_status || 200, to_json_body(result))
 
   @spec error_response(String.t(), boolean(), Pyex.Ctx.t()) ::
           Interpreter.pyvalue() | {:exception, String.t()}
@@ -548,18 +559,24 @@ defmodule Pyex.Stdlib.FastAPI do
   defp create_app([]) do
     %{
       "__routes__" => [],
-      "get" => {:builtin, &route_decorator("GET", &1)},
-      "post" => {:builtin, &route_decorator("POST", &1)},
-      "put" => {:builtin, &route_decorator("PUT", &1)},
-      "delete" => {:builtin, &route_decorator("DELETE", &1)}
+      "get" => {:builtin_kw, &route_decorator("GET", &1, &2)},
+      "post" => {:builtin_kw, &route_decorator("POST", &1, &2)},
+      "put" => {:builtin_kw, &route_decorator("PUT", &1, &2)},
+      "delete" => {:builtin_kw, &route_decorator("DELETE", &1, &2)}
     }
   end
 
-  @spec route_decorator(String.t(), [Interpreter.pyvalue()]) :: Interpreter.pyvalue()
-  defp route_decorator(method, [path]) when is_binary(path) do
+  @spec route_decorator(String.t(), [Interpreter.pyvalue()], %{
+          optional(String.t()) => Interpreter.pyvalue()
+        }) :: Interpreter.pyvalue()
+  defp route_decorator(method, [path | _], kwargs) when is_binary(path) do
+    # @app.post("/x", status_code=201) — capture the declared status; nil means
+    # the dispatch default (200) applies.
+    status = Map.get(kwargs, "status_code")
+
     {:builtin,
      fn [handler] ->
-       {:register_route, method, path, handler}
+       {:register_route, method, path, handler, status}
      end}
   end
 

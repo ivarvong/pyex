@@ -215,7 +215,7 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:assert_raises, exc_type} ->
         {{:assert_raises, exc_type}, env, ctx}
 
-      {:register_route, _method, _path, _handler} = signal ->
+      {:register_route, _method, _path, _handler, _status} = signal ->
         {signal, env, ctx}
 
       {:exception, _msg} = signal ->
