@@ -610,6 +610,49 @@ defmodule Pyex.LanguageGapsTest do
     end
   end
 
+  describe "functools.partial captures keyword arguments" do
+    test "keywords given to partial are merged into the call" do
+      assert out!("""
+             from functools import partial
+             def f(a, b, c):
+                 return a + b + c
+             g = partial(f, 1, c=10)
+             print(g(2))
+             h = partial(f, b=5)
+             print(h(1, c=3))
+             """) == "13\n9"
+    end
+  end
+
+  describe "enum str/repr and name-based lookup" do
+    test "str is Class.NAME and repr is <Class.NAME: value>" do
+      assert out!("""
+             from enum import Enum
+             class Color(Enum):
+                 RED = 1
+                 GREEN = "g"
+             print(str(Color.RED))
+             print(repr(Color.RED))
+             print(repr(Color.GREEN))
+             """) == "Color.RED\n<Color.RED: 1>\n<Color.GREEN: 'g'>"
+    end
+
+    test "Class['NAME'] looks up by name, Class(value) by value" do
+      assert out!("""
+             from enum import Enum
+             class Color(Enum):
+                 RED = 1
+                 GREEN = 2
+             print(Color["RED"].value)
+             print(Color(2).name)
+             try:
+                 Color["BLUE"]
+             except KeyError:
+                 print("KeyError")
+             """) == "1\nGREEN\nKeyError"
+    end
+  end
+
   describe "globals() and locals()" do
     test "globals() returns the module namespace; builtins are excluded" do
       assert out!("""

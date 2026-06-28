@@ -18,7 +18,7 @@ defmodule Pyex.Stdlib.Functools do
   def module_value do
     %{
       "reduce" => {:builtin_kw, &functools_reduce/2},
-      "partial" => {:builtin, &functools_partial/1},
+      "partial" => {:builtin_kw, &functools_partial/2},
       "wraps" => {:builtin, &functools_wraps/1},
       "lru_cache" => {:builtin, &functools_lru_cache/1},
       "cache" => {:builtin, &functools_lru_cache/1},
@@ -44,12 +44,16 @@ defmodule Pyex.Stdlib.Functools do
     do: {:exception, "TypeError: reduce() takes 2 or 3 arguments"}
 
   @doc false
-  @spec functools_partial([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
-  def functools_partial([func | partial_args]) when is_list(partial_args) do
-    {:partial, func, partial_args, %{}}
+  @spec functools_partial([Interpreter.pyvalue()], %{
+          optional(String.t()) => Interpreter.pyvalue()
+        }) ::
+          Interpreter.pyvalue()
+  def functools_partial([func | partial_args], kwargs) when is_list(partial_args) do
+    {:partial, func, partial_args, kwargs}
   end
 
-  def functools_partial(_), do: {:exception, "TypeError: partial() requires at least 1 argument"}
+  def functools_partial(_, _),
+    do: {:exception, "TypeError: partial() requires at least 1 argument"}
 
   @doc false
   @wraps_assigned ["__name__", "__qualname__", "__doc__", "__module__", "__annotations__"]

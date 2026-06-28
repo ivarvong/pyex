@@ -3083,6 +3083,13 @@ defmodule Pyex.Interpreter do
   @spec eval_subscript_body(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
   defp eval_subscript_body(object, key, env, ctx) do
     case object do
+      # EnumClass['NAME'] -> the member, via EnumMeta.__getitem__ (by name).
+      {:class, _cname, _, %{"__enum_members__" => members}} when is_binary(key) ->
+        case List.keyfind(members, key, 0) do
+          {_n, inst} -> {inst, env, ctx}
+          nil -> {{:exception, "KeyError: '#{key}'"}, env, ctx}
+        end
+
       {:py_dict, %{^key => _}, _} ->
         {:ok, value} = PyDict.fetch(object, key)
         {value, env, ctx}
@@ -5051,9 +5058,20 @@ defmodule Pyex.Interpreter do
           [{String.t(), pyvalue()}]
         ) :: pyvalue()
   defp finalize_enum_class(name, bases, rest_attrs, member_instances) do
+    # str(member) -> "Class.NAME"; repr(member) -> "<Class.NAME: value>".
+    # Only seed defaults the enum body didn't already define.
+    enum_dunders = %{
+      "__str__" => {:builtin, fn [{:instance, _, a}] -> "#{name}.#{Map.get(a, "name")}" end},
+      "__repr__" =>
+        {:builtin,
+         fn [{:instance, _, a}] ->
+           "<#{name}.#{Map.get(a, "name")}: #{Builtins.py_repr(Map.get(a, "value"))}>"
+         end}
+    }
+
     attrs_map =
-      rest_attrs
-      |> Map.new()
+      enum_dunders
+      |> Map.merge(Map.new(rest_attrs))
       |> Map.put("__enum_members__", member_instances)
 
     # Add members as attributes once so lookups work before we rewrite
