@@ -65,18 +65,10 @@ defmodule Pyex.ParityTest do
     "tuple" => %{},
     "frozenset" => %{},
     "file" => %{
-      # plausible to model on the in-memory handle (burn-down queue)
+      # data attributes (not methods); need ctx-at-getattr resolution still
       "closed" => :unimplemented,
-      "flush" => :unimplemented,
       "mode" => :unimplemented,
       "name" => :unimplemented,
-      "readable" => :unimplemented,
-      "seek" => :unimplemented,
-      "seekable" => :unimplemented,
-      "tell" => :unimplemented,
-      "truncate" => :unimplemented,
-      "writable" => :unimplemented,
-      "writelines" => :unimplemented,
       # OS / encoding-layer internals with no meaning in the sandbox
       "buffer" => :out_of_scope,
       "detach" => :out_of_scope,

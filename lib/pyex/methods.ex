@@ -34,7 +34,7 @@ defmodule Pyex.Methods do
     issubset issuperset symmetric_difference union
   )
   @tuple_methods ~w(count index)
-  @file_methods ~w(close read readline readlines write)
+  @file_methods ~w(close flush read readable readline readlines seek seekable tell truncate writable write writelines)
 
   @doc """
   Attempts to resolve `attr` on `object`. Returns
@@ -1061,7 +1061,153 @@ defmodule Pyex.Methods do
      end}
   end
 
+  defp file_method("readable", id), do: file_mode_predicate(id, &(&1 == :read))
+
+  defp file_method("writable", id),
+    do: file_mode_predicate(id, &(&1 in [:write, :append]))
+
+  defp file_method("seekable", id) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.handle_meta(ctx, id) do
+            {:ok, _} -> {true, env, ctx}
+            :error -> {{:exception, "ValueError: I/O operation on closed file"}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("flush", id) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.handle_meta(ctx, id) do
+            {:ok, _} -> {nil, env, ctx}
+            :error -> {{:exception, "ValueError: I/O operation on closed file"}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("tell", id) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.handle_meta(ctx, id) do
+            {:ok, %{mode: :read, pos: pos}} -> {pos, env, ctx}
+            {:ok, %{size: size}} -> {size, env, ctx}
+            :error -> {{:exception, "ValueError: I/O operation on closed file"}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("seek", id) do
+    {:ok,
+     fn args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case parse_seek_args(args) do
+            {:ok, offset, whence} ->
+              case Pyex.Ctx.seek_handle(ctx, id, offset, whence) do
+                {:ok, pos, ctx} -> {pos, env, ctx}
+                {:error, msg} -> {{:exception, msg}, env, ctx}
+              end
+
+            {:error, msg} ->
+              {{:exception, msg}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("truncate", id) do
+    {:ok,
+     fn args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case args do
+            [] -> do_truncate(id, nil, env, ctx)
+            [nil] -> do_truncate(id, nil, env, ctx)
+            [n] when is_integer(n) and n >= 0 -> do_truncate(id, n, env, ctx)
+            _ -> {{:exception, "TypeError: truncate() takes an optional integer size"}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("writelines", id) do
+    {:ok,
+     fn [lines] ->
+       {:ctx_call,
+        fn env, ctx ->
+          case seq_strings(lines) do
+            {:ok, joined} ->
+              case Pyex.Ctx.write_handle(ctx, id, joined) do
+                {:ok, ctx} -> {nil, env, ctx}
+                {:error, msg} -> {{:exception, msg}, env, ctx}
+              end
+
+            :error ->
+              {{:exception, "TypeError: writelines() argument must be an iterable of strings"},
+               env, ctx}
+          end
+        end}
+     end}
+  end
+
   defp file_method(_, _id), do: :error
+
+  @spec file_mode_predicate(non_neg_integer(), (atom() -> boolean())) ::
+          {:ok, ([Interpreter.pyvalue()] -> term())}
+  defp file_mode_predicate(id, pred) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.handle_meta(ctx, id) do
+            {:ok, %{mode: mode}} -> {pred.(mode), env, ctx}
+            :error -> {{:exception, "ValueError: I/O operation on closed file"}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp do_truncate(id, size, env, ctx) do
+    case Pyex.Ctx.truncate_handle(ctx, id, size) do
+      {:ok, newsize, ctx} -> {newsize, env, ctx}
+      {:error, msg} -> {{:exception, msg}, env, ctx}
+    end
+  end
+
+  @spec parse_seek_args([Interpreter.pyvalue()]) ::
+          {:ok, integer(), 0..2} | {:error, String.t()}
+  defp parse_seek_args([offset]) when is_integer(offset), do: {:ok, offset, 0}
+
+  defp parse_seek_args([offset, whence])
+       when is_integer(offset) and whence in [0, 1, 2],
+       do: {:ok, offset, whence}
+
+  defp parse_seek_args([_offset, whence]) when is_integer(whence),
+    do: {:error, "ValueError: invalid whence (#{whence}, should be 0, 1 or 2)"}
+
+  defp parse_seek_args(_),
+    do: {:error, "TypeError: seek() takes an integer offset and optional whence"}
+
+  # Flattens a list/tuple of strings into one binary for writelines/3.
+  @spec seq_strings(Interpreter.pyvalue()) :: {:ok, String.t()} | :error
+  defp seq_strings({:py_list, reversed, _}), do: strings_to_binary(Enum.reverse(reversed))
+  defp seq_strings({:tuple, items}), do: strings_to_binary(items)
+  defp seq_strings(items) when is_list(items), do: strings_to_binary(items)
+  defp seq_strings(_), do: :error
+
+  defp strings_to_binary(items) do
+    if Enum.all?(items, &is_binary/1), do: {:ok, Enum.join(items)}, else: :error
+  end
 
   @spec str_upper(String.t(), [Interpreter.pyvalue()]) :: String.t()
   defp str_upper(s, []), do: String.upcase(s)

@@ -12,6 +12,11 @@ defmodule Pyex.LanguageGapsTest do
     String.trim(Pyex.output(ctx))
   end
 
+  defp file_out!(src) do
+    {:ok, _v, ctx} = Pyex.run(src, filesystem: Pyex.FS.new())
+    String.trim(Pyex.output(ctx))
+  end
+
   describe "the instance is the first parameter, whatever it's named" do
     test "attribute set via a non-`self` first param persists" do
       assert out!("""
@@ -185,6 +190,68 @@ defmodule Pyex.LanguageGapsTest do
                      return True
              print(A() == B())
              """) == "True"
+    end
+  end
+
+  describe "file object query and positioning methods" do
+    test "readable / writable / seekable reflect the open mode" do
+      assert file_out!("""
+             f = open("a.txt", "w")
+             print(f.writable(), f.readable(), f.seekable())
+             f.write("data")
+             f.close()
+             g = open("a.txt")
+             print(g.readable(), g.writable())
+             """) == "True False True\nTrue False"
+    end
+
+    test "tell reports the write byte count, then the read cursor" do
+      assert file_out!("""
+             f = open("a.txt", "w")
+             f.write("hello")
+             print(f.tell())
+             f.close()
+             g = open("a.txt")
+             g.read(2)
+             print(g.tell())
+             """) == "5\n2"
+    end
+
+    test "seek with all three whence modes repositions the read cursor" do
+      assert file_out!("""
+             f = open("a.txt", "w")
+             f.write("abcdef")
+             f.close()
+             g = open("a.txt")
+             g.seek(2)
+             print(g.read())
+             g.seek(0)
+             g.seek(2, 1)
+             print(g.read())
+             g.seek(-2, 2)
+             print(g.read())
+             """) == "cdef\ncdef\nef"
+    end
+
+    test "writelines concatenates an iterable of strings without separators" do
+      assert file_out!("""
+             f = open("a.txt", "w")
+             f.writelines(["a", "b", "c"])
+             f.writelines(("d", "e"))
+             f.close()
+             print(open("a.txt").read())
+             """) == "abcde"
+    end
+
+    test "truncate resizes the buffer and flush is a no-op returning None" do
+      assert file_out!("""
+             f = open("a.txt", "w")
+             f.write("abcdef")
+             print(f.flush())
+             f.truncate(3)
+             f.close()
+             print(open("a.txt").read())
+             """) == "None\nabc"
     end
   end
 end
