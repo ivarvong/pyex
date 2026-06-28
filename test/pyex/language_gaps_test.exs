@@ -287,4 +287,50 @@ defmodule Pyex.LanguageGapsTest do
              """) == "True\nTrue"
     end
   end
+
+  describe "date / datetime ordinal and ISO-calendar constructors" do
+    test "fromordinal inverts toordinal for both date and datetime" do
+      assert out!("""
+             import datetime as dt
+             d = dt.date(2024, 2, 9)
+             print(dt.date.fromordinal(d.toordinal()))
+             print(dt.datetime.fromordinal(d.toordinal()))
+             """) == "2024-02-09\n2024-02-09 00:00:00"
+    end
+
+    test "fromisocalendar inverts isocalendar and validates the week" do
+      assert out!("""
+             import datetime as dt
+             d = dt.date(2026, 6, 24)
+             y, w, wd = d.isocalendar()
+             print(dt.date.fromisocalendar(y, w, wd))
+             print(dt.datetime.fromisocalendar(y, w, wd))
+             try:
+                 dt.date.fromisocalendar(2024, 53, 1)
+             except ValueError:
+                 print("bad week rejected")
+             """) == "2026-06-24\n2026-06-24 00:00:00\nbad week rejected"
+    end
+
+    test "date.fromtimestamp returns the UTC calendar date" do
+      assert out!("""
+             import datetime as dt
+             print(dt.date.fromtimestamp(1700000000))
+             """) == "2023-11-14"
+    end
+  end
+
+  describe "str(datetime) uses a space separator, isoformat() uses T" do
+    test "print and str render with a space; isoformat keeps the T" do
+      assert out!("""
+             import datetime as dt
+             d = dt.datetime(2024, 3, 15, 10, 30, 45)
+             print(d)
+             print(str(d))
+             print(d.isoformat())
+             print(f"{d}")
+             """) ==
+               "2024-03-15 10:30:45\n2024-03-15 10:30:45\n2024-03-15T10:30:45\n2024-03-15 10:30:45"
+    end
+  end
 end

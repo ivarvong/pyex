@@ -490,7 +490,7 @@ defmodule Pyex.Stdlib.DatetimeTest do
         str(dt)
         """)
 
-      assert result == "2024-03-15T10:30:45"
+      assert result == "2024-03-15 10:30:45"
     end
 
     test "str(date)" do
@@ -803,9 +803,9 @@ defmodule Pyex.Stdlib.DatetimeTest do
         """)
 
       assert result == [
-               "2024-01-01T00:00:00",
-               "2024-07-04T00:00:00",
-               "2024-12-25T00:00:00"
+               "2024-01-01 00:00:00",
+               "2024-07-04 00:00:00",
+               "2024-12-25 00:00:00"
              ]
     end
 
@@ -818,7 +818,7 @@ defmodule Pyex.Stdlib.DatetimeTest do
         str(end)
         """)
 
-      assert result == "2024-01-15T17:00:00"
+      assert result == "2024-01-15 17:00:00"
     end
 
     test "age calculation" do
@@ -854,7 +854,7 @@ defmodule Pyex.Stdlib.DatetimeTest do
         [str(min(dates)), str(max(dates))]
         """)
 
-      assert result == ["2024-01-01T00:00:00", "2024-12-31T00:00:00"]
+      assert result == ["2024-01-01 00:00:00", "2024-12-31 00:00:00"]
     end
 
     test "timedelta with f-string" do
@@ -982,7 +982,7 @@ defmodule Pyex.Stdlib.DatetimeTest do
         str(recovered)
         """)
 
-      assert result == "2023-11-14T22:13:20"
+      assert result == "2023-11-14 22:13:20"
     end
 
     test "from datetime import works for both methods" do

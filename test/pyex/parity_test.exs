@@ -78,9 +78,6 @@ defmodule Pyex.ParityTest do
       "write_through" => :out_of_scope
     },
     "date" => %{
-      "fromisocalendar" => :unimplemented,
-      "fromordinal" => :unimplemented,
-      "fromtimestamp" => :unimplemented,
       "max" => :unimplemented,
       "min" => :unimplemented,
       "resolution" => :unimplemented,
@@ -89,8 +86,6 @@ defmodule Pyex.ParityTest do
     },
     "datetime" => %{
       "fold" => :unimplemented,
-      "fromisocalendar" => :unimplemented,
-      "fromordinal" => :unimplemented,
       "max" => :unimplemented,
       "min" => :unimplemented,
       "resolution" => :unimplemented,
