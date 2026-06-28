@@ -95,4 +95,12 @@ defprotocol Pyex.Storage do
   @doc "Returns all keys beginning with `prefix`, in ascending order."
   @spec list_prefix(t, key) :: {:ok, [key]} | error
   def list_prefix(backend, prefix)
+
+  @doc """
+  Returns `{key, json}` pairs for every key beginning with `prefix`, in
+  ascending key order — a single round-trip read of both keys and values
+  (where `list_prefix` returns keys only).
+  """
+  @spec scan_prefix(t, key) :: {:ok, [{key, json}]} | error
+  def scan_prefix(backend, prefix)
 end

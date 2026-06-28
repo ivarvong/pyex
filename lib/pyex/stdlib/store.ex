@@ -9,6 +9,7 @@ defmodule Pyex.Stdlib.Store do
       store.get("expense:1")        # -> {"amount": 9.99, "category": "food"}
       store.get("missing")          # -> None
       store.keys("expense:")        # -> ["expense:1"]
+      store.scan("expense:")        # -> {"expense:1": {"amount": 9.99, ...}}
       store.delete("expense:1")     # -> True (False if it wasn't there)
 
   Values are any JSON-serializable Python value; this module encodes them
@@ -37,7 +38,8 @@ defmodule Pyex.Stdlib.Store do
       "get" => {:builtin, &store_get/1},
       "set" => {:builtin, &store_set/1},
       "delete" => {:builtin, &store_delete/1},
-      "keys" => {:builtin, &store_keys/1}
+      "keys" => {:builtin, &store_keys/1},
+      "scan" => {:builtin, &store_scan/1}
     }
   end
 
@@ -141,6 +143,30 @@ defmodule Pyex.Stdlib.Store do
 
   defp store_keys(_),
     do: {:exception, "TypeError: store.keys(prefix='') expects an optional string prefix"}
+
+  # store.scan(prefix="") -> {key: value} for every key beginning with prefix,
+  # decoding each value. One round-trip read of keys and values (vs keys()).
+  @spec store_scan([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp store_scan([]), do: store_scan([""])
+
+  defp store_scan([prefix]) when is_binary(prefix) do
+    with_backend(fn backend, env, ctx ->
+      {ctx, span} = Pyex.Ctx.open_runtime_span(ctx, "db.query", db_attrs("scan", prefix))
+
+      case Pyex.Storage.scan_prefix(backend, prefix) do
+        {:ok, pairs} ->
+          decoded = Enum.map(pairs, fn {key, json} -> {key, JSON.decode(json)} end)
+          ctx = Pyex.Ctx.close_runtime_span(ctx, span, %{"count" => length(decoded)})
+          {Pyex.PyDict.from_pairs(decoded), env, ctx}
+
+        {:error, reason} ->
+          {storage_error(reason), env, close_error(ctx, span, reason)}
+      end
+    end)
+  end
+
+  defp store_scan(_),
+    do: {:exception, "TypeError: store.scan(prefix='') expects an optional string prefix"}
 
   # OTel database semantic-convention attributes for a KV operation.
   @spec db_attrs(String.t(), String.t()) :: %{String.t() => String.t()}
