@@ -667,18 +667,6 @@ defmodule Pyex.Interpreter.ControlFlow do
     run_finally(result, finally_body)
   end
 
-  @doc "Runs a try's except handlers + finally for a thrown-in exception (throw() landing at a yield)."
-  @spec throw_into_try(
-          String.t(),
-          [{String.t() | nil, String.t() | nil, [Parser.ast_node()]}],
-          [Parser.ast_node()] | nil,
-          Env.t(),
-          Ctx.t()
-        ) :: eval_result()
-  def throw_into_try(exc_msg, handlers, finally_body, env, ctx) do
-    run_finally(match_handler(handlers, exc_msg, env, ctx), finally_body)
-  end
-
   @spec eval_if_clauses(
           [
             {Parser.ast_node(), [Parser.ast_node()]} | {:else, [Parser.ast_node()]}

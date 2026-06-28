@@ -2030,10 +2030,10 @@ defmodule Pyex.Interpreter do
                       ctx}
 
                    :gen_done ->
-                     {{:exception, "StopIteration"}, env, ctx}
+                     Pyex.Interpreter.BuiltinResults.stop_iteration(:no_value, env, ctx)
 
                    {:gen_done, _value} ->
-                     {{:exception, "StopIteration"}, env, ctx}
+                     Pyex.Interpreter.BuiltinResults.stop_iteration(:no_value, env, ctx)
 
                    _ ->
                      {{:exception, "TypeError: can only send to a generator"}, env, ctx}
@@ -4031,6 +4031,12 @@ defmodule Pyex.Interpreter do
     resume_generator(rest, env, ctx)
   end
 
+  def resume_generator([{:cont_call_resume, _, _, _, _, _, _, _} | _] = cont, env, ctx) do
+    # A `yield` suspended inside a function call's arguments (e.g.
+    # `f((yield x))`). `next()` == `send(None)`: resume the call with nil.
+    resume_generator_with_send(cont, env, ctx, nil)
+  end
+
   def resume_generator([{:cont_return_value} | _rest], env, ctx) do
     # `return await coro` resumed with no sent value (e.g. via
     # plain next()): treat as the function returning None.
@@ -4244,13 +4250,25 @@ defmodule Pyex.Interpreter do
   def resume_generator_with_throw([], env, ctx, exc_msg), do: {{:exception, exc_msg}, env, ctx}
 
   def resume_generator_with_throw(
-        [{:cont_try, _body_cont, handlers, _else_body, finally_body} | rest],
+        [{:cont_try, body_cont, handlers, else_body, finally_body} | rest],
         env,
         ctx,
         exc_msg
       ) do
-    ControlFlow.throw_into_try(exc_msg, handlers, finally_body, env, ctx)
-    |> continue_after_try(rest)
+    # The suspension may be nested *inside* this try (e.g. an inner try, whose
+    # finally must run first). Throw into the body continuation first; whatever
+    # it produces then passes through this try's except/finally. (Throwing into
+    # an empty body_cont yields `{:exception, exc_msg}`, so a flat try still
+    # runs its own handler/finally — same as the old throw_into_try path.)
+    case resume_generator_with_throw(body_cont, env, ctx, exc_msg) do
+      {{:yielded, val, inner_cont}, env, ctx} ->
+        {{:yielded, val, [{:cont_try, inner_cont, handlers, else_body, finally_body}] ++ rest},
+         env, ctx}
+
+      body_result ->
+        ControlFlow.finish_try(body_result, handlers, else_body, finally_body)
+        |> continue_after_try(rest)
+    end
   end
 
   def resume_generator_with_throw([{:cont_yield_from_iter, id} | rest], env, ctx, exc_msg) do

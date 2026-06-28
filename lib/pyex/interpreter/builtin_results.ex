@@ -86,7 +86,7 @@ defmodule Pyex.Interpreter.BuiltinResults do
             {item, env, ctx}
 
           :exhausted ->
-            {{:exception, "StopIteration"}, env, ctx}
+            stop_iteration(:no_value, env, ctx)
 
           {:instance, inst} ->
             Interpreter.eval_instance_next(inst, id, :no_default, env, ctx)
@@ -428,10 +428,30 @@ defmodule Pyex.Interpreter.BuiltinResults do
   def advance_gen_sync(id, cont, gen_env, resume, env, ctx) do
     case advance_gen_sync_raw(id, cont, gen_env, resume, ctx) do
       {:yield, val, _new_cont, _new_gen_env, ctx} -> {val, env, ctx}
-      {:return, _return_value, ctx} -> {{:exception, "StopIteration"}, env, ctx}
-      {:exhausted, ctx} -> {{:exception, "StopIteration"}, env, ctx}
+      {:return, return_value, ctx} -> stop_iteration(return_value, env, ctx)
+      {:exhausted, ctx} -> stop_iteration(:no_value, env, ctx)
       {:raise, msg, ctx} -> {{:exception, msg}, env, ctx}
     end
+  end
+
+  @doc """
+  Build the `StopIteration` signal raised when a generator is exhausted,
+  carrying the body's `return` value as `StopIteration.value` (PEP 479).
+
+  The message stays exactly `"StopIteration"` so the many call sites that
+  exact-match it (e.g. `next(g, default)`) keep working; the value rides on
+  `ctx.exception_instance`, which is what `except StopIteration as e` binds
+  and `e.value` reads. Pass `:no_value` for a bare exhaustion (value `None`).
+  """
+  @spec stop_iteration(term() | :no_value, Env.t(), Ctx.t()) :: eval_result()
+  def stop_iteration(value, env, ctx) do
+    args = if value == :no_value, do: {:tuple, []}, else: {:tuple, [value]}
+
+    inst =
+      {:instance, Interpreter.exception_instance_class({:exception_class, "StopIteration"}),
+       %{"args" => args}}
+
+    {{:exception, "StopIteration"}, env, %{ctx | exception_instance: inst}}
   end
 
   @typep gen_step ::
