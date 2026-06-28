@@ -25,7 +25,7 @@ defmodule Pyex.Stdlib.UUID do
 
   @spec do_uuid4([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp do_uuid4([]) do
-    <<a::48, _::4, b::12, _::2, c::62>> = :crypto.strong_rand_bytes(16)
+    <<a::48, _::4, b::12, _::2, c::62>> = :rand.bytes(16)
     <<int::128>> = <<a::48, 4::4, b::12, 0b10::2, c::62>>
     make_uuid_object(int, 4)
   end
@@ -33,7 +33,7 @@ defmodule Pyex.Stdlib.UUID do
   @spec do_uuid7([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp do_uuid7([]) do
     ms = System.system_time(:millisecond)
-    <<_::4, rand_a::12, _::2, rand_b::62>> = :crypto.strong_rand_bytes(10)
+    <<_::4, rand_a::12, _::2, rand_b::62>> = :rand.bytes(10)
     <<int::128>> = <<ms::48, 7::4, rand_a::12, 0b10::2, rand_b::62>>
     make_uuid_object(int, 7)
   end
