@@ -3212,8 +3212,62 @@ defmodule Pyex.Interpreter do
 
   @spec eval_slice(pyvalue(), pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
   defp eval_slice(object, start, stop, step, env, ctx) do
-    object = Ctx.deref(ctx, object)
+    # PEP 357 also applies to slice bounds: an instance with __index__ (or a
+    # bool) is coerced to an int before slicing.
+    case coerce_slice_bounds([start, stop, step], env, ctx) do
+      {:ok, [start, stop, step], env, ctx} ->
+        do_eval_slice(Ctx.deref(ctx, object), start, stop, step, env, ctx)
 
+      {:bad, signal, env, ctx} ->
+        {signal, env, ctx}
+    end
+  end
+
+  @spec coerce_slice_bounds([pyvalue()], Env.t(), Ctx.t()) ::
+          {:ok, [pyvalue()], Env.t(), Ctx.t()}
+          | {:bad, {:exception, String.t()}, Env.t(), Ctx.t()}
+  defp coerce_slice_bounds(bounds, env, ctx) do
+    Enum.reduce_while(bounds, {:ok, [], env, ctx}, fn bound, {:ok, acc, env, ctx} ->
+      case coerce_slice_bound(bound, env, ctx) do
+        {:ok, v, env, ctx} -> {:cont, {:ok, acc ++ [v], env, ctx}}
+        {:bad, _, _, _} = bad -> {:halt, bad}
+      end
+    end)
+  end
+
+  @spec coerce_slice_bound(pyvalue(), Env.t(), Ctx.t()) ::
+          {:ok, pyvalue(), Env.t(), Ctx.t()} | {:bad, {:exception, String.t()}, Env.t(), Ctx.t()}
+  defp coerce_slice_bound(nil, env, ctx), do: {:ok, nil, env, ctx}
+  defp coerce_slice_bound(b, env, ctx) when is_integer(b), do: {:ok, b, env, ctx}
+
+  defp coerce_slice_bound(b, env, ctx) when is_boolean(b),
+    do: {:ok, if(b, do: 1, else: 0), env, ctx}
+
+  defp coerce_slice_bound(b, env, ctx) do
+    case Ctx.deref(ctx, b) do
+      {:instance, _, _} = inst ->
+        case Dunder.call_dunder(inst, "__index__", [], env, ctx) do
+          {:ok, i, env, ctx} when is_integer(i) ->
+            {:ok, i, env, ctx}
+
+          {:ok, _other, env, ctx} ->
+            {:bad, {:exception, "TypeError: __index__ returned non-int"}, env, ctx}
+
+          :not_found ->
+            {:bad,
+             {:exception,
+              "TypeError: slice indices must be integers or None or have an __index__ method"},
+             env, ctx}
+        end
+
+      _ ->
+        {:ok, b, env, ctx}
+    end
+  end
+
+  @spec do_eval_slice(pyvalue(), pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) ::
+          eval_result()
+  defp do_eval_slice(object, start, stop, step, env, ctx) do
     case object do
       {:py_list, reversed, _} ->
         case py_slice(Enum.reverse(reversed), start, stop, step) do

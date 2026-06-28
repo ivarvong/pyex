@@ -381,6 +381,33 @@ defmodule Pyex.LanguageGapsTest do
                  print("not coerced")
              """) == "not coerced"
     end
+
+    test "__index__ also coerces slice bounds (start, stop, step)" do
+      assert out!("""
+             class I:
+                 def __init__(self, i):
+                     self.i = i
+                 def __index__(self):
+                     return self.i
+             xs = [0, 1, 2, 3, 4, 5]
+             print(xs[I(1):I(4)])
+             print(xs[I(0):I(6):I(2)])
+             print("abcdef"[I(2):])
+             print(xs[True:3])
+             """) == "[1, 2, 3]\n[0, 2, 4]\ncdef\n[1, 2]"
+    end
+
+    test "a slice bound whose __index__ returns a non-int raises TypeError" do
+      assert out!("""
+             class Bad:
+                 def __index__(self):
+                     return "x"
+             try:
+                 [1, 2, 3][Bad():]
+             except TypeError:
+                 print("TypeError")
+             """) == "TypeError"
+    end
   end
 
   describe "sum() over objects uses the __add__ / __radd__ protocol" do
