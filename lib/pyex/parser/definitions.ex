@@ -87,7 +87,19 @@ defmodule Pyex.Parser.Definitions do
 
   @spec parse_with_targets([Lexer.token()], pos_integer()) ::
           {:ok, [{term(), String.t() | nil}], [Lexer.token()]} | {:error, String.t()}
-  defp parse_with_targets(tokens, line) do
+  # PEP 617 parenthesized form: `with (a as x, b as y):`. Only treat the parens
+  # as a with-items group when they close exactly before the `:` — otherwise
+  # `(a, b)` is an ordinary (tuple/grouped) context-manager expression.
+  defp parse_with_targets([{:op, _, :lparen} | inner] = tokens, line) do
+    case parse_paren_with_items(inner, [], line) do
+      {:ok, items, [{:op, _, :colon} | _] = rest} -> {:ok, items, rest}
+      _ -> parse_with_targets_plain(tokens, line)
+    end
+  end
+
+  defp parse_with_targets(tokens, line), do: parse_with_targets_plain(tokens, line)
+
+  defp parse_with_targets_plain(tokens, line) do
     case Parser.parse_expression(tokens) do
       {:ok, expr, [{:keyword, _, "as"}, {:name, _, name} | rest]} ->
         collect_with_targets(rest, [{expr, name}], line)
@@ -97,6 +109,30 @@ defmodule Pyex.Parser.Definitions do
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  # Parse `item (, item)* ,? )` where item is `expr [as NAME]`.
+  defp parse_paren_with_items(tokens, acc, line) do
+    case Parser.parse_expression(tokens) do
+      {:ok, expr, rest} ->
+        {item, rest} =
+          case rest do
+            [{:keyword, _, "as"}, {:name, _, name} | r] -> {{expr, name}, r}
+            _ -> {{expr, nil}, rest}
+          end
+
+        acc = [item | acc]
+
+        case rest do
+          [{:op, _, :rparen} | r] -> {:ok, Enum.reverse(acc), r}
+          [{:op, _, :comma}, {:op, _, :rparen} | r] -> {:ok, Enum.reverse(acc), r}
+          [{:op, _, :comma} | r] -> parse_paren_with_items(r, acc, line)
+          _ -> :error
+        end
+
+      {:error, _} ->
+        :error
     end
   end
 
