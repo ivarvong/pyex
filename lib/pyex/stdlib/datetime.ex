@@ -943,6 +943,10 @@ defmodule Pyex.Stdlib.Datetime do
        "weekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(dt)) - 1 end},
        "isoweekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(dt)) end},
        "isocalendar" => {:builtin, fn [] -> date_isocalendar(DateTime.to_date(dt)) end},
+       "toordinal" => {:builtin, fn [] -> proleptic_ordinal(DateTime.to_date(dt)) end},
+       "ctime" =>
+         {:builtin,
+          fn [] -> ctime_str(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second) end},
        "utcoffset" => {:builtin, fn [] -> nil end},
        "dst" => {:builtin, fn [] -> nil end},
        "astimezone" =>
@@ -1087,6 +1091,19 @@ defmodule Pyex.Stdlib.Datetime do
        "weekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(local_dt)) - 1 end},
        "isoweekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(local_dt)) end},
        "isocalendar" => {:builtin, fn [] -> date_isocalendar(DateTime.to_date(local_dt)) end},
+       "toordinal" => {:builtin, fn [] -> proleptic_ordinal(DateTime.to_date(local_dt)) end},
+       "ctime" =>
+         {:builtin,
+          fn [] ->
+            ctime_str(
+              local_dt.year,
+              local_dt.month,
+              local_dt.day,
+              local_dt.hour,
+              local_dt.minute,
+              local_dt.second
+            )
+          end},
        "utcoffset" => {:builtin, fn [] -> normalize_timedelta(offset) end},
        "astimezone" => {:builtin, fn [new_tz] -> make_datetime_from_utc(utc_dt, new_tz) end},
        "__dt__" => utc_dt,
@@ -1134,8 +1151,28 @@ defmodule Pyex.Stdlib.Datetime do
        "weekday" => {:builtin, fn [] -> Date.day_of_week(d) - 1 end},
        "isoweekday" => {:builtin, fn [] -> Date.day_of_week(d) end},
        "isocalendar" => {:builtin, fn [] -> date_isocalendar(d) end},
+       "toordinal" => {:builtin, fn [] -> proleptic_ordinal(d) end},
+       "ctime" => {:builtin, fn [] -> ctime_str(d.year, d.month, d.day, 0, 0, 0) end},
        "__date__" => d
      }}
+  end
+
+  @wday_abbr ~w(Mon Tue Wed Thu Fri Sat Sun)
+  @mon_abbr ~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec)
+
+  # Proleptic Gregorian ordinal: 0001-01-01 -> 1 (matches date.toordinal()).
+  @spec proleptic_ordinal(Date.t()) :: integer()
+  defp proleptic_ordinal(d), do: Date.diff(d, ~D[0001-01-01]) + 1
+
+  # CPython's ctime()/asctime() format: "Mon Jan  1 00:00:00 2024"
+  # (day is space-padded to width 2).
+  @spec ctime_str(integer(), integer(), integer(), integer(), integer(), integer()) :: String.t()
+  defp ctime_str(y, mo, d, h, mi, s) do
+    wd = Enum.at(@wday_abbr, Date.day_of_week(Date.new!(y, mo, d)) - 1)
+    mon = Enum.at(@mon_abbr, mo - 1)
+    day = String.pad_leading(Integer.to_string(d), 2, " ")
+    time = Enum.map_join([h, mi, s], ":", &String.pad_leading(Integer.to_string(&1), 2, "0"))
+    "#{wd} #{mon} #{day} #{time} #{y}"
   end
 
   @spec date_isocalendar(Date.t()) :: {:tuple, [integer()]}

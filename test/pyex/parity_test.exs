@@ -92,7 +92,6 @@ defmodule Pyex.ParityTest do
       "write_through" => :out_of_scope
     },
     "date" => %{
-      "ctime" => :unimplemented,
       "fromisocalendar" => :unimplemented,
       "fromordinal" => :unimplemented,
       "fromtimestamp" => :unimplemented,
@@ -100,11 +99,9 @@ defmodule Pyex.ParityTest do
       "min" => :unimplemented,
       "resolution" => :unimplemented,
       "strptime" => :unimplemented,
-      "timetuple" => :unimplemented,
-      "toordinal" => :unimplemented
+      "timetuple" => :unimplemented
     },
     "datetime" => %{
-      "ctime" => :unimplemented,
       "fold" => :unimplemented,
       "fromisocalendar" => :unimplemented,
       "fromordinal" => :unimplemented,
@@ -114,7 +111,6 @@ defmodule Pyex.ParityTest do
       "time" => :unimplemented,
       "timetuple" => :unimplemented,
       "timetz" => :unimplemented,
-      "toordinal" => :unimplemented,
       "tzname" => :unimplemented,
       "utctimetuple" => :unimplemented
     },
