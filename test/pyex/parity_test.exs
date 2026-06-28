@@ -82,11 +82,7 @@ defmodule Pyex.ParityTest do
       "timetuple" => :unimplemented
     },
     "datetime" => %{
-      "fold" => :unimplemented,
-      "time" => :unimplemented,
       "timetuple" => :unimplemented,
-      "timetz" => :unimplemented,
-      "tzname" => :unimplemented,
       "utctimetuple" => :unimplemented
     },
     "builtins" => %{

@@ -1057,6 +1057,10 @@ defmodule Pyex.Stdlib.Datetime do
           fn [] -> ctime_str(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second) end},
        "utcoffset" => {:builtin, fn [] -> nil end},
        "dst" => {:builtin, fn [] -> nil end},
+       "tzname" => {:builtin, fn [] -> nil end},
+       "time" => {:builtin, fn [] -> make_time_instance(dt.hour, dt.minute, dt.second, us) end},
+       "timetz" => {:builtin, fn [] -> make_time_instance(dt.hour, dt.minute, dt.second, us) end},
+       "fold" => 0,
        "astimezone" =>
          {:builtin,
           fn [_tz] ->
@@ -1213,10 +1217,27 @@ defmodule Pyex.Stdlib.Datetime do
             )
           end},
        "utcoffset" => {:builtin, fn [] -> normalize_timedelta(offset) end},
+       "tzname" => {:builtin, fn [] -> aware_tzname(tz_instance) end},
+       "time" =>
+         {:builtin,
+          fn [] -> make_time_instance(local_dt.hour, local_dt.minute, local_dt.second, us) end},
+       "timetz" =>
+         {:builtin,
+          fn [] -> make_time_instance(local_dt.hour, local_dt.minute, local_dt.second, us) end},
+       "fold" => 0,
        "astimezone" => {:builtin, fn [new_tz] -> make_datetime_from_utc(utc_dt, new_tz) end},
        "__dt__" => utc_dt,
        "__tzinfo__" => tz_instance
      }}
+  end
+
+  # tzname() for an aware datetime: the tz's abbreviation, or nil if unknown.
+  @spec aware_tzname(Pyex.Interpreter.pyvalue()) :: String.t() | nil
+  defp aware_tzname(tz_instance) do
+    case extract_tz_name(tz_instance) do
+      "" -> nil
+      name -> name
+    end
   end
 
   @spec extract_resolved_std_offset(Pyex.Interpreter.pyvalue()) :: number()

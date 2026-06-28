@@ -533,6 +533,38 @@ defmodule Pyex.LanguageGapsTest do
     end
   end
 
+  describe "datetime time-component accessors (time, timetz, tzname, fold)" do
+    test "time() and timetz() extract the time component" do
+      assert out!("""
+             import datetime as dt
+             d = dt.datetime(2024, 3, 15, 10, 30, 45, 500)
+             print(d.time())
+             print(d.timetz())
+             t = d.time()
+             print(t.hour, t.minute, t.second, t.microsecond)
+             print(type(t).__name__)
+             """) == "10:30:45.000500\n10:30:45.000500\n10 30 45 500\ntime"
+    end
+
+    test "tzname() is None and fold is 0 for a naive datetime" do
+      assert out!("""
+             import datetime as dt
+             d = dt.datetime(2024, 3, 15, 12, 0)
+             print(d.tzname())
+             print(d.fold)
+             """) == "None\n0"
+    end
+
+    test "an aware datetime reports its tzname" do
+      assert out!("""
+             import datetime as dt
+             d = dt.datetime(2024, 3, 15, 12, 0, tzinfo=dt.timezone.utc)
+             print(d.tzname())
+             print(d.time())
+             """) == "UTC\n12:00:00"
+    end
+  end
+
   describe "super() variants: two-argument and inside classmethods" do
     test "explicit super(Class, self) walks the MRO from Class" do
       assert out!("""
