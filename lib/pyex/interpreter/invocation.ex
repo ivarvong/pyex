@@ -1059,8 +1059,12 @@ defmodule Pyex.Interpreter.Invocation do
         ) :: Interpreter.call_result()
   defp build_dynamic_class(cls_name, bases_val, ns_val, env, ctx) do
     with name when is_binary(name) <- Ctx.deref(ctx, cls_name),
-         {:tuple, bases} <- normalize_class_bases(Ctx.deref(ctx, bases_val)),
+         {:tuple, raw_bases} <- normalize_class_bases(Ctx.deref(ctx, bases_val)),
          {:py_dict, _, _} = ns <- Ctx.deref(ctx, ns_val) do
+      # Reify builtin/exception bases into real classes (as a `class`
+      # statement does) so isinstance/issubclass and the MRO are consistent.
+      bases = Enum.map(raw_bases, &reify_dynamic_base(Ctx.deref(ctx, &1)))
+
       attrs =
         ns
         |> Pyex.PyDict.keys()
@@ -1068,7 +1072,10 @@ defmodule Pyex.Interpreter.Invocation do
         |> Map.new(fn k -> {k, elem(Pyex.PyDict.fetch(ns, k), 1)} end)
         |> Map.put("__name__", name)
 
-      class = {:class, name, bases, attrs}
+      # Build the MRO cache (also stamps __id__, which register_class keys on)
+      # so a dynamically-created class behaves exactly like a `class` statement
+      # — including subclassing a builtin base such as int.
+      class = ClassLookup.with_mro_cache({:class, name, bases, attrs})
       ctx = Ctx.register_class(ctx, class)
       {class, env, ctx}
     else
@@ -1079,6 +1086,13 @@ defmodule Pyex.Interpreter.Invocation do
 
   defp normalize_class_bases({:tuple, _} = t), do: t
   defp normalize_class_bases(_), do: :error
+
+  defp reify_dynamic_base({:builtin_type, _, _} = bt), do: Interpreter.builtin_type_base_class(bt)
+
+  defp reify_dynamic_base({:exception_class, _} = exc),
+    do: Interpreter.exception_instance_class(exc)
+
+  defp reify_dynamic_base(other), do: other
 
   @spec call_class_generic(
           Interpreter.pyvalue(),

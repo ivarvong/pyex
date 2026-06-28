@@ -130,6 +130,11 @@ defmodule Pyex.Interpreter.ClassLookup do
     c3_linearize(Interpreter.exception_instance_class(exc))
   end
 
+  # Defense in depth: a base that isn't a class (e.g. a malformed
+  # `type(name, (junk,), {})`) contributes nothing to the MRO rather than
+  # crashing the linearizer — the host must never raise on guest-shaped data.
+  def c3_linearize(_other), do: []
+
   @internal_class_attrs ["__id__", "__mro_cache__"]
 
   @doc """
@@ -159,6 +164,7 @@ defmodule Pyex.Interpreter.ClassLookup do
 
   @spec reify_base(Interpreter.pyvalue()) :: Interpreter.pyvalue()
   defp reify_base({:exception_class, _} = exc), do: Interpreter.exception_instance_class(exc)
+  defp reify_base({:builtin_type, _, _} = bt), do: Interpreter.builtin_type_base_class(bt)
   defp reify_base(other), do: other
 
   @spec c3_merge([[Interpreter.pyvalue()]]) :: [Interpreter.pyvalue()]

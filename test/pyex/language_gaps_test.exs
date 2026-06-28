@@ -852,6 +852,16 @@ defmodule Pyex.LanguageGapsTest do
              print(type(5).__name__, type("x").__name__)
              """) == "int str"
     end
+
+    test "a dynamic class over a builtin base reifies like a class statement" do
+      # type('T', (int,), {}) must behave like `class T(int)` — instantiable,
+      # isinstance-correct, and never crashing the MRO linearizer.
+      assert out!("""
+             T = type("T", (int,), {"tag": "x"})
+             t = T()
+             print(T.tag, isinstance(t, int))
+             """) == "x True"
+    end
   end
 
   describe "__class_getitem__ for class subscription" do

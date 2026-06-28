@@ -2942,8 +2942,9 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  @doc false
   @spec builtin_type_base_class(pyvalue()) :: pyvalue()
-  defp builtin_type_base_class({:builtin_type, name, factory}) do
+  def builtin_type_base_class({:builtin_type, name, factory}) do
     # `dict` alone among builtin types accepts kwargs; its factory has a
     # 2-arity signature.  Route it through `builtin_dict/2`.
     init_fn =
