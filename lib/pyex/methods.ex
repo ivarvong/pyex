@@ -23,7 +23,7 @@ defmodule Pyex.Methods do
   # `move_to_end` is intentionally not listed: it is an OrderedDict method, not
   # a plain-dict one, so it must not appear in `dir({})`. It is still dispatched
   # (see dict_method/1) so it works on the OrderedDicts pyex models as dicts.
-  @dict_methods ~w(clear copy get items keys pop popitem setdefault update values)
+  @dict_methods ~w(clear copy fromkeys get items keys pop popitem setdefault update values)
   @set_methods ~w(
     add clear copy difference difference_update discard intersection
     intersection_update isdisjoint issubset issuperset pop remove
@@ -390,7 +390,7 @@ defmodule Pyex.Methods do
   end
 
   # Exact integer ratio of a finite float (mirrors CPython's float.as_integer_ratio).
-  defp float_ratio(0.0), do: {0, 1}
+  defp float_ratio(f) when f == 0.0, do: {0, 1}
 
   defp float_ratio(f) do
     {mantissa, exp} = decompose_float(f)

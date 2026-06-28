@@ -59,9 +59,7 @@ defmodule Pyex.ParityTest do
   # is how parity converges.
   @known_gaps %{
     "str" => %{},
-    "dict" => %{
-      "fromkeys" => :unimplemented
-    },
+    "dict" => %{},
     "set" => %{},
     "list" => %{},
     "tuple" => %{},
