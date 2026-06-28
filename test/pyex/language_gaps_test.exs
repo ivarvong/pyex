@@ -477,4 +477,63 @@ defmodule Pyex.LanguageGapsTest do
              """) == "TypeError"
     end
   end
+
+  describe "super() variants: two-argument and inside classmethods" do
+    test "explicit super(Class, self) walks the MRO from Class" do
+      assert out!("""
+             class A:
+                 def f(self):
+                     return "A"
+             class B(A):
+                 def f(self):
+                     return "B" + super(B, self).f()
+             print(B().f())
+             """) == "BA"
+    end
+
+    test "zero-arg super() inside a classmethod cooperates up the MRO" do
+      assert out!("""
+             class A:
+                 @classmethod
+                 def make(cls):
+                     return "A"
+             class B(A):
+                 @classmethod
+                 def make(cls):
+                     return "B" + super().make()
+             class C(B):
+                 @classmethod
+                 def make(cls):
+                     return "C" + super().make()
+             print(C.make())
+             """) == "CBA"
+    end
+
+    test "explicit super(Class, cls) inside a classmethod" do
+      assert out!("""
+             class A:
+                 @classmethod
+                 def tag(cls):
+                     return "A"
+             class B(A):
+                 @classmethod
+                 def tag(cls):
+                     return "B" + super(B, cls).tag()
+             print(B.tag())
+             """) == "BA"
+    end
+
+    test "super(type, obj) with an unrelated object raises TypeError" do
+      assert out!("""
+             class A:
+                 pass
+             class Unrelated:
+                 pass
+             try:
+                 super(A, Unrelated())
+             except TypeError:
+                 print("TypeError")
+             """) == "TypeError"
+    end
+  end
 end

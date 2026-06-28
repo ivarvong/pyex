@@ -78,20 +78,29 @@ defmodule Pyex.Interpreter.ClassLookup do
 
   def class_attribute({:class, _, _, _} = class, attr) do
     case resolve_class_attr_with_owner(class, attr) do
-      {:ok, value, _owner} -> {:ok, bind_through_class(class, value)}
+      {:ok, value, owner} -> {:ok, bind_through_class(class, value, owner)}
       :error -> :error
     end
   end
 
   # Descriptor rules for access *through a class* (CPython semantics):
   # regular functions are returned unbound, staticmethods unwrap, and
-  # classmethods (and kwargs-builtin methods) bind to the class.
-  @spec bind_through_class(Interpreter.pyvalue(), Interpreter.pyvalue()) :: Interpreter.pyvalue()
-  defp bind_through_class(_class, {:function, _, _, _, _, _, _} = func), do: func
-  defp bind_through_class(class, {:builtin_kw, _} = bkw), do: {:bound_method, class, bkw}
-  defp bind_through_class(_class, {:staticmethod, func}), do: func
-  defp bind_through_class(class, {:classmethod, func}), do: {:bound_method, class, func}
-  defp bind_through_class(_class, value), do: value
+  # classmethods (and kwargs-builtin methods) bind to the class. A classmethod
+  # carries its defining `owner` as the bound method's __class__ so a zero-arg
+  # `super()` in its body can find the right MRO start.
+  @spec bind_through_class(
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue()
+        ) :: Interpreter.pyvalue()
+  defp bind_through_class(_class, {:function, _, _, _, _, _, _} = func, _owner), do: func
+  defp bind_through_class(class, {:builtin_kw, _} = bkw, _owner), do: {:bound_method, class, bkw}
+  defp bind_through_class(_class, {:staticmethod, func}, _owner), do: func
+
+  defp bind_through_class(class, {:classmethod, func}, owner),
+    do: {:bound_method, class, func, owner}
+
+  defp bind_through_class(_class, value, _owner), do: value
 
   @doc "Compute the C3 linearized MRO for a class."
   @spec c3_linearize(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]

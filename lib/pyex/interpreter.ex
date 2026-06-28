@@ -850,8 +850,8 @@ defmodule Pyex.Interpreter do
                       {:ok, {:staticmethod, func}, _owner} ->
                         {func, env, ctx}
 
-                      {:ok, {:classmethod, func}, _owner} ->
-                        {{:bound_method, class, func}, env, ctx}
+                      {:ok, {:classmethod, func}, owner} ->
+                        {{:bound_method, class, func, owner}, env, ctx}
 
                       {:ok, value, _owner} ->
                         invoke_descriptor_get(value, instance, class, env, ctx)
@@ -1072,6 +1072,18 @@ defmodule Pyex.Interpreter do
 
               {:ok, {:builtin_kw, _} = builtin, _owner} ->
                 {{:bound_method, instance, builtin}, env, ctx}
+
+              {:ok, {:classmethod, func}, owner} ->
+                bound_cls =
+                  case Ctx.deref(ctx, instance) do
+                    {:instance, cls, _} -> cls
+                    other -> other
+                  end
+
+                {{:bound_method, bound_cls, func, owner}, env, ctx}
+
+              {:ok, {:staticmethod, func}, _owner} ->
+                {func, env, ctx}
 
               {:ok, value, _owner} ->
                 {value, env, ctx}
@@ -1726,8 +1738,8 @@ defmodule Pyex.Interpreter do
                   {:ok, {:staticmethod, func}, _owner} ->
                     {func, env, ctx}
 
-                  {:ok, {:classmethod, func}, _owner} ->
-                    {{:bound_method, class, func}, env, ctx}
+                  {:ok, {:classmethod, func}, owner} ->
+                    {{:bound_method, class, func, owner}, env, ctx}
 
                   {:ok, value, _owner} ->
                     invoke_descriptor_get(value, object, class, env, ctx)
@@ -1921,6 +1933,20 @@ defmodule Pyex.Interpreter do
 
           {:ok, {:builtin_kw, _} = bkw, _owner} ->
             {{:bound_method, instance, bkw}, env, ctx}
+
+          # A classmethod reached through super() binds to the class (cls), not
+          # the instance, carrying the defining owner as __class__.
+          {:ok, {:classmethod, func}, owner} ->
+            bound_cls =
+              case Ctx.deref(ctx, instance) do
+                {:instance, cls, _} -> cls
+                other -> other
+              end
+
+            {{:bound_method, bound_cls, func, owner}, env, ctx}
+
+          {:ok, {:staticmethod, func}, _owner} ->
+            {func, env, ctx}
 
           {:ok, value, _owner} ->
             {value, env, ctx}
@@ -2647,7 +2673,7 @@ defmodule Pyex.Interpreter do
         {func, env, ctx}
 
       {:classmethod, func} ->
-        {{:bound_method, owner_class, func}, env, ctx}
+        {{:bound_method, owner_class, func, owner_class}, env, ctx}
 
       {:instance, {:class, _, _, _} = desc_class, _} ->
         case ClassLookup.resolve_class_attr(desc_class, "__get__") do
@@ -4044,6 +4070,41 @@ defmodule Pyex.Interpreter do
 
       _ ->
         super_from_class_arg(env, ctx)
+    end
+  end
+
+  @doc """
+  Explicit two-argument `super(type, obj_or_type)`.
+
+  `obj` may be an instance of `type` (the proxy binds to it and walks the
+  instance's MRO) or a subclass of `type` (a classmethod-style super). The
+  start of the MRO walk is `type` itself, not the lexical `__class__`.
+  """
+  @spec eval_super_explicit(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  def eval_super_explicit(type, obj, env, ctx) do
+    case {Ctx.deref(ctx, type), Ctx.deref(ctx, obj)} do
+      {{:class, _, _, _} = cls, {:instance, inst_class, _} = instance} ->
+        super_proxy_explicit(instance, inst_class, cls, env, ctx)
+
+      {{:class, _, _, _} = cls, {:class, _, _, _} = obj_cls} ->
+        super_proxy_explicit(obj_cls, obj_cls, cls, env, ctx)
+
+      _ ->
+        {{:exception, "TypeError: super(type, obj): obj must be an instance or subtype of type"},
+         env, ctx}
+    end
+  end
+
+  @spec super_proxy_explicit(pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp super_proxy_explicit(bound, derived, start_class, env, ctx) do
+    mro = ClassLookup.c3_linearize(derived)
+
+    if start_class in mro do
+      mro_tail = mro |> Enum.drop_while(&(&1 != start_class)) |> Enum.drop(1)
+      {{:super_proxy, bound, mro_tail}, env, ctx}
+    else
+      {{:exception, "TypeError: super(type, obj): obj must be an instance or subtype of type"},
+       env, ctx}
     end
   end
 

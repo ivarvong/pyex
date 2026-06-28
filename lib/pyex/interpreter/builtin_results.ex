@@ -191,6 +191,9 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:super_call} ->
         Interpreter.eval_super(env, ctx)
 
+      {:super_call, type, obj} ->
+        Interpreter.eval_super_explicit(type, obj, env, ctx)
+
       {:starmap_call, func, items} ->
         Iteration.eval_starmap(func, items, env, ctx)
 

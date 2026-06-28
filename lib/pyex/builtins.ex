@@ -2404,8 +2404,13 @@ defmodule Pyex.Builtins do
   defp builtin_delattr([_, attr]) when is_binary(attr),
     do: {:exception, "AttributeError: cannot delete attribute '#{attr}'"}
 
-  @spec builtin_super([Interpreter.pyvalue()]) :: {:super_call}
+  @spec builtin_super([Interpreter.pyvalue()]) ::
+          {:super_call} | {:super_call, Interpreter.pyvalue(), Interpreter.pyvalue()}
   defp builtin_super([]), do: {:super_call}
+  defp builtin_super([type, obj]), do: {:super_call, type, obj}
+
+  defp builtin_super([_type]),
+    do: {:exception, "TypeError: super() with a single argument (unbound) is not supported"}
 
   @spec builtin_callable([Interpreter.pyvalue()]) :: boolean()
   defp builtin_callable([{:builtin, _}]), do: true
