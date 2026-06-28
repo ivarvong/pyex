@@ -333,4 +333,53 @@ defmodule Pyex.LanguageGapsTest do
                "2024-03-15 10:30:45\n2024-03-15 10:30:45\n2024-03-15T10:30:45\n2024-03-15 10:30:45"
     end
   end
+
+  describe "__index__ protocol when indexing a sequence" do
+    test "an object with __index__ indexes list, tuple, str, bytes, and range" do
+      assert out!("""
+             class Idx:
+                 def __init__(self, i):
+                     self.i = i
+                 def __index__(self):
+                     return self.i
+             print([10, 20, 30][Idx(1)])
+             print((10, 20, 30)[Idx(-1)])
+             print("abc"[Idx(0)])
+             print(b"abc"[Idx(1)])
+             print(range(10)[Idx(2)])
+             """) == "20\n30\na\n98\n2"
+    end
+
+    test "bool is a valid index (True -> 1, False -> 0)" do
+      assert out!("""
+             print([10, 20][True], [10, 20][False])
+             """) == "20 10"
+    end
+
+    test "an __index__ returning a non-int raises TypeError" do
+      assert out!("""
+             class Bad:
+                 def __index__(self):
+                     return "nope"
+             try:
+                 [1, 2, 3][Bad()]
+             except TypeError:
+                 print("TypeError")
+             """) == "TypeError"
+    end
+
+    test "a dict does not consult __index__ (the instance is a key, not an index)" do
+      assert out!("""
+             class Key:
+                 def __index__(self):
+                     return 0
+             d = {0: "zero"}
+             try:
+                 d[Key()]
+                 print("coerced")
+             except (KeyError, TypeError):
+                 print("not coerced")
+             """) == "not coerced"
+    end
+  end
 end

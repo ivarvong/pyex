@@ -2972,6 +2972,63 @@ defmodule Pyex.Interpreter do
     # matching `__eq__`/`__hash__` resolve to the correct dict/map entry.
     key = canonicalize_map_key(ctx, key, object)
 
+    # PEP 357 __index__: an object used to index a *sequence* is coerced to an
+    # int via __index__ (dicts/sets keep instance keys verbatim — they hash).
+    case index_coerce_for_sequence(object, key, env, ctx) do
+      {:int, int_key, env, ctx} -> eval_subscript_slow(object, int_key, env, ctx)
+      {:bad, signal, env, ctx} -> {signal, env, ctx}
+      :pass -> eval_subscript_body(object, key, env, ctx)
+    end
+  end
+
+  # Returns {:int, coerced, env, ctx} when `key` is an instance with __index__
+  # and `object` is a built-in sequence; {:bad, signal, …} if __index__ returns
+  # a non-int; :pass otherwise (leave the key untouched).
+  @spec index_coerce_for_sequence(pyvalue(), pyvalue(), Env.t(), Ctx.t()) ::
+          {:int, integer(), Env.t(), Ctx.t()}
+          | {:bad, {:exception, String.t()}, Env.t(), Ctx.t()}
+          | :pass
+  defp index_coerce_for_sequence(object, key, env, ctx) do
+    if sequence_like?(object) do
+      case Ctx.deref(ctx, key) do
+        b when is_boolean(b) ->
+          {:int, if(b, do: 1, else: 0), env, ctx}
+
+        {:instance, _, _} = inst ->
+          case Dunder.call_dunder(inst, "__index__", [], env, ctx) do
+            {:ok, i, env, ctx} when is_integer(i) ->
+              {:int, i, env, ctx}
+
+            {:ok, other, env, ctx} ->
+              {:bad,
+               {:exception,
+                "TypeError: __index__ returned non-int (type #{Helpers.py_type(other)})"}, env,
+               ctx}
+
+            :not_found ->
+              :pass
+          end
+
+        _ ->
+          :pass
+      end
+    else
+      :pass
+    end
+  end
+
+  @spec sequence_like?(pyvalue()) :: boolean()
+  defp sequence_like?({:py_list, _, _}), do: true
+  defp sequence_like?({:tuple, _}), do: true
+  defp sequence_like?({:range, _, _, _}), do: true
+  defp sequence_like?({:bytes, _}), do: true
+  defp sequence_like?({:bytearray, _}), do: true
+  defp sequence_like?(v) when is_list(v), do: true
+  defp sequence_like?(v) when is_binary(v), do: true
+  defp sequence_like?(_), do: false
+
+  @spec eval_subscript_body(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp eval_subscript_body(object, key, env, ctx) do
     case object do
       {:py_dict, %{^key => _}, _} ->
         {:ok, value} = PyDict.fetch(object, key)
