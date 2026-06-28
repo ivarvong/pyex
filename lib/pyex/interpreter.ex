@@ -5065,7 +5065,7 @@ defmodule Pyex.Interpreter do
       "__repr__" =>
         {:builtin,
          fn [{:instance, _, a}] ->
-           "<#{name}.#{Map.get(a, "name")}: #{Builtins.py_repr(Map.get(a, "value"))}>"
+           "<#{name}.#{Map.get(a, "name")}: #{Builtins.py_repr_quoted(Map.get(a, "value"))}>"
          end}
     }
 
