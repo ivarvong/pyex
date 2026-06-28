@@ -734,6 +734,40 @@ defmodule Pyex.LanguageGapsTest do
     end
   end
 
+  describe "__init_subclass__ (PEP 487)" do
+    test "a parent's __init_subclass__ runs for each new subclass" do
+      assert out!("""
+             class Base:
+                 def __init_subclass__(cls, **kwargs):
+                     print("registering", cls.__name__)
+             class A(Base):
+                 pass
+             class B(A):
+                 pass
+             """) == "registering A\nregistering B"
+    end
+
+    test "__init_subclass__ can set attributes on the new class" do
+      assert out!("""
+             class Plugin:
+                 def __init_subclass__(cls, **kwargs):
+                     cls.registered = True
+             class MyPlugin(Plugin):
+                 pass
+             print(MyPlugin.registered)
+             """) == "True"
+    end
+
+    test "defining the base class itself does not call its hook" do
+      assert out!("""
+             class Base:
+                 def __init_subclass__(cls, **kwargs):
+                     print("called for", cls.__name__)
+             print("base defined")
+             """) == "base defined"
+    end
+  end
+
   describe "data descriptors (__set__) and instance __dict__" do
     test "a data descriptor's __set__ runs on assignment" do
       assert out!("""

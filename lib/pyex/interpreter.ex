@@ -465,7 +465,16 @@ defmodule Pyex.Interpreter do
       class_val = ClassLookup.with_mro_cache(class_val)
       ctx = Ctx.register_class(ctx, class_val)
 
-      {nil, Env.smart_put(env, name, class_val), ctx}
+      # PEP 487: defining a subclass invokes the nearest parent's
+      # __init_subclass__(cls=...). It may set attributes on cls, so re-fetch
+      # the (possibly mutated) class from the registry before binding.
+      case call_init_subclass(class_val, bases, env, ctx) do
+        {:ok, env, ctx} ->
+          {nil, Env.smart_put(env, name, Ctx.live_class(ctx, class_val)), ctx}
+
+        {{:exception, _} = signal, env, ctx} ->
+          {signal, env, ctx}
+      end
     end
   end
 
@@ -5056,6 +5065,45 @@ defmodule Pyex.Interpreter do
       _ -> false
     end)
   end
+
+  # PEP 487 __init_subclass__: when `cls` is a new subclass, call the nearest
+  # parent's hook (an implicit classmethod) with cls and any class keywords.
+  @spec call_init_subclass(pyvalue(), [pyvalue()], Env.t(), Ctx.t(), map()) ::
+          {:ok, Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  defp call_init_subclass(class_val, bases, env, ctx, kwargs \\ %{}) do
+    case find_in_bases(bases, "__init_subclass__") do
+      nil ->
+        {:ok, env, ctx}
+
+      hook ->
+        func = unwrap_classmethod(hook)
+
+        case call_function(func, [class_val], kwargs, env, ctx) do
+          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+          {{:exception, _} = signal, env, ctx, _} -> {signal, env, ctx}
+          {_, env, ctx, _} -> {:ok, env, ctx}
+          {_, env, ctx} -> {:ok, env, ctx}
+        end
+    end
+  end
+
+  @spec find_in_bases([pyvalue()], String.t()) :: pyvalue() | nil
+  defp find_in_bases(bases, attr) do
+    Enum.find_value(bases, fn
+      {:class, _, _, _} = base ->
+        case ClassLookup.resolve_class_attr(base, attr) do
+          {:ok, value} -> value
+          :error -> nil
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  @spec unwrap_classmethod(pyvalue()) :: pyvalue()
+  defp unwrap_classmethod({:classmethod, func}), do: func
+  defp unwrap_classmethod(func), do: func
 
   # Transforms an `enum.Enum` subclass: each class-level value assignment
   # becomes a singleton instance with `.name` and `.value`.  The class
