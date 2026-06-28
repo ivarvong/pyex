@@ -275,6 +275,81 @@ defmodule Pyex.LazyGeneratorTest do
     end
   end
 
+  describe "turn-end finalization of abandoned generators (CPython shutdown)" do
+    test "a suspended generator's finally runs at turn end" do
+      assert out!("""
+             def g():
+                 try:
+                     yield 1
+                 finally:
+                     print("cleanup")
+             it = g()
+             print(next(it))
+             print("end of script")
+             """) == "1\nend of script\ncleanup"
+    end
+
+    test "multiple abandoned generators finalize in creation order" do
+      assert out!("""
+             def g(name):
+                 try:
+                     yield
+                 finally:
+                     print("fin", name)
+             a = g("A"); next(a)
+             b = g("B"); next(b)
+             print("---")
+             """) == "---\nfin A\nfin B"
+    end
+
+    test "yield-from: finalizing the outer runs inner finally then outer finally" do
+      assert out!("""
+             def inner():
+                 try:
+                     yield 1
+                 finally:
+                     print("inner finally")
+             def outer():
+                 try:
+                     yield from inner()
+                 finally:
+                     print("outer finally")
+             o = outer(); next(o)
+             print("---")
+             """) == "---\ninner finally\nouter finally"
+    end
+
+    test "a cleanup block that raises is swallowed; the rest still finalize" do
+      assert out!("""
+             def boom():
+                 try:
+                     yield
+                 finally:
+                     raise ValueError("x")
+             def ok(name):
+                 try:
+                     yield
+                 finally:
+                     print("fin", name)
+             a = boom(); next(a)
+             b = ok("B"); next(b)
+             print("---")
+             """) == "---\nfin B"
+    end
+
+    test "an exhausted generator is not re-finalized" do
+      assert out!("""
+             def g():
+                 try:
+                     yield 1
+                 finally:
+                     print("cleanup")
+             print(list(g()))
+             print("end")
+             """) == "cleanup\n[1]\nend"
+    end
+  end
+
   describe "generator expressions are lazy" do
     test "the body does not run until the genexpr is consumed" do
       assert out!("""

@@ -175,6 +175,10 @@ defmodule Pyex do
 
       case result do
         {:ok, value, _env, final_ctx} ->
+          # CPython finalizes generators left suspended at interpreter shutdown,
+          # running their `finally`/`with` cleanup. Do the same at turn end —
+          # before closing handles, so a cleanup block can still use them.
+          final_ctx = Interpreter.finalize_suspended_generators(final_ctx)
           final_ctx = close_open_handles(final_ctx)
 
           duration_ms =

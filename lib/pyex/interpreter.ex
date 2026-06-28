@@ -3919,6 +3919,74 @@ defmodule Pyex.Interpreter do
   end
 
   @doc """
+  Finalize every still-suspended generator at turn end — CPython's
+  interpreter-shutdown behavior, where a generator left paused has
+  `GeneratorExit` thrown into it so its `finally`/`with` cleanup runs.
+
+  Ordering matches CPython shutdown: ascending iterator id (creation order).
+  `yield from` delegation falls out for free — finalizing the (lower-id) outer
+  generator propagates `GeneratorExit` into the inner one, so the inner
+  `finally` runs first and the inner is already done when its own (higher) id
+  comes up. A cleanup block that raises is swallowed (CPython prints "Exception
+  ignored" and continues finalizing the rest); the turn result is unaffected.
+
+  NOTE: this is the *shutdown* timing only. CPython also finalizes a generator
+  the instant its last reference drops (refcount GC) — observable as cleanup
+  running mid-script. That timing is a CPython implementation detail (not a
+  language guarantee, and not shared by e.g. PyPy) and is not reproducible in
+  Pyex's reference-free value model, so it is intentionally not emulated.
+  """
+  @spec finalize_suspended_generators(Ctx.t()) :: Ctx.t()
+  def finalize_suspended_generators(%Ctx{} = ctx) do
+    suspended_ids =
+      ctx.iterators
+      |> Enum.filter(fn {_id, entry} -> match?({:gen_sync, _, _, _}, entry) end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.sort()
+
+    case suspended_ids do
+      [] ->
+        ctx
+
+      ids ->
+        env = Builtins.runtime_env(ctx)
+        Enum.reduce(ids, ctx, fn id, ctx -> finalize_one_generator(id, env, ctx) end)
+    end
+  end
+
+  @spec finalize_one_generator(non_neg_integer(), Env.t(), Ctx.t()) :: Ctx.t()
+  defp finalize_one_generator(id, env, ctx) do
+    case Ctx.iter_entry(ctx, id) do
+      {:gen_sync, _started?, cont, gen_env} ->
+        exit_inst =
+          {:instance, exception_instance_class({:exception_class, "GeneratorExit"}),
+           %{"args" => {:tuple, []}}}
+
+        ctx = %{ctx | exception_instance: exit_inst}
+
+        # Run the cleanup. The result (a propagated GeneratorExit, a different
+        # exception raised by the cleanup, or even a re-yield) is discarded —
+        # the generator is done either way.
+        {_result, _env, ctx} =
+          Pyex.Interpreter.BuiltinResults.advance_gen_sync(
+            id,
+            cont,
+            gen_env,
+            {:throw, "GeneratorExit"},
+            env,
+            ctx
+          )
+
+        Ctx.mark_iter_exhausted(ctx, id)
+
+      _ ->
+        # Already finalized (e.g. an inner `yield from` target closed while
+        # finalizing its outer generator).
+        ctx
+    end
+  end
+
+  @doc """
   Lazy `yield from` over a generator iterator. Yields the first
   pending value, then attaches a `:cont_yield_from_iter` frame so the
   generator advances one step at a time on resumption — preserving
