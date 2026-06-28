@@ -62,11 +62,7 @@ defmodule Pyex.ParityTest do
     "dict" => %{
       "fromkeys" => :unimplemented
     },
-    "set" => %{
-      "difference_update" => :unimplemented,
-      "intersection_update" => :unimplemented,
-      "symmetric_difference_update" => :unimplemented
-    },
+    "set" => %{},
     "list" => %{},
     "tuple" => %{},
     "frozenset" => %{},

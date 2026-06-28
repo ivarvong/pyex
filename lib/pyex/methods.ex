@@ -25,8 +25,9 @@ defmodule Pyex.Methods do
   # (see dict_method/1) so it works on the OrderedDicts pyex models as dicts.
   @dict_methods ~w(clear copy get items keys pop popitem setdefault update values)
   @set_methods ~w(
-    add clear copy difference discard intersection isdisjoint
-    issubset issuperset pop remove symmetric_difference union update
+    add clear copy difference difference_update discard intersection
+    intersection_update isdisjoint issubset issuperset pop remove
+    symmetric_difference symmetric_difference_update union update
   )
   @frozenset_methods ~w(
     copy difference intersection isdisjoint
@@ -2392,7 +2393,32 @@ defmodule Pyex.Methods do
   defp set_method("issuperset"), do: {:ok, &set_issuperset/2}
   defp set_method("isdisjoint"), do: {:ok, &set_isdisjoint/2}
   defp set_method("update"), do: {:ok, &set_update/2}
+  defp set_method("difference_update"), do: {:ok, &set_difference_update/2}
+  defp set_method("intersection_update"), do: {:ok, &set_intersection_update/2}
+  defp set_method("symmetric_difference_update"), do: {:ok, &set_symmetric_difference_update/2}
   defp set_method(_), do: :error
+
+  defp set_difference_update({:set, a}, others),
+    do: {:mutate, {:set, Enum.reduce(others, a, &MapSet.difference(&2, to_mapset(&1)))}, nil}
+
+  defp set_intersection_update({:set, a}, others),
+    do: {:mutate, {:set, Enum.reduce(others, a, &MapSet.intersection(&2, to_mapset(&1)))}, nil}
+
+  defp set_symmetric_difference_update({:set, a}, [other]),
+    do: {:mutate, {:set, MapSet.symmetric_difference(a, to_mapset(other))}, nil}
+
+  # Coerce any iterable operand to a MapSet for set algebra. Sets already store
+  # canonicalized keys; raw list/tuple/str elements must be canonicalized the
+  # same way so membership matches (e.g. 1 vs 1.0 vs True).
+  defp to_mapset({:set, s}), do: s
+  defp to_mapset({:frozenset, s}), do: s
+  defp to_mapset({:py_list, reversed, _}), do: canonical_mapset(Enum.reverse(reversed))
+  defp to_mapset({:tuple, items}), do: canonical_mapset(items)
+  defp to_mapset(list) when is_list(list), do: canonical_mapset(list)
+  defp to_mapset(str) when is_binary(str), do: canonical_mapset(String.codepoints(str))
+  defp to_mapset(other), do: canonical_mapset(List.wrap(other))
+
+  defp canonical_mapset(items), do: MapSet.new(items, &Pyex.PyDict.canonical_key/1)
 
   @spec set_add(Interpreter.pyvalue(), [Interpreter.pyvalue()]) ::
           {:mutate, Interpreter.pyvalue(), nil}
