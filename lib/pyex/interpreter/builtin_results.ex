@@ -230,6 +230,18 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:exception, _msg} = signal ->
         {signal, env, ctx}
 
+      {:dunder_call, instance, dunder_name, dunder_args} ->
+        case Dunder.call_dunder(instance, dunder_name, dunder_args, env, ctx) do
+          {:ok, value, env, ctx} ->
+            {value, env, ctx}
+
+          :not_found ->
+            case Interpreter.dunder_str_fallback(instance, dunder_name, env, ctx) do
+              {:ok, value, env, ctx} -> {value, env, ctx}
+              :error -> {{:exception, "TypeError: object has no #{dunder_name}"}, env, ctx}
+            end
+        end
+
       {:ctx_call, ctx_fun} ->
         ctx_fun.(env, ctx)
 

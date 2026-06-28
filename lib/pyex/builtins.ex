@@ -472,6 +472,8 @@ defmodule Pyex.Builtins do
   defp builtin_int([{tag, bin}, base]) when tag in [:bytes, :bytearray] and is_integer(base),
     do: builtin_int([bytes_to_latin1(bin), base])
 
+  defp builtin_int([{:instance, _, _} = inst]), do: {:dunder_call, inst, "__int__", []}
+
   defp builtin_int([val]),
     do:
       {:exception, "TypeError: int() argument must be a string or a number, not '#{pytype(val)}'"}
@@ -536,6 +538,7 @@ defmodule Pyex.Builtins do
   defp builtin_float([val]) when is_integer(val), do: val / 1
   defp builtin_float([true]), do: 1.0
   defp builtin_float([false]), do: 0.0
+  defp builtin_float([{:instance, _, _} = inst]), do: {:dunder_call, inst, "__float__", []}
 
   defp builtin_float([val]) when is_binary(val) do
     trimmed = String.trim(val)
@@ -615,6 +618,7 @@ defmodule Pyex.Builtins do
   defp builtin_abs([{:pyex_decimal, d}]), do: {:pyex_decimal, Decimal.abs(d)}
   defp builtin_abs([{:fraction, n, d}]), do: {:fraction, abs(n), d}
   defp builtin_abs([{:complex, r, i}]), do: :math.sqrt(r * r + i * i)
+  defp builtin_abs([{:instance, _, _} = inst]), do: {:dunder_call, inst, "__abs__", []}
 
   defp builtin_abs([{:instance, {:class, _name, _bases, class_attrs}, inst_attrs} = inst]) do
     abs_fn = Map.get(inst_attrs, "__abs__") || Map.get(class_attrs, "__abs__")
@@ -889,6 +893,11 @@ defmodule Pyex.Builtins do
 
   defp builtin_reversed([str]) when is_binary(str),
     do: str |> String.codepoints() |> Enum.reverse()
+
+  # CPython: reversed(obj) uses __reversed__ if defined, else falls back to the
+  # __len__ + __getitem__ sequence protocol.
+  defp builtin_reversed([{:instance, _, _} = inst]),
+    do: {:dunder_call, inst, "__reversed__", []}
 
   @spec builtin_enumerate([Interpreter.pyvalue()], map()) ::
           [{:tuple, [Interpreter.pyvalue()]}] | {:exception, String.t()}
