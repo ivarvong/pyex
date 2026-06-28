@@ -110,6 +110,7 @@ defmodule Pyex.ParityTest do
   @builtin_extensions ~w(
     __import__
     ValidationError
+    FrozenInstanceError
     BadZipFile LargeZipFile
     Clamped ConversionSyntax DecimalException DivisionByZero
     DivisionImpossible DivisionUndefined FloatOperation Inexact

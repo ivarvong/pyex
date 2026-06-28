@@ -610,6 +610,71 @@ defmodule Pyex.LanguageGapsTest do
     end
   end
 
+  describe "dataclass inheritance and frozen=True" do
+    test "a subclass dataclass inherits parent fields in order" do
+      assert out!("""
+             from dataclasses import dataclass
+             @dataclass
+             class A:
+                 x: int
+             @dataclass
+             class B(A):
+                 y: int
+             @dataclass
+             class C(B):
+                 z: int
+             c = C(1, 2, 3)
+             print(c.x, c.y, c.z)
+             """) == "1 2 3"
+    end
+
+    test "inherited fields keep their defaults" do
+      assert out!("""
+             from dataclasses import dataclass
+             @dataclass
+             class A:
+                 x: int = 10
+             @dataclass
+             class B(A):
+                 y: int = 20
+             b = B()
+             print(b.x, b.y)
+             """) == "10 20"
+    end
+
+    test "frozen=True blocks assignment with FrozenInstanceError (an AttributeError)" do
+      assert out!("""
+             from dataclasses import dataclass
+             @dataclass(frozen=True)
+             class P:
+                 x: int
+                 y: int
+             p = P(1, 2)
+             print(p.x, p.y)
+             try:
+                 p.x = 9
+             except Exception as e:
+                 print(type(e).__name__)
+             try:
+                 p.y = 9
+             except AttributeError:
+                 print("AttributeError")
+             """) == "1 2\nFrozenInstanceError\nAttributeError"
+    end
+
+    test "a non-frozen dataclass is still mutable" do
+      assert out!("""
+             from dataclasses import dataclass
+             @dataclass
+             class P:
+                 x: int
+             p = P(1)
+             p.x = 99
+             print(p.x)
+             """) == "99"
+    end
+  end
+
   describe "functools.partial captures keyword arguments" do
     test "keywords given to partial are merged into the call" do
       assert out!("""

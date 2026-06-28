@@ -841,42 +841,15 @@ defmodule Pyex.Interpreter.Assignments do
     case Env.get(env, var_name) do
       {:ok, raw} ->
         case Ctx.deref(ctx, raw) do
-          {:instance, class, _attrs} = inst ->
-            self_arg = if match?({:ref, _}, raw), do: raw, else: inst
-
-            # Check if the class has a property descriptor with a setter for this attr
-            case ClassLookup.resolve_class_attr_with_owner(class, attr) do
-              {:ok, {:property, _fget, fset, _fdel}, _owner} when fset != nil ->
-                case Interpreter.call_function(fset, [self_arg, value], %{}, env, ctx) do
-                  {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
-                  # call_function may return a 4-tuple with updated_func
-                  # when the setter is a regular Python function.
-                  {{:exception, _} = signal, env, ctx, _} -> {signal, env, ctx}
-                  {_, env, ctx, _} -> {nil, env, ctx}
-                  {_, env, ctx} -> {nil, env, ctx}
-                end
-
-              {:ok, {:property, _fget, nil, _fdel}, _owner} ->
-                {{:exception,
-                  "AttributeError: can't set attribute '#{attr}' — no setter defined"}, env, ctx}
-
-              {:ok, {:instance, _, _} = descriptor, _owner} ->
-                # Generic data descriptor with __set__.
-                case Interpreter.invoke_descriptor_set(descriptor, self_arg, value, env, ctx) do
-                  {:ok, env, ctx} ->
-                    {nil, env, ctx}
-
-                  :no_descriptor ->
-                    check_slots_and_assign(inst, raw, var_name, attr, value, env, ctx)
-                end
-
-              _ ->
-                check_slots_and_assign(inst, raw, var_name, attr, value, env, ctx)
+          {:instance, class, _attrs} = inst when not is_nil(class) ->
+            if dataclass_frozen?(class) do
+              {frozen_assign_error(attr), env, ctx}
+            else
+              setattr_to_instance(inst, raw, class, var_name, attr, value, env, ctx)
             end
 
           {:class, name, bases, class_attrs} ->
             updated = {:class, name, bases, Map.put(class_attrs, attr, value)}
-            # Re-register so existing instances see the mutation (class identity).
             ctx = Ctx.register_class(ctx, updated)
             {nil, Env.put_at_source(env, var_name, updated), ctx}
 
@@ -915,11 +888,15 @@ defmodule Pyex.Interpreter.Assignments do
       {raw, env, ctx} ->
         case Ctx.deref(ctx, raw) do
           {:instance, class, attrs} ->
-            updated = {:instance, class, Map.put(attrs, attr, value)}
+            if dataclass_frozen?(class) do
+              {frozen_assign_error(attr), env, ctx}
+            else
+              updated = {:instance, class, Map.put(attrs, attr, value)}
 
-            case raw do
-              {:ref, id} -> {nil, env, Ctx.heap_put(ctx, id, updated)}
-              _ -> write_back_target(inner_target, updated, env, ctx)
+              case raw do
+                {:ref, id} -> {nil, env, Ctx.heap_put(ctx, id, updated)}
+                _ -> write_back_target(inner_target, updated, env, ctx)
+              end
             end
 
           _ ->
@@ -931,6 +908,57 @@ defmodule Pyex.Interpreter.Assignments do
   def setattr(_target, _value, env, ctx) do
     {{:exception, "SyntaxError: cannot assign to attribute"}, env, ctx}
   end
+
+  # Instance attribute assignment, after the frozen-dataclass check. Honors
+  # property setters and data descriptors before falling back to a plain store.
+  defp setattr_to_instance(inst, raw, class, var_name, attr, value, env, ctx) do
+    self_arg = if match?({:ref, _}, raw), do: raw, else: inst
+
+    # Check if the class has a property descriptor with a setter for this attr
+    case ClassLookup.resolve_class_attr_with_owner(class, attr) do
+      {:ok, {:property, _fget, fset, _fdel}, _owner} when fset != nil ->
+        case Interpreter.call_function(fset, [self_arg, value], %{}, env, ctx) do
+          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+          # call_function may return a 4-tuple with updated_func
+          # when the setter is a regular Python function.
+          {{:exception, _} = signal, env, ctx, _} -> {signal, env, ctx}
+          {_, env, ctx, _} -> {nil, env, ctx}
+          {_, env, ctx} -> {nil, env, ctx}
+        end
+
+      {:ok, {:property, _fget, nil, _fdel}, _owner} ->
+        {{:exception, "AttributeError: can't set attribute '#{attr}' — no setter defined"}, env,
+         ctx}
+
+      {:ok, {:instance, _, _} = descriptor, _owner} ->
+        # Generic data descriptor with __set__.
+        case Interpreter.invoke_descriptor_set(descriptor, self_arg, value, env, ctx) do
+          {:ok, env, ctx} ->
+            {nil, env, ctx}
+
+          :no_descriptor ->
+            check_slots_and_assign(inst, raw, var_name, attr, value, env, ctx)
+        end
+
+      _ ->
+        check_slots_and_assign(inst, raw, var_name, attr, value, env, ctx)
+    end
+  end
+
+  # True when an instance's class (or an ancestor) was made a frozen dataclass.
+  @spec dataclass_frozen?(Interpreter.pyvalue()) :: boolean()
+  defp dataclass_frozen?({:class, _, _, _} = class) do
+    case ClassLookup.class_attribute(class, "__dataclass_frozen__") do
+      {:ok, true} -> true
+      _ -> false
+    end
+  end
+
+  defp dataclass_frozen?(_), do: false
+
+  @spec frozen_assign_error(String.t()) :: {:exception, String.t()}
+  defp frozen_assign_error(attr),
+    do: {:exception, "FrozenInstanceError: cannot assign to field '#{attr}'"}
 
   @doc false
   @spec setattr_nested(Parser.ast_node(), Interpreter.pyvalue(), Env.t(), Ctx.t()) ::

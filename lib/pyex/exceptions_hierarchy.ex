@@ -24,6 +24,7 @@ defmodule Pyex.ExceptionsHierarchy do
     "ZeroDivisionError" => "ArithmeticError",
     "AssertionError" => "Exception",
     "AttributeError" => "Exception",
+    "FrozenInstanceError" => "AttributeError",
     "BufferError" => "Exception",
     "EOFError" => "Exception",
     "ImportError" => "Exception",
