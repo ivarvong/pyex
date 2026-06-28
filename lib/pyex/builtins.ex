@@ -757,9 +757,35 @@ defmodule Pyex.Builtins do
           Enum.reduce(tl(ints), hd(ints), &+/2)
         end
 
+      # Custom objects (instances, or heap refs that may point at them) need
+      # the full binop protocol — __add__/__radd__ with NotImplemented
+      # fallback — which lives in the interpreter, so defer via a ctx call.
+      Enum.any?([start | items], &needs_binop_sum?/1) ->
+        {:ctx_call, fn env, ctx -> fold_sum_via_binop(items, start, env, ctx) end}
+
       true ->
         Enum.reduce(items, start, &sum_step/2)
     end
+  end
+
+  @spec needs_binop_sum?(Interpreter.pyvalue()) :: boolean()
+  defp needs_binop_sum?({:ref, _}), do: true
+  defp needs_binop_sum?({:instance, _, _}), do: true
+  defp needs_binop_sum?(_), do: false
+
+  # Folds the running total with `+` through the interpreter, so summing
+  # objects that define __add__/__radd__ works exactly like `a + b + c …`.
+  @spec fold_sum_via_binop([Interpreter.pyvalue()], Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
+          {Interpreter.pyvalue() | {:exception, String.t()}, Env.t(), Ctx.t()}
+  defp fold_sum_via_binop(items, start, env, ctx) do
+    Enum.reduce_while(items, {start, env, ctx}, fn item, {acc, env, ctx} ->
+      node = {:binop, [], [:plus, {:__evaluated__, acc}, {:__evaluated__, item}]}
+
+      case Interpreter.eval(node, env, ctx) do
+        {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
+        {value, env, ctx} -> {:cont, {value, env, ctx}}
+      end
+    end)
   end
 
   @spec py_numeric?(Interpreter.pyvalue()) :: boolean()

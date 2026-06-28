@@ -382,4 +382,49 @@ defmodule Pyex.LanguageGapsTest do
              """) == "not coerced"
     end
   end
+
+  describe "sum() over objects uses the __add__ / __radd__ protocol" do
+    test "sums instances via __radd__ from the default 0 start" do
+      assert out!("""
+             class Money:
+                 def __init__(self, cents):
+                     self.cents = cents
+                 def __add__(self, other):
+                     other_cents = other.cents if isinstance(other, Money) else other
+                     return Money(self.cents + other_cents)
+                 def __radd__(self, other):
+                     return self.__add__(other)
+                 def __repr__(self):
+                     return f"Money({self.cents})"
+             print(sum([Money(100), Money(250), Money(75)]))
+             """) == "Money(425)"
+    end
+
+    test "honors an explicit object start without needing __radd__" do
+      assert out!("""
+             class V:
+                 def __init__(self, x):
+                     self.x = x
+                 def __add__(self, other):
+                     return V(self.x + other.x)
+                 def __repr__(self):
+                     return f"V({self.x})"
+             print(sum([V(1), V(2)], V(10)))
+             """) == "V(13)"
+    end
+
+    test "an object with neither __radd__ nor numeric coercion raises TypeError" do
+      assert out!("""
+             class V:
+                 def __init__(self, x):
+                     self.x = x
+                 def __add__(self, other):
+                     return V(self.x + other.x)
+             try:
+                 sum([V(1), V(2)])
+             except TypeError:
+                 print("TypeError")
+             """) == "TypeError"
+    end
+  end
 end
