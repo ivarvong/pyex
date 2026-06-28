@@ -3080,6 +3080,27 @@ defmodule Pyex.Interpreter do
   defp sequence_like?(v) when is_binary(v), do: true
   defp sequence_like?(_), do: false
 
+  # Invokes __class_getitem__(cls, item). Python treats it as an implicit
+  # classmethod, so the class is passed as the first argument.
+  @spec call_class_getitem(pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp call_class_getitem(member, cls, key, env, ctx) do
+    # __class_getitem__ is an implicit classmethod: its function takes
+    # (cls, item), so the class is passed as the first argument. A
+    # @staticmethod form takes just (item).
+    {func, call_args} =
+      case member do
+        {:classmethod, f} -> {f, [cls, key]}
+        {:staticmethod, f} -> {f, [key]}
+        other -> {other, [cls, key]}
+      end
+
+    case call_function(func, call_args, %{}, env, ctx) do
+      {{:mutate, _new, return}, env, ctx} -> {return, env, ctx}
+      {val, env, ctx, _} -> {val, env, ctx}
+      {val, env, ctx} -> {val, env, ctx}
+    end
+  end
+
   @spec eval_subscript_body(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
   defp eval_subscript_body(object, key, env, ctx) do
     case object do
@@ -3088,6 +3109,16 @@ defmodule Pyex.Interpreter do
         case List.keyfind(members, key, 0) do
           {_n, inst} -> {inst, env, ctx}
           nil -> {{:exception, "KeyError: '#{key}'"}, env, ctx}
+        end
+
+      # Class[item] -> __class_getitem__(cls, item) when defined (e.g. generics).
+      {:class, cls_name, _, _} = cls ->
+        case ClassLookup.resolve_class_attr(cls, "__class_getitem__") do
+          {:ok, member} ->
+            call_class_getitem(member, cls, key, env, ctx)
+
+          :error ->
+            {{:exception, "TypeError: type '#{cls_name}' is not subscriptable"}, env, ctx}
         end
 
       {:py_dict, %{^key => _}, _} ->

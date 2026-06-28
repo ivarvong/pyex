@@ -734,6 +734,59 @@ defmodule Pyex.LanguageGapsTest do
     end
   end
 
+  describe "three-argument type() constructs a class" do
+    test "type(name, bases, namespace) builds a usable class" do
+      assert out!("""
+             T = type("T", (), {"x": 5, "greet": lambda self: "hi"})
+             t = T()
+             print(t.x, t.greet(), type(t).__name__)
+             """) == "5 hi T"
+    end
+
+    test "the new class inherits from the given bases" do
+      assert out!("""
+             class A:
+                 def f(self):
+                     return "A"
+             B = type("B", (A,), {})
+             print(B().f(), B.__name__, issubclass(B, A))
+             """) == "A B True"
+    end
+
+    test "single-argument type() still returns the type" do
+      assert out!("""
+             print(type(5).__name__, type("x").__name__)
+             """) == "int str"
+    end
+  end
+
+  describe "__class_getitem__ for class subscription" do
+    test "a class with __class_getitem__ is subscriptable" do
+      assert out!("""
+             class Container:
+                 def __class_getitem__(cls, item):
+                     return f"{cls.__name__}[{item.__name__}]"
+             print(Container[int])
+             """) == "Container[int]"
+    end
+
+    test "classmethod __class_getitem__ works and plain classes raise TypeError" do
+      assert out!("""
+             class C:
+                 @classmethod
+                 def __class_getitem__(cls, item):
+                     return cls.__name__
+             print(C[5])
+             class Plain:
+                 pass
+             try:
+                 Plain[int]
+             except TypeError:
+                 print("TypeError")
+             """) == "C\nTypeError"
+    end
+  end
+
   describe "globals() and locals()" do
     test "globals() returns the module namespace; builtins are excluded" do
       assert out!("""

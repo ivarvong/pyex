@@ -1037,6 +1037,9 @@ defmodule Pyex.Interpreter.Invocation do
         derefed = Ctx.deep_deref(ctx, val)
         {Pyex.Builtins.builtin_type_of(derefed), env, ctx}
 
+      {[cls_name, bases_val, ns_val], 0} ->
+        build_dynamic_class(cls_name, bases_val, ns_val, env, ctx)
+
       _ ->
         call_class_generic(class, name, args, kwargs, env, ctx)
     end
@@ -1045,6 +1048,37 @@ defmodule Pyex.Interpreter.Invocation do
   def call_class({:class, _, _, _} = class, name, args, kwargs, env, ctx) do
     call_class_generic(class, name, args, kwargs, env, ctx)
   end
+
+  # `type(name, bases, namespace)` constructs a new class at runtime.
+  @spec build_dynamic_class(
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue(),
+          Env.t(),
+          Ctx.t()
+        ) :: Interpreter.call_result()
+  defp build_dynamic_class(cls_name, bases_val, ns_val, env, ctx) do
+    with name when is_binary(name) <- Ctx.deref(ctx, cls_name),
+         {:tuple, bases} <- normalize_class_bases(Ctx.deref(ctx, bases_val)),
+         {:py_dict, _, _} = ns <- Ctx.deref(ctx, ns_val) do
+      attrs =
+        ns
+        |> Pyex.PyDict.keys()
+        |> Enum.filter(&is_binary/1)
+        |> Map.new(fn k -> {k, elem(Pyex.PyDict.fetch(ns, k), 1)} end)
+        |> Map.put("__name__", name)
+
+      class = {:class, name, bases, attrs}
+      ctx = Ctx.register_class(ctx, class)
+      {class, env, ctx}
+    else
+      _ ->
+        {{:exception, "TypeError: type() argument 1 must be str, 2 a tuple, 3 a dict"}, env, ctx}
+    end
+  end
+
+  defp normalize_class_bases({:tuple, _} = t), do: t
+  defp normalize_class_bases(_), do: :error
 
   @spec call_class_generic(
           Interpreter.pyvalue(),
