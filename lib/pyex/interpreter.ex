@@ -705,6 +705,16 @@ defmodule Pyex.Interpreter do
     Statements.eval_assert(condition, msg_expr, env, ctx)
   end
 
+  def eval({:del, meta, [:multi, targets]}, env, ctx) do
+    # `del a, b, c` — delete each target left-to-right; stop at the first error.
+    Enum.reduce_while(targets, {nil, env, ctx}, fn target_args, {_, env, ctx} ->
+      case eval({:del, meta, target_args}, env, ctx) do
+        {{:exception, _}, _, _} = err -> {:halt, err}
+        {_, env, ctx} -> {:cont, {nil, env, ctx}}
+      end
+    end)
+  end
+
   def eval({:del, _, [:var, var_name]}, env, ctx) do
     Statements.eval_del_var(var_name, env, ctx)
   end

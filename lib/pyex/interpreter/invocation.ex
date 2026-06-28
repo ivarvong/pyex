@@ -686,8 +686,12 @@ defmodule Pyex.Interpreter.Invocation do
               {return_val, env, ctx}
 
             _ ->
+              # The instance is bound to the method's FIRST parameter, whatever
+              # it's named — `self` is convention, not a keyword. Read the
+              # (possibly mutated) instance back by that name, not a hardcoded
+              # "self", so `def __init__(s): s.n = 1` persists like CPython.
               updated_self =
-                case Env.get(post_call_env, "self") do
+                case Env.get(post_call_env, self_param_name(params)) do
                   {:ok, {:instance, _, _} = updated} -> updated
                   _ -> instance
                 end
@@ -697,6 +701,14 @@ defmodule Pyex.Interpreter.Invocation do
         end
     end
   end
+
+  # The name the instance is bound to inside a method body = its first
+  # positional parameter (conventionally `self`). Falls back to "self" for a
+  # malformed/empty parameter list.
+  @spec self_param_name([tuple()]) :: String.t()
+  defp self_param_name([{name, _} | _]) when is_binary(name), do: name
+  defp self_param_name([{name, _, _} | _]) when is_binary(name), do: name
+  defp self_param_name(_), do: "self"
 
   # Identity-preserving materializers (list/tuple/reversed/sorted) take a
   # shallow deref so element refs survive; everything else deep-derefs.
@@ -1419,7 +1431,7 @@ defmodule Pyex.Interpreter.Invocation do
 
           _ ->
             final_self =
-              case Env.get(post_call_env, "self") do
+              case Env.get(post_call_env, self_param_name(params)) do
                 {:ok, {:instance, _, _} = updated} -> updated
                 _ -> instance
               end

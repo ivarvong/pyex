@@ -86,6 +86,7 @@ defmodule Pyex.Interpreter.BinaryOps do
   def dunder_for_op(:floor_div), do: "__floordiv__"
   def dunder_for_op(:percent), do: "__mod__"
   def dunder_for_op(:double_star), do: "__pow__"
+  def dunder_for_op(:at), do: "__matmul__"
   def dunder_for_op(:eq), do: "__eq__"
   def dunder_for_op(:neq), do: "__ne__"
   def dunder_for_op(:lt), do: "__lt__"
@@ -114,6 +115,7 @@ defmodule Pyex.Interpreter.BinaryOps do
   def rdunder_for_op(:floor_div), do: "__rfloordiv__"
   def rdunder_for_op(:percent), do: "__rmod__"
   def rdunder_for_op(:double_star), do: "__rpow__"
+  def rdunder_for_op(:at), do: "__rmatmul__"
   def rdunder_for_op(:eq), do: "__eq__"
   def rdunder_for_op(:neq), do: "__ne__"
   def rdunder_for_op(:lt), do: "__gt__"
@@ -816,6 +818,11 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp dispatch(:rshift, l, r),
     do: type_error(">>", l, r)
 
+  # Matmul (`@`) on native operands: pyex has no matrix type, so any non-instance
+  # `@` is a clean TypeError (instances with `__matmul__` are dispatched before
+  # reaching here), exactly like CPython's `3 @ 4`.
+  defp dispatch(:at, l, r), do: type_error("@", l, r)
+
   @spec builtin_type_instance_name(map()) :: String.t() | nil
   defp builtin_type_instance_name(%{"__name__" => name}) when is_binary(name), do: name
   defp builtin_type_instance_name(_), do: nil
@@ -1381,6 +1388,7 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp op_str(:floor_div), do: "//"
   defp op_str(:percent), do: "%"
   defp op_str(:double_star), do: "**"
+  defp op_str(:at), do: "@"
   defp op_str(:eq), do: "=="
   defp op_str(:neq), do: "!="
   defp op_str(:lt), do: "<"

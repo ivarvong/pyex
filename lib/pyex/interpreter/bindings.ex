@@ -175,6 +175,13 @@ defmodule Pyex.Interpreter.Bindings do
           {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
           {_val, env, ctx} -> {:cont, {:ok, env, ctx}}
         end
+
+      # Attribute target in an unpack, e.g. `self.a, self.b = 1, 2`.
+      {{:target, {:getattr, _, _} = target}, val}, {:ok, env, ctx} ->
+        case Assignments.setattr(target, val, env, ctx) do
+          {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
+          {_val, env, ctx} -> {:cont, {:ok, env, ctx}}
+        end
     end)
   end
 

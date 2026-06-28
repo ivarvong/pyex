@@ -250,21 +250,12 @@ defmodule Pyex.Parser do
   end
 
   defp parse_statement([{:keyword, line, "del"} | rest]) do
-    case parse_expression(rest) do
-      {:ok, {:var, _, [var_name]}, rest} ->
-        {:ok, {:del, [line: line], [:var, var_name]}, drop_newline(rest)}
+    case parse_del_targets(rest, line, []) do
+      {:ok, [single], rest} ->
+        {:ok, {:del, [line: line], single}, drop_newline(rest)}
 
-      {:ok, {:subscript, _, [target_expr, key_expr]}, rest} ->
-        {:ok, {:del, [line: line], [:subscript, target_expr, key_expr]}, drop_newline(rest)}
-
-      {:ok, {:slice, _, [target_expr, start, stop, step]}, rest} ->
-        {:ok, {:del, [line: line], [:slice, target_expr, start, stop, step]}, drop_newline(rest)}
-
-      {:ok, {:getattr, _, [obj_expr, attr]}, rest} ->
-        {:ok, {:del, [line: line], [:attr, obj_expr, attr]}, drop_newline(rest)}
-
-      {:ok, _expr, _rest} ->
-        {:error, "expected variable or subscript after 'del' at line #{line}"}
+      {:ok, targets, rest} ->
+        {:ok, {:del, [line: line], [:multi, targets]}, drop_newline(rest)}
 
       {:error, _} = error ->
         error
@@ -392,11 +383,60 @@ defmodule Pyex.Parser do
     parse_expression_statement(tokens)
   end
 
+  # `del a, b[0], c.x` — one or more comma-separated targets (del_stmt).
+  defp parse_del_targets(tokens, line, acc) do
+    case parse_expression(tokens) do
+      {:ok, expr, rest} ->
+        case del_target_args(expr) do
+          {:ok, target} ->
+            case rest do
+              # A trailing comma (`del a,` / `del a, b,`) ends the target list.
+              [{:op, _, :comma} | rest2] ->
+                if del_terminator?(rest2) do
+                  {:ok, Enum.reverse([target | acc]), rest2}
+                else
+                  parse_del_targets(rest2, line, [target | acc])
+                end
+
+              _ ->
+                {:ok, Enum.reverse([target | acc]), rest}
+            end
+
+          :error ->
+            {:error, "expected variable or subscript after 'del' at line #{line}"}
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  # A `del` target list ends at end-of-tokens or a statement terminator.
+  defp del_terminator?([]), do: true
+  defp del_terminator?([:newline | _]), do: true
+  defp del_terminator?([:dedent | _]), do: true
+  defp del_terminator?([{:op, _, :semicolon} | _]), do: true
+  defp del_terminator?(_), do: false
+
+  @spec del_target_args(ast_node()) :: {:ok, [term()]} | :error
+  defp del_target_args({:var, _, [name]}), do: {:ok, [:var, name]}
+  defp del_target_args({:subscript, _, [t, k]}), do: {:ok, [:subscript, t, k]}
+  defp del_target_args({:slice, _, [t, a, b, c]}), do: {:ok, [:slice, t, a, b, c]}
+  defp del_target_args({:getattr, _, [o, a]}), do: {:ok, [:attr, o, a]}
+  defp del_target_args(_), do: :error
+
   @spec parse_name_statement([Lexer.token()], pos_integer(), String.t()) :: parse_result()
   defp parse_name_statement([{:name, line, _}, {:op, _, :dot} | _] = tokens, _line, _) do
     case try_attr_assign(tokens, line) do
-      {:ok, _, _} = result -> result
-      :not_assign -> parse_expression_statement(tokens)
+      {:ok, _, _} = result ->
+        result
+
+      :not_assign ->
+        # `a.b, ... = ...` — an attribute target leading a tuple unpack.
+        case try_multi_assign_from_target(tokens, line) do
+          {:ok, _, _} = result -> result
+          :not_assign -> parse_expression_statement(tokens)
+        end
     end
   end
 
@@ -1104,7 +1144,10 @@ defmodule Pyex.Parser do
     end
   end
 
-  @mult_ops [:star, :slash, :floor_div, :percent]
+  # `@` (matmul) shares multiplicative precedence. As an *infix* op it can only
+  # appear after a left operand; a leading `@` is still a decorator (handled in
+  # parse_statement before expressions), so there is no ambiguity.
+  @mult_ops [:star, :slash, :floor_div, :percent, :at]
 
   @spec parse_multiplication_rest(ast_node(), [Lexer.token()]) :: parse_result()
   defp parse_multiplication_rest(left, [{:op, _, op} | rest]) when op in @mult_ops do
@@ -1395,7 +1438,8 @@ defmodule Pyex.Parser do
 
   @spec try_multi_assign([Lexer.token()], pos_integer(), [unpack_target()]) ::
           parse_result() | :not_assign
-  defp try_multi_assign([{:name, _, _}, {:op, _, :lbracket} | _] = tokens, line, acc) do
+  defp try_multi_assign([{:name, _, _}, {:op, _, sep} | _] = tokens, line, acc)
+       when sep in [:lbracket, :dot] do
     case parse_assignment_target(tokens) do
       {:ok, target, [{:op, _, :comma} | rest]} ->
         try_multi_assign(rest, line, [target | acc])
@@ -1416,6 +1460,8 @@ defmodule Pyex.Parser do
     end
   end
 
+  # Starred non-name target inside a tuple unpack, e.g. `a, *obj.rest = xs` or
+  # `a, *d[k] = xs`.
   defp try_multi_assign([{:name, _, name}, {:op, _, :comma} | rest], line, acc) do
     try_multi_assign(rest, line, [name | acc])
   end
@@ -1492,6 +1538,7 @@ defmodule Pyex.Parser do
   defp parse_assignment_target(tokens) do
     case parse_expression(tokens) do
       {:ok, {:subscript, _, _} = target, rest} -> {:ok, {:target, target}, rest}
+      {:ok, {:getattr, _, _} = target, rest} -> {:ok, {:target, target}, rest}
       _ -> :error
     end
   end
