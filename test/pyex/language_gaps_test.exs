@@ -382,6 +382,22 @@ defmodule Pyex.LanguageGapsTest do
              """) == "not coerced"
     end
 
+    test "__index__ is consulted by range/hex/oct/bin/chr" do
+      assert out!("""
+             class I:
+                 def __init__(self, n):
+                     self.n = n
+                 def __index__(self):
+                     return self.n
+             print(list(range(I(3))))
+             print(list(range(I(1), I(5))))
+             print(hex(I(255)))
+             print(oct(I(8)))
+             print(bin(I(5)))
+             print(chr(I(65)))
+             """) == "[0, 1, 2]\n[1, 2, 3, 4]\n0xff\n0o10\n0b101\nA"
+    end
+
     test "__index__ also coerces slice bounds (start, stop, step)" do
       assert out!("""
              class I:

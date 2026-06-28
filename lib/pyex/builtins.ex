@@ -162,6 +162,17 @@ defmodule Pyex.Builtins do
     fun in [&builtin_list/1, &builtin_tuple/1, &builtin_reversed/1, &builtin_sorted/2]
   end
 
+  @doc """
+  True for builtins that take integer arguments and therefore accept any
+  object implementing `__index__` (PEP 357): `range`, `hex`, `oct`, `bin`,
+  `chr`. The interpreter coerces their instance/bool args through `__index__`
+  before dispatch, matching CPython.
+  """
+  @spec index_coercing_builtin?(function()) :: boolean()
+  def index_coercing_builtin?(fun) do
+    fun in [&builtin_range/1, &builtin_hex/1, &builtin_oct/1, &builtin_bin/1, &builtin_chr/1]
+  end
+
   @spec all() :: [{String.t(), ([Interpreter.pyvalue()] -> Interpreter.pyvalue())}]
   defp all do
     [

@@ -742,19 +742,67 @@ defmodule Pyex.Interpreter.Invocation do
       {drained_args, env, ctx} ->
         derefed_args = deref_args_for(fun, drained_args, ctx)
 
-        result =
-          try do
-            fun.(derefed_args)
-          rescue
-            FunctionClauseError ->
-              {:exception, builtin_clause_error_message(fun, derefed_args)}
+        case maybe_coerce_index_args(fun, derefed_args, env, ctx) do
+          {:exception, _} = signal ->
+            {signal, env, ctx}
 
-            e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
-              {:exception, "TypeError: #{Exception.message(e)}"}
-          end
-
-        BuiltinResults.handle_builtin_result(result, env, ctx)
+          {coerced_args, env, ctx} ->
+            run_builtin(fun, coerced_args, env, ctx)
+        end
     end
+  end
+
+  # PEP 357: builtins that want integers (range/hex/oct/bin/chr) coerce
+  # instance/bool arguments through __index__ before dispatch.
+  @spec maybe_coerce_index_args((list() -> term()), [Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
+          {[Interpreter.pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
+  defp maybe_coerce_index_args(fun, args, env, ctx) do
+    if Pyex.Builtins.index_coercing_builtin?(fun) do
+      Enum.reduce_while(args, {[], env, ctx}, fn arg, {acc, env, ctx} ->
+        case coerce_one_index(arg, env, ctx) do
+          {:ok, v, env, ctx} -> {:cont, {[v | acc], env, ctx}}
+          {:exception, _} = signal -> {:halt, signal}
+        end
+      end)
+      |> case do
+        {:exception, _} = signal -> signal
+        {acc, env, ctx} -> {Enum.reverse(acc), env, ctx}
+      end
+    else
+      {args, env, ctx}
+    end
+  end
+
+  @spec coerce_one_index(Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
+          {:ok, Interpreter.pyvalue(), Env.t(), Ctx.t()} | {:exception, String.t()}
+  defp coerce_one_index(true, env, ctx), do: {:ok, 1, env, ctx}
+  defp coerce_one_index(false, env, ctx), do: {:ok, 0, env, ctx}
+
+  defp coerce_one_index({:instance, _, _} = inst, env, ctx) do
+    case Interpreter.Dunder.call_dunder(inst, "__index__", [], env, ctx) do
+      {:ok, i, env, ctx} when is_integer(i) -> {:ok, i, env, ctx}
+      {:ok, _other, _env, _ctx} -> {:exception, "TypeError: __index__ returned non-int"}
+      :not_found -> {:ok, inst, env, ctx}
+    end
+  end
+
+  defp coerce_one_index(arg, env, ctx), do: {:ok, arg, env, ctx}
+
+  @spec run_builtin((list() -> term()), [Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
+          {Interpreter.pyvalue() | tuple(), Env.t(), Ctx.t()}
+  defp run_builtin(fun, derefed_args, env, ctx) do
+    result =
+      try do
+        fun.(derefed_args)
+      rescue
+        FunctionClauseError ->
+          {:exception, builtin_clause_error_message(fun, derefed_args)}
+
+        e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
+          {:exception, "TypeError: #{Exception.message(e)}"}
+      end
+
+    BuiltinResults.handle_builtin_result(result, env, ctx)
   end
 
   @spec maybe_drain_args(
