@@ -23,7 +23,7 @@
 # The program cannot suppress or forge it. Try one that touches storage:
 #
 #     curl -s localhost:4599/run --data-binary \
-#       $'store.set("user:1", {"n": 7})\nprint(store.get("user:1"))' | jq -r .trace
+#       $'import store\nstore.set("user:1", {"n": 7})\nprint(store.get("user:1"))' | jq -r .trace
 
 defmodule SandboxServer do
   use Plug.Router
