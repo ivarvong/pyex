@@ -89,19 +89,31 @@ defmodule SandboxServer do
         # Fresh, isolated in-memory store per request.
         run_opts = [limits: @limits, storage: Pyex.Storage.Memory.new()]
 
+        # The footprint + capability ledger come straight off the return value
+        # on both paths — `ctx` on success, the `%Pyex.Error{}` on failure — so
+        # "what did it touch before it crashed?" needs no telemetry plumbing.
         body =
           case Pyex.run(source, run_opts) do
             {:ok, value, ctx} ->
-              with_telemetry(%{verdict: "ok", stdout: Pyex.output(ctx), value: inspect(value)})
+              %{
+                verdict: "ok",
+                stdout: Pyex.output(ctx),
+                value: inspect(value),
+                usage: usage(Pyex.Turn.footprint(ctx)),
+                trace: Pyex.Turn.render(ctx)
+              }
 
-            {:error, %Pyex.Error{kind: :timeout, message: m}} ->
-              with_telemetry(%{verdict: "timeout", detail: m})
+            {:error, %Pyex.Error{kind: :timeout} = e} ->
+              audited(%{verdict: "timeout", detail: e.message}, e)
 
             {:error, %Pyex.Error{} = e} ->
-              with_telemetry(%{
-                verdict: "error",
-                error: %{type: e.exception_type, kind: e.kind, message: e.message, line: e.line}
-              })
+              audited(
+                %{
+                  verdict: "error",
+                  error: %{type: e.exception_type, kind: e.kind, message: e.message, line: e.line}
+                },
+                e
+              )
           end
 
         send(parent, {:done, self(), body})
@@ -132,39 +144,26 @@ defmodule SandboxServer do
     end
   end
 
-  # Folds the run's footprint + capability ledger (captured from Pyex's telemetry
-  # in THIS worker process) into the verdict body. Present whenever the run
-  # produced a result — including failures.
-  defp with_telemetry(body) do
-    case Process.get(:pyex_run) do
-      {footprint, metadata} ->
-        spans = Map.get(metadata, :runtime_spans, [])
+  # Folds a failed run's footprint + capability ledger (carried on the error)
+  # into the verdict body. Both are empty/nil for errors raised before execution.
+  defp audited(body, %Pyex.Error{footprint: nil}), do: body
 
-        body
-        |> Map.put(:usage, %{
-          steps: footprint[:steps],
-          compute_ms: footprint[:compute],
-          duration_ms: footprint[:duration_ms],
-          memory_bytes: footprint[:memory_bytes],
-          output_bytes: footprint[:output_bytes]
-        })
-        |> Map.put(:trace, Pyex.SpanTree.render(spans, title: "runtime · scope=pyex"))
+  defp audited(body, %Pyex.Error{footprint: footprint, runtime_spans: spans}) do
+    body
+    |> Map.put(:usage, usage(footprint))
+    |> Map.put(:trace, Pyex.SpanTree.render(spans, title: "runtime · scope=pyex"))
+  end
 
-      _ ->
-        body
-    end
+  defp usage(footprint) do
+    %{
+      steps: footprint[:steps],
+      compute_ms: footprint[:compute],
+      duration_ms: footprint[:duration_ms],
+      memory_bytes: footprint[:memory_bytes],
+      output_bytes: footprint[:output_bytes]
+    }
   end
 end
-
-# One telemetry handler captures each run's footprint + capability ledger into
-# the emitting worker's process dictionary (handlers run in the caller's
-# process), for `with_telemetry/1` to read back. Covers success and failure.
-:telemetry.attach_many(
-  "sandbox-capture",
-  [[:pyex, :run, :stop], [:pyex, :run, :exception]],
-  fn _event, measurements, metadata, _ -> Process.put(:pyex_run, {measurements, metadata}) end,
-  nil
-)
 
 port = String.to_integer(System.get_env("PORT", "4599"))
 {:ok, _} = Bandit.start_link(plug: SandboxServer, port: port)

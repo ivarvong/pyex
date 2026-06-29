@@ -45,14 +45,21 @@ defmodule Pyex.Error do
           limit: limit_type(),
           message: String.t(),
           line: pos_integer() | nil,
-          exception_type: String.t() | nil
+          exception_type: String.t() | nil,
+          runtime_spans: [map()],
+          footprint: map() | nil
         }
 
   defstruct kind: :internal,
             limit: nil,
             message: "",
             line: nil,
-            exception_type: nil
+            exception_type: nil,
+            # The capability ledger and resource footprint at the point of
+            # failure — what the program touched and how much it spent before it
+            # broke. Empty/nil for errors raised before execution (e.g. syntax).
+            runtime_spans: [],
+            footprint: nil
 
   @doc """
   Classifies a raw error string into a structured error.

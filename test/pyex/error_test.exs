@@ -226,4 +226,23 @@ defmodule Pyex.ErrorTest do
       assert err.kind == :timeout
     end
   end
+
+  describe "the error carries the capability ledger and footprint of a failed run" do
+    test "a failed run's error carries the span ledger of what it touched first" do
+      src = "import store\nstore.set('k', 1)\nstore.get('k')\n1 / 0"
+      {:error, %Error{} = err} = Pyex.run(src, storage: Pyex.Storage.Memory.new())
+
+      # Auditable from the return value alone — no telemetry handler needed.
+      assert Enum.map(err.runtime_spans, & &1.name) == ["db.set", "db.get"]
+      assert err.footprint[:steps] > 0
+    end
+
+    test "an error raised before execution carries an empty ledger and no footprint" do
+      {:error, %Error{} = err} = Pyex.run("def (:")
+
+      assert err.kind == :syntax
+      assert err.runtime_spans == []
+      assert err.footprint == nil
+    end
+  end
 end
