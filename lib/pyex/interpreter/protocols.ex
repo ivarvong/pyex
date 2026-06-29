@@ -11,8 +11,8 @@ defmodule Pyex.Interpreter.Protocols do
 
   @doc false
   @spec eval_py_str(Interpreter.pyvalue(), Env.t(), Ctx.t()) :: {String.t(), Env.t(), Ctx.t()}
-  def eval_py_str({:ref, _} = ref, env, ctx) do
-    eval_py_str(Ctx.deref(ctx, ref), env, ctx)
+  def eval_py_str({:ref, id} = ref, env, ctx) do
+    with_cycle_guard(id, ref, env, ctx, &eval_py_str/3)
   end
 
   def eval_py_str({:instance, _, _} = inst, env, ctx) do
@@ -52,12 +52,14 @@ defmodule Pyex.Interpreter.Protocols do
     {formatted, env, ctx}
   end
 
+  def eval_py_str({:py_dict, _, _} = dict, env, ctx), do: eval_py_repr(dict, env, ctx)
+
   def eval_py_str(val, env, ctx), do: {Helpers.py_str(val), env, ctx}
 
   @doc false
   @spec eval_py_repr(Interpreter.pyvalue(), Env.t(), Ctx.t()) :: {String.t(), Env.t(), Ctx.t()}
-  def eval_py_repr({:ref, _} = ref, env, ctx) do
-    eval_py_repr(Ctx.deref(ctx, ref), env, ctx)
+  def eval_py_repr({:ref, id} = ref, env, ctx) do
+    with_cycle_guard(id, ref, env, ctx, &eval_py_repr/3)
   end
 
   def eval_py_repr({:instance, _, _} = inst, env, ctx) do
@@ -110,6 +112,24 @@ defmodule Pyex.Interpreter.Protocols do
   end
 
   def eval_py_repr(val, env, ctx), do: {Helpers.py_repr_fmt(val), env, ctx}
+
+  # Renders a heap ref while guarding against cycles: a container already being
+  # rendered (its id in `ctx.repr_seen`) becomes `[...]`/`{...}` instead of
+  # recursing forever — matching CPython and, crucially, keeping a guest from
+  # hanging the host with a self-referential structure.
+  defp with_cycle_guard(id, ref, env, ctx, render) do
+    if MapSet.member?(ctx.repr_seen, id) do
+      {ellipsis_for(Ctx.deref(ctx, ref)), env, ctx}
+    else
+      entered = %{ctx | repr_seen: MapSet.put(ctx.repr_seen, id)}
+      {str, env, ctx} = render.(Ctx.deref(ctx, ref), env, entered)
+      {str, env, %{ctx | repr_seen: MapSet.delete(ctx.repr_seen, id)}}
+    end
+  end
+
+  defp ellipsis_for({:py_dict, _, _}), do: "{...}"
+  defp ellipsis_for({:tuple, _}), do: "(...)"
+  defp ellipsis_for(_), do: "[...]"
 
   @spec eval_reprs([Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
           {[String.t()], Env.t(), Ctx.t()}

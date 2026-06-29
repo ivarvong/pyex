@@ -3791,9 +3791,17 @@ defmodule Pyex.Interpreter do
   end
 
   defp eval_binop(op, l, r, env, ctx) when op in [:eq, :neq] do
-    l = if Ctx.ref?(l), do: Ctx.deep_deref(ctx, l), else: l
-    r = if Ctx.ref?(r), do: Ctx.deep_deref(ctx, r), else: r
-    do_eval_binop(op, l, r, env, ctx)
+    if Ctx.ref?(l) and l == r do
+      # Same heap object — equal by identity, decided without materializing the
+      # value. This both matches CPython (identity is checked before __eq__) and
+      # keeps a self-referential structure from looping forever when its own
+      # elements are compared (`a = []; a.append(a); a == a`).
+      BinaryOps.binop_result(op == :eq, env, ctx)
+    else
+      l = if Ctx.ref?(l), do: Ctx.deep_deref(ctx, l), else: l
+      r = if Ctx.ref?(r), do: Ctx.deep_deref(ctx, r), else: r
+      do_eval_binop(op, l, r, env, ctx)
+    end
   end
 
   defp eval_binop(op, l, r, env, ctx) do

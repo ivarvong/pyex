@@ -118,7 +118,11 @@ defmodule Pyex.Interpreter.ClassLookup do
   def c3_linearize({:class, _, [], _} = class), do: [class]
 
   def c3_linearize({:class, _, bases, _} = class) do
-    reified = Enum.map(bases, &reify_base/1)
+    # A base that doesn't reify to a real class (e.g. a builtin used as a base,
+    # `type('T', (frozenset,), {})`, where `frozenset` is a `{:builtin, _}`
+    # constructor rather than a class) contributes nothing to the MRO instead
+    # of leaking a non-class entry that later crashes an MRO walker.
+    reified = bases |> Enum.map(&reify_base/1) |> Enum.filter(&class?/1)
     parent_mros = Enum.map(reified, &c3_linearize/1)
     [class | c3_merge(parent_mros ++ [reified])]
   end
@@ -166,6 +170,9 @@ defmodule Pyex.Interpreter.ClassLookup do
   defp reify_base({:exception_class, _} = exc), do: Interpreter.exception_instance_class(exc)
   defp reify_base({:builtin_type, _, _} = bt), do: Interpreter.builtin_type_base_class(bt)
   defp reify_base(other), do: other
+
+  defp class?({:class, _, _, _}), do: true
+  defp class?(_), do: false
 
   @spec c3_merge([[Interpreter.pyvalue()]]) :: [Interpreter.pyvalue()]
   defp c3_merge(lists) do
