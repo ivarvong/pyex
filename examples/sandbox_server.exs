@@ -1,42 +1,49 @@
-# A tiny HTTP sandbox: POST Python source, get the result back.
+# A tiny HTTP sandbox: POST Python source, get a structured verdict back.
 #
-# Demonstrates the "Pyex is processless; the caller owns the process" model
-# from the README. An HTTP server already gives you one process per request,
-# so the request handler IS the isolation boundary: it spawns a monitored
-# worker, caps that worker's heap (GC-enforced), runs the untrusted code, and
-# acts as a wall-clock watchdog. Pyex itself never spawns.
+# Demonstrates the "Pyex is processless; the caller owns the process" model, and
+# the telemetry discipline that follows from it:
 #
-# Run it:
+#   * The HTTP status describes the SANDBOX SERVICE, never the guest program.
+#     Running and bounding a job is a successful request (200); the program's
+#     verdict — ok / error / timeout / out_of_memory / host_fault — is a field
+#     in the body. The guest must not be able to move your 5xx rate (that would
+#     hand it your circuit breakers, health checks, and on-call pager). Only the
+#     SERVICE failing is a 5xx; a malformed HTTP request is a 4xx.
 #
-#     mix run examples/sandbox_server.exs
+#   * Every verdict that produced a result also carries `usage` (the resource
+#     footprint) and `trace` (the host capability ledger — an unforgeable span
+#     tree of what the program touched). The ledger is present even when the
+#     program FAILED: "what did it touch before it crashed?" matters most then.
+#     Pyex emits it on both [:pyex, :run, :stop] and [:pyex, :run, :exception].
 #
-# Then hit it. Running and bounding the job is a successful request (HTTP 200);
-# the verdict is the body's "status" field (ok / error / timeout / out_of_memory).
+#   * A `host_fault` (the guest tripped a CONTAINED interpreter bug) is still a
+#     200 — the service stayed up and contained it — but it ALSO fires a
+#     dedicated high-severity signal, because containment failing is a real
+#     incident. Service health and containment health are different channels.
 #
-#     curl -s localhost:4599/run --data-binary 'print(sum(range(1000)))'   # status: ok
-#     curl -s localhost:4599/run --data-binary '1 / 0'                      # status: error
-#     curl -s localhost:4599/run --data-binary $'while True:\n    pass'     # status: timeout
-#     curl -s localhost:4599/run --data-binary \
-#       $'x = []\ni = 0\nwhile True:\n    x.append(i * i)\n    i += 1'       # status: out_of_memory
+# Run it:    mix run examples/sandbox_server.exs
 #
-# Successful responses also carry "trace": the host capability ledger — an
-# unforgeable, host-rendered span tree of every storage op the program caused.
-# The program cannot suppress or forge it. Try one that touches storage:
-#
-#     curl -s localhost:4599/run --data-binary \
-#       $'import store\nstore.set("user:1", {"n": 7})\nprint(store.get("user:1"))' | jq -r .trace
+#   curl -s localhost:4599/run --data-binary 'print(sum(range(1000)))'        # verdict ok
+#   curl -s localhost:4599/run --data-binary '1 / 0'                          # verdict error
+#   curl -s localhost:4599/run --data-binary $'while True:\n    pass'         # verdict timeout
+#   curl -s localhost:4599/run --data-binary \
+#     $'x = []\ni = 0\nwhile True:\n    x.append(i * i)\n    i += 1'           # verdict out_of_memory
+#   # the ledger survives failure — this errors, but `trace` shows the writes it did first:
+#   curl -s localhost:4599/run --data-binary \
+#     $'import store\nstore.set("audit", "started")\nstore.get("audit")\n1 / 0' | jq -r .trace
+
+require Logger
 
 defmodule SandboxServer do
   use Plug.Router
 
-  # The watchdog wall clock; the worker's hard memory ceiling.
   @wall_ms 3_000
   @heap_bytes 64_000_000
-
-  # Time is bounded cooperatively by Pyex; memory and any native hang are
-  # bounded by the per-request *process*. In production keep Pyex's
-  # max_memory/max_steps on as well — here max_memory is :infinity purely so
-  # the BEAM heap cap is the visible memory ceiling in the demo.
+  # Time is bounded cooperatively by Pyex; memory and any native hang are bounded
+  # by the per-request *process*. In production keep Pyex's max_memory/max_steps
+  # on too — here max_memory is :infinity so the BEAM heap cap is the visible
+  # memory ceiling. (A real service would also clamp client-requested limits to
+  # these as a ceiling — the caller may ask for *tighter*, never looser.)
   @limits [
     timeout: @wall_ms - 500,
     max_steps: :infinity,
@@ -48,31 +55,26 @@ defmodule SandboxServer do
   plug(:dispatch)
 
   post "/run" do
-    {status, payload} =
+    {status, body} =
       case Plug.Conn.read_body(conn, length: 2_000_000) do
-        {:ok, "", _conn} -> {400, %{error: "empty body — POST Python source"}}
-        {:ok, source, _conn} -> run_sandboxed(source)
-        {:more, _, _conn} -> {413, %{error: "program too large"}}
+        {:ok, "", _} -> {400, %{error: "empty body — POST Python source"}}
+        {:ok, source, _} -> {200, run_sandboxed(source)}
+        {:more, _, _} -> {413, %{error: "program too large"}}
       end
 
     conn
     |> put_resp_content_type("application/json")
-    |> send_resp(status, Jason.encode!(payload))
+    |> send_resp(status, Jason.encode!(body))
   end
 
-  match _ do
-    send_resp(conn, 404, ~s({"error":"POST Python source to /run"}))
-  end
+  match(_, do: send_resp(conn, 404, ~s({"error":"POST Python source to /run"})))
 
-  # The request process is the sandbox supervisor: spawn_monitor (not link) so a
-  # guest that blows the heap can't take the request down, cap the worker's heap,
-  # and watchdog the wall clock.
-  #
-  # The HTTP status describes the API call, not the program: running and bounding
-  # the job is a successful request (200) whose verdict — ok / error / timeout /
-  # out_of_memory — is a field in the body. Only a fault in the *sandbox itself*
-  # is a 500. (There is no honest HTTP code for "the guest used too much memory.")
+  # The request process is the sandbox supervisor: it spawns a monitored worker
+  # (spawn_monitor, not link, so a guest OOM can't take the request down), caps
+  # the worker's heap, and watchdogs the wall clock. The HTTP layer never sees
+  # the guest's behavior — only this function's verdict.
   defp run_sandboxed(source) do
+    run_id = Base.url_encode64(:crypto.strong_rand_bytes(6), padding: false)
     parent = self()
 
     {pid, ref} =
@@ -84,55 +86,85 @@ defmodule SandboxServer do
           include_shared_binaries: true
         })
 
-        # A fresh, isolated in-memory store per request. With a real backend
-        # (and the same one threaded across requests) the program becomes a
-        # persistent service; attenuate with Pyex.Storage.View for least authority.
+        # Fresh, isolated in-memory store per request.
         run_opts = [limits: @limits, storage: Pyex.Storage.Memory.new()]
 
-        result =
+        body =
           case Pyex.run(source, run_opts) do
-            # The trace is the host's own record of what touched the world —
-            # rendered here and returned to the caller.
-            {:ok, value, ctx} -> {:ok, Pyex.output(ctx), inspect(value), Pyex.Turn.render(ctx)}
-            {:error, %Pyex.Error{kind: :timeout, message: m}} -> {:timeout, m}
-            {:error, %Pyex.Error{kind: k, message: m}} -> {:py_error, k, m}
+            {:ok, value, ctx} ->
+              with_telemetry(%{verdict: "ok", stdout: Pyex.output(ctx), value: inspect(value)})
+
+            {:error, %Pyex.Error{kind: :timeout, message: m}} ->
+              with_telemetry(%{verdict: "timeout", detail: m})
+
+            {:error, %Pyex.Error{} = e} ->
+              with_telemetry(%{
+                verdict: "error",
+                error: %{type: e.exception_type, kind: e.kind, message: e.message, line: e.line}
+              })
           end
 
-        send(parent, {:result, self(), result})
+        send(parent, {:done, self(), body})
       end)
 
+    base = %{run_id: run_id}
+
     receive do
-      {:result, ^pid, {:ok, output, value, trace}} ->
+      {:done, ^pid, body} ->
         Process.demonitor(ref, [:flush])
-        {200, %{status: "ok", output: output, value: value, trace: trace}}
+        Map.merge(base, body)
 
-      {:result, ^pid, {:timeout, m}} ->
-        Process.demonitor(ref, [:flush])
-        {200, %{status: "timeout", detail: m}}
-
-      {:result, ^pid, {:py_error, k, m}} ->
-        Process.demonitor(ref, [:flush])
-        {200, %{status: "error", kind: k, message: m}}
-
+      # max_heap_size killed the worker (reason :killed): a clean memory verdict.
       {:DOWN, ^ref, :process, ^pid, :killed} ->
-        {200, %{status: "out_of_memory"}}
+        Map.put(base, :verdict, "out_of_memory")
 
+      # The worker died some other way — the guest tripped a contained interpreter
+      # bug. Still a 200 verdict to the caller, but a real containment incident:
+      # fire a dedicated, guest-uninfluenced alert. (HTTP health stays clean.)
       {:DOWN, ^ref, :process, ^pid, reason} ->
-        {500, %{status: "host_fault", reason: inspect(reason)}}
+        Logger.error("[sandbox] host_fault run=#{run_id} reason=#{inspect(reason)}")
+        Map.put(base, :verdict, "host_fault")
     after
       @wall_ms ->
         Process.exit(pid, :kill)
+        receive(do: ({:DOWN, ^ref, :process, ^pid, _} -> :ok), after: (100 -> :ok))
+        Map.merge(base, %{verdict: "timeout", detail: "wall-clock watchdog"})
+    end
+  end
 
-        receive do
-          {:DOWN, ^ref, :process, ^pid, _} -> :ok
-        after
-          100 -> :ok
-        end
+  # Folds the run's footprint + capability ledger (captured from Pyex's telemetry
+  # in THIS worker process) into the verdict body. Present whenever the run
+  # produced a result — including failures.
+  defp with_telemetry(body) do
+    case Process.get(:pyex_run) do
+      {footprint, metadata} ->
+        spans = Map.get(metadata, :runtime_spans, [])
 
-        {200, %{status: "timeout"}}
+        body
+        |> Map.put(:usage, %{
+          steps: footprint[:steps],
+          compute_ms: footprint[:compute],
+          duration_ms: footprint[:duration_ms],
+          memory_bytes: footprint[:memory_bytes],
+          output_bytes: footprint[:output_bytes]
+        })
+        |> Map.put(:trace, Pyex.SpanTree.render(spans, title: "runtime · scope=pyex"))
+
+      _ ->
+        body
     end
   end
 end
+
+# One telemetry handler captures each run's footprint + capability ledger into
+# the emitting worker's process dictionary (handlers run in the caller's
+# process), for `with_telemetry/1` to read back. Covers success and failure.
+:telemetry.attach_many(
+  "sandbox-capture",
+  [[:pyex, :run, :stop], [:pyex, :run, :exception]],
+  fn _event, measurements, metadata, _ -> Process.put(:pyex_run, {measurements, metadata}) end,
+  nil
+)
 
 port = String.to_integer(System.get_env("PORT", "4599"))
 {:ok, _} = Bandit.start_link(plug: SandboxServer, port: port)
