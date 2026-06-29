@@ -2872,6 +2872,10 @@ defmodule Pyex.Builtins do
   @spec builtin_bytes([Interpreter.pyvalue()]) ::
           Interpreter.pyvalue() | {:exception, String.t()}
   defp builtin_bytes([]), do: {:bytes, ""}
+
+  defp builtin_bytes([n]) when is_integer(n) and n > 100_000_000,
+    do: {:exception, "OverflowError: cannot allocate #{n} bytes (max 100000000)"}
+
   defp builtin_bytes([n]) when is_integer(n) and n >= 0, do: {:bytes, :binary.copy(<<0>>, n)}
   defp builtin_bytes([n]) when is_integer(n), do: {:exception, "ValueError: negative count"}
   defp builtin_bytes([true]), do: {:bytes, <<0>>}

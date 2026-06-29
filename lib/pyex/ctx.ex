@@ -97,7 +97,8 @@ defmodule Pyex.Ctx do
           app_span_seq: non_neg_integer(),
           app_span_stack: [non_neg_integer()],
           app_span_active: %{optional(non_neg_integer()) => map()},
-          app_spans: [map()]
+          app_spans: [map()],
+          repr_seen: %{optional(non_neg_integer()) => true}
         }
 
   defstruct filesystem: nil,
@@ -145,7 +146,11 @@ defmodule Pyex.Ctx do
             app_span_seq: 0,
             app_span_stack: [],
             app_span_active: %{},
-            app_spans: []
+            app_spans: [],
+            # Heap ids currently being rendered by repr/str (a map used as a set,
+            # not a MapSet, to stay clear of opaque-type friction), so a
+            # self-referential container emits `[...]` instead of looping forever.
+            repr_seen: %{}
 
   @doc """
   Creates a fresh live context that captures output and execution counters.
