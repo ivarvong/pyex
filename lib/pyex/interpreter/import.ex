@@ -52,6 +52,10 @@ defmodule Pyex.Interpreter.Import do
   """
   @spec eval_from_import(String.t(), [{String.t(), String.t() | nil}], Env.t(), Ctx.t()) ::
           {nil, Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  # `from __future__ import annotations` (and the other historical feature
+  # flags) are no-ops on Python 3 — their behavior is already the default.
+  def eval_from_import("__future__", _names, env, ctx), do: {nil, env, ctx}
+
   def eval_from_import(module_name, names, env, ctx) do
     case resolve_module(module_name, env, ctx) do
       {:ok, module, ctx} ->

@@ -124,8 +124,45 @@ defmodule Pyex.Parser.Imports do
     end
   end
 
+  # Parenthesized import list: `from x import (a, b as c,\n d,)`. Inside the
+  # parens newlines are implicit continuations, so a trailing comma and
+  # line breaks are allowed.
+  defp parse_import_names([{:op, _, :lparen} | rest], acc) do
+    parse_paren_import_names(rest, acc)
+  end
+
   defp parse_import_names(tokens, _acc) do
     {:error, "expected name after 'import' at #{token_line(tokens)}"}
+  end
+
+  @spec parse_paren_import_names([Lexer.token()], [import_spec()]) ::
+          {:ok, [import_spec()], [Lexer.token()]} | {:error, String.t()}
+  defp parse_paren_import_names([{:op, _, :rparen} | rest], acc) do
+    {:ok, Enum.reverse(acc), drop_newline(rest)}
+  end
+
+  defp parse_paren_import_names([tok | rest], acc)
+       when tok in [:newline, :indent, :dedent] do
+    parse_paren_import_names(rest, acc)
+  end
+
+  defp parse_paren_import_names([{:op, _, :comma} | rest], acc) do
+    parse_paren_import_names(rest, acc)
+  end
+
+  defp parse_paren_import_names(
+         [{:name, _, name}, {:keyword, _, "as"}, {:name, _, alias_name} | rest],
+         acc
+       ) do
+    parse_paren_import_names(rest, [{name, alias_name} | acc])
+  end
+
+  defp parse_paren_import_names([{:name, _, name} | rest], acc) do
+    parse_paren_import_names(rest, [{name, nil} | acc])
+  end
+
+  defp parse_paren_import_names(tokens, _acc) do
+    {:error, "expected name or ')' in import list at #{token_line(tokens)}"}
   end
 
   @spec drop_newline([Lexer.token()]) :: [Lexer.token()]
