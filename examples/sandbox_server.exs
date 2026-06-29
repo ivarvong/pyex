@@ -10,13 +10,14 @@
 #
 #     mix run examples/sandbox_server.exs
 #
-# Then hit it (each line shows the HTTP status you get back):
+# Then hit it. Running and bounding the job is a successful request (HTTP 200);
+# the verdict is the body's "status" field (ok / error / timeout / out_of_memory).
 #
-#     curl -s localhost:4599/run --data-binary 'print(sum(range(1000)))'   # 200 ok
-#     curl -s localhost:4599/run --data-binary '1 / 0'                      # 400 python_error
-#     curl -s localhost:4599/run --data-binary $'while True:\n    pass'     # 504 timeout
+#     curl -s localhost:4599/run --data-binary 'print(sum(range(1000)))'   # status: ok
+#     curl -s localhost:4599/run --data-binary '1 / 0'                      # status: error
+#     curl -s localhost:4599/run --data-binary $'while True:\n    pass'     # status: timeout
 #     curl -s localhost:4599/run --data-binary \
-#       $'x = []\ni = 0\nwhile True:\n    x.append(i * i)\n    i += 1'       # 507 out_of_memory
+#       $'x = []\ni = 0\nwhile True:\n    x.append(i * i)\n    i += 1'       # status: out_of_memory
 #
 # Successful responses also carry "trace": the host capability ledger — an
 # unforgeable, host-rendered span tree of every storage op the program caused.
@@ -47,8 +48,12 @@ defmodule SandboxServer do
   plug(:dispatch)
 
   post "/run" do
-    {:ok, source, conn} = Plug.Conn.read_body(conn, length: 2_000_000)
-    {status, payload} = run_sandboxed(source)
+    {status, payload} =
+      case Plug.Conn.read_body(conn, length: 2_000_000) do
+        {:ok, "", _conn} -> {400, %{error: "empty body — POST Python source"}}
+        {:ok, source, _conn} -> run_sandboxed(source)
+        {:more, _, _conn} -> {413, %{error: "program too large"}}
+      end
 
     conn
     |> put_resp_content_type("application/json")
@@ -62,6 +67,11 @@ defmodule SandboxServer do
   # The request process is the sandbox supervisor: spawn_monitor (not link) so a
   # guest that blows the heap can't take the request down, cap the worker's heap,
   # and watchdog the wall clock.
+  #
+  # The HTTP status describes the API call, not the program: running and bounding
+  # the job is a successful request (200) whose verdict — ok / error / timeout /
+  # out_of_memory — is a field in the body. Only a fault in the *sandbox itself*
+  # is a 500. (There is no honest HTTP code for "the guest used too much memory.")
   defp run_sandboxed(source) do
     parent = self()
 
@@ -98,14 +108,14 @@ defmodule SandboxServer do
 
       {:result, ^pid, {:timeout, m}} ->
         Process.demonitor(ref, [:flush])
-        {504, %{status: "timeout", detail: m}}
+        {200, %{status: "timeout", detail: m}}
 
       {:result, ^pid, {:py_error, k, m}} ->
         Process.demonitor(ref, [:flush])
-        {400, %{status: "python_error", kind: k, message: m}}
+        {200, %{status: "error", kind: k, message: m}}
 
       {:DOWN, ^ref, :process, ^pid, :killed} ->
-        {507, %{status: "out_of_memory"}}
+        {200, %{status: "out_of_memory"}}
 
       {:DOWN, ^ref, :process, ^pid, reason} ->
         {500, %{status: "host_fault", reason: inspect(reason)}}
@@ -119,7 +129,7 @@ defmodule SandboxServer do
           100 -> :ok
         end
 
-        {504, %{status: "timeout_killed"}}
+        {200, %{status: "timeout"}}
     end
   end
 end

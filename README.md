@@ -280,10 +280,12 @@ the watchdog kills it at the time limit. A few details worth getting right:
 A runnable version of exactly this is in
 [`examples/sandbox_server.exs`](examples/sandbox_server.exs) — a tiny HTTP
 server where each request is handled in its own ceilinged process. `mix run`
-it and `curl` it: you get `200` for a result, `400` for a Python error,
-`504` for a runaway loop, `507` when a request blows its memory cap, and on
-success the response also carries the **host capability ledger** (a rendered,
-unforgeable span tree of every storage op the program caused).
+it and `curl` it. Running and bounding a job is a successful request
+(`200`); the run's verdict — `ok`, `error`, `timeout`, `out_of_memory` — is
+a field in the body, not an abused HTTP code (only a fault in the sandbox
+itself is a `5xx`). On success the response also carries the **host
+capability ledger**: a rendered, unforgeable span tree of every storage op
+the program caused.
 
 This is BEAM-level isolation inside one VM. For a sophisticated attacker,
 it composes with — it does not replace — the stronger boundary in the next
