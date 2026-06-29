@@ -35,6 +35,17 @@ defmodule Pyex do
         modules: %{"mylib" => %{"greet" => {:builtin, fn [n] -> "hi \#{n}" end}}})
 
   See `run/2` for the full list of options.
+
+  ## Processless by design
+
+  `run/2` is a synchronous call on the caller's process: Pyex never spawns,
+  links, monitors, or sleeps a process of its own (a CI static analyzer
+  enforces this). The interpreter's resource ceilings (`:limits`) are
+  *cooperative* — checked between evaluation steps. For untrusted input,
+  wrap `run/2` in a process **you** own to add hard, BEAM-enforced ceilings
+  (`max_heap_size` + a wall-clock kill) that bound memory and time
+  regardless of what the code does. See the "Hard ceilings the caller adds"
+  section of the README for a ready-to-use `SafeRunner`.
   """
 
   alias Pyex.{Builtins, Ctx, Error, Lexer, Parser, Interpreter}
