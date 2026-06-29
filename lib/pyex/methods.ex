@@ -1773,7 +1773,20 @@ defmodule Pyex.Methods do
     String.upcase(<<first::utf8>>) <> String.downcase(rest)
   end
 
-  @spec str_zfill(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  # A width past this would build a huge string natively, outside the step loop
+  # (so neither the step nor the timeout ceiling can interrupt it). Cap it the
+  # same way string repetition (`*`) is capped.
+  @max_pad_width 10_000_000
+
+  defp pad_overflow(width),
+    do:
+      {:exception,
+       "MemoryError: padding to #{width} characters exceeds maximum (#{@max_pad_width})"}
+
+  @spec str_zfill(String.t(), [Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
+  defp str_zfill(_s, [width | _]) when is_integer(width) and width > @max_pad_width,
+    do: pad_overflow(width)
+
   defp str_zfill(s, [width]) when is_integer(width) do
     case s do
       <<sign, rest::binary>> when sign in [?+, ?-] ->
@@ -1784,7 +1797,10 @@ defmodule Pyex.Methods do
     end
   end
 
-  @spec str_center(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  @spec str_center(String.t(), [Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
+  defp str_center(_s, [width | _]) when is_integer(width) and width > @max_pad_width,
+    do: pad_overflow(width)
+
   defp str_center(s, [width]) when is_integer(width), do: str_center(s, [width, " "])
 
   defp str_center(s, [width, fill]) when is_integer(width) and is_binary(fill) do
@@ -1800,14 +1816,20 @@ defmodule Pyex.Methods do
     end
   end
 
-  @spec str_ljust(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  @spec str_ljust(String.t(), [Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
+  defp str_ljust(_s, [width | _]) when is_integer(width) and width > @max_pad_width,
+    do: pad_overflow(width)
+
   defp str_ljust(s, [width]) when is_integer(width), do: str_ljust(s, [width, " "])
 
   defp str_ljust(s, [width, fill]) when is_integer(width) and is_binary(fill) do
     String.pad_trailing(s, width, fill)
   end
 
-  @spec str_rjust(String.t(), [Interpreter.pyvalue()]) :: String.t()
+  @spec str_rjust(String.t(), [Interpreter.pyvalue()]) :: String.t() | {:exception, String.t()}
+  defp str_rjust(_s, [width | _]) when is_integer(width) and width > @max_pad_width,
+    do: pad_overflow(width)
+
   defp str_rjust(s, [width]) when is_integer(width), do: str_rjust(s, [width, " "])
 
   defp str_rjust(s, [width, fill]) when is_integer(width) and is_binary(fill) do

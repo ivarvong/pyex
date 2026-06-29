@@ -70,12 +70,12 @@ defmodule Pyex.Stdlib.Time do
           {:io_call, (Pyex.Env.t(), Pyex.Ctx.t() -> {nil, Pyex.Env.t(), Pyex.Ctx.t()})}
           | {:exception, String.t()}
   defp do_sleep([seconds]) when is_number(seconds) and seconds >= 0 do
-    capped = min(seconds, @max_sleep_seconds)
-    ms = round(capped * 1000)
-
     {:io_call,
      fn env, ctx ->
-       Process.sleep(ms)
+       # Never block the host longer than the run's own timeout budget — a guest
+       # with `timeout: 1500` must not be able to sleep for the full 30s cap.
+       capped = min(seconds, sleep_cap_seconds(ctx))
+       Process.sleep(round(capped * 1000))
        {nil, env, ctx}
      end}
   end
@@ -87,4 +87,11 @@ defmodule Pyex.Stdlib.Time do
   defp do_sleep(_args) do
     {:exception, "TypeError: sleep() argument must be a number"}
   end
+
+  # The 30s hard cap, further bounded by whatever timeout the run was given.
+  @spec sleep_cap_seconds(Pyex.Ctx.t()) :: number()
+  defp sleep_cap_seconds(%Pyex.Ctx{limits: %Pyex.Limits{timeout: t}}) when is_integer(t),
+    do: min(@max_sleep_seconds, t / 1000)
+
+  defp sleep_cap_seconds(_ctx), do: @max_sleep_seconds
 end

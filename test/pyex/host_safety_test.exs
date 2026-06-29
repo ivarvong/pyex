@@ -133,7 +133,24 @@ defmodule Pyex.HostSafetyTest do
 
     # Generator / exception interplay.
     {"StopIteration raised inside a generator",
-     "def g():\n    yield 1\n    raise StopIteration\nprint(list(g()))"}
+     "def g():\n    yield 1\n    raise StopIteration\nprint(list(g()))"},
+
+    # Single-operation allocation / compute bombs: one native op whose size the
+    # step/memory/timeout ceilings can't interrupt mid-flight. Each must fail
+    # fast, not hang.
+    {"factorial of a huge n", "import math\nmath.factorial(10**6)"},
+    {"bytes() of a billion", "bytes(10**9)"},
+    {"str.rjust to a billion", "'x'.rjust(10**9)"},
+    {"str.center to a billion", "'x'.center(10**9)"},
+    {"str.ljust to a billion", "'x'.ljust(10**9)"},
+    {"str.zfill to a billion", "'1'.zfill(10**9)"},
+    {"huge integer exponent", "2 ** (10**8)"},
+    {"materialize a 10**12 range", "list(range(10**12))"},
+
+    # Blocking the host: time.sleep must respect the run's timeout, and a
+    # catastrophic regex must be budget-bounded — neither may hang.
+    {"time.sleep beyond the timeout budget", "import time\ntime.sleep(10**9)"},
+    {"catastrophic regex backtracking", "import re\nre.match('(a+)+$', 'a' * 50 + '!')"}
   ]
 
   for {name, code} <- @regressions do
@@ -200,8 +217,31 @@ defmodule Pyex.HostSafetyTest do
       self_reference_stmt(),
       operator_stmt(),
       unicode_stmt(),
-      comprehension_stmt()
+      comprehension_stmt(),
+      resource_bomb_stmt()
     ])
+  end
+
+  # A single operation handed a size from tiny to astronomical: small ones
+  # succeed, huge ones must fail fast — never hang or unbound the host.
+  defp resource_bomb_stmt do
+    gen all(
+          n <- member_of(["8", "1000", "10**6", "10**9", "10**12", "2 * 10**9"]),
+          template <-
+            member_of([
+              "bytes(N)",
+              "'ab' * (N)",
+              "[0] * (N)",
+              "'x'.rjust(N)",
+              "'x'.center(N)",
+              "'1'.zfill(N)",
+              "list(range(N))",
+              "2 ** (N)",
+              "int('1' * (N))"
+            ])
+        ) do
+      String.replace(template, "N", n)
+    end
   end
 
   defp dynamic_class_stmt do

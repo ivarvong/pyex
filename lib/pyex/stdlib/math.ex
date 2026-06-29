@@ -179,6 +179,12 @@ defmodule Pyex.Stdlib.Math do
 
   # ── number-theoretic ──────────────────────────────────────────
 
+  # factorial(n) builds an n-digit-scale bignum via n native multiplications —
+  # unbounded by the step/timeout ceilings. Cap n so a huge argument fails fast
+  # instead of hanging the host.
+  defp do_factorial([n]) when is_integer(n) and n > 100_000,
+    do: {:exception, "OverflowError: factorial argument #{n} too large (max 100000)"}
+
   defp do_factorial([n]) when is_integer(n) and n >= 0, do: factorial(n)
 
   defp do_gcd(args) when is_list(args) do
