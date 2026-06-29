@@ -82,34 +82,48 @@ defmodule Pyex.Stdlib.Boto3.DynamoDB do
 
   # ── Table operations ──────────────────────────────────────────────────────
 
+  # Each operation runs inside a host runtime span named after the real
+  # DynamoDB API call, carrying the OTel database semantic-convention
+  # attributes. The `do_*` body returns `{result, ctx, close_attrs}`; `traced`
+  # owns the span lifecycle so the operation logic stays free of telemetry.
   @spec put_item(String.t(), [pyvalue()], %{optional(String.t()) => pyvalue()}) :: pyvalue()
   defp put_item(table, _args, kwargs) do
     item = Map.get(kwargs, "Item")
 
     with_table(table, fn backend, schema, env, ctx ->
-      with {:py_dict, _, _} <- item,
-           {:ok, marshalled} <- marshal(item),
-           {:ok, sk} <- storage_key(table, schema, item) do
-        subs = subs_of(kwargs)
-
-        case check_condition(backend, sk, Map.get(kwargs, "ConditionExpression"), subs) do
-          :ok ->
-            case Pyex.Storage.put(backend, sk, JSON.dumps(marshalled)) do
-              {:ok, backend} -> {empty_response(), env, %{ctx | storage: backend}}
-              {:error, reason} -> {storage_error(reason), env, ctx}
-            end
-
-          :failed ->
-            {conditional_check_failed(), env, ctx}
-
-          {:error, msg} ->
-            {{:exception, msg}, env, ctx}
-        end
-      else
-        {:error, msg} -> {{:exception, msg}, env, ctx}
-        _ -> {{:exception, "ParamValidationError: put_item requires Item to be a dict"}, env, ctx}
-      end
+      traced(ctx, env, "PutItem", table, fn ctx ->
+        do_put_item(table, schema, item, kwargs, backend, ctx)
+      end)
     end)
+  end
+
+  defp do_put_item(table, schema, item, kwargs, backend, ctx) do
+    with {:py_dict, _, _} <- item,
+         {:ok, marshalled} <- marshal(item),
+         {:ok, sk} <- storage_key(table, schema, item) do
+      subs = subs_of(kwargs)
+
+      case check_condition(backend, sk, Map.get(kwargs, "ConditionExpression"), subs) do
+        :ok ->
+          case Pyex.Storage.put(backend, sk, JSON.dumps(marshalled)) do
+            {:ok, backend} -> {empty_response(), %{ctx | storage: backend}, %{}}
+            {:error, reason} -> {storage_error(reason), ctx, error_attr(reason)}
+          end
+
+        :failed ->
+          {conditional_check_failed(), ctx, error_attr("ConditionalCheckFailedException")}
+
+        {:error, msg} ->
+          {{:exception, msg}, ctx, error_attr(msg)}
+      end
+    else
+      {:error, msg} ->
+        {{:exception, msg}, ctx, error_attr(msg)}
+
+      _ ->
+        {{:exception, "ParamValidationError: put_item requires Item to be a dict"}, ctx,
+         error_attr("ParamValidationError")}
+    end
   end
 
   @spec get_item(String.t(), [pyvalue()], %{optional(String.t()) => pyvalue()}) :: pyvalue()
@@ -117,23 +131,29 @@ defmodule Pyex.Stdlib.Boto3.DynamoDB do
     key = Map.get(kwargs, "Key")
 
     with_table(table, fn backend, schema, env, ctx ->
-      case storage_key(table, schema, key) do
-        {:ok, sk} ->
-          case Pyex.Storage.get(backend, sk) do
-            {:ok, json} ->
-              {PyDict.from_pairs([{"Item", unmarshal(JSON.decode(json))}]), env, ctx}
-
-            :miss ->
-              {empty_response(), env, ctx}
-
-            {:error, reason} ->
-              {storage_error(reason), env, ctx}
-          end
-
-        {:error, msg} ->
-          {{:exception, msg}, env, ctx}
-      end
+      traced(ctx, env, "GetItem", table, fn ctx ->
+        do_get_item(table, schema, key, backend, ctx)
+      end)
     end)
+  end
+
+  defp do_get_item(table, schema, key, backend, ctx) do
+    case storage_key(table, schema, key) do
+      {:ok, sk} ->
+        case Pyex.Storage.get(backend, sk) do
+          {:ok, json} ->
+            {PyDict.from_pairs([{"Item", unmarshal(JSON.decode(json))}]), ctx, %{"hit" => true}}
+
+          :miss ->
+            {empty_response(), ctx, %{"hit" => false}}
+
+          {:error, reason} ->
+            {storage_error(reason), ctx, error_attr(reason)}
+        end
+
+      {:error, msg} ->
+        {{:exception, msg}, ctx, error_attr(msg)}
+    end
   end
 
   @spec delete_item(String.t(), [pyvalue()], %{optional(String.t()) => pyvalue()}) :: pyvalue()
@@ -141,36 +161,41 @@ defmodule Pyex.Stdlib.Boto3.DynamoDB do
     key = Map.get(kwargs, "Key")
 
     with_table(table, fn backend, schema, env, ctx ->
-      case storage_key(table, schema, key) do
-        {:ok, sk} ->
-          case Pyex.Storage.delete(backend, sk) do
-            {:ok, backend} -> {empty_response(), env, %{ctx | storage: backend}}
-            {:error, reason} -> {storage_error(reason), env, ctx}
-          end
-
-        {:error, msg} ->
-          {{:exception, msg}, env, ctx}
-      end
+      traced(ctx, env, "DeleteItem", table, fn ctx ->
+        do_delete_item(table, schema, key, backend, ctx)
+      end)
     end)
+  end
+
+  defp do_delete_item(table, schema, key, backend, ctx) do
+    case storage_key(table, schema, key) do
+      {:ok, sk} ->
+        case Pyex.Storage.delete(backend, sk) do
+          {:ok, backend} -> {empty_response(), %{ctx | storage: backend}, %{}}
+          {:error, reason} -> {storage_error(reason), ctx, error_attr(reason)}
+        end
+
+      {:error, msg} ->
+        {{:exception, msg}, ctx, error_attr(msg)}
+    end
   end
 
   @spec scan(String.t(), [pyvalue()], %{optional(String.t()) => pyvalue()}) :: pyvalue()
   defp scan(table, _args, _kwargs) do
     with_table(table, fn backend, _schema, env, ctx ->
-      case Pyex.Storage.scan_prefix(backend, item_prefix(table)) do
-        {:ok, pairs} ->
-          items = Enum.map(pairs, fn {_k, json} -> unmarshal(JSON.decode(json)) end)
-
-          {PyDict.from_pairs([
-             {"Items", py_list(items)},
-             {"Count", length(items)},
-             {"ScannedCount", length(items)}
-           ]), env, ctx}
-
-        {:error, reason} ->
-          {storage_error(reason), env, ctx}
-      end
+      traced(ctx, env, "Scan", table, fn ctx -> do_scan(table, backend, ctx) end)
     end)
+  end
+
+  defp do_scan(table, backend, ctx) do
+    case Pyex.Storage.scan_prefix(backend, item_prefix(table)) do
+      {:ok, pairs} ->
+        items = Enum.map(pairs, fn {_k, json} -> unmarshal(JSON.decode(json)) end)
+        {result_page(items), ctx, count_attrs(length(items), length(items))}
+
+      {:error, reason} ->
+        {storage_error(reason), ctx, error_attr(reason)}
+    end
   end
 
   @spec update_item(String.t(), [pyvalue()], %{optional(String.t()) => pyvalue()}) :: pyvalue()
@@ -178,21 +203,27 @@ defmodule Pyex.Stdlib.Boto3.DynamoDB do
     key = Map.get(kwargs, "Key")
 
     with_table(table, fn backend, schema, env, ctx ->
-      subs = subs_of(kwargs)
-
-      with {:ok, sk} <- storage_key(table, schema, key),
-           :ok <- check_condition(backend, sk, Map.get(kwargs, "ConditionExpression"), subs),
-           current = load_item_map(backend, sk) || key_to_map(key),
-           {:ok, updated} <- Expr.update(Map.get(kwargs, "UpdateExpression"), current, subs) do
-        case store_item_map(backend, sk, updated) do
-          {:ok, backend} -> {empty_response(), env, %{ctx | storage: backend}}
-          {:error, reason} -> {storage_error(reason), env, ctx}
-        end
-      else
-        :failed -> {conditional_check_failed(), env, ctx}
-        {:error, msg} -> {{:exception, msg}, env, ctx}
-      end
+      traced(ctx, env, "UpdateItem", table, fn ctx ->
+        do_update_item(table, schema, key, kwargs, backend, ctx)
+      end)
     end)
+  end
+
+  defp do_update_item(table, schema, key, kwargs, backend, ctx) do
+    subs = subs_of(kwargs)
+
+    with {:ok, sk} <- storage_key(table, schema, key),
+         :ok <- check_condition(backend, sk, Map.get(kwargs, "ConditionExpression"), subs),
+         current = load_item_map(backend, sk) || key_to_map(key),
+         {:ok, updated} <- Expr.update(Map.get(kwargs, "UpdateExpression"), current, subs) do
+      case store_item_map(backend, sk, updated) do
+        {:ok, backend} -> {empty_response(), %{ctx | storage: backend}, %{}}
+        {:error, reason} -> {storage_error(reason), ctx, error_attr(reason)}
+      end
+    else
+      :failed -> {conditional_check_failed(), ctx, error_attr("ConditionalCheckFailedException")}
+      {:error, msg} -> {{:exception, msg}, ctx, error_attr(msg)}
+    end
   end
 
   @spec query(String.t(), [pyvalue()], %{optional(String.t()) => pyvalue()}) :: pyvalue()
@@ -200,36 +231,75 @@ defmodule Pyex.Stdlib.Boto3.DynamoDB do
     with_table(table, fn backend, schema, env, ctx ->
       kwargs = Map.update(kwargs, "KeyConditionExpression", nil, &Pyex.Ctx.deref(ctx, &1))
 
-      case query_plan(schema, kwargs) do
-        {:ok, partition_prefix, sort_pred} ->
-          run_query(backend, table, partition_prefix, sort_pred, kwargs, env, ctx)
-
-        {:error, msg} ->
-          {{:exception, msg}, env, ctx}
-      end
+      traced(ctx, env, "Query", table, fn ctx -> do_query(backend, table, schema, kwargs, ctx) end)
     end)
   end
 
-  defp run_query(backend, table, partition_prefix, sort_pred, kwargs, env, ctx) do
-    case Pyex.Storage.scan_prefix(backend, item_prefix(table) <> partition_prefix) do
-      {:ok, pairs} ->
-        items =
-          pairs
-          |> Enum.map(fn {_k, json} -> unmarshal(JSON.decode(json)) end)
-          |> Enum.filter(sort_pred)
-          |> maybe_reverse(Map.get(kwargs, "ScanIndexForward", true))
-          |> maybe_limit(Map.get(kwargs, "Limit"))
+  defp do_query(backend, table, schema, kwargs, ctx) do
+    case query_plan(schema, kwargs) do
+      {:ok, partition_prefix, sort_pred} ->
+        case Pyex.Storage.scan_prefix(backend, item_prefix(table) <> partition_prefix) do
+          {:ok, pairs} ->
+            items =
+              pairs
+              |> Enum.map(fn {_k, json} -> unmarshal(JSON.decode(json)) end)
+              |> Enum.filter(sort_pred)
+              |> maybe_reverse(Map.get(kwargs, "ScanIndexForward", true))
+              |> maybe_limit(Map.get(kwargs, "Limit"))
 
-        {PyDict.from_pairs([
-           {"Items", py_list(items)},
-           {"Count", length(items)},
-           {"ScannedCount", length(items)}
-         ]), env, ctx}
+            {result_page(items), ctx, count_attrs(length(items), length(pairs))}
 
-      {:error, reason} ->
-        {storage_error(reason), env, ctx}
+          {:error, reason} ->
+            {storage_error(reason), ctx, error_attr(reason)}
+        end
+
+      {:error, msg} ->
+        {{:exception, msg}, ctx, error_attr(msg)}
     end
   end
+
+  defp result_page(items) do
+    PyDict.from_pairs([
+      {"Items", py_list(items)},
+      {"Count", length(items)},
+      {"ScannedCount", length(items)}
+    ])
+  end
+
+  # ── host telemetry (OTel database semantic conventions) ────────────────────
+  #
+  # Each table op becomes a host runtime span named "<Operation> <table>"
+  # ("PutItem ledger") with `db.system.name="dynamodb"`, the real DynamoDB
+  # `db.operation.name`, `db.collection.name`, and the AWS-specific
+  # `aws.dynamodb.table_names`. The body returns `{result, ctx, close_attrs}`;
+  # the span is closed with those attrs (an `error.type` on any failure, so a
+  # denied storage capability or a failed condition is visible in the ledger).
+  @spec traced(
+          Pyex.Ctx.t(),
+          Pyex.Env.t(),
+          String.t(),
+          String.t(),
+          (Pyex.Ctx.t() -> {pyvalue(), Pyex.Ctx.t(), map()})
+        ) :: {pyvalue(), Pyex.Env.t(), Pyex.Ctx.t()}
+  defp traced(ctx, env, operation, table, fun) do
+    {ctx, span} = open_ddb_span(ctx, operation, table)
+    {result, ctx, close_attrs} = fun.(ctx)
+    {result, env, Pyex.Ctx.close_runtime_span(ctx, span, close_attrs)}
+  end
+
+  defp open_ddb_span(ctx, operation, table) do
+    Pyex.Ctx.open_runtime_span(ctx, "#{operation} #{table}", %{
+      "db.system.name" => "dynamodb",
+      "db.operation.name" => operation,
+      "db.collection.name" => table,
+      "aws.dynamodb.table_names" => [table]
+    })
+  end
+
+  defp error_attr(reason), do: %{"error.type" => reason}
+
+  defp count_attrs(count, scanned),
+    do: %{"aws.dynamodb.count" => count, "aws.dynamodb.scanned_count" => scanned}
 
   # Pairs come back sorted by storage key (== sort-key ascending). DynamoDB
   # default is forward; ScanIndexForward=False reverses.
@@ -641,6 +711,19 @@ defmodule Pyex.Stdlib.Boto3.DynamoDB do
     ])
   end
 
+  # The whole call is one parent `TransactWriteItems` host span. Each write that
+  # is actually applied opens a child span under it — so a *cancelled*
+  # transaction is visible in the trace as the parent closed with
+  # `error.type="TransactionCanceledException"` and **zero** child writes
+  # (atomicity, observable from the ledger rather than inferred from the
+  # program), while a committed one carries exactly its applied writes.
+  @transact_ops %{
+    "Put" => :put,
+    "Update" => :update,
+    "Delete" => :delete,
+    "ConditionCheck" => :check
+  }
+
   @spec transact_write_items([pyvalue()], %{optional(String.t()) => pyvalue()}) :: pyvalue()
   defp transact_write_items(_args, kwargs) do
     items = Map.get(kwargs, "TransactItems")
@@ -652,23 +735,67 @@ defmodule Pyex.Stdlib.Boto3.DynamoDB do
            {{:exception, "RuntimeError: DynamoDB requires a storage backend"}, env, ctx}
 
          backend ->
-           case run_transaction(backend, items, ctx) do
-             {:ok, backend} ->
-               {empty_response(), env, %{ctx | storage: backend}}
+           {ctx, span} = open_transact_span(ctx, transact_table_names(items, ctx))
 
-             {:cancelled, reasons} ->
+           case run_transaction(backend, items, ctx) do
+             {:ok, backend, ctx} ->
+               {empty_response(), env,
+                Pyex.Ctx.close_runtime_span(%{ctx | storage: backend}, span, %{})}
+
+             {:cancelled, reasons, ctx} ->
                inst = transaction_cancelled_instance(reasons)
+
+               ctx =
+                 Pyex.Ctx.close_runtime_span(
+                   ctx,
+                   span,
+                   error_attr("TransactionCanceledException")
+                 )
 
                {{:exception,
                  "TransactionCanceledException: Transaction cancelled, please refer cancellation reasons for specific reasons " <>
                    inspect(reasons)}, env, %{ctx | exception_instance: inst}}
 
-             {:error, msg} ->
-               {{:exception, msg}, env, ctx}
+             {:error, msg, ctx} ->
+               {{:exception, msg}, env, Pyex.Ctx.close_runtime_span(ctx, span, error_attr(msg))}
            end
        end
      end}
   end
+
+  defp open_transact_span(ctx, tables) do
+    Pyex.Ctx.open_runtime_span(ctx, "TransactWriteItems", %{
+      "db.system.name" => "dynamodb",
+      "db.operation.name" => "TransactWriteItems",
+      "aws.dynamodb.table_names" => tables
+    })
+  end
+
+  # The distinct table names a TransactItems list touches — for the parent
+  # span's `aws.dynamodb.table_names`. Best-effort and read-only; the real
+  # parse/validation happens in `run_transaction`.
+  defp transact_table_names(items_val, ctx) do
+    case ctx |> Pyex.Ctx.deref(items_val) |> to_list() do
+      list when is_list(list) ->
+        list
+        |> Enum.flat_map(fn item -> item_table_names(Pyex.Ctx.deref(ctx, item), ctx) end)
+        |> Enum.uniq()
+
+      _ ->
+        []
+    end
+  end
+
+  defp item_table_names({:py_dict, _, _} = item, ctx) do
+    for key <- Map.keys(@transact_ops),
+        spec = dget(item, key),
+        spec != nil,
+        table = dget(Pyex.Ctx.deref(ctx, spec), "TableName"),
+        is_binary(table),
+        do: table
+  end
+
+  defp item_table_names(_item, _ctx), do: []
 
   # Two-phase: check every condition against the pre-transaction snapshot, then
   # — only if all pass — apply every write, threading the backend. DynamoDB
@@ -681,13 +808,13 @@ defmodule Pyex.Stdlib.Boto3.DynamoDB do
       reasons = Enum.map(ops, &check_op(backend, &1))
 
       if Enum.any?(reasons, &(&1 == "ConditionalCheckFailed")) do
-        {:cancelled, reasons}
+        {:cancelled, reasons, ctx}
       else
-        apply_ops(backend, ops)
+        apply_ops(backend, ops, ctx)
       end
     else
-      :error -> {:error, "ValidationException: TransactItems must be a list"}
-      {:error, _} = err -> err
+      :error -> {:error, "ValidationException: TransactItems must be a list", ctx}
+      {:error, msg} -> {:error, msg, ctx}
     end
   end
 
@@ -703,13 +830,6 @@ defmodule Pyex.Stdlib.Boto3.DynamoDB do
       {:error, _} = err -> err
     end
   end
-
-  @transact_ops %{
-    "Put" => :put,
-    "Update" => :update,
-    "Delete" => :delete,
-    "ConditionCheck" => :check
-  }
 
   defp parse_transact_item({:py_dict, _, _} = item, backend, ctx) do
     case Enum.find_value(@transact_ops, fn {key, kind} ->
@@ -740,6 +860,7 @@ defmodule Pyex.Stdlib.Boto3.DynamoDB do
           {:ok,
            %{
              kind: kind,
+             table: name,
              sk: sk,
              emap: emap,
              cond: dget(spec, "ConditionExpression"),
@@ -789,14 +910,36 @@ defmodule Pyex.Stdlib.Boto3.DynamoDB do
     end
   end
 
-  defp apply_ops(backend, ops) do
-    Enum.reduce_while(ops, {:ok, backend}, fn op, {:ok, backend} ->
-      case apply_op(backend, op) do
-        {:ok, backend} -> {:cont, {:ok, backend}}
-        {:error, reason} -> {:halt, {:error, "StorageError: #{reason}"}}
-      end
+  defp apply_ops(backend, ops, ctx) do
+    Enum.reduce_while(ops, {:ok, backend, ctx}, fn op, {:ok, backend, ctx} ->
+      apply_op_traced(backend, op, ctx)
     end)
   end
+
+  # A ConditionCheck applies no write, so it gets no child span — keeping
+  # "child spans == the writes that happened" exact.
+  defp apply_op_traced(backend, %{kind: :check} = op, ctx) do
+    {:ok, ^backend} = apply_op(backend, op)
+    {:cont, {:ok, backend, ctx}}
+  end
+
+  defp apply_op_traced(backend, %{kind: kind, table: table} = op, ctx) do
+    {ctx, span} = open_ddb_span(ctx, transact_op_name(kind), table)
+
+    case apply_op(backend, op) do
+      {:ok, backend} ->
+        {:cont, {:ok, backend, Pyex.Ctx.close_runtime_span(ctx, span, %{})}}
+
+      {:error, reason} ->
+        {:halt,
+         {:error, "StorageError: #{reason}",
+          Pyex.Ctx.close_runtime_span(ctx, span, error_attr(reason))}}
+    end
+  end
+
+  defp transact_op_name(:put), do: "PutItem"
+  defp transact_op_name(:update), do: "UpdateItem"
+  defp transact_op_name(:delete), do: "DeleteItem"
 
   defp apply_op(backend, %{kind: :put, sk: sk, emap: emap}), do: store_item_map(backend, sk, emap)
 

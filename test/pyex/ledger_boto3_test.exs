@@ -127,9 +127,15 @@ defmodule Pyex.LedgerBoto3Test do
   '''
 
   defp run(scenario) do
-    {:ok, _value, ctx} = Pyex.run(@ledger <> scenario, storage: Pyex.Storage.Memory.new())
-    String.trim(Pyex.output(ctx))
+    String.trim(Pyex.output(run_ctx(scenario)))
   end
+
+  defp run_ctx(scenario) do
+    {:ok, _value, ctx} = Pyex.run(@ledger <> scenario, storage: Pyex.Storage.Memory.new())
+    ctx
+  end
+
+  defp children(spans, parent), do: Enum.filter(spans, &(&1.parent_id == parent.id))
 
   test "opening an account starts it at a zero balance" do
     out =
@@ -307,5 +313,115 @@ defmodule Pyex.LedgerBoto3Test do
       ''')
 
     assert out == "EUR 2"
+  end
+
+  # The host runtime spans are the unforgeable capability ledger: an account of
+  # what actually touched storage, which the sandboxed program cannot write to,
+  # parent onto, or read. These assertions prove the transaction semantics from
+  # that ledger rather than from the program's own (trustable-only-so-far)
+  # return values.
+  describe "host capability ledger (runtime spans)" do
+    test "a committed transfer is one TransactWriteItems span over its five child writes" do
+      spans =
+        run_ctx(~S'''
+        open_account("alice")
+        open_account("bob")
+        _fund("alice", 10000)
+        transfer("alice", "bob", 2500, "t1")
+        ''')
+        |> Pyex.Ctx.runtime_spans()
+
+      transfer_span =
+        spans
+        |> Enum.filter(&(&1.name == "TransactWriteItems"))
+        |> Enum.find(&(length(children(spans, &1)) == 5))
+
+      assert transfer_span, "expected a TransactWriteItems span with five child writes"
+      refute transfer_span.attributes["error.type"]
+
+      writes = children(spans, transfer_span)
+
+      # The double-entry (debit + credit) plus the idempotency marker = two
+      # UpdateItem and three PutItem, all on the ledger table.
+      assert writes |> Enum.map(& &1.name) |> Enum.sort() ==
+               [
+                 "PutItem ledger",
+                 "PutItem ledger",
+                 "PutItem ledger",
+                 "UpdateItem ledger",
+                 "UpdateItem ledger"
+               ]
+
+      for w <- writes do
+        assert w.attributes["db.system.name"] == "dynamodb"
+        assert w.attributes["aws.dynamodb.table_names"] == ["ledger"]
+      end
+    end
+
+    test "a cancelled overdraft transfer records the transaction with zero child writes" do
+      spans =
+        run_ctx(~S'''
+        open_account("alice")
+        open_account("bob")
+        _fund("alice", 1000)
+        try:
+            transfer("alice", "bob", 999999, "od")
+        except OverdraftError:
+            pass
+        ''')
+        |> Pyex.Ctx.runtime_spans()
+
+      cancelled =
+        Enum.filter(
+          spans,
+          &(&1.name == "TransactWriteItems" and
+              &1.attributes["error.type"] == "TransactionCanceledException")
+        )
+
+      assert length(cancelled) == 1
+      [span] = cancelled
+
+      # Atomicity, observable from the ledger rather than inferred from the
+      # program: the cancelled transaction wrote nothing.
+      assert children(spans, span) == []
+    end
+
+    test "GetItem and Query spans carry the hit / count outcome attributes" do
+      spans =
+        run_ctx(~S'''
+        open_account("alice")
+        open_account("bob")
+        _fund("alice", 10000)
+        transfer("alice", "bob", 100, "a")
+        balance("alice")
+        table.get_item(Key={"pk": _acct("ghost"), "sk": "A"})
+        account_entries("alice")
+        ''')
+        |> Pyex.Ctx.runtime_spans()
+
+      gets = Enum.filter(spans, &(&1.name == "GetItem ledger"))
+      assert Enum.any?(gets, &(&1.attributes["hit"] == true))
+      assert Enum.any?(gets, &(&1.attributes["hit"] == false))
+
+      query = Enum.find(spans, &(&1.name == "Query ledger"))
+      assert query.attributes["aws.dynamodb.count"] == 1
+    end
+
+    test "a write refused by a failed condition is tagged error.type in the ledger" do
+      # The same span path a storage-attenuation (capability) denial flows
+      # through: a refused write closes its span with error.type.
+      spans =
+        run_ctx(~S'''
+        open_account("alice")
+        try:
+            open_account("alice")
+        except Exception:
+            pass
+        ''')
+        |> Pyex.Ctx.runtime_spans()
+
+      puts = Enum.filter(spans, &(&1.name == "PutItem ledger"))
+      assert Enum.any?(puts, &(&1.attributes["error.type"] == "ConditionalCheckFailedException"))
+    end
   end
 end
