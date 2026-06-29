@@ -118,12 +118,12 @@ defmodule Pyex.Interpreter.Protocols do
   # recursing forever — matching CPython and, crucially, keeping a guest from
   # hanging the host with a self-referential structure.
   defp with_cycle_guard(id, ref, env, ctx, render) do
-    if MapSet.member?(ctx.repr_seen, id) do
+    if Map.has_key?(ctx.repr_seen, id) do
       {ellipsis_for(Ctx.deref(ctx, ref)), env, ctx}
     else
-      entered = %{ctx | repr_seen: MapSet.put(ctx.repr_seen, id)}
+      entered = %{ctx | repr_seen: Map.put(ctx.repr_seen, id, true)}
       {str, env, ctx} = render.(Ctx.deref(ctx, ref), env, entered)
-      {str, env, %{ctx | repr_seen: MapSet.delete(ctx.repr_seen, id)}}
+      {str, env, %{ctx | repr_seen: Map.delete(ctx.repr_seen, id)}}
     end
   end
 
