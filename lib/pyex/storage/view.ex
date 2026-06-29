@@ -159,4 +159,25 @@ defimpl Pyex.Storage, for: Pyex.Storage.View do
       denied(:list)
     end
   end
+
+  # scan returns values, so it needs both enumeration (:list) and read (:get)
+  # authority; results are filtered to the view's reachable scope.
+  def scan_prefix(%View{rights: rights} = view, prefix) do
+    cond do
+      not MapSet.member?(rights, :list) ->
+        denied(:list)
+
+      not MapSet.member?(rights, :get) ->
+        denied(:get)
+
+      true ->
+        case Storage.scan_prefix(view.inner, prefix) do
+          {:ok, pairs} ->
+            {:ok, Enum.filter(pairs, fn {k, _v} -> View.reachable?(view.selector, k) end)}
+
+          {:error, _} = err ->
+            err
+        end
+    end
+  end
 end

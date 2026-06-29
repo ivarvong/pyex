@@ -320,8 +320,23 @@ defmodule Pyex.Stdlib.Datetime do
        "strptime" => {:builtin, &datetime_strptime/1},
        "fromtimestamp" => {:builtin_kw, &datetime_fromtimestamp/2},
        "utcfromtimestamp" => {:builtin, &datetime_fromtimestamp/1},
-       "combine" => {:builtin_kw, &datetime_combine/2}
+       "combine" => {:builtin_kw, &datetime_combine/2},
+       "fromordinal" => {:builtin, &datetime_fromordinal/1},
+       "fromisocalendar" => {:builtin, &datetime_fromisocalendar/1},
+       # Lazy class constants (see date_class/0 for why thunks).
+       "min" => {:class_const, fn -> make_naive_datetime_const(~N[0001-01-01 00:00:00]) end},
+       "max" =>
+         {:class_const, fn -> make_naive_datetime_const(~N[9999-12-31 23:59:59.999999]) end},
+       "resolution" => {:class_const, fn -> make_timedelta_instance(0, 0.000001) end}
      })}
+  end
+
+  # Builds a naive datetime constant from a NaiveDateTime (used for the
+  # datetime.min / datetime.max class attributes).
+  @spec make_naive_datetime_const(NaiveDateTime.t()) :: Pyex.Interpreter.pyvalue()
+  defp make_naive_datetime_const(ndt) do
+    {:ok, dt} = DateTime.from_naive(ndt, "Etc/UTC")
+    make_datetime(dt, nil)
   end
 
   @spec date_class() ::
@@ -332,7 +347,18 @@ defmodule Pyex.Stdlib.Datetime do
      Map.merge(date_dunders(), %{
        "__init__" => {:builtin_kw, &date_init/2},
        "today" => {:builtin, &date_today/1},
-       "fromisoformat" => {:builtin, &date_fromisoformat/1}
+       "fromisoformat" => {:builtin, &date_fromisoformat/1},
+       "fromordinal" => {:builtin, &date_fromordinal/1},
+       "fromtimestamp" => {:builtin, &date_fromtimestamp/1},
+       "fromisocalendar" => {:builtin, &date_fromisocalendar/1},
+       # date.strptime is the same classmethod as datetime.strptime and yields
+       # a datetime (CPython behaviour), since date doesn't override it.
+       "strptime" => {:builtin, &datetime_strptime/1},
+       # Class constants are lazy thunks so building the class doesn't recurse
+       # through make_date (which itself references date_class()).
+       "min" => {:class_const, fn -> make_date(~D[0001-01-01]) end},
+       "max" => {:class_const, fn -> make_date(~D[9999-12-31]) end},
+       "resolution" => {:class_const, fn -> make_timedelta_instance(1, 0) end}
      })}
   end
 
@@ -819,6 +845,91 @@ defmodule Pyex.Stdlib.Datetime do
   @spec date_today([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
   defp date_today([]), do: make_date(Date.utc_today())
 
+  @spec date_fromordinal([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp date_fromordinal([n]) when is_integer(n) and n >= 1,
+    do: make_date(Date.add(~D[0001-01-01], n - 1))
+
+  defp date_fromordinal([n]) when is_integer(n),
+    do: {:exception, "ValueError: ordinal #{n} is out of range"}
+
+  defp date_fromordinal(_),
+    do: {:exception, "TypeError: fromordinal() argument must be an integer"}
+
+  @spec date_fromtimestamp([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp date_fromtimestamp([ts]) when is_number(ts) do
+    case DateTime.from_unix(trunc(Float.floor(ts * 1.0))) do
+      {:ok, dt} -> make_date(DateTime.to_date(dt))
+      {:error, _} -> {:exception, "ValueError: timestamp out of range"}
+    end
+  end
+
+  defp date_fromtimestamp(_),
+    do: {:exception, "TypeError: fromtimestamp() argument must be a number"}
+
+  @spec date_fromisocalendar([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp date_fromisocalendar([y, w, d]) when is_integer(y) and is_integer(w) and is_integer(d) do
+    case iso_calendar_to_date(y, w, d) do
+      {:ok, date} -> make_date(date)
+      {:error, msg} -> {:exception, msg}
+    end
+  end
+
+  defp date_fromisocalendar(_),
+    do: {:exception, "TypeError: fromisocalendar() takes exactly 3 integer arguments"}
+
+  @spec datetime_fromordinal([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp datetime_fromordinal([n]) when is_integer(n) and n >= 1 do
+    make_midnight_datetime(Date.add(~D[0001-01-01], n - 1))
+  end
+
+  defp datetime_fromordinal([n]) when is_integer(n),
+    do: {:exception, "ValueError: ordinal #{n} is out of range"}
+
+  defp datetime_fromordinal(_),
+    do: {:exception, "TypeError: fromordinal() argument must be an integer"}
+
+  @spec datetime_fromisocalendar([Pyex.Interpreter.pyvalue()]) :: Pyex.Interpreter.pyvalue()
+  defp datetime_fromisocalendar([y, w, d])
+       when is_integer(y) and is_integer(w) and is_integer(d) do
+    case iso_calendar_to_date(y, w, d) do
+      {:ok, date} -> make_midnight_datetime(date)
+      {:error, msg} -> {:exception, msg}
+    end
+  end
+
+  defp datetime_fromisocalendar(_),
+    do: {:exception, "TypeError: fromisocalendar() takes exactly 3 integer arguments"}
+
+  # Builds a naive datetime at 00:00:00 on the given date (CPython's
+  # datetime.fromordinal / fromisocalendar both return midnight).
+  @spec make_midnight_datetime(Date.t()) :: Pyex.Interpreter.pyvalue()
+  defp make_midnight_datetime(date) do
+    {:ok, dt} = DateTime.new(date, ~T[00:00:00], "Etc/UTC")
+    make_datetime(dt, nil)
+  end
+
+  # Inverts an ISO (year, week, weekday) triple to a proleptic Gregorian date,
+  # validating that the requested week actually exists in that ISO year (week 53
+  # is absent in most years) — matching CPython's fromisocalendar() errors.
+  @spec iso_calendar_to_date(integer(), integer(), integer()) ::
+          {:ok, Date.t()} | {:error, String.t()}
+  defp iso_calendar_to_date(_year, _week, day) when day < 1 or day > 7,
+    do: {:error, "ValueError: Invalid weekday: #{day} (range is [1, 7])"}
+
+  defp iso_calendar_to_date(_year, week, _day) when week < 1 or week > 53,
+    do: {:error, "ValueError: Invalid week: #{week} (range is [1, 53])"}
+
+  defp iso_calendar_to_date(year, week, day) do
+    jan4 = Date.new!(year, 1, 4)
+    week1_monday = Date.add(jan4, -(Date.day_of_week(jan4) - 1))
+    target = Date.add(week1_monday, (week - 1) * 7 + (day - 1))
+
+    case :calendar.iso_week_number({target.year, target.month, target.day}) do
+      {^year, ^week} -> {:ok, target}
+      _ -> {:error, "ValueError: Invalid week #{week} for year #{year}"}
+    end
+  end
+
   @spec timedelta_init([Pyex.Interpreter.pyvalue()], %{
           optional(String.t()) => Pyex.Interpreter.pyvalue()
         }) ::
@@ -943,8 +1054,22 @@ defmodule Pyex.Stdlib.Datetime do
        "weekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(dt)) - 1 end},
        "isoweekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(dt)) end},
        "isocalendar" => {:builtin, fn [] -> date_isocalendar(DateTime.to_date(dt)) end},
+       "toordinal" => {:builtin, fn [] -> proleptic_ordinal(DateTime.to_date(dt)) end},
+       "ctime" =>
+         {:builtin,
+          fn [] -> ctime_str(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second) end},
        "utcoffset" => {:builtin, fn [] -> nil end},
        "dst" => {:builtin, fn [] -> nil end},
+       "tzname" => {:builtin, fn [] -> nil end},
+       "time" => {:builtin, fn [] -> make_time_instance(dt.hour, dt.minute, dt.second, us) end},
+       "timetz" => {:builtin, fn [] -> make_time_instance(dt.hour, dt.minute, dt.second, us) end},
+       "timetuple" =>
+         {:builtin,
+          fn [] -> date_timetuple(DateTime.to_date(dt), dt.hour, dt.minute, dt.second, -1) end},
+       "utctimetuple" =>
+         {:builtin,
+          fn [] -> date_timetuple(DateTime.to_date(dt), dt.hour, dt.minute, dt.second, 0) end},
+       "fold" => 0,
        "astimezone" =>
          {:builtin,
           fn [_tz] ->
@@ -1087,11 +1212,57 @@ defmodule Pyex.Stdlib.Datetime do
        "weekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(local_dt)) - 1 end},
        "isoweekday" => {:builtin, fn [] -> Date.day_of_week(DateTime.to_date(local_dt)) end},
        "isocalendar" => {:builtin, fn [] -> date_isocalendar(DateTime.to_date(local_dt)) end},
+       "toordinal" => {:builtin, fn [] -> proleptic_ordinal(DateTime.to_date(local_dt)) end},
+       "ctime" =>
+         {:builtin,
+          fn [] ->
+            ctime_str(
+              local_dt.year,
+              local_dt.month,
+              local_dt.day,
+              local_dt.hour,
+              local_dt.minute,
+              local_dt.second
+            )
+          end},
        "utcoffset" => {:builtin, fn [] -> normalize_timedelta(offset) end},
+       "tzname" => {:builtin, fn [] -> aware_tzname(tz_instance) end},
+       "time" =>
+         {:builtin,
+          fn [] -> make_time_instance(local_dt.hour, local_dt.minute, local_dt.second, us) end},
+       "timetz" =>
+         {:builtin,
+          fn [] -> make_time_instance(local_dt.hour, local_dt.minute, local_dt.second, us) end},
+       "timetuple" =>
+         {:builtin,
+          fn [] ->
+            date_timetuple(
+              DateTime.to_date(local_dt),
+              local_dt.hour,
+              local_dt.minute,
+              local_dt.second,
+              -1
+            )
+          end},
+       "utctimetuple" =>
+         {:builtin,
+          fn [] ->
+            date_timetuple(DateTime.to_date(utc_dt), utc_dt.hour, utc_dt.minute, utc_dt.second, 0)
+          end},
+       "fold" => 0,
        "astimezone" => {:builtin, fn [new_tz] -> make_datetime_from_utc(utc_dt, new_tz) end},
        "__dt__" => utc_dt,
        "__tzinfo__" => tz_instance
      }}
+  end
+
+  # tzname() for an aware datetime: the tz's abbreviation, or nil if unknown.
+  @spec aware_tzname(Pyex.Interpreter.pyvalue()) :: String.t() | nil
+  defp aware_tzname(tz_instance) do
+    case extract_tz_name(tz_instance) do
+      "" -> nil
+      name -> name
+    end
   end
 
   @spec extract_resolved_std_offset(Pyex.Interpreter.pyvalue()) :: number()
@@ -1134,8 +1305,50 @@ defmodule Pyex.Stdlib.Datetime do
        "weekday" => {:builtin, fn [] -> Date.day_of_week(d) - 1 end},
        "isoweekday" => {:builtin, fn [] -> Date.day_of_week(d) end},
        "isocalendar" => {:builtin, fn [] -> date_isocalendar(d) end},
+       "timetuple" => {:builtin, fn [] -> date_timetuple(d, 0, 0, 0, -1) end},
+       "toordinal" => {:builtin, fn [] -> proleptic_ordinal(d) end},
+       "ctime" => {:builtin, fn [] -> ctime_str(d.year, d.month, d.day, 0, 0, 0) end},
        "__date__" => d
      }}
+  end
+
+  @wday_abbr ~w(Mon Tue Wed Thu Fri Sat Sun)
+  @mon_abbr ~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec)
+
+  # Proleptic Gregorian ordinal: 0001-01-01 -> 1 (matches date.toordinal()).
+  @spec proleptic_ordinal(Date.t()) :: integer()
+  defp proleptic_ordinal(d), do: Date.diff(d, ~D[0001-01-01]) + 1
+
+  # time.struct_time value (a 9-field tuple subtype). The interpreter handles
+  # indexing, unpacking, len, named tm_* attributes, repr, and equality.
+  @spec make_struct_time([integer()]) :: {:struct_time, [integer()]}
+  defp make_struct_time(fields), do: {:struct_time, fields}
+
+  @spec date_timetuple(Date.t(), integer(), integer(), integer(), integer()) ::
+          {:struct_time, [integer()]}
+  defp date_timetuple(d, hour, minute, second, isdst) do
+    make_struct_time([
+      d.year,
+      d.month,
+      d.day,
+      hour,
+      minute,
+      second,
+      Date.day_of_week(d) - 1,
+      Date.day_of_year(d),
+      isdst
+    ])
+  end
+
+  # CPython's ctime()/asctime() format: "Mon Jan  1 00:00:00 2024"
+  # (day is space-padded to width 2).
+  @spec ctime_str(integer(), integer(), integer(), integer(), integer(), integer()) :: String.t()
+  defp ctime_str(y, mo, d, h, mi, s) do
+    wd = Enum.at(@wday_abbr, Date.day_of_week(Date.new!(y, mo, d)) - 1)
+    mon = Enum.at(@mon_abbr, mo - 1)
+    day = String.pad_leading(Integer.to_string(d), 2, " ")
+    time = Enum.map_join([h, mi, s], ":", &String.pad_leading(Integer.to_string(&1), 2, "0"))
+    "#{wd} #{mon} #{day} #{time} #{y}"
   end
 
   @spec date_isocalendar(Date.t()) :: {:tuple, [integer()]}
@@ -1360,7 +1573,11 @@ defmodule Pyex.Stdlib.Datetime do
   end
 
   @spec dt_str(Pyex.Interpreter.pyvalue()) :: String.t()
-  defp dt_str({:instance, _, %{"isoformat" => {:builtin, fun}}}), do: fun.([])
+  # str(datetime) is isoformat with a space separator (CPython uses 'T' only
+  # for isoformat()); the sole 'T' is the date/time divider, never in an offset.
+  defp dt_str({:instance, _, %{"isoformat" => {:builtin, fun}}}),
+    do: String.replace(fun.([]), "T", " ", global: false)
+
   defp dt_str(_), do: "datetime.datetime(...)"
 
   @spec dt_repr(Pyex.Interpreter.pyvalue()) :: String.t()

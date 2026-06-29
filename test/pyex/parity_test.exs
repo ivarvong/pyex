@@ -59,30 +59,12 @@ defmodule Pyex.ParityTest do
   # is how parity converges.
   @known_gaps %{
     "str" => %{},
-    "dict" => %{
-      "fromkeys" => :unimplemented
-    },
-    "set" => %{
-      "difference_update" => :unimplemented,
-      "intersection_update" => :unimplemented,
-      "symmetric_difference_update" => :unimplemented
-    },
+    "dict" => %{},
+    "set" => %{},
     "list" => %{},
     "tuple" => %{},
     "frozenset" => %{},
     "file" => %{
-      # plausible to model on the in-memory handle (burn-down queue)
-      "closed" => :unimplemented,
-      "flush" => :unimplemented,
-      "mode" => :unimplemented,
-      "name" => :unimplemented,
-      "readable" => :unimplemented,
-      "seek" => :unimplemented,
-      "seekable" => :unimplemented,
-      "tell" => :unimplemented,
-      "truncate" => :unimplemented,
-      "writable" => :unimplemented,
-      "writelines" => :unimplemented,
       # OS / encoding-layer internals with no meaning in the sandbox
       "buffer" => :out_of_scope,
       "detach" => :out_of_scope,
@@ -95,47 +77,14 @@ defmodule Pyex.ParityTest do
       "reconfigure" => :out_of_scope,
       "write_through" => :out_of_scope
     },
-    "date" => %{
-      "ctime" => :unimplemented,
-      "fromisocalendar" => :unimplemented,
-      "fromordinal" => :unimplemented,
-      "fromtimestamp" => :unimplemented,
-      "max" => :unimplemented,
-      "min" => :unimplemented,
-      "resolution" => :unimplemented,
-      "strptime" => :unimplemented,
-      "timetuple" => :unimplemented,
-      "toordinal" => :unimplemented
-    },
-    "datetime" => %{
-      "ctime" => :unimplemented,
-      "fold" => :unimplemented,
-      "fromisocalendar" => :unimplemented,
-      "fromordinal" => :unimplemented,
-      "max" => :unimplemented,
-      "min" => :unimplemented,
-      "resolution" => :unimplemented,
-      "time" => :unimplemented,
-      "timetuple" => :unimplemented,
-      "timetz" => :unimplemented,
-      "toordinal" => :unimplemented,
-      "tzname" => :unimplemented,
-      "utctimetuple" => :unimplemented
-    },
+    "date" => %{},
+    "datetime" => %{},
     "builtins" => %{
       # not yet implemented (burn-down queue)
+      # async iteration over custom async iterators is unsupported (async for
+      # fails too), so these stay gapped rather than ship a crashing builtin
       "aiter" => :unimplemented,
       "anext" => :unimplemented,
-      "ascii" => :unimplemented,
-      "delattr" => :unimplemented,
-      "globals" => :unimplemented,
-      "locals" => :unimplemented,
-      "memoryview" => :unimplemented,
-      "EncodingWarning" => :unimplemented,
-      "EnvironmentError" => :unimplemented,
-      "IOError" => :unimplemented,
-      "ExceptionGroup" => :unimplemented,
-      "BaseExceptionGroup" => :unimplemented,
       # keywords / singletons, not environment bindings
       "True" => :language_literal,
       "False" => :language_literal,
@@ -160,6 +109,7 @@ defmodule Pyex.ParityTest do
   @builtin_extensions ~w(
     __import__
     ValidationError
+    FrozenInstanceError
     BadZipFile LargeZipFile
     Clamped ConversionSyntax DecimalException DivisionByZero
     DivisionImpossible DivisionUndefined FloatOperation Inexact
@@ -225,7 +175,7 @@ defmodule Pyex.ParityTest do
       cpython = @manifest["builtins"]["functions"] ++ @manifest["builtins"]["exceptions"]
       pyex = Pyex.Builtins.names()
 
-      extra = ((pyex -- cpython) -- @builtin_extensions) -- ["type", "Ellipsis"]
+      extra = ((pyex -- cpython) -- @builtin_extensions) -- ["type", "Ellipsis", "NotImplemented"]
 
       assert extra == [],
              "builtins: pyex binds #{inspect(extra)} which CPython does not. " <>

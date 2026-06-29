@@ -50,4 +50,13 @@ defimpl Pyex.Storage, for: Pyex.Storage.Memory do
 
     {:ok, keys}
   end
+
+  def scan_prefix(%{data: data}, prefix) do
+    pairs =
+      data
+      |> Enum.filter(fn {k, _v} -> String.starts_with?(k, prefix) end)
+      |> Enum.sort_by(&elem(&1, 0))
+
+    {:ok, pairs}
+  end
 end

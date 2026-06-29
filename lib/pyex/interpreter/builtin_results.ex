@@ -191,6 +191,9 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:super_call} ->
         Interpreter.eval_super(env, ctx)
 
+      {:super_call, type, obj} ->
+        Interpreter.eval_super_explicit(type, obj, env, ctx)
+
       {:starmap_call, func, items} ->
         Iteration.eval_starmap(func, items, env, ctx)
 
@@ -212,7 +215,7 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:assert_raises, exc_type} ->
         {{:assert_raises, exc_type}, env, ctx}
 
-      {:register_route, _method, _path, _handler} = signal ->
+      {:register_route, _method, _path, _handler, _status} = signal ->
         {signal, env, ctx}
 
       {:exception, _msg} = signal ->
@@ -229,6 +232,18 @@ defmodule Pyex.Interpreter.BuiltinResults do
     case result do
       {:exception, _msg} = signal ->
         {signal, env, ctx}
+
+      {:dunder_call, instance, dunder_name, dunder_args} ->
+        case Dunder.call_dunder(instance, dunder_name, dunder_args, env, ctx) do
+          {:ok, value, env, ctx} ->
+            {value, env, ctx}
+
+          :not_found ->
+            case Interpreter.dunder_str_fallback(instance, dunder_name, env, ctx) do
+              {:ok, value, env, ctx} -> {value, env, ctx}
+              :error -> {{:exception, "TypeError: object has no #{dunder_name}"}, env, ctx}
+            end
+        end
 
       {:ctx_call, ctx_fun} ->
         ctx_fun.(env, ctx)

@@ -95,6 +95,33 @@ defmodule Pyex.Storage.ViewTest do
       assert out == "['t1:a', 't1:b']\nNone\n"
     end
 
+    test "scan is scoped to reachable keys and needs both list and get rights" do
+      backend = Storage.Memory.new(%{"t1:a" => "1", "t1:b" => "2", "t2:a" => "3"})
+
+      scoped =
+        run!(
+          "import store\nprint(sorted(store.scan().keys()))",
+          storage: View.scope(backend, {:prefix, "t1:"})
+        )
+
+      assert scoped == "['t1:a', 't1:b']\n"
+
+      # A list-only view (no :get) cannot scan — scan reveals values.
+      denied =
+        run!(
+          """
+          import store
+          try:
+              store.scan()
+          except Exception as e:
+              print(type(e).__name__)
+          """,
+          storage: View.new(backend, rights: [:list])
+        )
+
+      assert denied == "StorageError\n"
+    end
+
     test "an invalid selector is rejected at construction" do
       assert_raise ArgumentError, fn ->
         View.scope(Storage.Memory.new(), {:glob, "*"})

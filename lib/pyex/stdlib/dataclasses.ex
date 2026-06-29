@@ -76,20 +76,27 @@ defmodule Pyex.Stdlib.Dataclasses do
 
   @spec decorate_class(Interpreter.pyvalue(), %{optional(String.t()) => Interpreter.pyvalue()}) ::
           Interpreter.pyvalue()
-  defp decorate_class({:class, name, bases, class_attrs}, _kwargs) do
-    field_names =
+  defp decorate_class({:class, name, bases, class_attrs}, kwargs) do
+    own_fields =
       case Map.get(class_attrs, "__annotations_order__") do
         names when is_list(names) -> Enum.reverse(names)
         _ -> class_attrs |> Map.get("__annotations__", %{}) |> Map.keys()
       end
 
-    defaults =
-      Enum.reduce(field_names, %{}, fn field, acc ->
+    # Inherited dataclass fields come first (base-to-derived), then this class's
+    # own; an overridden field keeps its original position, matching CPython.
+    inherited_fields = inherited_dataclass_fields(bases)
+    field_names = Enum.uniq(inherited_fields ++ own_fields)
+
+    own_defaults =
+      Enum.reduce(own_fields, %{}, fn field, acc ->
         case Map.get(class_attrs, field, :__missing__) do
           :__missing__ -> acc
           value -> Map.put(acc, field, value)
         end
       end)
+
+    defaults = Map.merge(inherited_dataclass_defaults(bases), own_defaults)
 
     generated = %{
       "__dataclass_fields__" => field_names,
@@ -99,7 +106,38 @@ defmodule Pyex.Stdlib.Dataclasses do
       "__eq__" => {:builtin, &dataclass_eq/1}
     }
 
+    generated =
+      if frozen?(kwargs),
+        do: Map.put(generated, "__dataclass_frozen__", true),
+        else: generated
+
     {:class, name, bases, Map.merge(class_attrs, generated)}
+  end
+
+  @spec frozen?(%{optional(String.t()) => Interpreter.pyvalue()}) :: boolean()
+  defp frozen?(kwargs), do: Map.get(kwargs, "frozen", false) == true
+
+  @spec inherited_dataclass_fields([Interpreter.pyvalue()]) :: [String.t()]
+  defp inherited_dataclass_fields(bases) do
+    bases
+    |> Enum.flat_map(fn
+      {:class, _, _, battrs} -> Map.get(battrs, "__dataclass_fields__", [])
+      _ -> []
+    end)
+    |> Enum.uniq()
+  end
+
+  @spec inherited_dataclass_defaults([Interpreter.pyvalue()]) :: %{
+          optional(String.t()) => Interpreter.pyvalue()
+        }
+  defp inherited_dataclass_defaults(bases) do
+    Enum.reduce(bases, %{}, fn
+      {:class, _, _, battrs}, acc ->
+        Map.merge(acc, Map.get(battrs, "__dataclass_defaults__", %{}))
+
+      _, acc ->
+        acc
+    end)
   end
 
   @spec dataclass_init([Interpreter.pyvalue()], %{optional(String.t()) => Interpreter.pyvalue()}) ::

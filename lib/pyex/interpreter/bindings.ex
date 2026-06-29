@@ -175,6 +175,13 @@ defmodule Pyex.Interpreter.Bindings do
           {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
           {_val, env, ctx} -> {:cont, {:ok, env, ctx}}
         end
+
+      # Attribute target in an unpack, e.g. `self.a, self.b = 1, 2`.
+      {{:target, {:getattr, _, _} = target}, val}, {:ok, env, ctx} ->
+        case Assignments.setattr(target, val, env, ctx) do
+          {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
+          {_val, env, ctx} -> {:cont, {:ok, env, ctx}}
+        end
     end)
   end
 
@@ -184,9 +191,77 @@ defmodule Pyex.Interpreter.Bindings do
   @spec eval_aug_assign(Parser.meta(), String.t(), atom(), Parser.ast_node(), Env.t(), Ctx.t()) ::
           eval_result()
   def eval_aug_assign(meta, name, op, expr, env, ctx) do
-    var_node = {:var, meta, [name]}
-    binop_node = {:binop, meta, [op, var_node, expr]}
-    Interpreter.eval({:assign, meta, [name, binop_node]}, env, ctx)
+    current =
+      case Env.get(env, name) do
+        {:ok, v} -> Ctx.deref(ctx, v)
+        _ -> :__undefined__
+      end
+
+    cond do
+      # `a += iterable` on a list is in-place extend (accepts any iterable),
+      # not list+list — so `lst += "ab"` / `lst += (1, 2)` works like CPython.
+      op == :plus and match?({:py_list, _, _}, current) ->
+        extend_node =
+          {:call, meta, [{:getattr, meta, [{:var, meta, [name]}, "extend"]}, [expr]]}
+
+        case Interpreter.eval(extend_node, env, ctx) do
+          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+          {_none, env, ctx} -> Interpreter.eval({:var, meta, [name]}, env, ctx)
+        end
+
+      # An instance may define an in-place dunder (__iadd__ etc.); fall back to
+      # the binary dunder (__add__) via normal lowering when it doesn't.
+      match?({:instance, _, _}, current) ->
+        eval_inplace_dunder(meta, name, op, expr, current, env, ctx)
+
+      true ->
+        var_node = {:var, meta, [name]}
+        binop_node = {:binop, meta, [op, var_node, expr]}
+        Interpreter.eval({:assign, meta, [name, binop_node]}, env, ctx)
+    end
+  end
+
+  @inplace_dunders %{
+    plus: "__iadd__",
+    minus: "__isub__",
+    star: "__imul__",
+    slash: "__itruediv__",
+    floor_div: "__ifloordiv__",
+    percent: "__imod__",
+    double_star: "__ipow__",
+    amp: "__iand__",
+    pipe: "__ior__",
+    caret: "__ixor__",
+    lshift: "__ilshift__",
+    rshift: "__irshift__",
+    at: "__imatmul__"
+  }
+
+  defp eval_inplace_dunder(meta, name, op, expr, instance, env, ctx) do
+    binop_fallback = fn env, ctx ->
+      binop_node = {:binop, meta, [op, {:var, meta, [name]}, expr]}
+      Interpreter.eval({:assign, meta, [name, binop_node]}, env, ctx)
+    end
+
+    case Map.get(@inplace_dunders, op) do
+      nil ->
+        binop_fallback.(env, ctx)
+
+      dunder ->
+        case Interpreter.eval(expr, env, ctx) do
+          {{:exception, _} = signal, env, ctx} ->
+            {signal, env, ctx}
+
+          {rhs, env, ctx} ->
+            case Pyex.Interpreter.Dunder.call_dunder(instance, dunder, [rhs], env, ctx) do
+              {:ok, result, env, ctx} ->
+                Interpreter.eval({:assign, meta, [name, {:__evaluated__, result}]}, env, ctx)
+
+              :not_found ->
+                binop_fallback.(env, ctx)
+            end
+        end
+    end
   end
 
   @spec current_annotations(Env.t()) :: map()

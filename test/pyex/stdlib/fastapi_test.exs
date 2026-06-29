@@ -32,7 +32,7 @@ defmodule Pyex.Stdlib.FastAPITest do
         app
         """)
 
-      assert [{{method, path}, _handler}] = app["__routes__"]
+      assert [{{method, path}, _handler, _status}] = app["__routes__"]
       assert method == "GET"
       assert path == "/hello"
     end
@@ -50,7 +50,7 @@ defmodule Pyex.Stdlib.FastAPITest do
         app
         """)
 
-      assert [{{_method, path}, _handler}] = app["__routes__"]
+      assert [{{_method, path}, _handler, _status}] = app["__routes__"]
       assert path == "/users/{user_id}"
     end
 
@@ -104,7 +104,7 @@ defmodule Pyex.Stdlib.FastAPITest do
         """)
 
       routes = app["__routes__"]
-      methods = Enum.map(routes, fn {{m, _}, _} -> m end)
+      methods = Enum.map(routes, fn {{m, _}, _, _} -> m end)
       assert methods == ["GET", "POST", "PUT", "DELETE"]
     end
 
@@ -243,7 +243,8 @@ defmodule Pyex.Stdlib.FastAPITest do
         """)
 
       assert [
-               {{_method, _path}, {:function, "greet", params, _body, _env, _is_generator, _kind}}
+               {{_method, _path}, {:function, "greet", params, _body, _env, _is_generator, _kind},
+                _status}
              ] = app["__routes__"]
 
       assert [{"name", nil}, {"greeting", _default}] = params

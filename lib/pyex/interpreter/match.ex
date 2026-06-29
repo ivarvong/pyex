@@ -124,8 +124,15 @@ defmodule Pyex.Interpreter.Match do
           :no_match
         end
 
-      _ ->
-        :no_match
+      # Builtin-type patterns: `case int():`, `case str(s):` (a single
+      # positional binds the whole value, per CPython's special-case for
+      # builtin types whose __match_args__ is empty).
+      native ->
+        if builtin_type_pattern_match?(native, class_name) do
+          match_builtin_pattern(native, pos_patterns, kw_patterns, env, ctx)
+        else
+          :no_match
+        end
     end
   end
 
@@ -301,6 +308,25 @@ defmodule Pyex.Interpreter.Match do
           Env.t(),
           Ctx.t()
         ) :: {:ok, match_bindings()} | :no_match
+  @builtin_pattern_types ~w(int float str bool bytes bytearray list tuple dict set frozenset complex)
+
+  defp builtin_type_pattern_match?(value, class_name) when class_name in @builtin_pattern_types do
+    actual = Interpreter.Helpers.py_type(value)
+    # `case int()` also matches bool (bool is a subclass of int), like CPython.
+    actual == class_name or (class_name == "int" and actual == "bool")
+  end
+
+  defp builtin_type_pattern_match?(_value, _class_name), do: false
+
+  # A builtin class pattern allows no keyword sub-patterns and at most one
+  # positional, which captures/checks the value itself.
+  defp match_builtin_pattern(_value, [], [], _env, _ctx), do: {:ok, []}
+
+  defp match_builtin_pattern(value, [pattern], [], env, ctx),
+    do: match_pattern(value, pattern, env, ctx)
+
+  defp match_builtin_pattern(_value, _pos, _kw, _env, _ctx), do: :no_match
+
   defp match_class_patterns(inst, class_attrs, pos_patterns, kw_patterns, env, ctx) do
     {:instance, _, inst_attrs} = inst
 

@@ -78,6 +78,12 @@ defmodule Pyex.Builtins do
 
     env = Env.put(env, "Ellipsis", :ellipsis)
 
+    # The NotImplemented singleton. Guests `return NotImplemented` from a
+    # binary dunder to signal "I don't handle this operand"; the binop
+    # dispatcher then tries the reflected dunder. (Bound here, not in
+    # `names/0`, since CPython lists it as a value, not in dir(builtins).)
+    env = Env.put(env, "NotImplemented", :not_implemented)
+
     # `type` is simultaneously a class and a callable. We bind it to
     # `type_class()` so `type(x) is type` holds for class arguments, and
     # the class-call dispatch in `invocation.ex` intercepts it to run
@@ -107,7 +113,7 @@ defmodule Pyex.Builtins do
     functions = Enum.map(all(), fn {name, _} -> name end)
     types = Enum.map(type_constructors(), fn {name, _} -> name end)
 
-    (functions ++ types ++ exception_class_names() ++ ["type", "Ellipsis"])
+    (functions ++ types ++ exception_class_names() ++ ["type", "Ellipsis", "NotImplemented"])
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -156,6 +162,17 @@ defmodule Pyex.Builtins do
     fun in [&builtin_list/1, &builtin_tuple/1, &builtin_reversed/1, &builtin_sorted/2]
   end
 
+  @doc """
+  True for builtins that take integer arguments and therefore accept any
+  object implementing `__index__` (PEP 357): `range`, `hex`, `oct`, `bin`,
+  `chr`. The interpreter coerces their instance/bool args through `__index__`
+  before dispatch, matching CPython.
+  """
+  @spec index_coercing_builtin?(function()) :: boolean()
+  def index_coercing_builtin?(fun) do
+    fun in [&builtin_range/1, &builtin_hex/1, &builtin_oct/1, &builtin_bin/1, &builtin_chr/1]
+  end
+
   @spec all() :: [{String.t(), ([Interpreter.pyvalue()] -> Interpreter.pyvalue())}]
   defp all do
     [
@@ -198,6 +215,8 @@ defmodule Pyex.Builtins do
       {"hasattr", &builtin_hasattr/1},
       {"getattr", &builtin_getattr/1},
       {"setattr", &builtin_setattr/1},
+      {"delattr", &builtin_delattr/1},
+      {"ascii", &builtin_ascii/1},
       {"super", &builtin_super/1},
       {"iter", &builtin_iter/1},
       {"next", &builtin_next/1},
@@ -207,8 +226,11 @@ defmodule Pyex.Builtins do
       {"complex", &builtin_complex/1},
       {"bytes", &builtin_bytes/1},
       {"bytearray", &builtin_bytearray/1},
+      {"memoryview", &builtin_memoryview/1},
       {"dir", &builtin_dir/1},
       {"vars", &builtin_vars/1},
+      {"globals", &builtin_globals/1},
+      {"locals", &builtin_locals/1},
       {"id", &builtin_id/1},
       {"hash", &builtin_hash/1},
       {"property", &builtin_property/1},
@@ -245,6 +267,8 @@ defmodule Pyex.Builtins do
   defp builtin_len([{:py_dict, _, _} = dict]), do: PyDict.size(visible_dict(dict))
   defp builtin_len([val]) when is_map(val), do: map_size(visible_dict(val))
   defp builtin_len([{:tuple, items}]), do: length(items)
+  defp builtin_len([{:struct_time, fields}]), do: length(fields)
+  defp builtin_len([{:memoryview, b}]), do: byte_size(b)
   defp builtin_len([{:set, s}]), do: MapSet.size(s)
   defp builtin_len([{:frozenset, s}]), do: MapSet.size(s)
   defp builtin_len([{:bytes, b}]), do: byte_size(b)
@@ -472,6 +496,8 @@ defmodule Pyex.Builtins do
   defp builtin_int([{tag, bin}, base]) when tag in [:bytes, :bytearray] and is_integer(base),
     do: builtin_int([bytes_to_latin1(bin), base])
 
+  defp builtin_int([{:instance, _, _} = inst]), do: {:dunder_call, inst, "__int__", []}
+
   defp builtin_int([val]),
     do:
       {:exception, "TypeError: int() argument must be a string or a number, not '#{pytype(val)}'"}
@@ -536,6 +562,7 @@ defmodule Pyex.Builtins do
   defp builtin_float([val]) when is_integer(val), do: val / 1
   defp builtin_float([true]), do: 1.0
   defp builtin_float([false]), do: 0.0
+  defp builtin_float([{:instance, _, _} = inst]), do: {:dunder_call, inst, "__float__", []}
 
   defp builtin_float([val]) when is_binary(val) do
     trimmed = String.trim(val)
@@ -615,6 +642,7 @@ defmodule Pyex.Builtins do
   defp builtin_abs([{:pyex_decimal, d}]), do: {:pyex_decimal, Decimal.abs(d)}
   defp builtin_abs([{:fraction, n, d}]), do: {:fraction, abs(n), d}
   defp builtin_abs([{:complex, r, i}]), do: :math.sqrt(r * r + i * i)
+  defp builtin_abs([{:instance, _, _} = inst]), do: {:dunder_call, inst, "__abs__", []}
 
   defp builtin_abs([{:instance, {:class, _name, _bases, class_attrs}, inst_attrs} = inst]) do
     abs_fn = Map.get(inst_attrs, "__abs__") || Map.get(class_attrs, "__abs__")
@@ -745,9 +773,35 @@ defmodule Pyex.Builtins do
           Enum.reduce(tl(ints), hd(ints), &+/2)
         end
 
+      # Custom objects (instances, or heap refs that may point at them) need
+      # the full binop protocol — __add__/__radd__ with NotImplemented
+      # fallback — which lives in the interpreter, so defer via a ctx call.
+      Enum.any?([start | items], &needs_binop_sum?/1) ->
+        {:ctx_call, fn env, ctx -> fold_sum_via_binop(items, start, env, ctx) end}
+
       true ->
         Enum.reduce(items, start, &sum_step/2)
     end
+  end
+
+  @spec needs_binop_sum?(Interpreter.pyvalue()) :: boolean()
+  defp needs_binop_sum?({:ref, _}), do: true
+  defp needs_binop_sum?({:instance, _, _}), do: true
+  defp needs_binop_sum?(_), do: false
+
+  # Folds the running total with `+` through the interpreter, so summing
+  # objects that define __add__/__radd__ works exactly like `a + b + c …`.
+  @spec fold_sum_via_binop([Interpreter.pyvalue()], Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
+          {Interpreter.pyvalue() | {:exception, String.t()}, Env.t(), Ctx.t()}
+  defp fold_sum_via_binop(items, start, env, ctx) do
+    Enum.reduce_while(items, {start, env, ctx}, fn item, {acc, env, ctx} ->
+      node = {:binop, [], [:plus, {:__evaluated__, acc}, {:__evaluated__, item}]}
+
+      case Interpreter.eval(node, env, ctx) do
+        {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
+        {value, env, ctx} -> {:cont, {value, env, ctx}}
+      end
+    end)
   end
 
   @spec py_numeric?(Interpreter.pyvalue()) :: boolean()
@@ -889,6 +943,11 @@ defmodule Pyex.Builtins do
 
   defp builtin_reversed([str]) when is_binary(str),
     do: str |> String.codepoints() |> Enum.reverse()
+
+  # CPython: reversed(obj) uses __reversed__ if defined, else falls back to the
+  # __len__ + __getitem__ sequence protocol.
+  defp builtin_reversed([{:instance, _, _} = inst]),
+    do: {:dunder_call, inst, "__reversed__", []}
 
   @spec builtin_enumerate([Interpreter.pyvalue()], map()) ::
           [{:tuple, [Interpreter.pyvalue()]}] | {:exception, String.t()}
@@ -2030,6 +2089,45 @@ defmodule Pyex.Builtins do
 
   defp builtin_repr([val]), do: py_repr_quoted(val)
 
+  # ascii(obj) == repr(obj) with all non-ASCII chars backslash-escaped.
+  @spec builtin_ascii([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
+  defp builtin_ascii([{:instance, _, _} = inst]) do
+    {:ctx_call,
+     fn env, ctx ->
+       {repr, env, ctx} = Pyex.Interpreter.Protocols.eval_py_repr(inst, env, ctx)
+       {ascii_escape(repr), env, ctx}
+     end}
+  end
+
+  defp builtin_ascii([val]) do
+    case builtin_repr([val]) do
+      {:ctx_call, fun} ->
+        {:ctx_call,
+         fn env, ctx ->
+           {repr, env, ctx} = fun.(env, ctx)
+           {ascii_escape(repr), env, ctx}
+         end}
+
+      repr when is_binary(repr) ->
+        ascii_escape(repr)
+    end
+  end
+
+  @spec ascii_escape(String.t()) :: String.t()
+  defp ascii_escape(str) do
+    str
+    |> String.to_charlist()
+    |> Enum.map_join(fn
+      cp when cp < 128 -> <<cp::utf8>>
+      cp when cp <= 0xFF -> "\\x" <> hex(cp, 2)
+      cp when cp <= 0xFFFF -> "\\u" <> hex(cp, 4)
+      cp -> "\\U" <> hex(cp, 8)
+    end)
+  end
+
+  defp hex(cp, width),
+    do: cp |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(width, "0")
+
   @spec builtin_hasattr([Interpreter.pyvalue()]) :: boolean()
   defp builtin_hasattr([{:instance, {:class, _, _, _} = class, attrs}, attr])
        when is_binary(attr) do
@@ -2309,8 +2407,26 @@ defmodule Pyex.Builtins do
     {:exception, "AttributeError: cannot set attribute '#{attr}'"}
   end
 
-  @spec builtin_super([Interpreter.pyvalue()]) :: {:super_call}
+  @spec builtin_delattr([Interpreter.pyvalue()]) ::
+          {:mutate, Interpreter.pyvalue(), nil} | {:exception, String.t()}
+  defp builtin_delattr([{:instance, class, attrs}, attr]) when is_binary(attr) do
+    if Map.has_key?(attrs, attr) do
+      {:mutate, {:instance, class, Map.delete(attrs, attr)}, nil}
+    else
+      {:exception, "AttributeError: #{attr}"}
+    end
+  end
+
+  defp builtin_delattr([_, attr]) when is_binary(attr),
+    do: {:exception, "AttributeError: cannot delete attribute '#{attr}'"}
+
+  @spec builtin_super([Interpreter.pyvalue()]) ::
+          {:super_call} | {:super_call, Interpreter.pyvalue(), Interpreter.pyvalue()}
   defp builtin_super([]), do: {:super_call}
+  defp builtin_super([type, obj]), do: {:super_call, type, obj}
+
+  defp builtin_super([_type]),
+    do: {:exception, "TypeError: super() with a single argument (unbound) is not supported"}
 
   @spec builtin_callable([Interpreter.pyvalue()]) :: boolean()
   defp builtin_callable([{:builtin, _}]), do: true
@@ -2387,6 +2503,27 @@ defmodule Pyex.Builtins do
      end}
   end
 
+  # locals(): the current (innermost) scope as a dict. globals(): the module
+  # scope (bottom of the stack). Builtins are seeded into the global scope, so
+  # they're subtracted to match CPython's separate-namespace model.
+  defp builtin_locals([]) do
+    {:ctx_call, fn env, ctx -> {scope_to_dict(List.first(env.scopes, %{}), ctx), env, ctx} end}
+  end
+
+  defp builtin_globals([]) do
+    {:ctx_call, fn env, ctx -> {scope_to_dict(List.last(env.scopes) || %{}, ctx), env, ctx} end}
+  end
+
+  @spec scope_to_dict(map(), Ctx.t()) :: Interpreter.pyvalue()
+  defp scope_to_dict(scope, ctx) do
+    builtin_names = names()
+
+    scope
+    |> Enum.reject(fn {k, _v} -> k in builtin_names or internal_scope_name?(k) end)
+    |> Enum.map(fn {k, v} -> {k, Ctx.deref(ctx, v)} end)
+    |> PyDict.from_pairs()
+  end
+
   # Pyex injects a few sentinel bindings into scopes (e.g. the active exception);
   # they are interpreter internals, not user names, so dir() must not surface them.
   @spec internal_scope_name?(String.t()) :: boolean()
@@ -2454,7 +2591,12 @@ defmodule Pyex.Builtins do
 
   # format(value[, spec]) delegates to the same spec engine f-strings use.
   @spec builtin_format([Interpreter.pyvalue()]) :: Interpreter.pyvalue()
-  defp builtin_format([val]), do: FstringFormat.apply_format_spec(val, "")
+  defp builtin_format([val]), do: builtin_format([val, ""])
+
+  # Instances go through the full __format__ protocol (needs the interpreter
+  # for method dispatch); everything else uses the pure format mini-language.
+  defp builtin_format([{:instance, _, _} = val, spec]) when is_binary(spec),
+    do: {:ctx_call, fn env, ctx -> Interpreter.format_with_protocol(val, spec, env, ctx) end}
 
   defp builtin_format([val, spec]) when is_binary(spec),
     do: FstringFormat.apply_format_spec(val, spec)
@@ -2819,6 +2961,14 @@ defmodule Pyex.Builtins do
     end
   end
 
+  @spec builtin_memoryview([Interpreter.pyvalue()]) ::
+          {:memoryview, binary()} | {:exception, String.t()}
+  defp builtin_memoryview([{tag, b}]) when tag in [:bytes, :bytearray, :memoryview],
+    do: {:memoryview, b}
+
+  defp builtin_memoryview(_),
+    do: {:exception, "TypeError: memoryview: a bytes-like object is required"}
+
   @doc """
   Returns whether a Python value is truthy.
   """
@@ -2855,6 +3005,9 @@ defmodule Pyex.Builtins do
   defp pytype(val) when is_integer(val), do: "int"
   defp pytype(val) when is_float(val), do: "float"
   defp pytype(:ellipsis), do: "ellipsis"
+  defp pytype(:not_implemented), do: "NotImplementedType"
+  defp pytype({:struct_time, _}), do: "struct_time"
+  defp pytype({:memoryview, _}), do: "memoryview"
   defp pytype(val) when is_binary(val), do: "str"
   defp pytype(val) when is_boolean(val), do: "bool"
   defp pytype(nil), do: "NoneType"
@@ -2917,6 +3070,13 @@ defmodule Pyex.Builtins do
   def py_repr(:neg_infinity), do: "-inf"
   def py_repr(:nan), do: "nan"
   def py_repr(:ellipsis), do: "Ellipsis"
+  def py_repr(:not_implemented), do: "NotImplemented"
+
+  def py_repr({:struct_time, fields}),
+    do: Pyex.Interpreter.Helpers.struct_time_repr(fields)
+
+  def py_repr({:memoryview, _}), do: "<memory>"
+
   def py_repr(val) when is_float(val), do: Pyex.Interpreter.Helpers.py_float_str(val)
 
   def py_repr({:py_list, reversed, _len}) do

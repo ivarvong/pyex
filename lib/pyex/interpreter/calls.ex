@@ -352,6 +352,7 @@ defmodule Pyex.Interpreter.Calls do
 
   @spec mutate_target_expr(Parser.ast_node(), [Parser.ast_node()]) :: Parser.ast_node()
   defp mutate_target_expr({:var, _, ["setattr"]}, [first_arg | _]), do: first_arg
+  defp mutate_target_expr({:var, _, ["delattr"]}, [first_arg | _]), do: first_arg
   defp mutate_target_expr(func_expr, _arg_exprs), do: func_expr
 
   @spec mutate_target(Parser.ast_node(), Interpreter.pyvalue(), Env.t(), Ctx.t()) ::

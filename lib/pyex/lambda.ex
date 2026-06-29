@@ -69,7 +69,8 @@ defmodule Pyex.Lambda do
         }
 
   @type compiled_route ::
-          {String.t(), [String.t() | :param], [String.t()], Interpreter.pyvalue()}
+          {String.t(), [String.t() | :param], [String.t()], Interpreter.pyvalue(),
+           integer() | nil}
 
   @type app :: %{
           routes: [compiled_route()],
@@ -95,8 +96,8 @@ defmodule Pyex.Lambda do
 
     with {:ok, env, ctx} <- interpret(source, ctx),
          {:ok, routes} <- extract_routes(env),
-         {:ok, handler, path_params} <- match(routes, request) do
-      execute(handler, path_params, request, ctx)
+         {:ok, handler, path_params, route_status} <- match(routes, request) do
+      execute(handler, path_params, request, ctx, route_status)
     end
   end
 
@@ -152,9 +153,9 @@ defmodule Pyex.Lambda do
   @spec handle(app(), request()) :: {:ok, response(), app()} | {:error, Error.t()}
   def handle(%{routes: routes, env: _env, ctx: ctx} = app, request) do
     case match(routes, request) do
-      {:ok, handler, path_params} ->
+      {:ok, handler, path_params, route_status} ->
         {:ok, response, new_ctx, updated_handler} =
-          execute_with_ctx(handler, path_params, request, ctx)
+          execute_with_ctx(handler, path_params, request, ctx, route_status)
 
         new_routes = update_route_handler(routes, handler, updated_handler)
         {:ok, response, %{app | ctx: new_ctx, routes: new_routes}}
@@ -206,7 +207,7 @@ defmodule Pyex.Lambda do
   @spec handle_stream(app(), request()) :: {:ok, stream_response(), app()} | {:error, Error.t()}
   def handle_stream(%{routes: routes, env: _env, ctx: ctx} = app, request) do
     case match(routes, request) do
-      {:ok, handler, path_params} ->
+      {:ok, handler, path_params, _route_status} ->
         t0 = System.monotonic_time(:millisecond)
         events_before = ctx.event_count
         compute_before = Ctx.compute_time(ctx)
@@ -276,9 +277,10 @@ defmodule Pyex.Lambda do
     case Env.get(env, "app") do
       {:ok, %{"__routes__" => raw_routes}} when is_list(raw_routes) ->
         compiled =
-          Enum.map(raw_routes, fn {{method, path_template}, handler} ->
+          Enum.map(raw_routes, fn route ->
+            {{method, path_template}, handler, status} = normalize_route(route)
             {segments, param_names} = FastAPI.compile_path(path_template)
-            {method, segments, param_names, handler}
+            {method, segments, param_names, handler, status}
           end)
 
         {:ok, compiled}
@@ -292,14 +294,14 @@ defmodule Pyex.Lambda do
   end
 
   @spec match([compiled_route()], request()) ::
-          {:ok, Interpreter.pyvalue(), %{optional(String.t()) => String.t()}}
+          {:ok, Interpreter.pyvalue(), %{optional(String.t()) => String.t()}, integer() | nil}
           | {:error, Error.t()}
   defp match(routes, request) do
     method = String.upcase(request.method)
     segments = String.split(request.path, "/", trim: true)
 
     case find_route(routes, method, segments) do
-      {:ok, _handler, _params} = result ->
+      {:ok, _handler, _params, _status} = result ->
         result
 
       :not_found ->
@@ -308,17 +310,27 @@ defmodule Pyex.Lambda do
   end
 
   @spec find_route([compiled_route()], String.t(), [String.t()]) ::
-          {:ok, Interpreter.pyvalue(), %{optional(String.t()) => String.t()}} | :not_found
+          {:ok, Interpreter.pyvalue(), %{optional(String.t()) => String.t()}, integer() | nil}
+          | :not_found
   defp find_route([], _method, _segments), do: :not_found
 
-  defp find_route([{route_method, pattern, param_names, handler} | rest], method, segments) do
+  defp find_route(
+         [{route_method, pattern, param_names, handler, status} | rest],
+         method,
+         segments
+       ) do
     if route_method == method and segments_match?(pattern, segments) do
       params = extract_params(pattern, param_names, segments)
-      {:ok, handler, params}
+      {:ok, handler, params, status}
     else
       find_route(rest, method, segments)
     end
   end
+
+  # FastAPI route tuples gained a declared status_code (a third element);
+  # tolerate the older two-element shape too.
+  defp normalize_route({{_m, _t}, _h, _s} = route), do: route
+  defp normalize_route({{m, t}, h}), do: {{m, t}, h, nil}
 
   @spec segments_match?([String.t() | :param], [String.t()]) :: boolean()
   defp segments_match?(pattern, segments) when length(pattern) != length(segments), do: false
@@ -347,10 +359,13 @@ defmodule Pyex.Lambda do
           Interpreter.pyvalue(),
           %{optional(String.t()) => String.t()},
           request(),
-          Ctx.t()
+          Ctx.t(),
+          integer() | nil
         ) :: {:ok, response()}
-  defp execute(handler, path_params, request, ctx) do
-    {:ok, response, _ctx, _handler} = execute_with_ctx(handler, path_params, request, ctx)
+  defp execute(handler, path_params, request, ctx, route_status) do
+    {:ok, response, _ctx, _handler} =
+      execute_with_ctx(handler, path_params, request, ctx, route_status)
+
     {:ok, response}
   end
 
@@ -358,9 +373,10 @@ defmodule Pyex.Lambda do
           Interpreter.pyvalue(),
           %{optional(String.t()) => String.t()},
           request(),
-          Ctx.t()
+          Ctx.t(),
+          integer() | nil
         ) :: {:ok, response(), Ctx.t(), Interpreter.pyvalue()}
-  defp execute_with_ctx(handler, path_params, request, ctx) do
+  defp execute_with_ctx(handler, path_params, request, ctx, route_status) do
     t0 = System.monotonic_time(:millisecond)
     events_before = ctx.event_count
     compute_before = Ctx.compute_time(ctx)
@@ -382,13 +398,13 @@ defmodule Pyex.Lambda do
       _ ->
         telem = build_telemetry(t0, events_before, compute_before, new_ctx)
 
-        {:ok, Map.put(unwrap_response(result, new_ctx), :telemetry, telem), new_ctx,
+        {:ok, Map.put(unwrap_response(result, new_ctx, route_status), :telemetry, telem), new_ctx,
          updated_handler}
     end
   end
 
-  @spec unwrap_response(Interpreter.pyvalue(), Ctx.t()) :: response()
-  defp unwrap_response(%{"__response__" => true, "__streaming__" => true} = resp, ctx) do
+  @spec unwrap_response(Interpreter.pyvalue(), Ctx.t(), integer() | nil) :: response()
+  defp unwrap_response(%{"__response__" => true, "__streaming__" => true} = resp, ctx, _route) do
     chunks = drain_streaming_chunks(Map.get(resp, "body", []), ctx)
 
     %{
@@ -398,7 +414,7 @@ defmodule Pyex.Lambda do
     }
   end
 
-  defp unwrap_response(%{"__response__" => true} = resp, ctx) do
+  defp unwrap_response(%{"__response__" => true} = resp, ctx, _route) do
     body = Ctx.deep_deref(ctx, Map.get(resp, "body"))
 
     %{
@@ -408,11 +424,13 @@ defmodule Pyex.Lambda do
     }
   end
 
-  defp unwrap_response(result, ctx) do
+  # A plain return value takes the route's declared status_code (200 default),
+  # matching FastAPI's @app.post(..., status_code=201).
+  defp unwrap_response(result, ctx, route_status) do
     derefed = Ctx.deep_deref(ctx, result)
 
     %{
-      status: 200,
+      status: route_status || 200,
       headers: %{"content-type" => "application/json"},
       body: Interpreter.Helpers.to_python_view(derefed)
     }
@@ -757,9 +775,9 @@ defmodule Pyex.Lambda do
   @spec update_route_handler([compiled_route()], Interpreter.pyvalue(), Interpreter.pyvalue()) ::
           [compiled_route()]
   defp update_route_handler(routes, old_handler, new_handler) do
-    Enum.map(routes, fn {method, segments, param_names, handler} = route ->
+    Enum.map(routes, fn {method, segments, param_names, handler, status} = route ->
       if handler == old_handler do
-        {method, segments, param_names, new_handler}
+        {method, segments, param_names, new_handler, status}
       else
         route
       end

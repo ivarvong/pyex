@@ -977,7 +977,16 @@ defmodule Pyex.Interpreter.ControlFlow do
       env = if var_name, do: Env.put(env, var_name, exc_value), else: env
 
       ctx = %{ctx | exception_instance: nil}
-      Interpreter.eval_statements(handler_body, env, ctx)
+
+      # PEP 3110: `except E as e:` implicitly `del e` at the end of the block —
+      # the name does not survive (even if it shadowed an outer binding).
+      case Interpreter.eval_statements(handler_body, env, ctx) do
+        {signal, env, ctx} when var_name != nil ->
+          {signal, Env.delete(env, var_name), ctx}
+
+        result ->
+          result
+      end
     else
       match_handler(rest, message, env, ctx)
     end

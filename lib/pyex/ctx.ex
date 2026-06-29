@@ -28,6 +28,7 @@ defmodule Pyex.Ctx do
           :path => String.t(),
           :mode => :read | :write | :append,
           :buffer => String.t(),
+          optional(:name) => String.t(),
           optional(:pos) => non_neg_integer()
         }
 
@@ -1186,7 +1187,7 @@ defmodule Pyex.Ctx do
         case Pyex.FS.read_file(fs, ctx.cwd, path) do
           {:ok, content, fs} ->
             id = ctx.next_handle
-            handle = %{path: resolved, mode: :read, buffer: content, pos: 0}
+            handle = %{path: resolved, name: path, mode: :read, buffer: content, pos: 0}
 
             ctx = %{
               ctx
@@ -1204,7 +1205,7 @@ defmodule Pyex.Ctx do
 
       write_mode when write_mode in [:write, :append] ->
         id = ctx.next_handle
-        handle = %{path: resolved, mode: write_mode, buffer: ""}
+        handle = %{path: resolved, name: path, mode: write_mode, buffer: ""}
         ctx = %{ctx | handles: Map.put(ctx.handles, id, handle), next_handle: id + 1}
         ctx = record(ctx, :file_op, {:open, resolved, write_mode, id})
         {:ok, id, ctx}
@@ -1366,6 +1367,102 @@ defmodule Pyex.Ctx do
         ctx = %{ctx | handles: Map.delete(handles, id)}
         ctx = record(ctx, :file_op, {:close, id})
         {:ok, ctx}
+
+      :error ->
+        {:error, "ValueError: I/O operation on closed file"}
+    end
+  end
+
+  @doc """
+  Returns metadata for an open handle: its mode, path, current read
+  position, and buffered byte size. `:error` if the handle is closed.
+  """
+  @spec handle_meta(t(), non_neg_integer()) ::
+          {:ok,
+           %{
+             mode: :read | :write | :append,
+             path: String.t(),
+             name: String.t(),
+             pos: non_neg_integer(),
+             size: non_neg_integer()
+           }}
+          | :error
+  def handle_meta(%__MODULE__{handles: handles}, id) do
+    case Map.fetch(handles, id) do
+      {:ok, %{mode: mode, path: path, buffer: buffer} = h} ->
+        {:ok,
+         %{
+           mode: mode,
+           path: path,
+           name: Map.get(h, :name, path),
+           pos: Map.get(h, :pos, 0),
+           size: byte_size(buffer)
+         }}
+
+      :error ->
+        :error
+    end
+  end
+
+  @doc """
+  Moves a handle's position. `whence` is 0 (absolute), 1 (relative to the
+  current position), or 2 (relative to the end). Read handles support any
+  offset; text write streams only land back at the end-of-buffer position
+  (CPython restricts cur/end-relative write seeks). Returns the new
+  absolute position.
+  """
+  @spec seek_handle(t(), non_neg_integer(), integer(), 0..2) ::
+          {:ok, non_neg_integer(), t()} | {:error, String.t()}
+  def seek_handle(%__MODULE__{handles: handles} = ctx, id, offset, whence) do
+    case Map.fetch(handles, id) do
+      {:ok, %{mode: :read, buffer: buffer} = h} ->
+        base =
+          case whence do
+            0 -> 0
+            1 -> Map.get(h, :pos, 0)
+            2 -> byte_size(buffer)
+          end
+
+        new_pos = max(base + offset, 0)
+        {:ok, new_pos, %{ctx | handles: Map.put(handles, id, Map.put(h, :pos, new_pos))}}
+
+      {:ok, %{mode: mode, buffer: buffer}} when mode in [:write, :append] ->
+        size = byte_size(buffer)
+        target = if whence == 0, do: offset, else: size + offset
+
+        if target == size do
+          {:ok, size, ctx}
+        else
+          {:error, "OSError: can't do nonzero seeks on a text write stream"}
+        end
+
+      :error ->
+        {:error, "ValueError: I/O operation on closed file"}
+    end
+  end
+
+  @doc """
+  Resizes a write handle's buffer to `size` bytes (default: current size).
+  Growing pads with NUL bytes, matching CPython. Returns the new size.
+  """
+  @spec truncate_handle(t(), non_neg_integer(), non_neg_integer() | nil) ::
+          {:ok, non_neg_integer(), t()} | {:error, String.t()}
+  def truncate_handle(%__MODULE__{handles: handles} = ctx, id, size) do
+    case Map.fetch(handles, id) do
+      {:ok, %{mode: mode, buffer: buffer} = h} when mode in [:write, :append] ->
+        target = size || byte_size(buffer)
+
+        new_buffer =
+          if target <= byte_size(buffer) do
+            binary_part(buffer, 0, target)
+          else
+            buffer <> :binary.copy(<<0>>, target - byte_size(buffer))
+          end
+
+        {:ok, target, %{ctx | handles: Map.put(handles, id, %{h | buffer: new_buffer})}}
+
+      {:ok, _} ->
+        {:error, "OSError: File not open for writing"}
 
       :error ->
         {:error, "ValueError: I/O operation on closed file"}

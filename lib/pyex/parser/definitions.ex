@@ -87,7 +87,19 @@ defmodule Pyex.Parser.Definitions do
 
   @spec parse_with_targets([Lexer.token()], pos_integer()) ::
           {:ok, [{term(), String.t() | nil}], [Lexer.token()]} | {:error, String.t()}
-  defp parse_with_targets(tokens, line) do
+  # PEP 617 parenthesized form: `with (a as x, b as y):`. Only treat the parens
+  # as a with-items group when they close exactly before the `:` — otherwise
+  # `(a, b)` is an ordinary (tuple/grouped) context-manager expression.
+  defp parse_with_targets([{:op, _, :lparen} | inner] = tokens, line) do
+    case parse_paren_with_items(inner, [], line) do
+      {:ok, items, [{:op, _, :colon} | _] = rest} -> {:ok, items, rest}
+      _ -> parse_with_targets_plain(tokens, line)
+    end
+  end
+
+  defp parse_with_targets(tokens, line), do: parse_with_targets_plain(tokens, line)
+
+  defp parse_with_targets_plain(tokens, line) do
     case Parser.parse_expression(tokens) do
       {:ok, expr, [{:keyword, _, "as"}, {:name, _, name} | rest]} ->
         collect_with_targets(rest, [{expr, name}], line)
@@ -97,6 +109,30 @@ defmodule Pyex.Parser.Definitions do
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  # Parse `item (, item)* ,? )` where item is `expr [as NAME]`.
+  defp parse_paren_with_items(tokens, acc, line) do
+    case Parser.parse_expression(tokens) do
+      {:ok, expr, rest} ->
+        {item, rest} =
+          case rest do
+            [{:keyword, _, "as"}, {:name, _, name} | r] -> {{expr, name}, r}
+            _ -> {{expr, nil}, rest}
+          end
+
+        acc = [item | acc]
+
+        case rest do
+          [{:op, _, :rparen} | r] -> {:ok, Enum.reverse(acc), r}
+          [{:op, _, :comma}, {:op, _, :rparen} | r] -> {:ok, Enum.reverse(acc), r}
+          [{:op, _, :comma} | r] -> parse_paren_with_items(r, acc, line)
+          _ -> :error
+        end
+
+      {:error, _} ->
+        :error
     end
   end
 
@@ -135,12 +171,12 @@ defmodule Pyex.Parser.Definitions do
   @spec parse_class_def([Lexer.token()]) :: parse_result()
   def parse_class_def([{:name, line, name}, {:op, _, :lparen} | rest]) do
     case parse_base_classes(rest) do
-      {:ok, bases, rest} ->
+      {:ok, bases, keywords, rest} ->
         case rest do
           [{:op, _, :colon}, :newline, :indent | rest] ->
             case Parser.parse_block(rest) do
               {:ok, body, rest} ->
-                {:ok, {:class, [line: line], [name, bases, body]}, drop_newline(rest)}
+                {:ok, class_node(line, name, bases, body, keywords), drop_newline(rest)}
 
               {:error, _} = error ->
                 error
@@ -149,7 +185,7 @@ defmodule Pyex.Parser.Definitions do
           [{:op, _, :colon} | inline_rest] ->
             case Parser.parse_inline_body(inline_rest) do
               {:ok, stmts, rest} ->
-                {:ok, {:class, [line: line], [name, bases, stmts]}, drop_newline(rest)}
+                {:ok, class_node(line, name, bases, stmts, keywords), drop_newline(rest)}
 
               {:error, _} = error ->
                 error
@@ -163,6 +199,10 @@ defmodule Pyex.Parser.Definitions do
         error
     end
   end
+
+  # Emits the 3-element class AST when there are no class keywords (the common
+  # case the interpreter has always handled), and a 4-element form carrying the
+  # keywords (metaclass=…, PEP 487 args) only when present. (defined below)
 
   def parse_class_def([{:name, line, name}, {:op, _, :colon}, :newline, :indent | rest]) do
     case Parser.parse_block(rest) do
@@ -188,16 +228,31 @@ defmodule Pyex.Parser.Definitions do
     {:error, "expected class name at #{token_line(tokens)}"}
   end
 
+  defp class_node(line, name, bases, body, []),
+    do: {:class, [line: line], [name, bases, body]}
+
+  defp class_node(line, name, bases, body, keywords),
+    do: {:class, [line: line], [name, bases, body, keywords]}
+
   @spec parse_base_classes([Lexer.token()]) ::
-          {:ok, [base_class()], [Lexer.token()]} | {:error, String.t()}
-  defp parse_base_classes(tokens), do: parse_base_classes(tokens, [])
+          {:ok, [base_class()], [{String.t(), term()}], [Lexer.token()]} | {:error, String.t()}
+  defp parse_base_classes(tokens), do: parse_base_classes(tokens, [], [])
 
-  @spec parse_base_classes([Lexer.token()], [base_class()]) ::
-          {:ok, [base_class()], [Lexer.token()]} | {:error, String.t()}
-  defp parse_base_classes([{:op, _, :rparen} | rest], acc), do: {:ok, Enum.reverse(acc), rest}
+  @spec parse_base_classes([Lexer.token()], [base_class()], [{String.t(), term()}]) ::
+          {:ok, [base_class()], [{String.t(), term()}], [Lexer.token()]} | {:error, String.t()}
+  defp parse_base_classes([{:op, _, :rparen} | rest], acc, kw),
+    do: {:ok, Enum.reverse(acc), Enum.reverse(kw), rest}
 
-  defp parse_base_classes([{:op, _, :comma} | rest], acc) do
-    parse_base_classes(rest, acc)
+  defp parse_base_classes([{:op, _, :comma} | rest], acc, kw) do
+    parse_base_classes(rest, acc, kw)
+  end
+
+  # Class keyword argument — `metaclass=Meta`, `label="x"` (PEP 487 / metaclass).
+  defp parse_base_classes([{:name, _, kw_name}, {:op, _, :assign} | rest], acc, kw) do
+    case Parser.parse_expression(rest) do
+      {:ok, value_ast, rest} -> parse_base_classes(rest, acc, [{kw_name, value_ast} | kw])
+      {:error, _} = error -> error
+    end
   end
 
   # Subscripted bases — `Generic[T]`, `List[int]`, `typing.Iterable[str]`.
@@ -205,24 +260,25 @@ defmodule Pyex.Parser.Definitions do
   # is the (possibly dotted) class name.
   defp parse_base_classes(
          [{:name, _, name}, {:op, _, :dot}, {:name, _, attr}, {:op, _, :lbracket} | rest],
-         acc
+         acc,
+         kw
        ) do
-    parse_base_classes(skip_subscript(rest, 1), [{:dotted, name, attr} | acc])
+    parse_base_classes(skip_subscript(rest, 1), [{:dotted, name, attr} | acc], kw)
   end
 
-  defp parse_base_classes([{:name, _, name}, {:op, _, :lbracket} | rest], acc) do
-    parse_base_classes(skip_subscript(rest, 1), [name | acc])
+  defp parse_base_classes([{:name, _, name}, {:op, _, :lbracket} | rest], acc, kw) do
+    parse_base_classes(skip_subscript(rest, 1), [name | acc], kw)
   end
 
-  defp parse_base_classes([{:name, _, name}, {:op, _, :dot}, {:name, _, attr} | rest], acc) do
-    parse_base_classes(rest, [{:dotted, name, attr} | acc])
+  defp parse_base_classes([{:name, _, name}, {:op, _, :dot}, {:name, _, attr} | rest], acc, kw) do
+    parse_base_classes(rest, [{:dotted, name, attr} | acc], kw)
   end
 
-  defp parse_base_classes([{:name, _, name} | rest], acc) do
-    parse_base_classes(rest, [name | acc])
+  defp parse_base_classes([{:name, _, name} | rest], acc, kw) do
+    parse_base_classes(rest, [name | acc], kw)
   end
 
-  defp parse_base_classes(tokens, _acc) do
+  defp parse_base_classes(tokens, _acc, _kw) do
     {:error, "unexpected token in class bases at #{token_line(tokens)}"}
   end
 

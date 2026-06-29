@@ -686,8 +686,12 @@ defmodule Pyex.Interpreter.Invocation do
               {return_val, env, ctx}
 
             _ ->
+              # The instance is bound to the method's FIRST parameter, whatever
+              # it's named — `self` is convention, not a keyword. Read the
+              # (possibly mutated) instance back by that name, not a hardcoded
+              # "self", so `def __init__(s): s.n = 1` persists like CPython.
               updated_self =
-                case Env.get(post_call_env, "self") do
+                case Env.get(post_call_env, self_param_name(params)) do
                   {:ok, {:instance, _, _} = updated} -> updated
                   _ -> instance
                 end
@@ -697,6 +701,14 @@ defmodule Pyex.Interpreter.Invocation do
         end
     end
   end
+
+  # The name the instance is bound to inside a method body = its first
+  # positional parameter (conventionally `self`). Falls back to "self" for a
+  # malformed/empty parameter list.
+  @spec self_param_name([tuple()]) :: String.t()
+  defp self_param_name([{name, _} | _]) when is_binary(name), do: name
+  defp self_param_name([{name, _, _} | _]) when is_binary(name), do: name
+  defp self_param_name(_), do: "self"
 
   # Identity-preserving materializers (list/tuple/reversed/sorted) take a
   # shallow deref so element refs survive; everything else deep-derefs.
@@ -730,19 +742,67 @@ defmodule Pyex.Interpreter.Invocation do
       {drained_args, env, ctx} ->
         derefed_args = deref_args_for(fun, drained_args, ctx)
 
-        result =
-          try do
-            fun.(derefed_args)
-          rescue
-            FunctionClauseError ->
-              {:exception, builtin_clause_error_message(fun, derefed_args)}
+        case maybe_coerce_index_args(fun, derefed_args, env, ctx) do
+          {:exception, _} = signal ->
+            {signal, env, ctx}
 
-            e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
-              {:exception, "TypeError: #{Exception.message(e)}"}
-          end
-
-        BuiltinResults.handle_builtin_result(result, env, ctx)
+          {coerced_args, env, ctx} ->
+            run_builtin(fun, coerced_args, env, ctx)
+        end
     end
+  end
+
+  # PEP 357: builtins that want integers (range/hex/oct/bin/chr) coerce
+  # instance/bool arguments through __index__ before dispatch.
+  @spec maybe_coerce_index_args((list() -> term()), [Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
+          {[Interpreter.pyvalue()], Env.t(), Ctx.t()} | {:exception, String.t()}
+  defp maybe_coerce_index_args(fun, args, env, ctx) do
+    if Pyex.Builtins.index_coercing_builtin?(fun) do
+      Enum.reduce_while(args, {[], env, ctx}, fn arg, {acc, env, ctx} ->
+        case coerce_one_index(arg, env, ctx) do
+          {:ok, v, env, ctx} -> {:cont, {[v | acc], env, ctx}}
+          {:exception, _} = signal -> {:halt, signal}
+        end
+      end)
+      |> case do
+        {:exception, _} = signal -> signal
+        {acc, env, ctx} -> {Enum.reverse(acc), env, ctx}
+      end
+    else
+      {args, env, ctx}
+    end
+  end
+
+  @spec coerce_one_index(Interpreter.pyvalue(), Env.t(), Ctx.t()) ::
+          {:ok, Interpreter.pyvalue(), Env.t(), Ctx.t()} | {:exception, String.t()}
+  defp coerce_one_index(true, env, ctx), do: {:ok, 1, env, ctx}
+  defp coerce_one_index(false, env, ctx), do: {:ok, 0, env, ctx}
+
+  defp coerce_one_index({:instance, _, _} = inst, env, ctx) do
+    case Interpreter.Dunder.call_dunder(inst, "__index__", [], env, ctx) do
+      {:ok, i, env, ctx} when is_integer(i) -> {:ok, i, env, ctx}
+      {:ok, _other, _env, _ctx} -> {:exception, "TypeError: __index__ returned non-int"}
+      :not_found -> {:ok, inst, env, ctx}
+    end
+  end
+
+  defp coerce_one_index(arg, env, ctx), do: {:ok, arg, env, ctx}
+
+  @spec run_builtin((list() -> term()), [Interpreter.pyvalue()], Env.t(), Ctx.t()) ::
+          {Interpreter.pyvalue() | tuple(), Env.t(), Ctx.t()}
+  defp run_builtin(fun, derefed_args, env, ctx) do
+    result =
+      try do
+        fun.(derefed_args)
+      rescue
+        FunctionClauseError ->
+          {:exception, builtin_clause_error_message(fun, derefed_args)}
+
+        e in [ArithmeticError, ArgumentError, Enum.EmptyError] ->
+          {:exception, "TypeError: #{Exception.message(e)}"}
+      end
+
+    BuiltinResults.handle_builtin_result(result, env, ctx)
   end
 
   @spec maybe_drain_args(
@@ -977,6 +1037,9 @@ defmodule Pyex.Interpreter.Invocation do
         derefed = Ctx.deep_deref(ctx, val)
         {Pyex.Builtins.builtin_type_of(derefed), env, ctx}
 
+      {[cls_name, bases_val, ns_val], 0} ->
+        build_dynamic_class(cls_name, bases_val, ns_val, env, ctx)
+
       _ ->
         call_class_generic(class, name, args, kwargs, env, ctx)
     end
@@ -985,6 +1048,51 @@ defmodule Pyex.Interpreter.Invocation do
   def call_class({:class, _, _, _} = class, name, args, kwargs, env, ctx) do
     call_class_generic(class, name, args, kwargs, env, ctx)
   end
+
+  # `type(name, bases, namespace)` constructs a new class at runtime.
+  @spec build_dynamic_class(
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue(),
+          Env.t(),
+          Ctx.t()
+        ) :: Interpreter.call_result()
+  defp build_dynamic_class(cls_name, bases_val, ns_val, env, ctx) do
+    with name when is_binary(name) <- Ctx.deref(ctx, cls_name),
+         {:tuple, raw_bases} <- normalize_class_bases(Ctx.deref(ctx, bases_val)),
+         {:py_dict, _, _} = ns <- Ctx.deref(ctx, ns_val) do
+      # Reify builtin/exception bases into real classes (as a `class`
+      # statement does) so isinstance/issubclass and the MRO are consistent.
+      bases = Enum.map(raw_bases, &reify_dynamic_base(Ctx.deref(ctx, &1)))
+
+      attrs =
+        ns
+        |> Pyex.PyDict.keys()
+        |> Enum.filter(&is_binary/1)
+        |> Map.new(fn k -> {k, elem(Pyex.PyDict.fetch(ns, k), 1)} end)
+        |> Map.put("__name__", name)
+
+      # Build the MRO cache (also stamps __id__, which register_class keys on)
+      # so a dynamically-created class behaves exactly like a `class` statement
+      # — including subclassing a builtin base such as int.
+      class = ClassLookup.with_mro_cache({:class, name, bases, attrs})
+      ctx = Ctx.register_class(ctx, class)
+      {class, env, ctx}
+    else
+      _ ->
+        {{:exception, "TypeError: type() argument 1 must be str, 2 a tuple, 3 a dict"}, env, ctx}
+    end
+  end
+
+  defp normalize_class_bases({:tuple, _} = t), do: t
+  defp normalize_class_bases(_), do: :error
+
+  defp reify_dynamic_base({:builtin_type, _, _} = bt), do: Interpreter.builtin_type_base_class(bt)
+
+  defp reify_dynamic_base({:exception_class, _} = exc),
+    do: Interpreter.exception_instance_class(exc)
+
+  defp reify_dynamic_base(other), do: other
 
   @spec call_class_generic(
           Interpreter.pyvalue(),
@@ -1419,7 +1527,7 @@ defmodule Pyex.Interpreter.Invocation do
 
           _ ->
             final_self =
-              case Env.get(post_call_env, "self") do
+              case Env.get(post_call_env, self_param_name(params)) do
                 {:ok, {:instance, _, _} = updated} -> updated
                 _ -> instance
               end

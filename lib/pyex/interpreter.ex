@@ -154,7 +154,7 @@ defmodule Pyex.Interpreter do
           | {:groupby_call, [pyvalue()], pyvalue()}
           | {:unittest_main}
           | {:assert_raises, String.t()}
-          | {:register_route, String.t(), String.t(), pyvalue()}
+          | {:register_route, String.t(), String.t(), pyvalue(), integer() | nil}
           | {:super_call}
 
   @typep eval_result :: {pyvalue() | signal(), Env.t(), Ctx.t()}
@@ -376,96 +376,16 @@ defmodule Pyex.Interpreter do
   end
 
   def eval({:class, _, [name, base_names, body]}, env, ctx) do
-    bases =
-      Enum.map(base_names, fn
-        {:dotted, mod_name, attr_name} ->
-          case Env.get(env, mod_name) do
-            {:ok, {:module, _, %{^attr_name => {:class, _, _, _} = base}}} -> base
-            {:ok, %{^attr_name => {:class, _, _, _} = base}} -> base
-            _ -> nil
-          end
+    do_eval_class(name, base_names, body, [], env, ctx)
+  end
 
-        base_name ->
-          case Env.get(env, base_name) do
-            {:ok, {:class, _, _, _} = base} ->
-              base
-
-            {:ok, {:exception_class, _} = exc} ->
-              # Reify to a real {:class, name, bases, attrs} so the MRO
-              # and super() paths find the builtin __init__ etc.
-              exception_instance_class(exc)
-
-            {:ok, {:builtin_type, _, _} = btype} ->
-              # Reify `list`, `dict`, `set`, `str`, `int`, `tuple`, ... so
-              # `class MyList(list)` works.  Subclass instances carry their
-              # wrapped value under `__wrapped__`.
-              builtin_type_base_class(btype)
-
-            _ ->
-              # Fallback: legacy stub for bases that aren't in env but
-              # happen to be registered exception names (for very old
-              # callsites that may predate the exception_class builtins).
-              builtin_exception_base_stub(base_name)
-          end
-      end)
-      |> Enum.reject(&is_nil/1)
-
-    class_env =
-      Env.push_scope_with(env, %{"__annotations__" => %{}, "__annotations_order__" => []})
-
-    {class_env, ctx, error} =
-      Enum.reduce_while(body, {class_env, ctx, nil}, fn stmt, {ce, c, _err} ->
-        case eval(stmt, ce, c) do
-          {{:exception, _} = signal, ce, c} -> {:halt, {ce, c, signal}}
-          {_val, ce, c} -> {:cont, {ce, c, nil}}
-        end
-      end)
-
-    if error do
-      {error, env, ctx}
-    else
-      class_scope = Env.current_scope(class_env)
-
-      docstring =
-        case body do
-          [{:expr, _, [{:lit, _, [s]}]} | _] when is_binary(s) -> s
-          [{:lit, _, [s]} | _] when is_binary(s) -> s
-          _ -> nil
-        end
-
-      module_name =
-        case Env.get(env, "__name__") do
-          {:ok, n} when is_binary(n) -> n
-          _ -> "__main__"
-        end
-
-      raw_attrs =
-        Enum.reduce(class_scope, %{}, fn {k, v}, acc ->
-          Map.put(acc, k, v)
-        end)
-        |> Map.put("__name__", name)
-        |> Map.put("__qualname__", name)
-        |> Map.put("__module__", module_name)
-        |> Map.put("__doc__", docstring)
-
-      class_val = {:class, name, bases, raw_attrs}
-
-      # Enum subclasses transform plain value assignments into enum
-      # member instances with `.name` and `.value` attributes.
-      class_val =
-        if enum_base?(bases) do
-          # Preserve the definition order of member names by walking
-          # the class body AST.
-          body_order = body_assignment_order(body)
-          transform_enum_class(class_val, body_order)
-        else
-          class_val
-        end
-
-      class_val = ClassLookup.with_mro_cache(class_val)
-      ctx = Ctx.register_class(ctx, class_val)
-
-      {nil, Env.smart_put(env, name, class_val), ctx}
+  # Class header with keyword args: `class C(Base, metaclass=M, key=val)`.
+  # Evaluate the keyword expressions, then build the class threading them to
+  # __init_subclass__ (and consuming `metaclass`).
+  def eval({:class, _, [name, base_names, body, kw_ast]}, env, ctx) do
+    case eval_class_keywords(kw_ast, env, ctx) do
+      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+      {keywords, env, ctx} -> do_eval_class(name, base_names, body, keywords, env, ctx)
     end
   end
 
@@ -705,6 +625,16 @@ defmodule Pyex.Interpreter do
     Statements.eval_assert(condition, msg_expr, env, ctx)
   end
 
+  def eval({:del, meta, [:multi, targets]}, env, ctx) do
+    # `del a, b, c` — delete each target left-to-right; stop at the first error.
+    Enum.reduce_while(targets, {nil, env, ctx}, fn target_args, {_, env, ctx} ->
+      case eval({:del, meta, target_args}, env, ctx) do
+        {{:exception, _}, _, _} = err -> {:halt, err}
+        {_, env, ctx} -> {:cont, {nil, env, ctx}}
+      end
+    end)
+  end
+
   def eval({:del, _, [:var, var_name]}, env, ctx) do
     Statements.eval_del_var(var_name, env, ctx)
   end
@@ -810,6 +740,9 @@ defmodule Pyex.Interpreter do
               "__class__" ->
                 {class, env, ctx}
 
+              "__dict__" ->
+                {instance_dict(inst_attrs, ctx), env, ctx}
+
               _ ->
                 override = subclass_method_override(class, attr)
 
@@ -840,8 +773,8 @@ defmodule Pyex.Interpreter do
                       {:ok, {:staticmethod, func}, _owner} ->
                         {func, env, ctx}
 
-                      {:ok, {:classmethod, func}, _owner} ->
-                        {{:bound_method, class, func}, env, ctx}
+                      {:ok, {:classmethod, func}, owner} ->
+                        {{:bound_method, class, func, owner}, env, ctx}
 
                       {:ok, value, _owner} ->
                         invoke_descriptor_get(value, instance, class, env, ctx)
@@ -902,6 +835,9 @@ defmodule Pyex.Interpreter do
             case attr do
               "__class__" ->
                 {class, env, ctx}
+
+              "__dict__" ->
+                {instance_dict(inst_attrs, ctx), env, ctx}
 
               _ ->
                 override = subclass_method_override(class, attr)
@@ -993,6 +929,17 @@ defmodule Pyex.Interpreter do
                  env, ctx}
             end
 
+          {:struct_time, fields} ->
+            case Enum.find_index(Helpers.struct_time_fields(), &(&1 == attr)) do
+              nil ->
+                {{:exception,
+                  "AttributeError: 'time.struct_time' object has no attribute '#{attr}'"}, env,
+                 ctx}
+
+              idx ->
+                {Enum.at(fields, idx), env, ctx}
+            end
+
           {:property, fget, fset, fdel} ->
             case attr do
               "setter" ->
@@ -1062,6 +1009,18 @@ defmodule Pyex.Interpreter do
 
               {:ok, {:builtin_kw, _} = builtin, _owner} ->
                 {{:bound_method, instance, builtin}, env, ctx}
+
+              {:ok, {:classmethod, func}, owner} ->
+                bound_cls =
+                  case Ctx.deref(ctx, instance) do
+                    {:instance, cls, _} -> cls
+                    other -> other
+                  end
+
+                {{:bound_method, bound_cls, func, owner}, env, ctx}
+
+              {:ok, {:staticmethod, func}, _owner} ->
+                {func, env, ctx}
 
               {:ok, value, _owner} ->
                 {value, env, ctx}
@@ -1553,6 +1512,136 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  @spec eval_class_keywords([{String.t(), Parser.ast_node()}], Env.t(), Ctx.t()) ::
+          {[{String.t(), pyvalue()}] | {:exception, String.t()}, Env.t(), Ctx.t()}
+  defp eval_class_keywords(kw_ast, env, ctx) do
+    Enum.reduce_while(kw_ast, {[], env, ctx}, fn {kw_name, expr}, {acc, env, ctx} ->
+      case eval(expr, env, ctx) do
+        {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
+        {value, env, ctx} -> {:cont, {[{kw_name, value} | acc], env, ctx}}
+      end
+    end)
+    |> case do
+      {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+      {acc, env, ctx} -> {Enum.reverse(acc), env, ctx}
+    end
+  end
+
+  @spec do_eval_class(
+          String.t(),
+          [term()],
+          [Parser.ast_node()],
+          [{String.t(), pyvalue()}],
+          Env.t(),
+          Ctx.t()
+        ) :: eval_result()
+  defp do_eval_class(name, base_names, body, class_keywords, env, ctx) do
+    bases =
+      Enum.map(base_names, fn
+        {:dotted, mod_name, attr_name} ->
+          case Env.get(env, mod_name) do
+            {:ok, {:module, _, %{^attr_name => {:class, _, _, _} = base}}} -> base
+            {:ok, %{^attr_name => {:class, _, _, _} = base}} -> base
+            _ -> nil
+          end
+
+        base_name ->
+          case Env.get(env, base_name) do
+            {:ok, {:class, _, _, _} = base} ->
+              base
+
+            {:ok, {:exception_class, _} = exc} ->
+              # Reify to a real {:class, name, bases, attrs} so the MRO
+              # and super() paths find the builtin __init__ etc.
+              exception_instance_class(exc)
+
+            {:ok, {:builtin_type, _, _} = btype} ->
+              # Reify `list`, `dict`, `set`, `str`, `int`, `tuple`, ... so
+              # `class MyList(list)` works.  Subclass instances carry their
+              # wrapped value under `__wrapped__`.
+              builtin_type_base_class(btype)
+
+            _ ->
+              # Fallback: legacy stub for bases that aren't in env but
+              # happen to be registered exception names (for very old
+              # callsites that may predate the exception_class builtins).
+              builtin_exception_base_stub(base_name)
+          end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    class_env =
+      Env.push_scope_with(env, %{"__annotations__" => %{}, "__annotations_order__" => []})
+
+    {class_env, ctx, error} =
+      Enum.reduce_while(body, {class_env, ctx, nil}, fn stmt, {ce, c, _err} ->
+        case eval(stmt, ce, c) do
+          {{:exception, _} = signal, ce, c} -> {:halt, {ce, c, signal}}
+          {_val, ce, c} -> {:cont, {ce, c, nil}}
+        end
+      end)
+
+    if error do
+      {error, env, ctx}
+    else
+      class_scope = Env.current_scope(class_env)
+
+      docstring =
+        case body do
+          [{:expr, _, [{:lit, _, [s]}]} | _] when is_binary(s) -> s
+          [{:lit, _, [s]} | _] when is_binary(s) -> s
+          _ -> nil
+        end
+
+      module_name =
+        case Env.get(env, "__name__") do
+          {:ok, n} when is_binary(n) -> n
+          _ -> "__main__"
+        end
+
+      raw_attrs =
+        Enum.reduce(class_scope, %{}, fn {k, v}, acc ->
+          Map.put(acc, k, v)
+        end)
+        |> Map.put("__name__", name)
+        |> Map.put("__qualname__", name)
+        |> Map.put("__module__", module_name)
+        |> Map.put("__doc__", docstring)
+
+      class_val = {:class, name, bases, raw_attrs}
+
+      # Enum subclasses transform plain value assignments into enum
+      # member instances with `.name` and `.value` attributes.
+      class_val =
+        if enum_base?(bases) do
+          # Preserve the definition order of member names by walking
+          # the class body AST.
+          body_order = body_assignment_order(body)
+          transform_enum_class(class_val, body_order)
+        else
+          class_val
+        end
+
+      class_val = ClassLookup.with_mro_cache(class_val)
+      ctx = Ctx.register_class(ctx, class_val)
+
+      # PEP 487: defining a subclass invokes the nearest parent's
+      # __init_subclass__(cls=..., **class_keywords) — `metaclass` is consumed
+      # here, not forwarded. It may set attributes on cls, so re-fetch the
+      # (possibly mutated) class from the registry before binding.
+      init_kwargs =
+        class_keywords |> Enum.reject(fn {k, _} -> k == "metaclass" end) |> Map.new()
+
+      case call_init_subclass(class_val, bases, env, ctx, init_kwargs) do
+        {:ok, env, ctx} ->
+          {nil, Env.smart_put(env, name, Ctx.live_class(ctx, class_val)), ctx}
+
+        {{:exception, _} = signal, env, ctx} ->
+          {signal, env, ctx}
+      end
+    end
+  end
+
   defp eval_var_slow(name, env, ctx) do
     case Env.get(env, name) do
       {:ok, value} -> {value, env, ctx}
@@ -1716,8 +1805,8 @@ defmodule Pyex.Interpreter do
                   {:ok, {:staticmethod, func}, _owner} ->
                     {func, env, ctx}
 
-                  {:ok, {:classmethod, func}, _owner} ->
-                    {{:bound_method, class, func}, env, ctx}
+                  {:ok, {:classmethod, func}, owner} ->
+                    {{:bound_method, class, func, owner}, env, ctx}
 
                   {:ok, value, _owner} ->
                     invoke_descriptor_get(value, object, class, env, ctx)
@@ -1912,6 +2001,20 @@ defmodule Pyex.Interpreter do
           {:ok, {:builtin_kw, _} = bkw, _owner} ->
             {{:bound_method, instance, bkw}, env, ctx}
 
+          # A classmethod reached through super() binds to the class (cls), not
+          # the instance, carrying the defining owner as __class__.
+          {:ok, {:classmethod, func}, owner} ->
+            bound_cls =
+              case Ctx.deref(ctx, instance) do
+                {:instance, cls, _} -> cls
+                other -> other
+              end
+
+            {{:bound_method, bound_cls, func, owner}, env, ctx}
+
+          {:ok, {:staticmethod, func}, _owner} ->
+            {func, env, ctx}
+
           {:ok, value, _owner} ->
             {value, env, ctx}
 
@@ -1960,6 +2063,19 @@ defmodule Pyex.Interpreter do
       {:iterator, id} ->
         iter_attr_for_generator(id, attr, env, ctx)
 
+      {:file_handle, id} when attr in ["closed", "mode", "name"] ->
+        file_handle_attr(id, attr, env, ctx)
+
+      {:struct_time, fields} ->
+        case Enum.find_index(Helpers.struct_time_fields(), &(&1 == attr)) do
+          nil ->
+            {{:exception, "AttributeError: 'time.struct_time' object has no attribute '#{attr}'"},
+             env, ctx}
+
+          idx ->
+            {Enum.at(fields, idx), env, ctx}
+        end
+
       _ ->
         case Methods.resolve(object, attr) do
           {:ok, method} ->
@@ -1971,6 +2087,35 @@ defmodule Pyex.Interpreter do
              env, ctx}
         end
     end
+  end
+
+  # File data attributes (read without a call): `closed` reflects whether the
+  # handle is still open, `mode`/`name` echo how it was opened. CPython exposes
+  # these on the stream object itself, so they resolve here, not via Methods.
+  @spec file_handle_attr(non_neg_integer(), String.t(), Env.t(), Ctx.t()) :: eval_result()
+  defp file_handle_attr(id, attr, env, ctx) do
+    case {attr, Ctx.handle_meta(ctx, id)} do
+      {"closed", :error} -> {true, env, ctx}
+      {"closed", {:ok, _}} -> {false, env, ctx}
+      {_, :error} -> {{:exception, "ValueError: I/O operation on closed file"}, env, ctx}
+      {"mode", {:ok, %{mode: mode}}} -> {file_mode_string(mode), env, ctx}
+      {"name", {:ok, %{name: name}}} -> {name, env, ctx}
+    end
+  end
+
+  @spec file_mode_string(:read | :write | :append) :: String.t()
+  defp file_mode_string(:read), do: "r"
+  defp file_mode_string(:write), do: "w"
+  defp file_mode_string(:append), do: "a"
+
+  # An instance's __dict__: its string-keyed attributes as a dict (values
+  # deref'd). Mirrors CPython's vars(obj) / obj.__dict__ read view.
+  @spec instance_dict(%{optional(String.t()) => pyvalue()}, Ctx.t()) :: pyvalue()
+  defp instance_dict(inst_attrs, ctx) do
+    inst_attrs
+    |> Enum.filter(fn {k, _v} -> is_binary(k) end)
+    |> Enum.map(fn {k, v} -> {k, Ctx.deref(ctx, v)} end)
+    |> PyDict.from_pairs()
   end
 
   @spec iter_attr_for_generator(non_neg_integer(), String.t(), Env.t(), Ctx.t()) :: eval_result()
@@ -2232,7 +2377,8 @@ defmodule Pyex.Interpreter do
           | {:mutate, pyvalue(), pyvalue(), Env.t(), Ctx.t()}
           | {:mutate_arg, non_neg_integer(), pyvalue(), pyvalue(), Ctx.t()}
           | {:mutate_arg, non_neg_integer(), pyvalue(), pyvalue(), Env.t(), Ctx.t()}
-          | {{:register_route, String.t(), String.t(), pyvalue()}, Env.t(), Ctx.t()}
+          | {{:register_route, String.t(), String.t(), pyvalue(), integer() | nil}, Env.t(),
+             Ctx.t()}
           | {{:exception, String.t()}, Env.t(), Ctx.t()}
           | {{:yielded, pyvalue() | coroutine_signal(), [cont_frame()]}, Env.t(), Ctx.t()}
 
@@ -2602,6 +2748,12 @@ defmodule Pyex.Interpreter do
     derefed = Ctx.deref(ctx, value)
 
     case derefed do
+      # A lazily-built class constant (e.g. date.max): the thunk is pure, so
+      # evaluating it here avoids the construction-time recursion that embedding
+      # the instance directly in the class map would cause.
+      {:class_const, thunk} ->
+        {thunk.(), env, ctx}
+
       {:property, fget, _, _} when fget != nil ->
         case call_function(fget, [instance], %{}, env, ctx) do
           {val, env, ctx, _} -> {val, env, ctx}
@@ -2615,7 +2767,7 @@ defmodule Pyex.Interpreter do
         {func, env, ctx}
 
       {:classmethod, func} ->
-        {{:bound_method, owner_class, func}, env, ctx}
+        {{:bound_method, owner_class, func, owner_class}, env, ctx}
 
       {:instance, {:class, _, _, _} = desc_class, _} ->
         case ClassLookup.resolve_class_attr(desc_class, "__get__") do
@@ -2641,7 +2793,9 @@ defmodule Pyex.Interpreter do
   end
 
   @spec invoke_descriptor_set(pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) ::
-          {:ok, Env.t(), Ctx.t()} | :no_descriptor
+          {:ok, Env.t(), Ctx.t()}
+          | {:exception, {:exception, String.t()}, Env.t(), Ctx.t()}
+          | :no_descriptor
   def invoke_descriptor_set(value, instance, new_value, env, ctx) do
     derefed = Ctx.deref(ctx, value)
 
@@ -2659,6 +2813,7 @@ defmodule Pyex.Interpreter do
               )
 
             case normalize_call_result(result) do
+              {{:exception, _} = signal, env, ctx} -> {:exception, signal, env, ctx}
               {_val, env, ctx} -> {:ok, env, ctx}
             end
 
@@ -2787,8 +2942,9 @@ defmodule Pyex.Interpreter do
     end
   end
 
+  @doc false
   @spec builtin_type_base_class(pyvalue()) :: pyvalue()
-  defp builtin_type_base_class({:builtin_type, name, factory}) do
+  def builtin_type_base_class({:builtin_type, name, factory}) do
     # `dict` alone among builtin types accepts kwargs; its factory has a
     # 2-arity signature.  Route it through `builtin_dict/2`.
     init_fn =
@@ -2940,7 +3096,102 @@ defmodule Pyex.Interpreter do
     # matching `__eq__`/`__hash__` resolve to the correct dict/map entry.
     key = canonicalize_map_key(ctx, key, object)
 
+    # PEP 357 __index__: an object used to index a *sequence* is coerced to an
+    # int via __index__ (dicts/sets keep instance keys verbatim — they hash).
+    case index_coerce_for_sequence(object, key, env, ctx) do
+      {:int, int_key, env, ctx} -> eval_subscript_slow(object, int_key, env, ctx)
+      {:bad, signal, env, ctx} -> {signal, env, ctx}
+      :pass -> eval_subscript_body(object, key, env, ctx)
+    end
+  end
+
+  # Returns {:int, coerced, env, ctx} when `key` is an instance with __index__
+  # and `object` is a built-in sequence; {:bad, signal, …} if __index__ returns
+  # a non-int; :pass otherwise (leave the key untouched).
+  @spec index_coerce_for_sequence(pyvalue(), pyvalue(), Env.t(), Ctx.t()) ::
+          {:int, integer(), Env.t(), Ctx.t()}
+          | {:bad, {:exception, String.t()}, Env.t(), Ctx.t()}
+          | :pass
+  defp index_coerce_for_sequence(object, key, env, ctx) do
+    if sequence_like?(object) do
+      case Ctx.deref(ctx, key) do
+        b when is_boolean(b) ->
+          {:int, if(b, do: 1, else: 0), env, ctx}
+
+        {:instance, _, _} = inst ->
+          case Dunder.call_dunder(inst, "__index__", [], env, ctx) do
+            {:ok, i, env, ctx} when is_integer(i) ->
+              {:int, i, env, ctx}
+
+            {:ok, other, env, ctx} ->
+              {:bad,
+               {:exception,
+                "TypeError: __index__ returned non-int (type #{Helpers.py_type(other)})"}, env,
+               ctx}
+
+            :not_found ->
+              :pass
+          end
+
+        _ ->
+          :pass
+      end
+    else
+      :pass
+    end
+  end
+
+  @spec sequence_like?(pyvalue()) :: boolean()
+  defp sequence_like?({:py_list, _, _}), do: true
+  defp sequence_like?({:tuple, _}), do: true
+  defp sequence_like?({:range, _, _, _}), do: true
+  defp sequence_like?({:bytes, _}), do: true
+  defp sequence_like?({:bytearray, _}), do: true
+  defp sequence_like?(v) when is_list(v), do: true
+  defp sequence_like?(v) when is_binary(v), do: true
+  defp sequence_like?(_), do: false
+
+  # Invokes __class_getitem__(cls, item). Python treats it as an implicit
+  # classmethod, so the class is passed as the first argument.
+  @spec call_class_getitem(pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp call_class_getitem(member, cls, key, env, ctx) do
+    # __class_getitem__ is an implicit classmethod: its function takes
+    # (cls, item), so the class is passed as the first argument. A
+    # @staticmethod form takes just (item).
+    {func, call_args} =
+      case member do
+        {:classmethod, f} -> {f, [cls, key]}
+        {:staticmethod, f} -> {f, [key]}
+        other -> {other, [cls, key]}
+      end
+
+    case call_function(func, call_args, %{}, env, ctx) do
+      {{:mutate, _new, return}, env, ctx} -> {return, env, ctx}
+      {val, env, ctx, _} -> {val, env, ctx}
+      {val, env, ctx} -> {val, env, ctx}
+    end
+  end
+
+  @spec eval_subscript_body(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp eval_subscript_body(object, key, env, ctx) do
     case object do
+      # EnumClass['NAME'] -> the member, via EnumMeta.__getitem__ (by name).
+      {:class, _cname, _, %{"__enum_members__" => members}} when is_binary(key) ->
+        case List.keyfind(members, key, 0) do
+          {_n, inst} -> {inst, env, ctx}
+          nil -> {{:exception, "KeyError: '#{key}'"}, env, ctx}
+        end
+
+      # Class[item] -> __class_getitem__(cls, item) when defined (e.g. generics).
+      {:class, cls_name, _, _} = cls ->
+        case ClassLookup.resolve_class_attr(cls, "__class_getitem__") do
+          {:ok, member} ->
+            call_class_getitem(member, cls, key, env, ctx)
+
+          :error ->
+            {{:exception, "TypeError: type '#{cls_name}' is not subscriptable"}, env, ctx}
+        end
+
       {:py_dict, %{^key => _}, _} ->
         {:ok, value} = PyDict.fetch(object, key)
         {value, env, ctx}
@@ -2985,6 +3236,16 @@ defmodule Pyex.Interpreter do
           {Enum.at(items, index), env, ctx}
         end
 
+      {:struct_time, fields} when is_integer(key) ->
+        len = length(fields)
+        index = if key < 0, do: len + key, else: key
+
+        if index < 0 or index >= len do
+          {{:exception, "IndexError: tuple index out of range"}, env, ctx}
+        else
+          {Enum.at(fields, index), env, ctx}
+        end
+
       str when is_binary(str) and is_integer(key) ->
         codepoints = String.codepoints(str)
         len = length(codepoints)
@@ -2996,8 +3257,8 @@ defmodule Pyex.Interpreter do
           {Enum.at(codepoints, index), env, ctx}
         end
 
-      {tag, bin} when tag in [:bytes, :bytearray] and is_integer(key) ->
-        # Indexing bytes/bytearray yields the integer byte value.
+      {tag, bin} when tag in [:bytes, :bytearray, :memoryview] and is_integer(key) ->
+        # Indexing bytes/bytearray/memoryview yields the integer byte value.
         bytes = :binary.bin_to_list(bin)
         len = length(bytes)
         index = if key < 0, do: len + key, else: key
@@ -3097,8 +3358,62 @@ defmodule Pyex.Interpreter do
 
   @spec eval_slice(pyvalue(), pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
   defp eval_slice(object, start, stop, step, env, ctx) do
-    object = Ctx.deref(ctx, object)
+    # PEP 357 also applies to slice bounds: an instance with __index__ (or a
+    # bool) is coerced to an int before slicing.
+    case coerce_slice_bounds([start, stop, step], env, ctx) do
+      {:ok, [start, stop, step], env, ctx} ->
+        do_eval_slice(Ctx.deref(ctx, object), start, stop, step, env, ctx)
 
+      {:bad, signal, env, ctx} ->
+        {signal, env, ctx}
+    end
+  end
+
+  @spec coerce_slice_bounds([pyvalue()], Env.t(), Ctx.t()) ::
+          {:ok, [pyvalue()], Env.t(), Ctx.t()}
+          | {:bad, {:exception, String.t()}, Env.t(), Ctx.t()}
+  defp coerce_slice_bounds(bounds, env, ctx) do
+    Enum.reduce_while(bounds, {:ok, [], env, ctx}, fn bound, {:ok, acc, env, ctx} ->
+      case coerce_slice_bound(bound, env, ctx) do
+        {:ok, v, env, ctx} -> {:cont, {:ok, acc ++ [v], env, ctx}}
+        {:bad, _, _, _} = bad -> {:halt, bad}
+      end
+    end)
+  end
+
+  @spec coerce_slice_bound(pyvalue(), Env.t(), Ctx.t()) ::
+          {:ok, pyvalue(), Env.t(), Ctx.t()} | {:bad, {:exception, String.t()}, Env.t(), Ctx.t()}
+  defp coerce_slice_bound(nil, env, ctx), do: {:ok, nil, env, ctx}
+  defp coerce_slice_bound(b, env, ctx) when is_integer(b), do: {:ok, b, env, ctx}
+
+  defp coerce_slice_bound(b, env, ctx) when is_boolean(b),
+    do: {:ok, if(b, do: 1, else: 0), env, ctx}
+
+  defp coerce_slice_bound(b, env, ctx) do
+    case Ctx.deref(ctx, b) do
+      {:instance, _, _} = inst ->
+        case Dunder.call_dunder(inst, "__index__", [], env, ctx) do
+          {:ok, i, env, ctx} when is_integer(i) ->
+            {:ok, i, env, ctx}
+
+          {:ok, _other, env, ctx} ->
+            {:bad, {:exception, "TypeError: __index__ returned non-int"}, env, ctx}
+
+          :not_found ->
+            {:bad,
+             {:exception,
+              "TypeError: slice indices must be integers or None or have an __index__ method"},
+             env, ctx}
+        end
+
+      _ ->
+        {:ok, b, env, ctx}
+    end
+  end
+
+  @spec do_eval_slice(pyvalue(), pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) ::
+          eval_result()
+  defp do_eval_slice(object, start, stop, step, env, ctx) do
     case object do
       {:py_list, reversed, _} ->
         case py_slice(Enum.reverse(reversed), start, stop, step) do
@@ -3130,7 +3445,14 @@ defmodule Pyex.Interpreter do
           result -> {{:tuple, result}, env, ctx}
         end
 
-      {tag, bin} when tag in [:bytes, :bytearray] ->
+      # Slicing a struct_time yields a plain tuple, like CPython.
+      {:struct_time, fields} ->
+        case py_slice(fields, start, stop, step) do
+          {:exception, msg} -> {{:exception, msg}, env, ctx}
+          result -> {{:tuple, result}, env, ctx}
+        end
+
+      {tag, bin} when tag in [:bytes, :bytearray, :memoryview] ->
         case py_slice(:binary.bin_to_list(bin), start, stop, step) do
           {:exception, msg} -> {{:exception, msg}, env, ctx}
           result -> {{tag, :binary.list_to_bin(result)}, env, ctx}
@@ -3174,8 +3496,19 @@ defmodule Pyex.Interpreter do
 
       {raw, env, ctx} ->
         val = Ctx.deref(ctx, raw)
-        {str, env, ctx} = eval_py_str(val, env, ctx)
-        eval_fstring(rest, <<acc::binary, str::binary>>, env, ctx)
+        # A bare `{obj}` field is `format(obj, "")`; for an instance that means
+        # __format__("") (which may differ from str), so route it through the
+        # protocol. Non-instances keep the str fast path.
+        {result, env, ctx} =
+          case val do
+            {:instance, _, _} -> format_with_protocol(val, "", env, ctx)
+            _ -> eval_py_str(val, env, ctx)
+          end
+
+        case result do
+          {:exception, _} = signal -> {signal, env, ctx}
+          str -> eval_fstring(rest, <<acc::binary, str::binary>>, env, ctx)
+        end
     end
   end
 
@@ -3193,14 +3526,74 @@ defmodule Pyex.Interpreter do
             {signal, env, ctx}
 
           {resolved_spec, env, ctx} ->
-            case Pyex.Interpreter.FstringFormat.apply_format_spec(val, resolved_spec) do
-              {:exception, _} = signal ->
+            case format_with_protocol(val, resolved_spec, env, ctx) do
+              {{:exception, _} = signal, env, ctx} ->
                 {signal, env, ctx}
 
-              formatted ->
+              {formatted, env, ctx} ->
                 eval_fstring(rest, <<acc::binary, formatted::binary>>, env, ctx)
             end
         end
+    end
+  end
+
+  @doc """
+  Formats a value against a format spec, honoring the `__format__` protocol.
+
+  For an instance, dispatches to its `__format__`; absent one, an empty spec
+  falls back to `str(self)` and a non-empty spec is a TypeError (CPython's
+  `object.__format__`). Non-instances use the built-in format mini-language.
+  """
+  @spec format_with_protocol(pyvalue(), String.t(), Env.t(), Ctx.t()) ::
+          {String.t() | {:exception, String.t()}, Env.t(), Ctx.t()}
+  def format_with_protocol({:instance, _, _} = val, spec, env, ctx) do
+    case Dunder.call_dunder(val, "__format__", [spec], env, ctx) do
+      {:ok, result, env, ctx} when is_binary(result) ->
+        {result, env, ctx}
+
+      {:ok, other, env, ctx} ->
+        {{:exception, "TypeError: __format__ must return str, not #{Helpers.py_type(other)}"},
+         env, ctx}
+
+      :not_found ->
+        if spec == "" do
+          stringify_instance(val, env, ctx)
+        else
+          {{:exception,
+            "TypeError: unsupported format string passed to #{Helpers.py_type(val)}.__format__"},
+           env, ctx}
+        end
+    end
+  end
+
+  def format_with_protocol(val, spec, env, ctx) do
+    case Pyex.Interpreter.FstringFormat.apply_format_spec(val, spec) do
+      {:exception, _} = signal -> {signal, env, ctx}
+      formatted -> {formatted, env, ctx}
+    end
+  end
+
+  # str(instance): __str__, then __repr__, then the default object repr.
+  @spec stringify_instance(pyvalue(), Env.t(), Ctx.t()) :: {String.t(), Env.t(), Ctx.t()}
+  defp stringify_instance(val, env, ctx) do
+    case call_str_dunder(val, "__str__", env, ctx) do
+      {:ok, s, env, ctx} ->
+        {s, env, ctx}
+
+      :not_found ->
+        case call_str_dunder(val, "__repr__", env, ctx) do
+          {:ok, s, env, ctx} -> {s, env, ctx}
+          :not_found -> {Helpers.py_str(val), env, ctx}
+        end
+    end
+  end
+
+  @spec call_str_dunder(pyvalue(), String.t(), Env.t(), Ctx.t()) ::
+          {:ok, String.t(), Env.t(), Ctx.t()} | :not_found
+  defp call_str_dunder(val, name, env, ctx) do
+    case Dunder.call_dunder(val, name, [], env, ctx) do
+      {:ok, s, env, ctx} when is_binary(s) -> {:ok, s, env, ctx}
+      _ -> :not_found
     end
   end
 
@@ -3250,6 +3643,9 @@ defmodule Pyex.Interpreter do
 
       {:tuple, items} ->
         check_unpack_length(items, names)
+
+      {:struct_time, fields} ->
+        check_unpack_length(fields, names)
 
       {:range, _, _, _} = r ->
         case Builtins.range_to_list(r) do
@@ -3360,13 +3756,20 @@ defmodule Pyex.Interpreter do
     end
   end
 
-  @spec register_route(Parser.ast_node(), String.t(), String.t(), pyvalue(), Env.t()) :: Env.t()
-  defp register_route(decorator_expr, method, path, handler, env) do
+  @spec register_route(
+          Parser.ast_node(),
+          String.t(),
+          String.t(),
+          pyvalue(),
+          integer() | nil,
+          Env.t()
+        ) :: Env.t()
+  defp register_route(decorator_expr, method, path, handler, status, env) do
     case Helpers.root_var_name(decorator_expr) do
       {:ok, var_name} ->
         case Env.get(env, var_name) do
           {:ok, %{"__routes__" => routes} = app} ->
-            new_app = Map.put(app, "__routes__", routes ++ [{{method, path}, handler}])
+            new_app = Map.put(app, "__routes__", routes ++ [{{method, path}, handler, status}])
             Env.put(env, var_name, new_app)
 
           _ ->
@@ -3407,11 +3810,16 @@ defmodule Pyex.Interpreter do
 
       dunder ->
         case Dunder.call_dunder(l, dunder, [r], env, ctx) do
+          # `return NotImplemented` from the left dunder defers to the
+          # right operand's reflected dunder (CPython's binop protocol).
+          {:ok, :not_implemented, env, ctx} ->
+            binop_reflected_fallback(op, l, r, env, ctx)
+
           {:ok, result, env, ctx} ->
             {result, env, ctx}
 
           :not_found ->
-            BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+            binop_reflected_fallback(op, l, r, env, ctx)
         end
     end
   end
@@ -3442,6 +3850,11 @@ defmodule Pyex.Interpreter do
 
       rdunder ->
         case Dunder.call_dunder(r, rdunder, [l], env, ctx) do
+          # A reflected dunder that returns NotImplemented declines too;
+          # fall through to the built-in coercion / TypeError path.
+          {:ok, :not_implemented, env, ctx} ->
+            BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+
           {:ok, result, env, ctx} ->
             {result, env, ctx}
 
@@ -3486,6 +3899,28 @@ defmodule Pyex.Interpreter do
 
   defp do_eval_binop(op, l, r, env, ctx) do
     BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+  end
+
+  # Left dunder declined (NotImplemented / absent): try the right operand's
+  # reflected dunder, then fall back to built-in coercion. Mirrors CPython:
+  # `a + b` -> `a.__add__(b)` then `b.__radd__(a)` then TypeError.
+  defp binop_reflected_fallback(op, l, r, env, ctx) do
+    rdunder = match?({:instance, _, _}, r) && BinaryOps.rdunder_for_op(op)
+
+    if is_binary(rdunder) do
+      case Dunder.call_dunder(r, rdunder, [l], env, ctx) do
+        {:ok, :not_implemented, env, ctx} ->
+          BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+
+        {:ok, result, env, ctx} ->
+          {result, env, ctx}
+
+        :not_found ->
+          BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+      end
+    else
+      BinaryOps.binop_result(safe_binop(op, l, r), env, ctx)
+    end
   end
 
   @spec compare_sequence_equality(atom(), [pyvalue()], [pyvalue()], Env.t(), Ctx.t()) ::
@@ -3852,6 +4287,41 @@ defmodule Pyex.Interpreter do
 
       _ ->
         super_from_class_arg(env, ctx)
+    end
+  end
+
+  @doc """
+  Explicit two-argument `super(type, obj_or_type)`.
+
+  `obj` may be an instance of `type` (the proxy binds to it and walks the
+  instance's MRO) or a subclass of `type` (a classmethod-style super). The
+  start of the MRO walk is `type` itself, not the lexical `__class__`.
+  """
+  @spec eval_super_explicit(pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  def eval_super_explicit(type, obj, env, ctx) do
+    case {Ctx.deref(ctx, type), Ctx.deref(ctx, obj)} do
+      {{:class, _, _, _} = cls, {:instance, inst_class, _} = instance} ->
+        super_proxy_explicit(instance, inst_class, cls, env, ctx)
+
+      {{:class, _, _, _} = cls, {:class, _, _, _} = obj_cls} ->
+        super_proxy_explicit(obj_cls, obj_cls, cls, env, ctx)
+
+      _ ->
+        {{:exception, "TypeError: super(type, obj): obj must be an instance or subtype of type"},
+         env, ctx}
+    end
+  end
+
+  @spec super_proxy_explicit(pyvalue(), pyvalue(), pyvalue(), Env.t(), Ctx.t()) :: eval_result()
+  defp super_proxy_explicit(bound, derived, start_class, env, ctx) do
+    mro = ClassLookup.c3_linearize(derived)
+
+    if start_class in mro do
+      mro_tail = mro |> Enum.drop_while(&(&1 != start_class)) |> Enum.drop(1)
+      {{:super_proxy, bound, mro_tail}, env, ctx}
+    else
+      {{:exception, "TypeError: super(type, obj): obj must be an instance or subtype of type"},
+       env, ctx}
     end
   end
 
@@ -4538,8 +5008,8 @@ defmodule Pyex.Interpreter do
         ctx = Ctx.register_class(ctx, return_value)
         {nil, smart_put_decorated(env, name, return_value), ctx}
 
-      {{:register_route, method, path, handler}, env, ctx} ->
-        env = register_route(decorator_expr, method, path, handler, env)
+      {{:register_route, method, path, handler, status}, env, ctx} ->
+        env = register_route(decorator_expr, method, path, handler, status, env)
         {nil, smart_put_decorated(env, name, handler), ctx}
 
       {result, env, ctx, _updated_func} ->
@@ -4646,6 +5116,45 @@ defmodule Pyex.Interpreter do
     end)
   end
 
+  # PEP 487 __init_subclass__: when `cls` is a new subclass, call the nearest
+  # parent's hook (an implicit classmethod) with cls and any class keywords.
+  @spec call_init_subclass(pyvalue(), [pyvalue()], Env.t(), Ctx.t(), map()) ::
+          {:ok, Env.t(), Ctx.t()} | {{:exception, String.t()}, Env.t(), Ctx.t()}
+  defp call_init_subclass(class_val, bases, env, ctx, kwargs) do
+    case find_in_bases(bases, "__init_subclass__") do
+      nil ->
+        {:ok, env, ctx}
+
+      hook ->
+        func = unwrap_classmethod(hook)
+
+        case call_function(func, [class_val], kwargs, env, ctx) do
+          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+          {{:exception, _} = signal, env, ctx, _} -> {signal, env, ctx}
+          {_, env, ctx, _} -> {:ok, env, ctx}
+          {_, env, ctx} -> {:ok, env, ctx}
+        end
+    end
+  end
+
+  @spec find_in_bases([pyvalue()], String.t()) :: pyvalue() | nil
+  defp find_in_bases(bases, attr) do
+    Enum.find_value(bases, fn
+      {:class, _, _, _} = base ->
+        case ClassLookup.resolve_class_attr(base, attr) do
+          {:ok, value} -> value
+          :error -> nil
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  @spec unwrap_classmethod(pyvalue()) :: pyvalue()
+  defp unwrap_classmethod({:classmethod, func}), do: func
+  defp unwrap_classmethod(func), do: func
+
   # Transforms an `enum.Enum` subclass: each class-level value assignment
   # becomes a singleton instance with `.name` and `.value`.  The class
   # also gains `__enum_members__` (ordered list) and a callable form
@@ -4697,9 +5206,20 @@ defmodule Pyex.Interpreter do
           [{String.t(), pyvalue()}]
         ) :: pyvalue()
   defp finalize_enum_class(name, bases, rest_attrs, member_instances) do
+    # str(member) -> "Class.NAME"; repr(member) -> "<Class.NAME: value>".
+    # Only seed defaults the enum body didn't already define.
+    enum_dunders = %{
+      "__str__" => {:builtin, fn [{:instance, _, a}] -> "#{name}.#{Map.get(a, "name")}" end},
+      "__repr__" =>
+        {:builtin,
+         fn [{:instance, _, a}] ->
+           "<#{name}.#{Map.get(a, "name")}: #{Builtins.py_repr_quoted(Map.get(a, "value"))}>"
+         end}
+    }
+
     attrs_map =
-      rest_attrs
-      |> Map.new()
+      enum_dunders
+      |> Map.merge(Map.new(rest_attrs))
       |> Map.put("__enum_members__", member_instances)
 
     # Add members as attributes once so lookups work before we rewrite

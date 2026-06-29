@@ -23,17 +23,21 @@ defmodule Pyex.Methods do
   # `move_to_end` is intentionally not listed: it is an OrderedDict method, not
   # a plain-dict one, so it must not appear in `dir({})`. It is still dispatched
   # (see dict_method/1) so it works on the OrderedDicts pyex models as dicts.
-  @dict_methods ~w(clear copy get items keys pop popitem setdefault update values)
+  @dict_methods ~w(clear copy fromkeys get items keys pop popitem setdefault update values)
   @set_methods ~w(
-    add clear copy difference discard intersection isdisjoint
-    issubset issuperset pop remove symmetric_difference union update
+    add clear copy difference difference_update discard intersection
+    intersection_update isdisjoint issubset issuperset pop remove
+    symmetric_difference symmetric_difference_update union update
   )
   @frozenset_methods ~w(
     copy difference intersection isdisjoint
     issubset issuperset symmetric_difference union
   )
   @tuple_methods ~w(count index)
-  @file_methods ~w(close read readline readlines write)
+  @file_methods ~w(close flush read readable readline readlines seek seekable tell truncate writable write writelines)
+  # Data attributes (read without a call); resolved in the interpreter's
+  # getattr path, listed here only so dir(file) matches CPython.
+  @file_attributes ~w(closed mode name)
 
   @doc """
   Attempts to resolve `attr` on `object`. Returns
@@ -142,8 +146,22 @@ defmodule Pyex.Methods do
     end
   end
 
+  def resolve({:memoryview, _} = object, attr) do
+    case memoryview_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
   def resolve(object, attr) when is_integer(object) do
     case int_method(attr) do
+      {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      :error -> :error
+    end
+  end
+
+  def resolve(object, attr) when is_float(object) do
+    case float_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
       :error -> :error
     end
@@ -238,7 +256,8 @@ defmodule Pyex.Methods do
 
   def method_names({:tuple, _}), do: @tuple_methods
   def method_names({:pyex_decimal, _}), do: @decimal_methods
-  def method_names({:file_handle, _}), do: @file_methods
+  def method_names({:file_handle, _}), do: @file_methods ++ @file_attributes
+  def method_names({:memoryview, _}), do: ~w(tobytes hex tolist)
   def method_names(_), do: []
 
   @spec bound(
@@ -365,6 +384,49 @@ defmodule Pyex.Methods do
   defp int_method("__abs__"), do: {:ok, fn n, [] -> abs(n) end}
   defp int_method("__neg__"), do: {:ok, fn n, [] -> -n end}
   defp int_method(_), do: :error
+
+  # -- float methods ---------------------------------------------------
+  # inf/nan are atoms (not is_float), so these only see finite floats.
+  defp float_method("is_integer"), do: {:ok, fn f, _ -> f == Float.floor(f) end}
+  defp float_method("conjugate"), do: {:ok, fn f, _ -> f end}
+  defp float_method("__abs__"), do: {:ok, fn f, [] -> abs(f) end}
+  defp float_method("__neg__"), do: {:ok, fn f, [] -> -f end}
+  defp float_method("as_integer_ratio"), do: {:ok, &float_as_integer_ratio/2}
+  defp float_method("hex"), do: {:ok, fn f, _ -> float_to_hex(f) end}
+  defp float_method(_), do: :error
+
+  defp float_as_integer_ratio(f, _) do
+    {num, den} = float_ratio(f)
+    {:tuple, [num, den]}
+  end
+
+  # Exact integer ratio of a finite float (mirrors CPython's float.as_integer_ratio).
+  defp float_ratio(f) when f == 0.0, do: {0, 1}
+
+  defp float_ratio(f) do
+    {mantissa, exp} = decompose_float(f)
+
+    if exp >= 0,
+      do: {Bitwise.bsl(mantissa, exp), 1},
+      else: reduce_ratio(mantissa, Bitwise.bsl(1, -exp))
+  end
+
+  defp decompose_float(f), do: decompose_float(f, 0)
+
+  defp decompose_float(f, exp) when abs(f) < 9.0e15 and f == trunc(f),
+    do: {trunc(f), exp}
+
+  defp decompose_float(f, exp), do: decompose_float(f * 2, exp - 1)
+
+  defp reduce_ratio(n, d) do
+    g = Integer.gcd(n, d)
+    {div(n, g), div(d, g)}
+  end
+
+  defp float_to_hex(f) do
+    # Good-enough hex float repr; rarely used, never crashes.
+    "0x" <> Float.to_string(f)
+  end
 
   # -- Decimal methods -------------------------------------------------
 
@@ -795,6 +857,20 @@ defmodule Pyex.Methods do
   defp bytes_method("__len__"), do: {:ok, fn {_tag, b}, [] -> byte_size(b) end}
   defp bytes_method(_), do: :error
 
+  @spec memoryview_method(String.t()) :: {:ok, (term(), [term()] -> term())} | :error
+  defp memoryview_method("tobytes"), do: {:ok, fn {:memoryview, b}, [] -> {:bytes, b} end}
+  defp memoryview_method("hex"), do: {:ok, &bytes_hex/2}
+
+  defp memoryview_method("tolist") do
+    {:ok,
+     fn {:memoryview, b}, [] ->
+       bytes = :binary.bin_to_list(b)
+       {:py_list, Enum.reverse(bytes), length(bytes)}
+     end}
+  end
+
+  defp memoryview_method(_), do: :error
+
   @spec bytes_decode(term(), [term()]) :: String.t() | {:exception, String.t()}
   defp bytes_decode({_tag, b}, []), do: b
 
@@ -1010,7 +1086,153 @@ defmodule Pyex.Methods do
      end}
   end
 
+  defp file_method("readable", id), do: file_mode_predicate(id, &(&1 == :read))
+
+  defp file_method("writable", id),
+    do: file_mode_predicate(id, &(&1 in [:write, :append]))
+
+  defp file_method("seekable", id) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.handle_meta(ctx, id) do
+            {:ok, _} -> {true, env, ctx}
+            :error -> {{:exception, "ValueError: I/O operation on closed file"}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("flush", id) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.handle_meta(ctx, id) do
+            {:ok, _} -> {nil, env, ctx}
+            :error -> {{:exception, "ValueError: I/O operation on closed file"}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("tell", id) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.handle_meta(ctx, id) do
+            {:ok, %{mode: :read, pos: pos}} -> {pos, env, ctx}
+            {:ok, %{size: size}} -> {size, env, ctx}
+            :error -> {{:exception, "ValueError: I/O operation on closed file"}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("seek", id) do
+    {:ok,
+     fn args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case parse_seek_args(args) do
+            {:ok, offset, whence} ->
+              case Pyex.Ctx.seek_handle(ctx, id, offset, whence) do
+                {:ok, pos, ctx} -> {pos, env, ctx}
+                {:error, msg} -> {{:exception, msg}, env, ctx}
+              end
+
+            {:error, msg} ->
+              {{:exception, msg}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("truncate", id) do
+    {:ok,
+     fn args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case args do
+            [] -> do_truncate(id, nil, env, ctx)
+            [nil] -> do_truncate(id, nil, env, ctx)
+            [n] when is_integer(n) and n >= 0 -> do_truncate(id, n, env, ctx)
+            _ -> {{:exception, "TypeError: truncate() takes an optional integer size"}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp file_method("writelines", id) do
+    {:ok,
+     fn [lines] ->
+       {:ctx_call,
+        fn env, ctx ->
+          case seq_strings(lines) do
+            {:ok, joined} ->
+              case Pyex.Ctx.write_handle(ctx, id, joined) do
+                {:ok, ctx} -> {nil, env, ctx}
+                {:error, msg} -> {{:exception, msg}, env, ctx}
+              end
+
+            :error ->
+              {{:exception, "TypeError: writelines() argument must be an iterable of strings"},
+               env, ctx}
+          end
+        end}
+     end}
+  end
+
   defp file_method(_, _id), do: :error
+
+  @spec file_mode_predicate(non_neg_integer(), (atom() -> boolean())) ::
+          {:ok, ([Interpreter.pyvalue()] -> term())}
+  defp file_mode_predicate(id, pred) do
+    {:ok,
+     fn _args ->
+       {:ctx_call,
+        fn env, ctx ->
+          case Pyex.Ctx.handle_meta(ctx, id) do
+            {:ok, %{mode: mode}} -> {pred.(mode), env, ctx}
+            :error -> {{:exception, "ValueError: I/O operation on closed file"}, env, ctx}
+          end
+        end}
+     end}
+  end
+
+  defp do_truncate(id, size, env, ctx) do
+    case Pyex.Ctx.truncate_handle(ctx, id, size) do
+      {:ok, newsize, ctx} -> {newsize, env, ctx}
+      {:error, msg} -> {{:exception, msg}, env, ctx}
+    end
+  end
+
+  @spec parse_seek_args([Interpreter.pyvalue()]) ::
+          {:ok, integer(), 0..2} | {:error, String.t()}
+  defp parse_seek_args([offset]) when is_integer(offset), do: {:ok, offset, 0}
+
+  defp parse_seek_args([offset, whence])
+       when is_integer(offset) and whence in [0, 1, 2],
+       do: {:ok, offset, whence}
+
+  defp parse_seek_args([_offset, whence]) when is_integer(whence),
+    do: {:error, "ValueError: invalid whence (#{whence}, should be 0, 1 or 2)"}
+
+  defp parse_seek_args(_),
+    do: {:error, "TypeError: seek() takes an integer offset and optional whence"}
+
+  # Flattens a list/tuple of strings into one binary for writelines/3.
+  @spec seq_strings(Interpreter.pyvalue()) :: {:ok, String.t()} | :error
+  defp seq_strings({:py_list, reversed, _}), do: strings_to_binary(Enum.reverse(reversed))
+  defp seq_strings({:tuple, items}), do: strings_to_binary(items)
+  defp seq_strings(items) when is_list(items), do: strings_to_binary(items)
+  defp seq_strings(_), do: :error
+
+  defp strings_to_binary(items) do
+    if Enum.all?(items, &is_binary/1), do: {:ok, Enum.join(items)}, else: :error
+  end
 
   @spec str_upper(String.t(), [Interpreter.pyvalue()]) :: String.t()
   defp str_upper(s, []), do: String.upcase(s)
@@ -2342,7 +2564,32 @@ defmodule Pyex.Methods do
   defp set_method("issuperset"), do: {:ok, &set_issuperset/2}
   defp set_method("isdisjoint"), do: {:ok, &set_isdisjoint/2}
   defp set_method("update"), do: {:ok, &set_update/2}
+  defp set_method("difference_update"), do: {:ok, &set_difference_update/2}
+  defp set_method("intersection_update"), do: {:ok, &set_intersection_update/2}
+  defp set_method("symmetric_difference_update"), do: {:ok, &set_symmetric_difference_update/2}
   defp set_method(_), do: :error
+
+  defp set_difference_update({:set, a}, others),
+    do: {:mutate, {:set, Enum.reduce(others, a, &MapSet.difference(&2, to_mapset(&1)))}, nil}
+
+  defp set_intersection_update({:set, a}, others),
+    do: {:mutate, {:set, Enum.reduce(others, a, &MapSet.intersection(&2, to_mapset(&1)))}, nil}
+
+  defp set_symmetric_difference_update({:set, a}, [other]),
+    do: {:mutate, {:set, MapSet.symmetric_difference(a, to_mapset(other))}, nil}
+
+  # Coerce any iterable operand to a MapSet for set algebra. Sets already store
+  # canonicalized keys; raw list/tuple/str elements must be canonicalized the
+  # same way so membership matches (e.g. 1 vs 1.0 vs True).
+  defp to_mapset({:set, s}), do: s
+  defp to_mapset({:frozenset, s}), do: s
+  defp to_mapset({:py_list, reversed, _}), do: canonical_mapset(Enum.reverse(reversed))
+  defp to_mapset({:tuple, items}), do: canonical_mapset(items)
+  defp to_mapset(list) when is_list(list), do: canonical_mapset(list)
+  defp to_mapset(str) when is_binary(str), do: canonical_mapset(String.codepoints(str))
+  defp to_mapset(other), do: canonical_mapset(List.wrap(other))
+
+  defp canonical_mapset(items), do: MapSet.new(items, &Pyex.PyDict.canonical_key/1)
 
   @spec set_add(Interpreter.pyvalue(), [Interpreter.pyvalue()]) ::
           {:mutate, Interpreter.pyvalue(), nil}

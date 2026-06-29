@@ -78,20 +78,34 @@ defmodule Pyex.Interpreter.ClassLookup do
 
   def class_attribute({:class, _, _, _} = class, attr) do
     case resolve_class_attr_with_owner(class, attr) do
-      {:ok, value, _owner} -> {:ok, bind_through_class(class, value)}
+      {:ok, value, owner} -> {:ok, bind_through_class(class, value, owner)}
       :error -> :error
     end
   end
 
   # Descriptor rules for access *through a class* (CPython semantics):
   # regular functions are returned unbound, staticmethods unwrap, and
-  # classmethods (and kwargs-builtin methods) bind to the class.
-  @spec bind_through_class(Interpreter.pyvalue(), Interpreter.pyvalue()) :: Interpreter.pyvalue()
-  defp bind_through_class(_class, {:function, _, _, _, _, _, _} = func), do: func
-  defp bind_through_class(class, {:builtin_kw, _} = bkw), do: {:bound_method, class, bkw}
-  defp bind_through_class(_class, {:staticmethod, func}), do: func
-  defp bind_through_class(class, {:classmethod, func}), do: {:bound_method, class, func}
-  defp bind_through_class(_class, value), do: value
+  # classmethods (and kwargs-builtin methods) bind to the class. A classmethod
+  # carries its defining `owner` as the bound method's __class__ so a zero-arg
+  # `super()` in its body can find the right MRO start.
+  @spec bind_through_class(
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue(),
+          Interpreter.pyvalue()
+        ) :: Interpreter.pyvalue()
+  defp bind_through_class(_class, {:function, _, _, _, _, _, _} = func, _owner), do: func
+  defp bind_through_class(class, {:builtin_kw, _} = bkw, _owner), do: {:bound_method, class, bkw}
+  defp bind_through_class(_class, {:staticmethod, func}, _owner), do: func
+
+  defp bind_through_class(class, {:classmethod, func}, owner),
+    do: {:bound_method, class, func, owner}
+
+  # A lazily-built class constant (e.g. date.max): its thunk is pure, so it can
+  # be evaluated on access without the recursion that embedding the instance in
+  # the class map would trigger.
+  defp bind_through_class(_class, {:class_const, thunk}, _owner), do: thunk.()
+
+  defp bind_through_class(_class, value, _owner), do: value
 
   @doc "Compute the C3 linearized MRO for a class."
   @spec c3_linearize(Interpreter.pyvalue()) :: [Interpreter.pyvalue()]
@@ -115,6 +129,11 @@ defmodule Pyex.Interpreter.ClassLookup do
   def c3_linearize({:exception_class, _} = exc) do
     c3_linearize(Interpreter.exception_instance_class(exc))
   end
+
+  # Defense in depth: a base that isn't a class (e.g. a malformed
+  # `type(name, (junk,), {})`) contributes nothing to the MRO rather than
+  # crashing the linearizer — the host must never raise on guest-shaped data.
+  def c3_linearize(_other), do: []
 
   @internal_class_attrs ["__id__", "__mro_cache__"]
 
@@ -145,6 +164,7 @@ defmodule Pyex.Interpreter.ClassLookup do
 
   @spec reify_base(Interpreter.pyvalue()) :: Interpreter.pyvalue()
   defp reify_base({:exception_class, _} = exc), do: Interpreter.exception_instance_class(exc)
+  defp reify_base({:builtin_type, _, _} = bt), do: Interpreter.builtin_type_base_class(bt)
   defp reify_base(other), do: other
 
   @spec c3_merge([[Interpreter.pyvalue()]]) :: [Interpreter.pyvalue()]

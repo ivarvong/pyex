@@ -91,6 +91,26 @@ defmodule Pyex.Stdlib.StoreTest do
       assert out == "['expense:1', 'expense:2']\n['expense:1', 'expense:2', 'user:1']\n"
     end
 
+    test "scan returns a {key: value} map of decoded values for a prefix" do
+      {out, _ctx} =
+        run!(
+          """
+          import store
+          store.set("expense:1", {"amount": 9.99, "category": "food"})
+          store.set("expense:2", {"amount": 4.50, "category": "coffee"})
+          store.set("user:1", "alice")
+          result = store.scan("expense:")
+          print(sorted(result.keys()))
+          print(result["expense:1"]["amount"], result["expense:2"]["category"])
+          print(store.scan("none:"))
+          """,
+          storage: Storage.Memory.new()
+        )
+
+      assert out ==
+               "['expense:1', 'expense:2']\n9.99 coffee\n{}\n"
+    end
+
     test "delete returns True when the key existed and False otherwise" do
       {out, _ctx} =
         run!(
