@@ -39,7 +39,10 @@ defmodule Pyex.Stdlib.Boto3 do
   def module_value do
     %{
       "client" => {:builtin_kw, &create_client/2},
-      "resource" => {:builtin_kw, &create_resource/2}
+      "resource" => {:builtin_kw, &create_resource/2},
+      "dynamodb" =>
+        {:module, "boto3.dynamodb",
+         %{"conditions" => Pyex.Stdlib.Boto3.DynamoDB.conditions_module()}}
     }
   end
 
@@ -62,6 +65,7 @@ defmodule Pyex.Stdlib.Boto3 do
   defp create_client([service_name], kwargs) when is_binary(service_name) do
     case service_name do
       "s3" -> build_s3_client(kwargs)
+      "dynamodb" -> Pyex.Stdlib.Boto3.DynamoDB.client()
       other -> {:exception, "boto3.client: unsupported service '#{other}'"}
     end
   end

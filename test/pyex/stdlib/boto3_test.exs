@@ -26,10 +26,10 @@ defmodule Pyex.Stdlib.Boto3Test do
       {:error, error} =
         Pyex.run("""
         import boto3
-        s3 = boto3.client('dynamodb', endpoint_url='http://localhost:9999')
+        sqs = boto3.client('sqs', endpoint_url='http://localhost:9999')
         """)
 
-      assert error.message =~ "unsupported service 'dynamodb'"
+      assert error.message =~ "unsupported service 'sqs'"
     end
 
     test "requires a service name string" do
