@@ -188,6 +188,109 @@ timeout), `GenServer.stop/1` (sql connection teardown), and
 This means the sandbox guarantees aren't a code-review promise.
 They're a CI gate on the compiled artifact.
 
+### Hard ceilings the caller adds (Pyex is processless by design)
+
+`run/2` is a **synchronous call on the caller's process** — Pyex never
+spawns, links, monitors, or sleeps a process of its own (the static
+analyzer above *bans* `Process`, `Task`, and `spawn` inside `lib/pyex`,
+with a short justified allowlist). That keeps the interpreter
+deterministic, embeddable, and pool-friendly, and it leaves the **process
+model entirely to you**. Resource safety is therefore two layers, and the
+second one is yours to add:
+
+- **In-process, cooperative (Pyex).** Step count, estimated memory, output
+  bytes, call depth, and the compute `timeout` are checked at every step
+  boundary and return a clean `%Pyex.Error{kind: :limit | :timeout}`. This
+  stops the overwhelming majority of runaway programs.
+- **Out-of-process, hard (you).** Because those checks happen *between*
+  steps, a single native operation or a blocking NIF runs to completion
+  before the next check. Pyex bounds the known ones, but for untrusted
+  input you want ceilings the BEAM enforces *regardless of what the code
+  does*. Run `run/2` in a process you own and give it a GC-enforced memory
+  cap and a wall-clock hard kill:
+
+```elixir
+defmodule SafeRunner do
+  @doc """
+  Run untrusted Python with ceilings the BEAM enforces no matter what the
+  code does: a GC-enforced memory cap and a wall-clock hard kill that
+  survives even an uninterruptible native operation.
+  """
+  def run(source, opts \\ []) do
+    wall_ms    = Keyword.get(opts, :wall_ms, 5_000)
+    heap_bytes = Keyword.get(opts, :max_heap_bytes, 256_000_000)
+    # Let Pyex's own timeout fire first (a clean %Pyex.Error{}); the kill is a backstop.
+    run_opts   = Keyword.get(opts, :run_opts, limits: [timeout: max(wall_ms - 500, 100)])
+    parent     = self()
+
+    # spawn_monitor (not link) so a guest that blows the heap cannot take the
+    # caller down with it.
+    {pid, ref} =
+      spawn_monitor(fn ->
+        # GC-enforced hard memory ceiling for THIS process. `include_shared_binaries`
+        # (OTP 27+) also counts large off-heap binaries, so e.g. `bytes(10**9)` is caught.
+        Process.flag(:max_heap_size, %{
+          size: div(heap_bytes, :erlang.system_info(:wordsize)),
+          kill: true,
+          error_logger: false,
+          include_shared_binaries: true
+        })
+
+        send(parent, {:result, self(), Pyex.run(source, run_opts)})
+      end)
+
+    receive do
+      {:result, ^pid, result} ->
+        Process.demonitor(ref, [:flush])
+        result
+
+      {:DOWN, ^ref, :process, ^pid, :killed} ->
+        {:error, :out_of_memory}
+
+      {:DOWN, ^ref, :process, ^pid, reason} ->
+        {:error, {:host_fault, reason}}
+    after
+      wall_ms ->
+        Process.exit(pid, :kill)
+        receive do: ({:DOWN, ^ref, :process, ^pid, _} -> :ok), after: (100 -> :ok)
+        {:error, :timeout}
+    end
+  end
+end
+```
+
+These ceilings are **input-independent**: whatever the program does — a
+gate we haven't written, a NIF that blocks, a memory shape the cooperative
+accounting underestimates — the GC kills the process at the heap limit and
+the watchdog kills it at the time limit. A few details worth getting right:
+
+- `max_heap_size` `:size` is in **words** (÷ `:erlang.system_info(:wordsize)`
+  for bytes); `kill: true` makes the GC terminate the process on breach.
+- Set the flag **inside** the spawned process — it applies to the current
+  process only.
+- Make `wall_ms` strictly larger than Pyex's own `:timeout` so the
+  cooperative timeout returns a clean error first and the kill stays a
+  backstop.
+- The result is **copied** across the process boundary. For large outputs,
+  extract just what you need inside the task before returning.
+- For throughput, run these under a `Task.Supervisor` (`async_nolink/2`) or
+  a pre-warmed process pool — the safety properties are identical, you just
+  avoid per-run spawn cost.
+
+A runnable version of exactly this is in
+[`examples/sandbox_server.exs`](examples/sandbox_server.exs) — a tiny HTTP
+server where each request is handled in its own ceilinged process. `mix run`
+it and `curl` it. Running and bounding a job is a successful request
+(`200`); the run's verdict — `ok`, `error`, `timeout`, `out_of_memory` — is
+a field in the body, not an abused HTTP code (only a fault in the sandbox
+itself is a `5xx`). On success the response also carries the **host
+capability ledger**: a rendered, unforgeable span tree of every storage op
+the program caused.
+
+This is BEAM-level isolation inside one VM. For a sophisticated attacker,
+it composes with — it does not replace — the stronger boundary in the next
+section.
+
 ### What it isn't
 
 Pyex has not been through a third-party security audit. Treat it as
