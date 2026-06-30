@@ -43,11 +43,29 @@ defmodule Pyex.MixProject do
       {:req, "~> 0.5"},
       {:decimal, "~> 2.0"},
       {:vfs, "~> 0.1.0"},
+      # Optional backends. Two stdlib modules need a heavy/native dependency the
+      # core has no reason to carry, so they're optional: the feature lights up
+      # when the caller adds the dep, and `import sql`/`import pandas` raise a
+      # clean Python ImportError otherwise (`Pyex.Stdlib.fetch/1` degrades). For
+      # a consumer that doesn't add them, pyex must still COMPILE without them —
+      # `scripts/consumer_smoke.sh` (the `consumer-smoke` CI job) proves it does,
+      # the regression class this project's own build can't catch since the
+      # optional deps are present here.
+      #
+      # Adding another optional backend? Use the same shapes — they're the
+      # idiomatic ones (and exactly how `:explorer` itself treats *its* optional
+      # `:nx`: `@compile {:no_warn_undefined, Nx}` + `is_struct(x, Nx.Tensor)`):
+      #   - `optional: true` here;
+      #   - wrap the producer module in `if Code.ensure_loaded?(Dep) do …`
+      #     (struct patterns/expansion are a hard compile-time requirement);
+      #   - `@compile {:no_warn_undefined, [Dep.Mod]}` for scattered calls
+      #     elsewhere, and `is_struct(x, Dep.Struct)` (a runtime atom check, no
+      #     compile-time struct) instead of `%Dep.Struct{}` in patterns.
       {:postgrex, "~> 0.22", optional: true},
+      {:explorer, "~> 0.11.1", optional: true},
       {:yaml_elixir, "~> 2.12", only: :test},
       {:telemetry, "~> 0.4 or ~> 1.0"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
-      {:explorer, "~> 0.11.1", optional: true},
       {:stream_data, "~> 1.1", only: :test},
       {:bypass, "~> 2.1", only: :test},
       {:tz, "~> 0.28"},
