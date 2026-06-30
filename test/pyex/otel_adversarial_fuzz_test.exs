@@ -188,25 +188,39 @@ defmodule Pyex.OtelAdversarialFuzzTest do
     end
 
     test "attribute/event accumulation is linear, not quadratic" do
-      time = fn n ->
-        src = """
+      src = fn n ->
+        """
         from opentelemetry import trace
         tracer = trace.get_tracer("t")
         with tracer.start_as_current_span("s") as span:
             for i in range(#{n}):
                 span.add_event("e")
         """
-
-        {us, _} =
-          :timer.tc(fn -> Pyex.run(src, limits: [max_steps: 100_000_000, timeout: 30_000]) end)
-
-        us / 1000
       end
 
-      _warm = time.(4_000)
-      ratio = time.(40_000) / time.(10_000)
+      # Min of several runs, not a single shot: the fastest run is the
+      # least-contended measurement, so a GC pause or scheduler hiccup on a
+      # loaded CI box can't inflate the ratio (the old single-sample timing
+      # flaked). A genuinely quadratic accumulation would still show ~16x — far
+      # above the threshold — because the algorithmic factor dominates the min.
+      min_ms = fn n ->
+        1..5
+        |> Enum.map(fn _ ->
+          {us, _} =
+            :timer.tc(fn ->
+              Pyex.run(src.(n), limits: [max_steps: 100_000_000, timeout: 30_000])
+            end)
+
+          us / 1000
+        end)
+        |> Enum.min()
+      end
+
+      _warm = min_ms.(4_000)
+      ratio = min_ms.(40_000) / min_ms.(10_000)
       # 4x the events should cost ~4x; quadratic would be ~16x.
-      assert ratio < 8.0, "add_event scaled #{Float.round(ratio, 2)}x for 4x input (expected ~4x)"
+      assert ratio < 8.0,
+             "add_event scaled #{Float.round(ratio, 2)}x (min-of-5) for 4x input (expected ~4x)"
     end
   end
 
