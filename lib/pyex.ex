@@ -72,7 +72,14 @@ defmodule Pyex do
   The optional second argument can be a `Pyex.Ctx` struct
   or a keyword list of options (forwarded to `Pyex.Ctx.new/1`).
 
-  Returns `{:ok, value, ctx}` on success, or `{:error, reason}`.
+  Returns `{:ok, value, ctx}` on success, or `{:error, %Pyex.Error{}}`.
+
+  On failure the error carries the run's `runtime_spans` (the capability
+  ledger of what the program touched before it broke) and `footprint` (its
+  resource usage), so a failed run is auditable from the return value alone —
+  no telemetry handler required. Both are empty/`nil` for errors raised before
+  execution (e.g. syntax). On success the same is read from `ctx` via
+  `Pyex.Turn` and `Pyex.Ctx.runtime_spans/1`.
 
   ## Options (when passing keyword list)
 
@@ -218,15 +225,25 @@ defmodule Pyex do
               1000.0
 
           final_ctx = %{final_ctx | duration_ms: duration_ms}
-          error = Error.from_message(msg)
 
           # A failed turn still surfaces what it touched: the capability ledger
-          # of everything done before the error rides on the exception event,
-          # so a host/agent can audit a crash even though `run` returns no ctx.
+          # and resource footprint of everything done before the error are
+          # carried on the returned error (and the exception event), so a host
+          # or agent can audit a crash from the return value alone — no
+          # telemetry handler required.
+          footprint = Pyex.Turn.footprint(final_ctx)
+          runtime_spans = Ctx.runtime_spans(final_ctx)
+
+          error = %{
+            Error.from_message(msg)
+            | footprint: footprint,
+              runtime_spans: runtime_spans
+          }
+
           :telemetry.execute(
             [:pyex, :run, :exception],
-            Pyex.Turn.footprint(final_ctx),
-            %{error: error, runtime_spans: Ctx.runtime_spans(final_ctx)}
+            footprint,
+            %{error: error, runtime_spans: runtime_spans}
           )
 
           {:error, error}
