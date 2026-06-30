@@ -77,8 +77,19 @@ defmodule Pyex.Stdlib do
   @spec fetch(String.t()) :: {:ok, Pyex.Stdlib.Module.module_value()} | :unknown_module
   def fetch(name) do
     case Map.fetch(@modules, name) do
-      {:ok, mod} -> {:ok, mod.module_value()}
-      :error -> :unknown_module
+      # Some stdlib modules are compiled only when their optional backend dep is
+      # present (`sql` needs :postgrex, `pandas` needs :explorer). When the dep
+      # isn't installed the module isn't defined, so `import` it like any other
+      # absent module — a clean ImportError, not a host crash.
+      {:ok, mod} ->
+        if Code.ensure_loaded?(mod) and function_exported?(mod, :module_value, 0) do
+          {:ok, mod.module_value()}
+        else
+          :unknown_module
+        end
+
+      :error ->
+        :unknown_module
     end
   end
 
@@ -86,5 +97,12 @@ defmodule Pyex.Stdlib do
   Returns a sorted list of all available stdlib module names.
   """
   @spec module_names() :: [String.t()]
-  def module_names, do: @modules |> Map.keys() |> Enum.sort()
+  def module_names do
+    @modules
+    |> Enum.filter(fn {_name, mod} ->
+      Code.ensure_loaded?(mod) and function_exported?(mod, :module_value, 0)
+    end)
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.sort()
+  end
 end

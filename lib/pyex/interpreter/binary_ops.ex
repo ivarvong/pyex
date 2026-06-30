@@ -1,4 +1,5 @@
 defmodule Pyex.Interpreter.BinaryOps do
+  @compile {:no_warn_undefined, [Explorer.Series]}
   @moduledoc """
   Binary-operation evaluation for `Pyex.Interpreter`.
 
@@ -233,7 +234,7 @@ defmodule Pyex.Interpreter.BinaryOps do
 
     case result do
       {:exception, _} = err -> err
-      %Explorer.Series{} = s -> {:pandas_series, s}
+      s when is_struct(s, Explorer.Series) -> {:pandas_series, s}
     end
   end
 
@@ -957,11 +958,13 @@ defmodule Pyex.Interpreter.BinaryOps do
   defp series_unwrap(true), do: 1
   defp series_unwrap(false), do: 0
 
-  defp series_bool_and(%Explorer.Series{} = l, %Explorer.Series{} = r) do
+  defp series_bool_and(l, r)
+       when is_struct(l, Explorer.Series) and is_struct(r, Explorer.Series) do
     Explorer.Series.and(l, r)
   end
 
-  defp series_bool_or(%Explorer.Series{} = l, %Explorer.Series{} = r) do
+  defp series_bool_or(l, r)
+       when is_struct(l, Explorer.Series) and is_struct(r, Explorer.Series) do
     Explorer.Series.or(l, r)
   end
 

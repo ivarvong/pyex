@@ -41,6 +41,7 @@ defmodule Pyex.MixProject do
       {:jason, "~> 1.4"},
       {:nimble_parsec, "~> 1.4"},
       {:req, "~> 0.5"},
+      {:decimal, "~> 2.0"},
       {:vfs, "~> 0.1.0"},
       {:postgrex, "~> 0.22", optional: true},
       {:yaml_elixir, "~> 2.12", only: :test},

@@ -1,4 +1,5 @@
 defmodule Pyex.Builtins do
+  @compile {:no_warn_undefined, [Explorer.Series, Explorer.DataFrame]}
   @moduledoc """
   Built-in Python functions available without import.
 
