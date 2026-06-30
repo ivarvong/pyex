@@ -216,7 +216,7 @@ jobs:
         run: mix test --include library_conformance test/pyex/library_conformance/
 
   consumer-smoke:
-    name: Consumer smoke (installable as a bare dependency)
+    name: Consumer smoke (installs from the hex package)
     runs-on: ubuntu-latest
 
     steps:
@@ -227,5 +227,5 @@ jobs:
           otp-version: "28.1"
           elixir-version: "1.19.5"
 
-      - name: Compile + run pyex as a bare dependency (no optional backends)
+      - name: Build the hex package + compile it as a bare dependency (no optional backends)
         run: bash scripts/consumer_smoke.sh
