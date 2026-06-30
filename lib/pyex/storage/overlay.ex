@@ -40,12 +40,14 @@ defmodule Pyex.Storage.Overlay do
   alias Pyex.Storage
 
   @enforce_keys [:inner]
-  defstruct inner: nil, writes: %{}, deletes: MapSet.new()
+  # `deletes` is a map used as a set (not a MapSet), to stay clear of the
+  # opaque-type friction MapSet causes Dialyzer on Elixir 1.19.
+  defstruct inner: nil, writes: %{}, deletes: %{}
 
   @type t :: %__MODULE__{
           inner: Storage.t(),
           writes: %{optional(String.t()) => String.t()},
-          deletes: MapSet.t(String.t())
+          deletes: %{optional(String.t()) => true}
         }
 
   @doc "Wraps `inner` in a staging overlay. Reads pass through; writes are deferred."
@@ -59,7 +61,7 @@ defmodule Pyex.Storage.Overlay do
   """
   @spec commit(t()) :: {:ok, Storage.t()} | Storage.error()
   def commit(%__MODULE__{inner: inner, writes: writes, deletes: deletes}) do
-    with {:ok, inner} <- reduce_ok(MapSet.to_list(deletes), inner, &Storage.delete(&2, &1)),
+    with {:ok, inner} <- reduce_ok(Map.keys(deletes), inner, &Storage.delete(&2, &1)),
          {:ok, inner} <-
            reduce_ok(Map.to_list(writes), inner, fn {k, v}, acc -> Storage.put(acc, k, v) end) do
       {:ok, inner}
@@ -72,7 +74,7 @@ defmodule Pyex.Storage.Overlay do
   """
   @spec pending(t()) :: %{writes: %{optional(String.t()) => String.t()}, deletes: [String.t()]}
   def pending(%__MODULE__{writes: writes, deletes: deletes}),
-    do: %{writes: writes, deletes: Enum.sort(MapSet.to_list(deletes))}
+    do: %{writes: writes, deletes: deletes |> Map.keys() |> Enum.sort()}
 
   # Threads `acc` through `fun` for each item, halting on the first error.
   defp reduce_ok(items, acc, fun) do
@@ -91,18 +93,18 @@ defimpl Pyex.Storage, for: Pyex.Storage.Overlay do
 
   def get(%Overlay{inner: inner, writes: writes, deletes: deletes}, key) do
     cond do
-      MapSet.member?(deletes, key) -> :miss
+      Map.has_key?(deletes, key) -> :miss
       Map.has_key?(writes, key) -> {:ok, Map.fetch!(writes, key)}
       true -> Storage.get(inner, key)
     end
   end
 
   def put(%Overlay{writes: writes, deletes: deletes} = overlay, key, json) do
-    {:ok, %{overlay | writes: Map.put(writes, key, json), deletes: MapSet.delete(deletes, key)}}
+    {:ok, %{overlay | writes: Map.put(writes, key, json), deletes: Map.delete(deletes, key)}}
   end
 
   def delete(%Overlay{writes: writes, deletes: deletes} = overlay, key) do
-    {:ok, %{overlay | deletes: MapSet.put(deletes, key), writes: Map.delete(writes, key)}}
+    {:ok, %{overlay | deletes: Map.put(deletes, key, true), writes: Map.delete(writes, key)}}
   end
 
   def list_prefix(%Overlay{inner: inner, writes: writes, deletes: deletes}, prefix) do
@@ -112,7 +114,7 @@ defimpl Pyex.Storage, for: Pyex.Storage.Overlay do
 
         keys =
           (inner_keys ++ staged)
-          |> Enum.reject(&MapSet.member?(deletes, &1))
+          |> Enum.reject(&Map.has_key?(deletes, &1))
           |> Enum.uniq()
           |> Enum.sort()
 
@@ -140,7 +142,7 @@ defimpl Pyex.Storage, for: Pyex.Storage.Overlay do
   end
 
   defp drop_staged_deletes(map, deletes, prefix) do
-    Enum.reduce(deletes, map, fn k, acc ->
+    Enum.reduce(Map.keys(deletes), map, fn k, acc ->
       if String.starts_with?(k, prefix), do: Map.delete(acc, k), else: acc
     end)
   end
