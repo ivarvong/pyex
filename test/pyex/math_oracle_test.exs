@@ -496,7 +496,7 @@ defmodule Pyex.MathOracleTest do
       check all(xs <- float_list(), max_runs: @float_runs) do
         opts = Oracle.float_csv_opts(xs)
         py = Oracle.run_with_csv(Oracle.float_preamble() <> "sum(xs)", opts)
-        assert_float_close(py, Oracle.polars_float(:sum, xs))
+        assert_sum_close(py, Oracle.polars_float(:sum, xs), xs)
       end
     end
 
@@ -516,7 +516,7 @@ defmodule Pyex.MathOracleTest do
             opts
           )
 
-        assert_float_close(py, Oracle.polars_float(:sum, xs))
+        assert_sum_close(py, Oracle.polars_float(:sum, xs), xs)
       end
     end
 
@@ -532,7 +532,7 @@ defmodule Pyex.MathOracleTest do
             opts
           )
 
-        assert_float_close(py, Oracle.polars_float(:sum, xs))
+        assert_sum_close(py, Oracle.polars_float(:sum, xs), xs)
       end
     end
   end
@@ -602,7 +602,7 @@ defmodule Pyex.MathOracleTest do
       check all(xs <- float_list(), max_runs: @float_runs) do
         opts = Oracle.float_csv_opts(xs)
         py = Oracle.run_with_csv(Oracle.float_preamble() <> "sum(xs) / len(xs)", opts)
-        assert_float_close(py, Oracle.polars_float(:mean, xs))
+        assert_sum_close(py, Oracle.polars_float(:mean, xs), xs)
       end
     end
   end
@@ -774,6 +774,23 @@ defmodule Pyex.MathOracleTest do
     diff = abs(a - b)
     scale = max(abs(a), abs(b))
     tol = max(@float_tol, scale * @float_tol)
+    assert diff <= tol, "expected #{b}, got #{a}, diff=#{diff}, tol=#{tol}"
+  end
+
+  # For comparisons of a *summation* (sum/mean) against Polars, the tolerance
+  # must scale to the INPUT magnitude (Σ|xᵢ|), not the result. Naive
+  # left-to-right summation (pyex's `sum()`, like CPython) and Polars'
+  # pairwise/SIMD summation legitimately diverge by ~N·ε·Σ|xᵢ| when signed
+  # terms cancel — the result can be near zero while the partial sums are large,
+  # so a result-relative tolerance collapses and the test flakes. The input
+  # magnitude bounds the algorithmic divergence regardless of cancellation,
+  # while remaining tight enough to catch a genuinely wrong sum.
+  defp assert_sum_close(a, b, xs) when is_number(a) and is_number(b) do
+    a = a * 1.0
+    b = b * 1.0
+    diff = abs(a - b)
+    magnitude = xs |> Enum.map(&abs(&1 * 1.0)) |> Enum.sum()
+    tol = max(@float_tol, magnitude * 1.0e-9)
     assert diff <= tol, "expected #{b}, got #{a}, diff=#{diff}, tol=#{tol}"
   end
 end
