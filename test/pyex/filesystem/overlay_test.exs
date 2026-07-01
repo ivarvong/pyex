@@ -8,8 +8,10 @@ defmodule Pyex.Filesystem.OverlayTest do
   policy gate on the preview has no time-of-check/time-of-use gap.
   """
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Pyex.Filesystem.Overlay
+  alias VFS.Mountable
 
   defp seed do
     %{
@@ -136,5 +138,112 @@ defmodule Pyex.Filesystem.OverlayTest do
     {:ok, committed} = Overlay.commit(ov)
     assert VFS.read_file(committed, "/a.txt") == {:ok, "99", committed}
     assert VFS.readdir(committed, "/dir") == {:ok, ["new.txt"], committed}
+  end
+
+  test "walk/3 (the VFS.Skeleton default) recurses through the overlay's own stat/readdir" do
+    # Neither `diff/1` nor `commit/1` ever calls `walk/3` on the overlay
+    # itself (only on `upper` alone) -- this is the only coverage of the
+    # Skeleton-composed default actually dispatching through this module's
+    # `stat/2` and `readdir/2`, not just exercising them individually.
+    lower = VFS.Memory.new(%{"/a.txt" => "1", "/dir/b.txt" => "2", "/dir/c.txt" => "3"})
+    ov = Overlay.new(lower)
+
+    {:ok, ov} = VFS.write_file(ov, "/dir/d.txt", "4")
+    {:ok, ov} = VFS.rm(ov, "/dir/b.txt", [])
+
+    files = ov |> VFS.walk("/", []) |> Enum.map(fn {path, _stat} -> path end) |> Enum.sort()
+    assert files == ["/a.txt", "/dir/c.txt", "/dir/d.txt"]
+
+    with_dirs =
+      ov |> VFS.walk("/", include_dirs: true) |> Enum.map(fn {path, _stat} -> path end)
+
+    assert "/dir" in with_dirs
+  end
+
+  describe "property: staging under the overlay is behaviorally identical to applying directly" do
+    defp seg_gen, do: member_of(["a", "b", "c", "seed.txt", "keep", "keep.txt"])
+
+    defp overlay_path_gen do
+      gen all(depth <- integer(1..2), segs <- list_of(seg_gen(), length: depth)) do
+        "/" <> Enum.join(segs, "/")
+      end
+    end
+
+    defp overlay_op_gen do
+      one_of([
+        gen all(path <- overlay_path_gen(), content <- string(:alphanumeric, max_length: 4)) do
+          {:write, path, content}
+        end,
+        gen all(path <- overlay_path_gen()) do
+          {:mkdir, path}
+        end,
+        gen all(path <- overlay_path_gen()) do
+          {:rm, path}
+        end,
+        gen all(path <- overlay_path_gen()) do
+          {:rm_recursive, path}
+        end
+      ])
+    end
+
+    defp overlay_apply_op(backend, {:write, path, content}),
+      do: Mountable.write_file(backend, path, content, [])
+
+    defp overlay_apply_op(backend, {:mkdir, path}), do: Mountable.mkdir(backend, path, [])
+    defp overlay_apply_op(backend, {:rm, path}), do: Mountable.rm(backend, path, [])
+
+    defp overlay_apply_op(backend, {:rm_recursive, path}),
+      do: Mountable.rm(backend, path, recursive: true)
+
+    # On error the backend is unchanged (VFS's own contract), so the caller
+    # keeps threading the same value forward regardless of the outcome.
+    defp overlay_step(backend, op) do
+      case overlay_apply_op(backend, op) do
+        {:ok, backend} -> {:ok, backend}
+        {:error, %VFS.Error{kind: kind}} -> {{:error, kind}, backend}
+      end
+    end
+
+    # The observable filesystem, not the raw struct: `commit/1`'s `mkdir -p`
+    # walk over `upper` can leave *more* directories explicit than a direct
+    # run ever created, even though both are indistinguishable through the
+    # protocol (VFS.Memory treats implicit and explicit dirs identically).
+    defp overlay_snapshot(backend) do
+      backend
+      |> Mountable.walk("/", include_dirs: true)
+      |> Enum.map(fn
+        {path, %VFS.Stat{type: :directory}} ->
+          {path, :directory}
+
+        {path, %VFS.Stat{type: :regular}} ->
+          {:ok, stream, _backend} = Mountable.stream_read(backend, path, [])
+          {path, {:regular, Enum.into(stream, <<>>)}}
+      end)
+      |> Enum.sort()
+    end
+
+    property "a random write/mkdir/rm/rmtree sequence, staged then committed, matches direct" do
+      check all(ops <- list_of(overlay_op_gen(), min_length: 1, max_length: 12), max_runs: 100) do
+        seed = %{"/seed.txt" => "seed", "/keep/keep.txt" => "keep"}
+
+        direct = VFS.Memory.new(seed)
+        staged = Overlay.new(VFS.Memory.new(seed))
+
+        {direct_final, staged_final} =
+          Enum.reduce(ops, {direct, staged}, fn op, {direct, staged} ->
+            {direct_result, direct} = overlay_step(direct, op)
+            {staged_result, staged} = overlay_step(staged, op)
+
+            assert direct_result == staged_result,
+                   "op #{inspect(op)} diverged: direct=#{inspect(direct_result)} " <>
+                     "staged=#{inspect(staged_result)}"
+
+            {direct, staged}
+          end)
+
+        {:ok, committed} = Overlay.commit(staged_final)
+        assert overlay_snapshot(committed) == overlay_snapshot(direct_final)
+      end
+    end
   end
 end

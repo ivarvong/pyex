@@ -56,15 +56,16 @@ defmodule Pyex.Filesystem.Overlay do
   alias VFS.Stat
 
   @enforce_keys [:lower, :upper]
-  # `whiteouts` is a map used as a set (not a MapSet), to stay clear of the
-  # opaque-type friction MapSet causes Dialyzer on Elixir 1.19 (see
-  # `Pyex.Storage.Overlay.deletes` for the same fix, hit first).
-  defstruct [:lower, :upper, whiteouts: %{}]
+  # `whiteouts` and `explicit_dirs` are maps used as sets (not MapSet), to
+  # stay clear of the opaque-type friction MapSet causes Dialyzer on Elixir
+  # 1.19 (see `Pyex.Storage.Overlay.deletes` for the same fix, hit first).
+  defstruct [:lower, :upper, whiteouts: %{}, explicit_dirs: %{}]
 
   @type t :: %__MODULE__{
           lower: Mountable.t(),
           upper: Mountable.t(),
-          whiteouts: %{optional(Path.t()) => true}
+          whiteouts: %{optional(Path.t()) => true},
+          explicit_dirs: %{optional(Path.t()) => true}
         }
 
   @doc """
@@ -128,9 +129,9 @@ defmodule Pyex.Filesystem.Overlay do
   (e.g. it's read-only).
   """
   @spec commit(t()) :: {:ok, Mountable.t()} | {:error, Error.t()}
-  def commit(%__MODULE__{lower: lower, upper: upper, whiteouts: whiteouts}) do
+  def commit(%__MODULE__{lower: lower, upper: upper, whiteouts: whiteouts} = ov) do
     with {:ok, lower} <- apply_deletes(lower, Map.keys(whiteouts)) do
-      apply_writes(lower, upper)
+      apply_writes(lower, upper, ov.explicit_dirs)
     end
   end
 
@@ -144,15 +145,31 @@ defmodule Pyex.Filesystem.Overlay do
     end)
   end
 
-  defp apply_writes(lower, upper) do
+  defp apply_writes(lower, upper, explicit_dirs) do
     entries = upper |> Mountable.walk("/", include_dirs: true) |> Enum.to_list()
 
     reduce_ok(entries, lower, fn
+      # Only a directory `mkdir/3` genuinely targeted — not every ancestor
+      # `VFS.Memory`'s own `parents: true` happened to materialize along the
+      # way while bridging up from a `lower`-only implicit directory (see
+      # `mkdir/3`'s comment). Those bridged ancestors were never meant to
+      # become real; skipping them lets them fall back to being implicit on
+      # `lower` too, exactly as they would on a plain (non-overlaid) backend.
+      # A file written under a skipped ancestor still creates it implicitly
+      # via `write_file` below — `VFS.Memory` never requires a pre-existing
+      # parent directory.
+      {"/", %Stat{type: :directory}}, acc ->
+        {:ok, acc}
+
       {path, %Stat{type: :directory}}, acc ->
-        case Mountable.mkdir(acc, path, parents: true) do
-          {:ok, acc} -> {:ok, acc}
-          {:error, %Error{kind: :eexist}} -> {:ok, acc}
-          error -> error
+        if Map.has_key?(explicit_dirs, path) do
+          case Mountable.mkdir(acc, path, parents: true) do
+            {:ok, acc} -> {:ok, acc}
+            {:error, %Error{kind: :eexist}} -> {:ok, acc}
+            error -> error
+          end
+        else
+          {:ok, acc}
         end
 
       {path, %Stat{type: :regular}}, acc ->
@@ -184,20 +201,14 @@ defimpl VFS.Mountable, for: Pyex.Filesystem.Overlay do
   alias VFS.Mountable
   alias VFS.Path
 
-  def exists?(%Overlay{upper: upper} = ov, path) do
-    p = Path.normalize(path)
-
-    case Mountable.exists?(upper, p) do
-      {true, upper} ->
-        {true, %{ov | upper: upper}}
-
-      {false, upper} ->
-        if under_whiteout?(ov.whiteouts, p) do
-          {false, %{ov | upper: upper}}
-        else
-          {exists, lower} = Mountable.exists?(ov.lower, p)
-          {exists, %{ov | upper: upper, lower: lower}}
-        end
+  # Delegates to `stat/2` rather than duplicating its logic — the two must
+  # agree on whether a `lower`-only *implicit* directory (see `stat/2`'s
+  # comment) is still visible, and drift is exactly the kind of bug that's
+  # easy to introduce by hand-rolling `exists?` separately.
+  def exists?(%Overlay{} = ov, path) do
+    case stat(ov, path) do
+      {:ok, _stat, ov} -> {true, ov}
+      {:error, _} -> {false, ov}
     end
   end
 
@@ -213,13 +224,37 @@ defimpl VFS.Mountable, for: Pyex.Filesystem.Overlay do
           {:error, Error.new(:enoent, path: p)}
         else
           case Mountable.stat(ov.lower, p) do
-            {:ok, stat, lower} -> {:ok, stat, %{ov | lower: lower}}
-            error -> error
+            # `lower` may define this directory *implicitly* (it exists only
+            # because it has descendants — `VFS.Memory`'s model, and the
+            # closest real-world analogue: an S3 "directory" is just a key
+            # prefix). Whiting out its last visible child should make it
+            # vanish too, exactly as it would on a plain backend with no
+            # overlay — `lower.stat` alone can't know that, since it has no
+            # idea what the overlay staged on top of it.
+            {:ok, %VFS.Stat{type: :directory} = stat, lower} ->
+              case directory_visible(%{ov | lower: lower}, p) do
+                {true, ov} -> {:ok, stat, ov}
+                {false, _ov} -> {:error, Error.new(:enoent, path: p)}
+              end
+
+            {:ok, stat, lower} ->
+              {:ok, stat, %{ov | lower: lower}}
+
+            error ->
+              error
           end
         end
 
       error ->
         error
+    end
+  end
+
+  defp directory_visible(ov, p) do
+    case readdir(ov, p) do
+      {:ok, [_ | _], ov} -> {true, ov}
+      {:ok, [], ov} -> {false, ov}
+      {:error, _} -> {false, ov}
     end
   end
 
@@ -272,16 +307,39 @@ defimpl VFS.Mountable, for: Pyex.Filesystem.Overlay do
     end
   end
 
-  def write_file(%Overlay{upper: upper, whiteouts: whiteouts} = ov, path, content, opts) do
+  # `upper` alone can't see conflicts whose ancestor lives only in `lower` —
+  # a plain `Mountable.write_file(upper, ...)` would happily write through a
+  # path that's a directory (or descends through a file) in the *merged*
+  # view but doesn't exist in `upper` at all. Check the merged view first.
+  #
+  # Deliberately does *not* clear a whiteout at `p`: every read already
+  # checks `upper` before ever consulting `whiteouts` (see `stat/2`), so a
+  # stale whiteout entry never hides a resurrected path. Clearing it would
+  # instead corrupt `commit/1` when `p` is recreated as a *different type*
+  # than it had in `lower` (e.g. a file replaced by a directory) — leaving
+  # the whiteout in place is what makes `apply_deletes` remove the old
+  # entry from `lower` before `apply_writes` recreates it.
+  def write_file(%Overlay{} = ov, path, content, opts) do
     p = Path.normalize(path)
 
-    case Mountable.write_file(upper, p, content, opts) do
-      {:ok, upper} -> {:ok, %{ov | upper: upper, whiteouts: Map.delete(whiteouts, p)}}
-      error -> error
+    cond do
+      match?({:ok, %VFS.Stat{type: :directory}, _ov}, stat(ov, p)) ->
+        {:error, Error.new(:eisdir, path: p)}
+
+      ancestor_is_file?(ov, p) ->
+        {:error, Error.new(:enotdir, path: p)}
+
+      true ->
+        case Mountable.write_file(ov.upper, p, content, opts) do
+          {:ok, upper} -> {:ok, %{ov | upper: upper}}
+          error -> error
+        end
     end
   end
 
-  def mkdir(%Overlay{whiteouts: whiteouts} = ov, path, opts) do
+  # See `write_file/4` above for why a successful `mkdir` doesn't clear `p`'s
+  # whiteout either.
+  def mkdir(%Overlay{} = ov, path, opts) do
     p = Path.normalize(path)
     parents? = Keyword.get(opts, :parents, false)
 
@@ -290,10 +348,52 @@ defimpl VFS.Mountable, for: Pyex.Filesystem.Overlay do
         if parents?, do: {:ok, ov}, else: {:error, Error.new(:eexist, path: p)}
 
       {false, ov} ->
-        case Mountable.mkdir(ov.upper, p, opts) do
-          {:ok, upper} -> {:ok, %{ov | upper: upper, whiteouts: Map.delete(whiteouts, p)}}
-          error -> error
+        with :ok <- ensure_creatable(ov, p, parents?) do
+          # `parents: true` regardless of the caller's own opts: `upper`'s
+          # tree may be missing the ancestor chain entirely (it only exists,
+          # implicitly or explicitly, in `lower`), so `upper`'s own mkdir
+          # must never reject on a missing intermediate — `ensure_creatable/3`
+          # already did the real (merged-view) validation above.
+          #
+          # That bridging has a side effect worth naming: `VFS.Memory`'s own
+          # `parents: true` permanently materializes every intermediate
+          # ancestor as an *explicit* directory in `upper`, even ones that
+          # were only ever implicit in `lower` (e.g. bridging up through a
+          # directory that exists purely because it has files). Record which
+          # paths this call actually targeted — the leaf always, every
+          # ancestor only when the caller asked for `parents: true` (real
+          # `mkdir -p` semantics: every level it creates is as real as the
+          # leaf) — so `commit/1` can tell a genuine directory from an
+          # incidental bridging artifact and skip recreating the latter.
+          case Mountable.mkdir(ov.upper, p, Keyword.put(opts, :parents, true)) do
+            {:ok, upper} ->
+              {:ok,
+               %{ov | upper: upper, explicit_dirs: mark_explicit(ov.explicit_dirs, p, parents?)}}
+
+            error ->
+              error
+          end
         end
+    end
+  end
+
+  defp mark_explicit(explicit_dirs, p, false), do: Map.put(explicit_dirs, p, true)
+
+  defp mark_explicit(explicit_dirs, p, true) do
+    [p | ancestors(p)]
+    |> Enum.reject(&(&1 == "/"))
+    |> Enum.reduce(explicit_dirs, &Map.put(&2, &1, true))
+  end
+
+  defp ensure_creatable(_ov, "/", _parents?), do: :ok
+  defp ensure_creatable(_ov, _p, true), do: :ok
+
+  defp ensure_creatable(ov, p, false) do
+    case stat(ov, Path.dirname(p)) do
+      {:ok, %VFS.Stat{type: :directory}, _ov} -> :ok
+      {:ok, _stat, _ov} -> {:error, Error.new(:enotdir, path: p)}
+      {:error, %Error{kind: :enoent}} -> {:error, Error.new(:enoent, path: p)}
+      error -> error
     end
   end
 
@@ -341,6 +441,18 @@ defimpl VFS.Mountable, for: Pyex.Filesystem.Overlay do
 
   defp maybe_rm(upper, _p, _opts, false), do: {:ok, upper}
   defp maybe_rm(upper, p, opts, true), do: Mountable.rm(upper, p, opts)
+
+  # Whether any ancestor of `p` is a regular file in the *merged* view — a
+  # cheap, non-threaded read (like `diff/1`'s reads), since this only gates
+  # whether the real write below is attempted at all.
+  defp ancestor_is_file?(ov, p) do
+    p
+    |> ancestors()
+    |> Enum.any?(fn a -> match?({:ok, %VFS.Stat{type: :regular}, _ov}, stat(ov, a)) end)
+  end
+
+  defp ancestors("/"), do: []
+  defp ancestors(p), do: [Path.dirname(p) | ancestors(Path.dirname(p))]
 
   defp lower_readdir_names(lower, path) do
     case Mountable.readdir(lower, path) do
