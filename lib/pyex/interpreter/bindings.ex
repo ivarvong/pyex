@@ -108,17 +108,24 @@ defmodule Pyex.Interpreter.Bindings do
   end
 
   @doc """
-  Evaluates a chained assignment.
+  Evaluates a chained assignment (`t1 = t2 = ... = expr`).
+
+  The value expression is evaluated exactly once, then bound to each
+  target left to right.  Targets may be plain names or `{:target, node}`
+  attribute/subscript targets, mirroring tuple-unpack targets.
   """
-  @spec eval_chained_assign([String.t()], Parser.ast_node(), Env.t(), Ctx.t()) :: eval_result()
-  def eval_chained_assign(names, expr, env, ctx) do
+  @spec eval_chained_assign([Parser.unpack_target()], Parser.ast_node(), Env.t(), Ctx.t()) ::
+          eval_result()
+  def eval_chained_assign(targets, expr, env, ctx) do
     case Interpreter.eval(expr, env, ctx) do
       {{:exception, _} = signal, env, ctx} ->
         {signal, env, ctx}
 
       {value, env, ctx} ->
-        env = Enum.reduce(names, env, &Env.smart_put(&2, &1, value))
-        {value, env, ctx}
+        case bind_assignment_pairs(Enum.map(targets, &{&1, value}), env, ctx) do
+          {:ok, env, ctx} -> {value, env, ctx}
+          {{:exception, _} = signal, env, ctx} -> {signal, env, ctx}
+        end
     end
   end
 
@@ -163,6 +170,20 @@ defmodule Pyex.Interpreter.Bindings do
     Enum.reduce_while(pairs, {:ok, env, ctx}, fn
       {name, val}, {:ok, env, ctx} when is_binary(name) ->
         {:cont, {:ok, Env.smart_put(env, name, val), ctx}}
+
+      # Slice stores (`a[:2] = b = x`) only exist on the name-backed path.
+      {{:target, {:subscript, _, [{:var, _, [name]}, {:slice, _, _} = slice_key]}}, val},
+      {:ok, env, ctx} ->
+        case Assignments.eval_name_subscript_assign(
+               name,
+               slice_key,
+               {:__evaluated__, val},
+               env,
+               ctx
+             ) do
+          {{:exception, _} = signal, env, ctx} -> {:halt, {signal, env, ctx}}
+          {_val, env, ctx} -> {:cont, {:ok, env, ctx}}
+        end
 
       {{:target, {:subscript, _, [target_expr, key_expr]}}, val}, {:ok, env, ctx} ->
         case Assignments.eval_expr_subscript_assign(

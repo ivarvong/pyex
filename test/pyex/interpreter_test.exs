@@ -1835,6 +1835,118 @@ defmodule Pyex.InterpreterTest do
              x * y
              """) == 25
     end
+
+    test "attribute targets in a chain: self.prev = self.next = None" do
+      assert Pyex.run!("""
+             class Node:
+                 def __init__(self):
+                     self.prev = self.next = None
+
+             n = Node()
+             (n.prev, n.next)
+             """) == {:tuple, [nil, nil]}
+    end
+
+    test "chain mixing a name and an attribute target" do
+      assert Pyex.run!("""
+             class Box:
+                 pass
+
+             b = Box()
+             a = b.x = 5
+             a + b.x
+             """) == 10
+    end
+
+    test "chain mixing a name and a subscript target" do
+      assert Pyex.run!("""
+             d = {}
+             v = d["k"] = 7
+             (v, d["k"])
+             """) == {:tuple, [7, 7]}
+    end
+
+    test "chain starting with a subscript target: a[0] = a[1] = False" do
+      assert Pyex.run!("""
+             a = [None, None]
+             a[0] = a[1] = False
+             a
+             """) == [false, false]
+    end
+
+    test "chain through a nested subscript target" do
+      assert Pyex.run!("""
+             d = {"a": {}}
+             x = d["a"]["b"] = 1
+             (x, d["a"]["b"])
+             """) == {:tuple, [1, 1]}
+    end
+
+    test "chain through an attribute-backed subscript target" do
+      assert Pyex.run!("""
+             class C:
+                 def __init__(self):
+                     self.d = {}
+
+             c = C()
+             v = c.d["k"] = 3
+             (v, c.d["k"])
+             """) == {:tuple, [3, 3]}
+    end
+
+    test "slice target chained with a name evaluates and splices once" do
+      assert Pyex.run!("""
+             a = [1, 2, 3, 4]
+             a[:2] = b = [9, 9]
+             (a, b)
+             """) == {:tuple, [[9, 9, 3, 4], [9, 9]]}
+    end
+
+    test "right-hand side is evaluated exactly once across the chain" do
+      assert Pyex.run!("""
+             calls = []
+             def f():
+                 calls.append(1)
+                 return 9
+
+             a = [0]
+             a[0] = b = f()
+             (a[0], b, len(calls))
+             """) == {:tuple, [9, 9, 1]}
+    end
+
+    test "chained mutable value aliases across all targets" do
+      assert Pyex.run!("""
+             a = b = []
+             a.append(1)
+             (b, a is b)
+             """) == {:tuple, [[1], true]}
+    end
+
+    test "linked-list pointer splice via chained attribute assignment" do
+      assert Pyex.run!("""
+             class Node:
+                 def __init__(self, key=None):
+                     self.key = key
+                     self.prev = self.next = None
+
+             head = Node("head")
+             mid = Node("mid")
+             tail = Node("tail")
+             head.next = mid
+             mid.prev = head
+             mid.next = tail
+             tail.prev = mid
+
+             mid.prev.next = mid.next
+             mid.next.prev = mid.prev
+             (head.next.key, tail.prev.key)
+             """) == {:tuple, ["tail", "head"]}
+    end
+
+    test "call result is rejected as a chain target with a syntax error" do
+      assert {:error, %Pyex.Error{kind: :syntax}} = Pyex.run("f() = x = 1")
+    end
   end
 
   describe "global keyword" do
