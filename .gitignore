@@ -35,6 +35,3 @@ pyex-*.tar
 
 # opentelemetry flush_spans output artifacts.
 spans.jsonl
-
-# WasmGC build output (mix wasm.build --out wasm)
-wasm/
