@@ -113,6 +113,19 @@ Pyex.run(source,
   limits: [timeout: 5_000, max_memory_bytes: 50_000_000])
 ```
 
+### Optional backends
+
+Two stdlib modules light up only when you add their backend dependency, so
+the core library stays small and free of heavy native deps:
+
+- **`import pandas`** needs [`:explorer`](https://hex.pm/packages/explorer)
+  (Polars).
+- **`import sql`** needs [`:postgrex`](https://hex.pm/packages/postgrex).
+
+Without them, importing the module raises a normal Python `ImportError` —
+nothing else is affected. A CI job (`consumer-smoke`) proves pyex compiles
+and runs as a bare dependency with neither installed.
+
 ## Sandbox model
 
 Pyex is a tree-walking interpreter, not an `eval`. Python source

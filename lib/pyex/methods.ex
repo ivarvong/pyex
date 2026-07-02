@@ -1,4 +1,5 @@
 defmodule Pyex.Methods do
+  @compile {:no_warn_undefined, [Explorer.Series, Explorer.DataFrame]}
   @moduledoc """
 
   Method dispatch for Python built-in types.

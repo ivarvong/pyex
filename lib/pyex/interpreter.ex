@@ -1,4 +1,5 @@
 defmodule Pyex.Interpreter do
+  @compile {:no_warn_undefined, [Explorer.Series, Explorer.DataFrame]}
   @moduledoc """
 
   Tree-walking evaluator for the Pyex AST.
@@ -73,9 +74,9 @@ defmodule Pyex.Interpreter do
           | {:generator_error, [pyvalue()], String.t()}
           | {:iterator, non_neg_integer()}
           | {:super_proxy, pyvalue(), [pyvalue()]}
-          | {:pandas_series, Explorer.Series.t()}
-          | {:pandas_rolling, Explorer.Series.t(), pos_integer()}
-          | {:pandas_dataframe, Explorer.DataFrame.t()}
+          | {:pandas_series, term()}
+          | {:pandas_rolling, term(), pos_integer()}
+          | {:pandas_dataframe, term()}
           | {:py_dict, %{optional(pyvalue()) => pyvalue()}, [pyvalue()]}
           | {:pyex_decimal, Decimal.t()}
           | {:object, integer()}
