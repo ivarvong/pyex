@@ -158,11 +158,11 @@ defmodule Pyex.Stdlib.Opentelemetry do
         ) :: Pyex.Interpreter.pyvalue()
   defp start_as_current_span([self, name | _], kwargs) do
     kind = Map.get(kwargs, "kind", "INTERNAL")
-    span_cm(name, kind, tracer_scope(self))
+    span_cm(name, kind, tracer_scope(self), Map.get(kwargs, "attributes"))
   end
 
   defp start_as_current_span([self], kwargs) do
-    span_cm("", Map.get(kwargs, "kind", "INTERNAL"), tracer_scope(self))
+    span_cm("", Map.get(kwargs, "kind", "INTERNAL"), tracer_scope(self), Map.get(kwargs, "attributes"))
   end
 
   # The instrumentation scope of a span is its tracer's name (get_tracer(name)).
@@ -172,11 +172,33 @@ defmodule Pyex.Stdlib.Opentelemetry do
 
   defp tracer_scope(_), do: ""
 
-  @spec span_cm(Pyex.Interpreter.pyvalue(), Pyex.Interpreter.pyvalue(), String.t()) ::
-          Pyex.Interpreter.pyvalue()
-  defp span_cm(name, kind, scope) do
+  @spec span_cm(
+          Pyex.Interpreter.pyvalue(),
+          Pyex.Interpreter.pyvalue(),
+          String.t(),
+          Pyex.Interpreter.pyvalue() | nil
+        ) :: Pyex.Interpreter.pyvalue()
+  defp span_cm(name, kind, scope, attrs \\ nil) do
     {:instance, {:class, "_OtelSpanCM", [], %{"__name__" => "_OtelSpanCM"}},
-     %{"__name__" => name, "__kind__" => kind, "__scope__" => scope}}
+     %{"__name__" => name, "__kind__" => kind, "__scope__" => scope, "__attrs__" => attrs}}
+  end
+
+  @doc """
+  Seed a just-opened span with the `attributes=` mapping passed to
+  `start_as_current_span(name, attributes={...})`. A no-op when `mapping` is nil.
+  """
+  @spec apply_attributes(Ctx.t(), non_neg_integer(), Pyex.Interpreter.pyvalue() | nil) :: Ctx.t()
+  def apply_attributes(ctx, _id, nil), do: ctx
+
+  def apply_attributes(ctx, id, mapping) do
+    pairs =
+      case mapping do
+        {:py_dict, _, _} -> PyDict.items(mapping)
+        m when is_map(m) and not is_struct(m) -> Map.to_list(m)
+        _ -> []
+      end
+
+    Enum.reduce(pairs, ctx, fn {k, v}, acc -> put_attribute(acc, id, to_string_key(k), v) end)
   end
 
   @doc """

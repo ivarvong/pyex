@@ -1,0 +1,7 @@
+# Known differential divergences. The harness gates CI on NEW divergences only; anything listed here
+# is reported as "known-open" and does NOT fail the run. Each entry: an id prefix, then `# reason`.
+# Remove an entry when the bug is fixed — the harness then guards it against regression.
+#
+# Matching: an entry E covers program id P when P == E or P starts with "E:".
+
+# (empty — set()/list()/dict() constructor identity all fixed; the harness is fully green.)

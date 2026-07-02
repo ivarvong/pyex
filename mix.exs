@@ -12,6 +12,13 @@ defmodule Pyex.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      # `mix wasm.build` config — compile Pyex to a sandboxed WasmGC module. `deps` is the allowlist
+      # of dependencies bundled into the wasm (the sandbox boundary). See lib/pyex/wasm.ex.
+      wasm: [
+        module: Pyex.Wasm,
+        exports: ["pyrun:bin,bin,int->term"],
+        deps: [:nimble_parsec, :decimal, :vfs, :jason, :tz]
+      ],
       dialyzer: [
         plt_add_apps: [:mix],
         ignore_warnings: ".dialyzer_ignore.exs"
@@ -72,7 +79,9 @@ defmodule Pyex.MixProject do
       {:tz, "~> 0.28"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:benchee, "~> 1.3", only: :dev},
-      {:bandit, "~> 1.6", only: :dev}
+      {:bandit, "~> 1.6", only: :dev},
+      # the Elixir→WasmGC compiler that powers `mix wasm.build` (dev-only, not a runtime dep).
+      {:beam2wasm, path: "../elixir_wasm", only: :dev, runtime: false}
     ]
   end
 
