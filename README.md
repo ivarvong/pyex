@@ -115,16 +115,18 @@ Pyex.run(source,
 
 ### Optional backends
 
-Two stdlib modules light up only when you add their backend dependency, so
+Three stdlib modules light up only when you add their backend dependency, so
 the core library stays small and free of heavy native deps:
 
 - **`import pandas`** needs [`:explorer`](https://hex.pm/packages/explorer)
   (Polars).
 - **`import sql`** needs [`:postgrex`](https://hex.pm/packages/postgrex).
+- **`import markdown`** needs [`:cmark`](https://hex.pm/packages/cmark)
+  (the C reference CommonMark implementation, as a NIF).
 
 Without them, importing the module raises a normal Python `ImportError` —
 nothing else is affected. A CI job (`consumer-smoke`) proves pyex compiles
-and runs as a bare dependency with neither installed.
+and runs as a bare dependency with none installed.
 
 ## Sandbox model
 
