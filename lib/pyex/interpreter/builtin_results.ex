@@ -46,7 +46,16 @@ defmodule Pyex.Interpreter.BuiltinResults do
         end
 
       {:iter_to_list, val} ->
-        iter_to_collection(val, &Function.identity/1, env, ctx)
+        # list(iterable) must yield a fresh heap-backed list OBJECT (identity), like the list()
+        # constructor and `[...]` literals — else mutation-through-alias / slice-assign is lost.
+        case iter_to_collection(val, &Function.identity/1, env, ctx) do
+          {items, env, ctx} when is_list(items) ->
+            {ref, ctx} = Ctx.heap_alloc(ctx, {:py_list, Enum.reverse(items), length(items)})
+            {ref, env, ctx}
+
+          other ->
+            other
+        end
 
       {:iter_to_tuple, val} ->
         iter_to_collection(val, &{:tuple, &1}, env, ctx)
@@ -221,6 +230,22 @@ defmodule Pyex.Interpreter.BuiltinResults do
       {:exception, _msg} = signal ->
         {signal, env, ctx}
 
+      # A builtin that constructs a fresh MUTABLE container (set()/list()/set(iter)/…) returns it bare.
+      # Give it heap identity — exactly like a `{...}`/`[]` literal — so an in-place mutation reached
+      # through a reference persists (e.g. `d.setdefault(k, set()).add(x)`); otherwise .add/.append
+      # mutate a throwaway copy. Immutable results (tuples, frozensets, scalars) never match here.
+      {:set, _} = container ->
+        {ref, ctx} = Ctx.heap_alloc(ctx, container)
+        {ref, env, ctx}
+
+      {:py_list, _, _} = container ->
+        {ref, ctx} = Ctx.heap_alloc(ctx, container)
+        {ref, env, ctx}
+
+      {:py_dict, _, _} = container ->
+        {ref, ctx} = Ctx.heap_alloc(ctx, container)
+        {ref, env, ctx}
+
       value ->
         {value, env, ctx}
     end
@@ -334,6 +359,12 @@ defmodule Pyex.Interpreter.BuiltinResults do
                 Iteration.eval_reduce(items, func, init, env, ctx)
             end
         end
+
+      # dict()/dict(...) route here (call_builtin_kw). Like list()/set()/literals, a freshly built dict
+      # must be a heap-backed object so mutation through an alias persists (`d.setdefault(k, dict())[x]=y`).
+      {:py_dict, _, _} = container ->
+        {ref, ctx} = Ctx.heap_alloc(ctx, container)
+        {ref, env, ctx}
 
       value ->
         {value, env, ctx}

@@ -115,6 +115,7 @@ defmodule Pyex.Methods do
   def resolve({:set, _} = object, attr) do
     case set_method(attr) do
       {:ok, method_fn} -> {:ok, {:builtin, bound(method_fn, object)}}
+      {:ok_raw, method_fn} -> {:ok, {:builtin_raw, bound(method_fn, object)}}
       :error -> :error
     end
   end
@@ -2572,12 +2573,16 @@ defmodule Pyex.Methods do
 
   @spec set_method(String.t()) ::
           {:ok, (Interpreter.pyvalue(), [Interpreter.pyvalue()] -> Interpreter.pyvalue())}
+          | {:ok_raw, (Interpreter.pyvalue(), [Interpreter.pyvalue()] -> Interpreter.pyvalue())}
           | :error
-  defp set_method("add"), do: {:ok, &set_add/2}
-  defp set_method("remove"), do: {:ok, &set_remove/2}
-  defp set_method("discard"), do: {:ok, &set_discard/2}
-  defp set_method("pop"), do: {:ok, &set_pop/2}
-  defp set_method("clear"), do: {:ok, &set_clear/2}
+  # In-place mutators return {:mutate, new, _} and MUST be :ok_raw so the writeback reaches the heap
+  # object — otherwise a set reached through a reference (e.g. `d.setdefault(k, set()).add(x)`) mutates
+  # a throwaway copy and the stored set stays empty (matches how list.append/dict mutators are wired).
+  defp set_method("add"), do: {:ok_raw, &set_add/2}
+  defp set_method("remove"), do: {:ok_raw, &set_remove/2}
+  defp set_method("discard"), do: {:ok_raw, &set_discard/2}
+  defp set_method("pop"), do: {:ok_raw, &set_pop/2}
+  defp set_method("clear"), do: {:ok_raw, &set_clear/2}
   defp set_method("copy"), do: {:ok, &set_copy/2}
   defp set_method("union"), do: {:ok, &set_union/2}
   defp set_method("intersection"), do: {:ok, &set_intersection/2}
@@ -2586,10 +2591,13 @@ defmodule Pyex.Methods do
   defp set_method("issubset"), do: {:ok, &set_issubset/2}
   defp set_method("issuperset"), do: {:ok, &set_issuperset/2}
   defp set_method("isdisjoint"), do: {:ok, &set_isdisjoint/2}
-  defp set_method("update"), do: {:ok, &set_update/2}
-  defp set_method("difference_update"), do: {:ok, &set_difference_update/2}
-  defp set_method("intersection_update"), do: {:ok, &set_intersection_update/2}
-  defp set_method("symmetric_difference_update"), do: {:ok, &set_symmetric_difference_update/2}
+  defp set_method("update"), do: {:ok_raw, &set_update/2}
+  defp set_method("difference_update"), do: {:ok_raw, &set_difference_update/2}
+  defp set_method("intersection_update"), do: {:ok_raw, &set_intersection_update/2}
+
+  defp set_method("symmetric_difference_update"),
+    do: {:ok_raw, &set_symmetric_difference_update/2}
+
   defp set_method(_), do: :error
 
   defp set_difference_update({:set, a}, others),

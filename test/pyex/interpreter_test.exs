@@ -1814,6 +1814,63 @@ defmodule Pyex.InterpreterTest do
     end
   end
 
+  describe "fresh mutable container identity" do
+    test "set() reached through dict.setdefault keeps mutations: the inverted-index idiom" do
+      assert Pyex.run!("""
+             index = {}
+             index.setdefault("a", set()).add("doc1")
+             index.setdefault("a", set()).add("doc2")
+             index.setdefault("b", set()).add("doc1")
+             (sorted(index["a"]), sorted(index["b"]))
+             """) == {:tuple, [["doc1", "doc2"], ["doc1"]]}
+    end
+
+    test "list() constructor result aliases like a list literal" do
+      assert Pyex.run!("""
+             xs = list()
+             ys = xs
+             ys.append(1)
+             (xs, xs is ys)
+             """) == {:tuple, [[1], true]}
+    end
+
+    test "list(iterable) yields a mutable object, not a throwaway copy" do
+      assert Pyex.run!("""
+             xs = list(range(3))
+             xs.append(9)
+             xs[0] = 7
+             xs
+             """) == [7, 1, 2, 9]
+    end
+
+    test "dict() reached through setdefault keeps subscript writes" do
+      assert Pyex.run!("""
+             d = {}
+             d.setdefault("k", dict())["x"] = 1
+             d.setdefault("k", dict())["y"] = 2
+             sorted(d["k"].items())
+             """) == [{:tuple, ["x", 1]}, {:tuple, ["y", 2]}]
+    end
+
+    test "set mutators through an alias mutate the shared object" do
+      assert Pyex.run!("""
+             a = set()
+             b = a
+             b.add(1)
+             b.add(2)
+             b.discard(1)
+             sorted(a)
+             """) == [2]
+    end
+
+    test "json.dumps with default=list terminates on heap-backed containers" do
+      assert Pyex.run!("""
+             import json
+             json.dumps({1}, default=list)
+             """) == "[1]"
+    end
+  end
+
   describe "chained assignment" do
     test "a = b = 1" do
       assert Pyex.run!("""
