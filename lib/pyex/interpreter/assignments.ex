@@ -242,7 +242,7 @@ defmodule Pyex.Interpreter.Assignments do
   @spec eval_name_subscript_assign(
           String.t(),
           Parser.ast_node(),
-          Parser.ast_node(),
+          Parser.ast_node() | {:__evaluated__, Interpreter.pyvalue()},
           Env.t(),
           Ctx.t()
         ) ::

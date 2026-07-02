@@ -557,12 +557,11 @@ defmodule Pyex.Parser do
   defp try_attr_assign(tokens, line) do
     case parse_dotted_target(tokens) do
       {:ok, target, [{:op, _, :assign} | rest]} ->
-        case parse_expression(rest) do
-          {:ok, expr, rest} ->
-            {:ok, {:attr_assign, [line: line], [target, expr]}, drop_newline(rest)}
-
-          {:error, _} ->
-            :not_assign
+        case parse_assign_value(rest, line, {:target, target}, fn expr ->
+               {:attr_assign, [line: line], [target, expr]}
+             end) do
+          {:ok, _, _} = result -> result
+          {:error, _} -> :not_assign
         end
 
       {:ok, target, [{:op, _, aug_op} | rest]} when is_map_key(@aug_assign_ops, aug_op) ->
@@ -578,13 +577,13 @@ defmodule Pyex.Parser do
       {:ok, target, [{:op, _, :lbracket} | rest]} ->
         case parse_expression(rest) do
           {:ok, key_expr, [{:op, _, :rbracket}, {:op, _, :assign} | rest]} ->
-            case parse_expression(rest) do
-              {:ok, val_expr, rest} ->
-                {:ok, {:subscript_assign, [line: line], [target, key_expr, val_expr]},
-                 drop_newline(rest)}
+            subscript = {:subscript, [line: line], [target, key_expr]}
 
-              {:error, _} ->
-                :not_assign
+            case parse_assign_value(rest, line, {:target, subscript}, fn val_expr ->
+                   {:subscript_assign, [line: line], [target, key_expr, val_expr]}
+                 end) do
+              {:ok, _, _} = result -> result
+              {:error, _} -> :not_assign
             end
 
           {:ok, key_expr, [{:op, _, :rbracket}, {:op, _, aug_op} | rest]}
@@ -626,28 +625,72 @@ defmodule Pyex.Parser do
 
   defp parse_dotted_target_rest(target, rest), do: {:ok, target, rest}
 
-  @spec collect_chained_assign([Lexer.token()], pos_integer(), [String.t()]) :: parse_result()
-  defp collect_chained_assign([{:name, _, next_name}, {:op, _, :assign} | rest], line, names) do
-    collect_chained_assign(rest, line, [next_name | names])
-  end
+  @spec collect_chained_assign([Lexer.token()], pos_integer(), [unpack_target()]) ::
+          parse_result()
+  defp collect_chained_assign(tokens, line, targets) do
+    case parse_expression(tokens) do
+      {:ok, expr, [{:op, _, :assign} | rest]} ->
+        case expr_to_chain_target(expr) do
+          {:ok, target} ->
+            collect_chained_assign(rest, line, [target | targets])
 
-  defp collect_chained_assign(rest, line, names) do
-    case parse_expression(rest) do
-      {:ok, expr, rest} ->
-        names = Enum.reverse(names)
-
-        case names do
-          [single] ->
-            {:ok, {:assign, [line: line], [single, expr]}, drop_newline(rest)}
-
-          _ ->
-            {:ok, {:chained_assign, [line: line], [names, expr]}, drop_newline(rest)}
+          :error ->
+            {:error, "cannot assign to expression at line #{line}"}
         end
+
+      {:ok, expr, rest} ->
+        node =
+          case Enum.reverse(targets) do
+            [single] when is_binary(single) ->
+              {:assign, [line: line], [single, expr]}
+
+            targets ->
+              {:chained_assign, [line: line], [targets, expr]}
+          end
+
+        {:ok, node, drop_newline(rest)}
 
       {:error, _} = error ->
         error
     end
   end
+
+  # Parses the value of an assignment whose first target is already consumed,
+  # continuing the chain (`t = u = ... = value`) when the value position holds
+  # another assignment target.  A plain (unchained) value keeps the caller's
+  # specialized single-target node via `build_single`.
+  @spec parse_assign_value(
+          [Lexer.token()],
+          pos_integer(),
+          unpack_target(),
+          (ast_node() -> ast_node())
+        ) :: parse_result()
+  defp parse_assign_value(tokens, line, first_target, build_single) do
+    case parse_expression(tokens) do
+      {:ok, expr, [{:op, _, :assign} | rest]} ->
+        case expr_to_chain_target(expr) do
+          {:ok, target} ->
+            collect_chained_assign(rest, line, [target, first_target])
+
+          :error ->
+            {:error, "cannot assign to expression at line #{line}"}
+        end
+
+      {:ok, expr, rest} ->
+        {:ok, build_single.(expr), drop_newline(rest)}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @spec expr_to_chain_target(ast_node()) :: {:ok, unpack_target()} | :error
+  defp expr_to_chain_target({:var, _, [name]}), do: {:ok, name}
+
+  defp expr_to_chain_target({tag, _, _} = node) when tag in [:getattr, :subscript],
+    do: {:ok, {:target, node}}
+
+  defp expr_to_chain_target(_), do: :error
 
   @spec parse_expression_statement([Lexer.token()]) :: parse_result()
   defp parse_expression_statement(tokens) do
@@ -655,13 +698,9 @@ defmodule Pyex.Parser do
       {:ok, {:subscript, _, [target, key]} = expr, [{:op, _, :assign} | rest]} ->
         line = node_line(expr)
 
-        case parse_expression(rest) do
-          {:ok, val, rest} ->
-            {:ok, {:subscript_assign, [line: line], [target, key, val]}, drop_newline(rest)}
-
-          {:error, _} = error ->
-            error
-        end
+        parse_assign_value(rest, line, {:target, expr}, fn val ->
+          {:subscript_assign, [line: line], [target, key, val]}
+        end)
 
       {:ok, expr, rest} ->
         line = node_line(expr)
@@ -683,7 +722,11 @@ defmodule Pyex.Parser do
             try_nested_subscript_assign(nested_rest, line, target)
 
           [{:op, _, :rbracket}, {:op, _, :assign} | rest] ->
-            parse_subscript_assign_value(rest, line, [{name, key}])
+            subscript = {:subscript, [line: line], [{:var, [line: line], [name]}, key]}
+
+            parse_assign_value(rest, line, {:target, subscript}, fn val ->
+              {:subscript_assign, [line: line], [name, key, val]}
+            end)
 
           [{:op, _, :rbracket}, {:op, _, aug_op} | rest]
           when is_map_key(@aug_assign_ops, aug_op) ->
@@ -764,67 +807,14 @@ defmodule Pyex.Parser do
         slice_key =
           {:slice, [line: line], [{:var, [line: line], [name]}, start_key, stop_key, step_key]}
 
-        parse_subscript_assign_value(rest, line, [{name, slice_key}])
+        subscript = {:subscript, [line: line], [{:var, [line: line], [name]}, slice_key]}
+
+        parse_assign_value(rest, line, {:target, subscript}, fn val ->
+          {:subscript_assign, [line: line], [name, slice_key, val]}
+        end)
 
       _ ->
         :not_assign
-    end
-  end
-
-  # Parse the value side of a subscript assignment, handling chained targets like:
-  #   a[0] = a[1] = False  →  block(a[1] = False, a[0] = False)
-  # `targets` is a list of {name_or_target, key} tuples collected so far.
-  @spec parse_subscript_assign_value([Lexer.token()], pos_integer(), list()) ::
-          parse_result()
-  defp parse_subscript_assign_value(tokens, line, targets) do
-    case parse_expression(tokens) do
-      {:ok, val_expr, [{:op, _, :assign} | rest]} ->
-        # The parsed expression is actually another chained target.
-        # Extract the subscript target from the expression.
-        case val_expr do
-          {:subscript, _, [{:var, _, [next_name]}, next_key]} ->
-            parse_subscript_assign_value(rest, line, [{next_name, next_key} | targets])
-
-          {:var, _, [var_name]} ->
-            # Mixed chain like a[0] = b = val — desugar as block
-            case parse_expression(rest) do
-              {:ok, final_val, rest} ->
-                assigns =
-                  [
-                    {:assign, [line: line], [var_name, final_val]}
-                    | Enum.map(targets, fn {n, k} ->
-                        {:subscript_assign, [line: line], [n, k, final_val]}
-                      end)
-                  ]
-
-                {:ok, {:block, [line: line], [Enum.reverse(assigns)]}, drop_newline(rest)}
-
-              {:error, _} = error ->
-                error
-            end
-
-          _ ->
-            {:error, "unsupported chained assignment target"}
-        end
-
-      {:ok, val, rest} ->
-        # No more chaining — emit assignments
-        case targets do
-          [{single_name, single_key}] ->
-            {:ok, {:subscript_assign, [line: line], [single_name, single_key, val]},
-             drop_newline(rest)}
-
-          _ ->
-            assigns =
-              Enum.map(targets, fn {n, k} ->
-                {:subscript_assign, [line: line], [n, k, val]}
-              end)
-
-            {:ok, {:block, [line: line], [Enum.reverse(assigns)]}, drop_newline(rest)}
-        end
-
-      {:error, _} = error ->
-        error
     end
   end
 
@@ -839,13 +829,11 @@ defmodule Pyex.Parser do
             try_nested_subscript_assign(nested_rest, line, nested_target)
 
           [{:op, _, :rbracket}, {:op, _, :assign} | rest] ->
-            case parse_expression(rest) do
-              {:ok, val, rest} ->
-                {:ok, {:subscript_assign, [line: line], [target, key, val]}, drop_newline(rest)}
+            subscript = {:subscript, [line: line], [target, key]}
 
-              {:error, _} = error ->
-                error
-            end
+            parse_assign_value(rest, line, {:target, subscript}, fn val ->
+              {:subscript_assign, [line: line], [target, key, val]}
+            end)
 
           [{:op, _, :rbracket}, {:op, _, aug_op} | rest]
           when is_map_key(@aug_assign_ops, aug_op) ->
