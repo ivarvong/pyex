@@ -104,6 +104,7 @@ defmodule Pyex.Interpreter.Dunder do
     kind = Map.get(attrs, "__kind__", "INTERNAL")
     scope = Map.get(attrs, "__scope__", "")
     {id, ctx} = Pyex.Stdlib.Opentelemetry.enter(ctx, name, kind, scope)
+    ctx = Pyex.Stdlib.Opentelemetry.apply_attributes(ctx, id, Map.get(attrs, "__attrs__"))
     cm = {:instance, cls, Map.put(attrs, "__span_id__", id)}
     span_handle = Pyex.Stdlib.Opentelemetry.span_handle(id)
     {:ok, cm, span_handle, env, ctx}
