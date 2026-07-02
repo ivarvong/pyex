@@ -214,3 +214,18 @@ jobs:
 
       - name: Run library conformance tests
         run: mix test --include library_conformance test/pyex/library_conformance/
+
+  consumer-smoke:
+    name: Consumer smoke (installs from the hex package)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28.1"
+          elixir-version: "1.19.5"
+
+      - name: Build the hex package + compile it as a bare dependency (no optional backends)
+        run: bash scripts/consumer_smoke.sh
