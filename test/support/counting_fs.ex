@@ -102,5 +102,10 @@ defimpl VFS.Mountable, for: Pyex.Test.CountingFS do
     end
   end
 
+  # `materialize/2` is a lazy backend's cache-warm hook — a read-like op, so it
+  # bumps the counter too, letting a caller wrapping this backend (e.g. an
+  # overlay) prove it threads `materialize`'s result the same as any read.
+  def materialize(%CountingFS{} = cf, _opts), do: {:ok, bump(cf)}
+
   defp bump(%CountingFS{n: n} = cf), do: %{cf | n: n + 1}
 end

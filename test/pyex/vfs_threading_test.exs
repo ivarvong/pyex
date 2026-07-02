@@ -109,4 +109,47 @@ defmodule Pyex.VFSThreadingTest do
       assert {:ok, "data", _} = VFS.read_file(ctx.filesystem, "/out.txt")
     end
   end
+
+  describe "Pyex.Filesystem.Overlay threads reads through to its layers" do
+    alias Pyex.Filesystem.Overlay
+
+    test "a read served by lower threads lower's bumped state back" do
+      ov = Overlay.new(CountingFS.new(%{"/a.txt" => "x"}))
+
+      assert {:ok, "x", ov} = VFS.read_file(ov, "/a.txt")
+      assert ov.lower.n == 1
+
+      # A second read against the returned overlay keeps threading forward —
+      # proves the bumped `lower` was carried in `ov`, not discarded.
+      assert {:ok, "x", ov} = VFS.read_file(ov, "/a.txt")
+      assert ov.lower.n == 2
+    end
+
+    test "a read served by upper never touches lower" do
+      ov = Overlay.new(CountingFS.new(%{"/a.txt" => "x"}))
+      {:ok, ov} = VFS.write_file(ov, "/a.txt", "staged")
+
+      assert {:ok, "staged", ov} = VFS.read_file(ov, "/a.txt")
+      # upper (plain VFS.Memory) served it; lower's counter never advanced.
+      assert ov.lower.n == 0
+    end
+
+    test "a read masked by a whiteout is denied without touching lower again" do
+      ov = Overlay.new(CountingFS.new(%{"/a.txt" => "x"}))
+      {:ok, ov} = VFS.rm(ov, "/a.txt", [])
+      n_after_rm = ov.lower.n
+
+      assert {:error, %VFS.Error{kind: :enoent}} = VFS.read_file(ov, "/a.txt")
+      # The whiteout short-circuits before consulting lower a second time.
+      assert ov.lower.n == n_after_rm
+    end
+
+    test "materialize/2 recurses into both layers and threads both back" do
+      ov = Overlay.new(CountingFS.new(), CountingFS.new())
+
+      assert {:ok, ov} = VFS.materialize(ov, [])
+      assert ov.lower.n == 1
+      assert ov.upper.n == 1
+    end
+  end
 end
