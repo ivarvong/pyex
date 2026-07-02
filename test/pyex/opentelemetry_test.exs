@@ -59,6 +59,34 @@ defmodule Pyex.OpentelemetryTest do
     assert span.start_seq < span.end_seq
   end
 
+  test "start_as_current_span honors the attributes= kwarg" do
+    {{:ok, _}, ctx} =
+      run_otel("""
+      from opentelemetry import trace
+      tracer = trace.get_tracer("svc")
+      with tracer.start_as_current_span("fetch", attributes={"url": "/api", "retries": 2}):
+          pass
+      """)
+
+    assert_stack_empty!(ctx)
+    span = finished_by_name(ctx, "fetch")
+    assert span.attributes == %{"url" => "/api", "retries" => 2}
+  end
+
+  test "attributes= kwarg merges with set_attribute calls inside the span" do
+    {{:ok, _}, ctx} =
+      run_otel("""
+      from opentelemetry import trace
+      tracer = trace.get_tracer("svc")
+      with tracer.start_as_current_span("work", attributes={"phase": "start"}) as span:
+          span.set_attribute("rows", 7)
+      """)
+
+    assert_stack_empty!(ctx)
+    span = finished_by_name(ctx, "work")
+    assert span.attributes == %{"phase" => "start", "rows" => 7}
+  end
+
   test "set_status records the status code" do
     {{:ok, _}, ctx} =
       run_otel("""
