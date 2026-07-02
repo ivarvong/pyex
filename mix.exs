@@ -37,16 +37,16 @@ defmodule Pyex.MixProject do
 
   defp deps do
     [
-      {:cmark, "~> 0.10"},
       {:jason, "~> 1.4"},
       {:nimble_parsec, "~> 1.4"},
       {:req, "~> 0.5"},
       {:decimal, "~> 2.0"},
       {:vfs, "~> 0.1.0"},
-      # Optional backends. Two stdlib modules need a heavy/native dependency the
+      # Optional backends. These stdlib modules need a heavy/native dependency the
       # core has no reason to carry, so they're optional: the feature lights up
-      # when the caller adds the dep, and `import sql`/`import pandas` raise a
-      # clean Python ImportError otherwise (`Pyex.Stdlib.fetch/1` degrades). For
+      # when the caller adds the dep, and `import sql`/`import pandas`/
+      # `import markdown` raise a clean Python ImportError otherwise
+      # (`Pyex.Stdlib.fetch/1` degrades). For
       # a consumer that doesn't add them, pyex must still COMPILE without them —
       # `scripts/consumer_smoke.sh` (the `consumer-smoke` CI job) proves it does,
       # the regression class this project's own build can't catch since the
@@ -63,6 +63,7 @@ defmodule Pyex.MixProject do
       #     compile-time struct) instead of `%Dep.Struct{}` in patterns.
       {:postgrex, "~> 0.22", optional: true},
       {:explorer, "~> 0.11.1", optional: true},
+      {:cmark, "~> 0.10", optional: true},
       {:yaml_elixir, "~> 2.12", only: :test},
       {:telemetry, "~> 0.4 or ~> 1.0"},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
