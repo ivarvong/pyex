@@ -249,6 +249,13 @@ defmodule Pyex.Stdlib.JSON do
   defp apply_default(v, _default, _env, ctx) when v in [:infinity, :neg_infinity, :nan],
     do: {:ok, v, ctx}
 
+  # Lists/dicts are heap refs (list()/literals allocate identity). Deref and recurse so the
+  # {:py_list}/{:py_dict} clauses handle it — NOT the catch-all, which would re-invoke `default` on the
+  # ref forever (e.g. `json.dumps(s, default=list)`: list() returns a ref → default(ref) → …).
+  defp apply_default({:ref, _} = ref, default, env, ctx) do
+    apply_default(Pyex.Ctx.deref(ctx, ref), default, env, ctx)
+  end
+
   defp apply_default({:py_list, reversed, n}, default, env, ctx) do
     case apply_default_list(Enum.reverse(reversed), default, env, ctx) do
       {:ok, items, ctx} -> {:ok, {:py_list, Enum.reverse(items), n}, ctx}

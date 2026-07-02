@@ -1087,26 +1087,19 @@ defmodule Pyex.Builtins do
           [Interpreter.pyvalue()]
           | {:iter_to_list, Interpreter.pyvalue()}
           | {:ctx_call, (Env.t(), Ctx.t() -> {Interpreter.pyvalue(), Env.t(), Ctx.t()})}
-  defp builtin_list([]), do: []
+  defp builtin_list([]), do: alloc_list([])
 
-  defp builtin_list([{:py_list, reversed, _}]) do
-    items = Enum.reverse(reversed)
-    heap_alloc_list_if_mutable(items)
-  end
+  defp builtin_list([{:py_list, reversed, _}]), do: alloc_list(Enum.reverse(reversed))
 
-  defp builtin_list([list]) when is_list(list) do
-    heap_alloc_list_if_mutable(list)
-  end
+  defp builtin_list([list]) when is_list(list), do: alloc_list(list)
 
-  defp builtin_list([string]) when is_binary(string) do
-    String.codepoints(string)
-  end
+  defp builtin_list([string]) when is_binary(string), do: alloc_list(String.codepoints(string))
 
-  defp builtin_list([{:tuple, items}]), do: items
-  defp builtin_list([{:set, s}]), do: MapSet.to_list(s)
-  defp builtin_list([{:frozenset, s}]), do: MapSet.to_list(s)
-  defp builtin_list([{:deque, _, _, _, _} = d]), do: Pyex.Methods.deque_to_list(d)
-  defp builtin_list([{:generator, items}]), do: items
+  defp builtin_list([{:tuple, items}]), do: alloc_list(items)
+  defp builtin_list([{:set, s}]), do: alloc_list(MapSet.to_list(s))
+  defp builtin_list([{:frozenset, s}]), do: alloc_list(MapSet.to_list(s))
+  defp builtin_list([{:deque, _, _, _, _} = d]), do: alloc_list(Pyex.Methods.deque_to_list(d))
+  defp builtin_list([{:generator, items}]), do: alloc_list(items)
 
   # When a generator raises during accumulation, we receive a
   # {:generator_error, items, msg}.  Consuming the generator via list()
@@ -1118,49 +1111,25 @@ defmodule Pyex.Builtins do
   defp builtin_list([{:range, _, _, _} = r]) do
     case range_to_list(r) do
       {:exception, _} = err -> err
-      list -> list
+      list -> alloc_list(list)
     end
   end
 
-  defp builtin_list([{:py_dict, _, _} = dict]), do: PyDict.keys(visible_dict(dict))
-  defp builtin_list([map]) when is_map(map), do: map |> visible_dict() |> Map.keys()
+  defp builtin_list([{:py_dict, _, _} = dict]), do: alloc_list(PyDict.keys(visible_dict(dict)))
+  defp builtin_list([map]) when is_map(map), do: alloc_list(map |> visible_dict() |> Map.keys())
   # Any other single arg defers to the one iterable coercion
   # (Interpreter.to_iterable), which also yields the right TypeError for
   # non-iterables. New iterable types are then supported everywhere at once.
   defp builtin_list([val]), do: {:iter_to_list, val}
 
-  @spec mutable_element?(Interpreter.pyvalue()) :: boolean()
-  defp mutable_element?({:py_dict, _, _}), do: true
-  defp mutable_element?({:py_list, _, _}), do: true
-  defp mutable_element?({:instance, _, _}), do: true
-  defp mutable_element?({:set, _}), do: true
-  defp mutable_element?(_), do: false
-
-  @spec heap_alloc_list_if_mutable([Interpreter.pyvalue()]) ::
-          [Interpreter.pyvalue()]
-          | {:ctx_call, (Env.t(), Ctx.t() -> {Interpreter.pyvalue(), Env.t(), Ctx.t()})}
-  defp heap_alloc_list_if_mutable(items) do
-    if Enum.any?(items, &mutable_element?/1) do
-      {:ctx_call,
-       fn env, ctx ->
-         {item_refs, ctx} =
-           Enum.reduce(items, {[], ctx}, fn item, {acc, ctx} ->
-             if mutable_element?(item) do
-               {ref, ctx} = Ctx.heap_alloc(ctx, item)
-               {[ref | acc], ctx}
-             else
-               {[item | acc], ctx}
-             end
-           end)
-
-         item_refs = Enum.reverse(item_refs)
-         {ref, ctx} = Ctx.heap_alloc(ctx, {:py_list, Enum.reverse(item_refs), length(item_refs)})
-         {ref, env, ctx}
-       end}
-    else
-      items
-    end
-  end
+  @spec alloc_list([Interpreter.pyvalue()]) ::
+          {:py_list, [Interpreter.pyvalue()], non_neg_integer()}
+  # `list(...)` yields a concrete `{:py_list}` VALUE. Through the normal builtin path,
+  # `handle_builtin_result` heap-allocs it into a fresh `{:ref}` — exactly like a `[...]` literal — so a
+  # user's list has identity (mutation-through-alias persists, slice assignment works). Direct callers
+  # (e.g. list/dict subclass construction via `builtin_type_base_class`) instead get the usable concrete
+  # list. Elements pass through unchanged — already refs if mutable — so this is a correct shallow copy.
+  defp alloc_list(items), do: {:py_list, Enum.reverse(items), length(items)}
 
   @doc false
   @spec builtin_dict([Interpreter.pyvalue()], %{optional(String.t()) => Interpreter.pyvalue()}) ::
